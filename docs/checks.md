@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py` and `dqk_ecl.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py` and `dqk_ecl_text.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -460,21 +460,25 @@ again and again, the game's screen and ECL stay at the DIVIDE, 832a), where
 eclplay stops with "division by zero" there; a difference in a case the game
 does not survive, not compared.
 
-`dqk_ecl_text.py` (about a minute for its five blocks; run by hand, not in
-`make dqk-checks` yet) runs the text, picture and wait opcodes the same way, with
-`dqk_views.py`'s screens: each block starts with the jumper's LOAD FILES 2 1 and a
-PRESS KEY, and the original and eclplay are compared at every wait (the whole
-screen but the pointer, the party's list and the three lamps under the view), with
-the variables 0x100-0x17f. Strings are the packed 6-bit operands `src/ecl.c`
-unpacks (`text()` in the flow). Its blocks: PRINTCLEAR, PRINT with a long text that
-waits at the window's end, numbers (an immediate, a wide word, a variable), PRINT
-RETURN and DELAY; JOURNAL in colour 3 and in colour 7; PICTURE none, PIC A, PIC C and
-a big picture; the view again after PIC A; CLEAR BOX between PRINTs, then CLEAR EXIT
-(compared after it, the bottom bar left out). The waits agree except the 3D walls:
-the view again after a picture and CLEAR EXIT draw them black where the original
-draws them (`view_after_picture`, `box_exit`), a difference of the view's drawing at
-that square, not of the opcodes. JOURNAL's colour was a difference (fixed:
-`test_adventure`'s `test_dark_queen_journal`).
+`dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
+runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:
+each block starts with the jumper's LOAD FILES 2 1 and its SAVEs of the party's square
+to 3,3 (ECL 1 at 8025 and 802b), then a PRESS KEY. The original is compared with eclplay
+entered at the saved game's square (`--at`, read from the original before the block
+runs) at every wait: the whole screen but the pointer, the party's list and, at a wait,
+the status line (the original shows what the game drew when the saved game started, and
+eclplay draws the status only at a redraw, so the status is compared after CLEAR EXIT),
+and the variables 0x100-0x17f. The lamps under the view are compared: eclplay's `--set`
+variables are set before its frame (as a saved game's are). Strings are the packed 6-bit
+operands `src/ecl.c` unpacks (`text()` in the flow). Its blocks: PRINTCLEAR, PRINT with a
+long text that waits at the window's end, numbers (an immediate, a wide word, a
+variable), PRINT RETURN and DELAY; JOURNAL in colour 3 and in colour 7; PICTURE none, PIC
+A, PIC C and a big picture; the view again after PIC A and after the big picture; PRINT
+RETURN at the window's last row; CLEAR BOX between PRINTs, then CLEAR EXIT (compared
+after it, the bottom bar left out). All agree (2026-11-02). Found and fixed on the way:
+JOURNAL's and ASK MENU's colour (`test_adventure`'s `test_dark_queen_journal` and
+`test_dark_queen_ask`), the backdrop's square byte and the view's mode test
+(`test_dark_queen_view_square` and `test_dark_queen_view_modes`).
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the

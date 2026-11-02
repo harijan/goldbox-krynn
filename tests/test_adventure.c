@@ -2055,6 +2055,9 @@ enum {
     DQK_PRINT = 0x11,
     DQK_PRINTCLEAR = 0x12,
     DQK_JOURNAL = 0x1f,
+    DQK_ASK_MENU = 0x31,
+    DQK_LOAD_FILES = 0x21,
+    DQK_PICTURE = 0x0e,
 };
 
 /* dqk 6c70:32b2: JOURNAL's text is in colour 7 whatever variable 0x39 says
@@ -2091,6 +2094,128 @@ static void test_dark_queen_journal(void)
     cok_adventure_close(&game);
 }
 
+/* dqk 6c70:200e: ASK MENU's "what do you do?" is in colour 7 whatever variable 0x39
+ * says, as JOURNAL's is: the window's colours after PRINT 7 with 0x39 clear are those
+ * after ASK MENU (one item, ONE) with it set. Skipped without DQKAssets. */
+static void test_dark_queen_ask(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's ASK MENU colour not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const uint8_t dark[] = {DQK_SAVE, 0, 0, COK_ECL_VAR, 0x39, 0, DQK_EXIT};
+    const uint8_t light[] = {DQK_SAVE, 0, 1, COK_ECL_VAR, 0x39, 0, DQK_EXIT};
+    const uint8_t print[] = {DQK_PRINTCLEAR, 0, 7, DQK_EXIT};
+    /* The result in 0x40, one item: its packed text ("ONE", codes 15, 14, 5). */
+    const uint8_t ask[] = {DQK_ASK_MENU, COK_ECL_VAR, 0x40, 0, 0, 1, 0x80, 3, 0x3c, 0xe1, 0x40,
+                           DQK_EXIT};
+    bool plain[256], noted[256];
+    CHECK(run_code(&game, &s, dark, sizeof dark, "") == COK_ECL_OK);
+    CHECK(run_code(&game, &s, print, sizeof print, "") == COK_ECL_OK);
+    window_colours(&game.screen, plain);
+    CHECK(run_code(&game, &s, light, sizeof light, "") == COK_ECL_OK);
+    CHECK(run_code(&game, &s, ask, sizeof ask, "\r") == COK_ECL_OK);
+    window_colours(&game.screen, noted);
+    CHECK(memcmp(plain, noted, sizeof plain) == 0);
+    cok_adventure_close(&game);
+}
+
+/* The screen after PICTURE 0xff (the view again, 5e22:0000), the screen filled with colour
+ * 5 first: out receives its pixels (a byte a pixel, 320 a row). */
+static void view_screen(cok_adventure *game, script *s, uint8_t *out)
+{
+    static const uint8_t code[] = {DQK_PICTURE, 0, 0xff, DQK_EXIT};
+    memset(game->screen.pixels, 5, 320 * 200);
+    game->picture_shown = true;
+    CHECK(run_code(game, s, code, sizeof code, "") == COK_ECL_OK);
+    memcpy(out, game->screen.pixels, 320 * 200);
+}
+
+/* Whether the view was drawn: some pixel of its box (24-111 across and down; the status
+ * line and the bar are left out) changed from the fill. */
+static bool view_drawn_in(cok_adventure *game, script *s, uint8_t mode, uint16_t v22,
+                          uint16_t v24)
+{
+    static uint8_t after[320 * 200];
+    /* Variable 0x22 is the 3D flag, and a store to it switches the mode (6c70:0728):
+     * the mode is set after the stores. */
+    cok_ecl_store(&game->vm, 0x22, v22);
+    cok_ecl_store(&game->vm, 0x24, v24);
+    game->vm.mode = game->vm.last_mode = mode;
+    view_screen(game, s, after);
+    for (size_t y = 24; y < 112; ++y)
+        for (size_t x = 24; x < 112; ++x)
+            if (after[y * 320 + x] != 5) return true;
+    return false;
+}
+
+/* dqk 5e22:0000: the view is drawn in mode 4, or in mode 3 with variable 0x24 not 1, and in
+ * no other mode (the mode test at 5e22:0032-0049). Skipped without DQKAssets. */
+static void test_dark_queen_view_modes(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's view modes not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const uint8_t load[] = {DQK_LOAD_FILES, 0, 2, 0, 1, DQK_EXIT};
+    CHECK(run_code(&game, &s, load, sizeof load, "") == COK_ECL_OK);
+    game.vm.map_x = 3;
+    game.vm.map_y = 3;
+    CHECK(view_drawn_in(&game, &s, 4, 0, 2));
+    CHECK(view_drawn_in(&game, &s, 4, 1, 1));
+    CHECK(view_drawn_in(&game, &s, 3, 0, 2));
+    CHECK(!view_drawn_in(&game, &s, 3, 1, 1));
+    CHECK(view_drawn_in(&game, &s, 3, 1, 2));
+    CHECK(!view_drawn_in(&game, &s, 2, 1, 2));
+    cok_adventure_close(&game);
+}
+
+/* dqk 5e22:0000's backdrop is chosen by the saved square's byte (DS:c9f4, 8a8b:0290), not the
+ * party's square: the same place drawn with the byte's 0x80 clear and set differs. Skipped
+ * without DQKAssets. */
+static void test_dark_queen_view_square(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's backdrop square not checked");
+        return;
+    }
+    fclose(f);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    const uint8_t load[] = {DQK_LOAD_FILES, 0, 2, 0, 1, DQK_EXIT};
+    CHECK(run_code(&game, &s, load, sizeof load, "") == COK_ECL_OK);
+    game.vm.map_x = 3;
+    game.vm.map_y = 3;
+    cok_ecl_store(&game.vm, 0x22, 1);
+    cok_ecl_store(&game.vm, 0x24, 2);
+    game.vm.mode = game.vm.last_mode = 4;
+    static uint8_t clear[320 * 200], set[320 * 200];
+    game.vm.square = 0x00;
+    view_screen(&game, &s, clear);
+    game.vm.square = 0x80;
+    view_screen(&game, &s, set);
+    CHECK(memcmp(clear, set, sizeof clear) != 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_clock();
@@ -2108,6 +2233,9 @@ int main(void)
     test_display();
     test_view_redraw();
     test_dark_queen_journal();
+    test_dark_queen_ask();
+    test_dark_queen_view_modes();
+    test_dark_queen_view_square();
     puts("adventure tests passed");
     return 0;
 }

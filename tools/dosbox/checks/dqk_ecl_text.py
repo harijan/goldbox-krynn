@@ -1,19 +1,21 @@
 #!/usr/bin/env python3
 """The Dark Queen of Krynn's text, picture and wait opcodes run in the
 original and in eclplay (DARK-QUEEN.md's step 3d: dqk_ecl_text; docs/checks.md,
-"Checks against the original"): five test blocks (tools/dqkecl.py, with the
+"Checks against the original"): seven test blocks (tools/dqkecl.py, with the
 text operands packed as src/ecl.c's unpack reads them) that replace block 1
 of a copy of DISK3\\ECL.GLB, as dqk_ecl.py does. Each starts with the jumper's
-LOAD FILES 2 1 and a PRESS KEY, as dqk_views' jumper does, with the saved
-game's lamps: the original runs it typing a Return at every wait and taking
-the screen there; eclplay runs the same block with --shots (a BMP at each
-wait) and as many Returns. A block ending in CLEAR EXIT (no EXIT: its handler
-ends the block) is compared at the screen after it, the bottom bar left out.
+LOAD FILES 2 1 and its SAVEs of the party's square to 3,3 (ECL 1 at 8025 and
+802b), then a PRESS KEY. The original runs it typing a Return at every wait
+and taking the screen there, with the saved game's lamps; eclplay runs the same
+block, entered at the saved game's square (--at: the square byte at entry is
+the saved one in both, DS:c9f4), with --shots (a BMP at each wait) and as many
+Returns. A block ending in CLEAR EXIT (no EXIT: its handler ends the block) is
+compared at the screen after it, the bottom bar left out.
 
 Checked, at every wait: the whole screen, but the mouse's pointer, the
-party's list (no party in eclplay) and the three lamps under the view (see
-LAMPS), as dqk_views compares it; and the variables 0x100-0x17f, byte for
-byte. The blocks:
+party's list (no party in eclplay) and the status line (see STATUS), as
+dqk_views compares it; and the variables 0x100-0x17f, byte for byte. After
+CLEAR EXIT the status line is compared too. The blocks:
 
 - text: PRINTCLEAR, PRINT (a text that wraps and waits at the window's end,
   and a number: an immediate, a wide word, a variable), PRINT RETURN, DELAY;
@@ -22,11 +24,14 @@ byte. The blocks:
 - pictures: PICTURE none (0xff), a small picture of each library (PIC A's
   113, PIC C's 239) and a big one (240);
 - view_after_picture: the view again (PICTURE 0xff) after a small picture;
+- view_after_big: the view again after the big picture (240);
+- print_return: PRINT RETURN at the window's last row, then a PRINT;
 - box_exit: CLEAR BOX between PRINTs, then CLEAR EXIT at the end.
 
-The text speed (variable 0x12) is 0 in both, as eclplay's default. Not in
-run_all's set (make dqk-checks): view_after_picture and box_exit's last
-screen differ (see docs/games.md, The Dark Queen's ECL).
+The text speed (variable 0x12) is 0 in both, as eclplay's default. In run_all's
+set (make dqk-checks).
+
+    python3 tools/dosbox/checks/dqk_ecl_text.py [--workdir DIR] [--verbose]
 
     python3 tools/dosbox/checks/dqk_ecl_text.py [--workdir DIR] [--verbose]
 
@@ -61,14 +66,20 @@ TEXT_SPEED = 0x12  # 3 ms times this per character while a text prints
 COLOUR = 0x39      # PRINT's colour 3 where set
 MAX_WAITS = 40
 # The screen's areas not compared: the mouse's pointer (the mouse driver's),
-# the party's list and status (eclplay has no party in these blocks), and the
-# three lamps under the view, which the port's LOAD FILES leaves dark where the
-# original lights them (the menus' frame draw does light them: dqk_views'
-# jumper, not in this flow's screens). The bottom bar's menu is not ported
-# (dqk_views' BAR), so the screen after a CLEAR EXIT leaves it out too.
-LAMPS = (40, 119, 56, 10, "the lamps under the view (LOAD FILES leaves them dark)")
-MASKS = [dqk_views.POINTER, dqk_views.PARTY, LAMPS]
-END_MASKS = MASKS + [dqk_views.BAR]
+# and the party's list (eclplay has no party in these blocks): rows 1-12, and
+# cells 17-25 of rows 13-15. At a wait the status line (cells 26-38 of rows
+# 13-15) is not compared either: the original shows what the game drew when the
+# saved game started (7,13, 12:00 AM), which eclplay draws only at a redraw (a
+# CLEAR EXIT); the screen after CLEAR EXIT compares it. After CLEAR EXIT the
+# pointer is wider (box_exit: 59 pixels at 17-23, 6-16). The bottom bar's menu
+# is not ported (dqk_views' BAR), so the screen after a CLEAR EXIT leaves it out too.
+PARTY_LIST = (136, 8, 176, 96, "the party's list, rows 1-12 (no party in eclplay)")
+PARTY_ROWS = (136, 104, 72, 24, "the party's list, cells 17-25 of rows 13-15")
+STATUS = (208, 104, 104, 24, "the status line, shown at the saved game's start only")
+POINTER_WIDE = (0, 0, 24, 17, "the mouse's pointer after CLEAR EXIT (17-23 by 6-16)")
+MASKS = [dqk_views.POINTER, PARTY_LIST, PARTY_ROWS, STATUS]
+END_MASKS = [POINTER_WIDE, PARTY_LIST, PARTY_ROWS, dqk_views.BAR]
+DS_SQUARE = dqk_views.DS_SQUARE  # the party's square and facing (x, y, facing)
 DELAY_OP = 0x3A
 WAIT_NAMES = {0x1D: "PRESS KEY", 0x11: "PRINT", 0x12: "PRINTCLEAR", 0x1F: "JOURNAL"}
 
@@ -104,9 +115,12 @@ def text(s):
 
 
 def start(b):
-    """The jumper's first instruction (block 1's LOAD FILES 2 1, dqk_views): the
-    view drawn as the game draws it, for the screens to compare."""
+    """The jumper's first instructions (block 1's LOAD FILES 2 1 and its SAVEs
+    of the party's square to 3,3, ECL 1 at 8025 and 802b, as dqk_views' jumper
+    runs them): the view drawn as the game draws it, for the screens to compare."""
     b.op("LOAD_FILES", imm(2), imm(1))
+    b.op("SAVE", imm(3), var(0x34))
+    b.op("SAVE", imm(3), var(0x35))
     b.op("PRESS_KEY")
 
 
@@ -172,6 +186,35 @@ def view_block():
     return b
 
 
+def view_after_big_block():
+    """The view again (PICTURE 0xff) after a big picture (240): the 3D view in
+    its box over it, drawn as the original draws it (5e22:0000's mode test)."""
+    b = Block()
+    start(b)
+    b.op("PICTURE", imm(240))
+    b.op("PRESS_KEY")
+    b.op("PICTURE", imm(0xFF))
+    b.op("PRESS_KEY")
+    b.op("EXIT")
+    return b
+
+
+def print_return_block():
+    """PRINT RETURN at the window's last row (row 22, after five returns from
+    row 17): the window's scroll, or its wait, then a PRINT."""
+    b = Block()
+    start(b)
+    b.op("PRINTCLEAR", text("LINE ONE"))
+    for _ in range(5):
+        b.op("PRINT_RETURN")
+    b.op("PRINT", text("LAST ROW"))
+    b.op("PRINT_RETURN")
+    b.op("PRINT", text("AFTER"))
+    b.op("PRESS_KEY")
+    b.op("EXIT")
+    return b
+
+
 def box_block():
     b = Block()
     start(b)
@@ -196,13 +239,15 @@ def stop_of(block):
 
 
 BLOCKS = {"text": text_block, "colour_journal": colour_block, "pictures": picture_block,
-          "view_after_picture": view_block, "box_exit": box_block}
+          "view_after_picture": view_block, "view_after_big": view_after_big_block,
+          "print_return": print_return_block, "box_exit": box_block}
 
 
 def original(work, name, block, patched, verbose):
     """The original's run of the block from its PRESS KEY to its end, a
     Return at each wait. Returns (the screens at the waits, their names, the
-    screen at the end, the state there, the variables after, the lamps)."""
+    screen at the end, the state there, the variables after, the lamps, the
+    saved square (x, y, facing) before the block is entered)."""
     stop = stop_of(block)
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose,
                     timeout=900, files={"DISK3/ECL.GLB": patched}) as box:
@@ -223,6 +268,7 @@ def original(work, name, block, patched, verbose):
         box.write(variables + JUMP_VAR, bytes([JUMP]))
         box.write(variables + TEXT_SPEED, b"\x00")
         lamps = box.read(variables + 0x1FA, 3)
+        square = box.ds_read(DS_SQUARE, 3)  # the saved square, before the block enters it
         box.keys("b")
         box.settled(tolerance=64)
         _, _, answer = dqk_lib.protection(box)
@@ -243,14 +289,16 @@ def original(work, name, block, patched, verbose):
             raise cokbox.BoxError(f"{name}: the block did not end in {MAX_WAITS} waits: "
                                   + " ".join(trail[-8:]))
         after = box.read(variables + 1, VARIABLES)
-        return screens, names, shot, (state["pc"], state["opcode"]), after, lamps
+        return screens, names, shot, (state["pc"], state["opcode"]), after, lamps, square
 
 
-def port(work, name, patched, lamps, waits):
-    """eclplay's run of the block with the saved game's lamps and the jumper's
-    variable, a BMP at each wait and Returns for them, and its final screen
-    (eclplay ends at the block's EXIT). Returns (the screens at the waits, the
-    final screen, the variables, eclplay's last line)."""
+def port(work, name, patched, lamps, square, waits):
+    """eclplay's run of the block entered at the saved game's SQUARE (x, y,
+    facing: the square byte at entry is the saved square's, as the original's)
+    with the saved game's lamps and the jumper's variable, a BMP at each wait
+    and Returns for them, and its final screen (eclplay ends at the block's
+    EXIT). Returns (the screens at the waits, the final screen, the variables,
+    eclplay's last line)."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -269,7 +317,8 @@ def port(work, name, patched, lamps, waits):
         shutil.rmtree(shots)
     final = work / f"port-{name}-final.bmp"
     vars_path = work / f"port-{name}.vars"
-    args = ["--set", "22=1"]
+    x, y, facing = square
+    args = ["--set", "22=1", "--at", f"{x},{y},{facing}"]
     for i, value in enumerate(lamps):
         args += ["--set", f"{0x1FA + i:x}={value:x}"]
     # One Return per wait: the block's last key is taken at its last wait, and
@@ -298,8 +347,8 @@ def main():
     for name, make in BLOCKS.items():
         block = make()
         patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
-        screens, names, final, end, after, lamps = original(work, name, block, patched,
-                                                             opts.verbose)
+        screens, names, final, end, after, lamps, square = original(work, name, block, patched,
+                                                                     opts.verbose)
         for i, o in enumerate(screens):
             o.save_png(work / f"original-{name}-{i + 1}.png")
         final.save_png(work / f"original-{name}-end.png")
@@ -307,7 +356,8 @@ def main():
         verdict.check(end == stop, f"{name}: the original's ECL stopped at the block's last "
                       "instruction", f"pc {end[0]:#x}, opcode {end[1]:#x}, not "
                       f"{stop[0]:#x}, {stop[1]:#x}")
-        mine, mine_final, port_vars, port_last = port(work, name, patched, lamps, len(screens))
+        mine, mine_final, port_vars, port_last = port(work, name, patched, lamps, square,
+                                                      len(screens))
         verdict.check(len(mine) == len(screens), f"{name}: eclplay waits where the original "
                       f"does ({len(screens)} waits)", f"{len(mine)} waits; {port_last}")
         for i, (o, p) in enumerate(zip(screens, mine)):

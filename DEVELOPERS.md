@@ -139,7 +139,7 @@ their records, extracts one, and renders its pictures (every format,
 1,857 pictures in all) as PNGs in their palettes (`tests/test_hlib.py`,
 in `make test`, on made-up libraries and, where `DQKAssets/` holds them,
 on the game's, skipped saying so otherwise; `replace` rewrites one record);
-`tools/dqkecl.py` writes ECL test blocks for `dqk_ecl` (see [docs/checks.md](docs/checks.md));
+`tools/dqkecl.py` writes ECL test blocks for `dqk_ecl` and `dqk_ecl_text` (see [docs/checks.md](docs/checks.md));
 `tools/funcmatch/` matches
 two games' routines by Ghidra's C and scans the port's citations
 ([its README](tools/funcmatch/README.md): the method and the noise floor).

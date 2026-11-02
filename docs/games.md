@@ -512,14 +512,22 @@ run, citing their handlers (`unported`). It holds:
   unhandled and the game hangs (DOSBox-X's "Illegal Unhandled Interrupt Called 0"),
   where eclplay stops with "division by zero" at the same address, 832a;
   its text, picture and wait opcodes (PRINT, PRINTCLEAR, PRINT RETURN, PRESS KEY,
-  JOURNAL, DELAY, CLEAR BOX, CLEAR EXIT, PICTURE; `dqk_ecl_text.py`) agree with the
-  original at every wait (the screen and the variables), except the 3D walls: the
-  view again after a small picture (PICTURE 0xff) and CLEAR EXIT's view draw them
-  black at the square after LOAD FILES 2 1 (Palanthas), where the original draws
-  them (not fixed: the view's drawing, not those opcodes); JOURNAL's text is in
-  colour 7 whatever variable 0x39 says (`6c70:32b2` passes 7; PRINT's 3, `6c70:1cd3`),
-  the port drew it in 3 where 0x39 is set, fixed; the lamps under the view are dark
-  after LOAD FILES where the original lights them (outside the flow's screens);
+  JOURNAL, DELAY, CLEAR BOX, CLEAR EXIT, PICTURE, and the view again after a small and
+  after a big picture; `dqk_ecl_text.py`) agree with the original at every wait (the
+  screen, but the party's list and the status line, and the variables) and after
+  CLEAR EXIT (the status line too); the lamps under the view agree, drawn from the
+  saved game's variables (2026-11-02). Fixed: JOURNAL's and ASK MENU's text are in
+  colour 7 whatever variable 0x39 says (`6c70:32b2` and `6c70:200e` push 7; PRINT's
+  3 is `6c70:1cd3`); the backdrop is chosen by the saved square's byte, DS:c9f4
+  (`8a8b:0290` and `029d`), which a block's entry, a step and a saved game's load set
+  and the view does not (`5e22:0000` recomputes nothing); the view is drawn in mode 4,
+  or in mode 3 with variable 0x24 not 1 (`5e22:0032-0049`), and in no other mode.
+  Not done: CALL 1 and CLEAR EXIT redraw through the shared `redraw_changed`, which
+  recomputes the saved square (Champions' CALL 2e10 does that; the original's view
+  does not), a difference only where the party's square changes without a step or an
+  entry; the overland's big picture is drawn without the picture flag (DS:ae27) that
+  `5e22:0000` tests; PICTURE 0xff's other conditions (DS:b419, `5f07:0511-052b`) are
+  not run.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

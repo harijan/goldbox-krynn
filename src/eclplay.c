@@ -1137,11 +1137,16 @@ static int run(int argc, char **argv)
          * step; a block entered recomputes it anyway. */
         game.vm.square = cok_view_square(&game.view, game.vm.map_x, game.vm.map_y);
     }
+    /* A block entered takes its --set variables before the frame: Dark
+     * Queen's frame draws the lamps under the view from them (dark_queen.c).
+     * A loaded game's are set after its load, below. */
+    bool entering = vector == 5 && start == 0;
+    if (entering)
+        for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
     cok_adventure_frame(&game);
 
     cok_ecl_status status;
-    if (vector == 5 && start == 0) {
-        for (size_t s = 0; s < set_count; ++s) cok_ecl_store(&game.vm, sets[s].address, sets[s].value);
+    if (entering) {
         /* A loaded game resumes where it was saved as 2fd3:3c28 starts
          * (its load vector alone); a block named is entered as 3b47 enters
          * one. */
