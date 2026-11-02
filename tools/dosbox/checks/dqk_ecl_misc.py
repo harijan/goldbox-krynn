@@ -186,7 +186,8 @@ def run_block(verdict, work, name, glb, block, expect, base_vars, verbose):
     port_vars, port_last, port_unread = port_party(work, name, patched)
     verdict.check(not port_unread, f"{name}: eclplay leaves no keys unread",
                   "the block took fewer keys than were typed")
-    wait, before, end, after = dqk_ecl.original(work, name, patched, verbose)
+    wait, before, end, after = dqk_ecl.original(work, name, patched, verbose,
+                                                dqk_ecl.stop_at(block))
     verdict.check(wait == (block.address("entry") + 1, OPCODES["PRESS_KEY"]),
                   f"{name}: the original waits in the block's PRESS KEY",
                   f"pc {wait[0]:#x}, opcode {wait[1]:#x}")

@@ -393,7 +393,9 @@ def load_original(work, patched, flow, difficulty, verbose):
             box.write(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 0x27, bytes([difficulty]))
         box.set_seed(SEED)
         box.keys("\\r")                 # LOAD FILES, CLEARMONSTERS; waits at 'monsters'
-        box.settled(tolerance=64)
+        # Waited for by its state, not the screen: the block at its 'monsters' PRESS
+        # KEY with the game waiting for a key there (a settled screen may come before it).
+        dqk_ecl.wait_press_key(box, pc=load_block(flow.steps).address("monsters") + 1)
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
         box.keys("\\r")                 # the LOAD MONSTERs, COMBAT: the appends, the call
         # The spin holds once COMBAT reaches it. Waited for by a time limit, not a
