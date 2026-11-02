@@ -1212,10 +1212,10 @@ static void test_dark_queen(void)
     CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
 }
 
-/* Dark Queen's ECL CLOCK, DUMP and FIND SPECIAL are carried out (dqk
- * 5f07:0a35, 0c9b, 0cc5), each with the operands its handler loads. PROGRAM
- * is in the table (its cases stop in dark_queen.c, 5f07:0baf); DAMAGE and
- * WHO stay unported. */
+/* Dark Queen's ECL CLOCK, DUMP, FIND SPECIAL and PROGRAM are carried out
+ * (dqk 5f07:0a35, 0c9b, 0cc5, 0baf; PROGRAM's cases 0, 3 and 9 stop in
+ * dark_queen.c), each with the operands its handler loads; DAMAGE and WHO
+ * stay unported. */
 static void test_dark_queen_handlers(void)
 {
     const cok_rules *Q = &cok_rules_dark_queen;

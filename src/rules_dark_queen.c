@@ -85,7 +85,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_SAVE_TABLE, 3),
     NOT(0x36, COK_ECL_ADD_NPC, 2, "dqk 6c70:307b"),
     NOT(0x37, COK_ECL_FIND_NPC, 2, "dqk 6c70:31e8"),
-    OP(0x38, COK_ECL_PROGRAM, 1),      /* 5f07:0baf: 1 the ending, the others stop */
+    OP(0x38, COK_ECL_PROGRAM, 1),      /* 5f07:0baf: dark_queen.c's program() */
     NOT(0x39, COK_ECL_WHO, 1, "dqk 6c70:2fe0"),
     SAME(COK_ECL_DELAY, 0),          /* 5f07:0a26 */
     NOT(0x3b, COK_ECL_SPELL, 3, "dqk 6c70:260f"),
@@ -496,15 +496,6 @@ const cok_rules cok_rules_dark_queen = {
             .store_count = sizeof dark_queen_stores / sizeof *dark_queen_stores,
             .delay_ms = 600, /* 5f07:0a26 */
         },
-    .moons =
-        {
-            /* 1396:000e: the days (8, 1 and 6), phases 0-3 and the days in each in
-             * 0x1fa-0x1ff (variables, above). Its lamp is drawn by 269b:0bd0, not
-             * ported (drawn: no). */
-            .days = {8, 1, 6},
-            .drawn = false,
-        },
-    .clock = {.last_unit = 100, .last_wraps = true}, /* 1396:0368: DS:6357 */
     .start =
         {
             .first_block = 4, /* 5f07:10cd: block 4 for a new game (the demonstration's 7) */

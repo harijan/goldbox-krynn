@@ -2058,6 +2058,10 @@ enum {
     DQK_ASK_MENU = 0x31,
     DQK_LOAD_FILES = 0x21,
     DQK_PICTURE = 0x0e,
+    DQK_ECL_CLOCK = 0x34,
+    DQK_PROGRAM = 0x38,
+    DQK_DUMP = 0x3e,
+    DQK_FIND_SPECIAL = 0x3f,
 };
 
 /* dqk 6c70:32b2: JOURNAL's text is in colour 7 whatever variable 0x39 says
@@ -2216,36 +2220,223 @@ static void test_dark_queen_view_square(void)
     cok_adventure_close(&game);
 }
 
-/* Dark Queen's clock (dqk 1396:0368): its variables 5-11 (the vm's 1 KB at
- * mem4b00, 0x0005 at index 4), the last unit 100 years, which come off when
- * full (Champions' 256 stay full) and ask for the aging (DS:bce7). Without
- * the assets: the game is made by hand, as game_with_tiles makes Champions'. */
+/* The Dark Queen's party and opcode tests need its saved characters (DQKAssets/SAVE). */
+static bool have_dqk_assets(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) return false;
+    fclose(f);
+    return true;
+}
+
+/* A Dark Queen character as its .QCH holds it (with its effects): the file the
+ * saved games and eclplay's --character read. */
+static cok_character *dqk_member(const cok_adventure *game, const char *base)
+{
+    char error[300];
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    CHECK(cok_character_read_file(c, &cok_rules_dark_queen, "DQKAssets/SAVE", base, "QCH",
+                                  &game->item_types, error, sizeof error));
+    return c;
+}
+
+/* Dark Queen's clock (dqk 5f07:0a35, 1396:044d, 0368 and 00f8): the years at
+ * 199 and one more make 100, which come off (Champions' 256 stay full), age the
+ * member a year at +0x52 and ask for the aging (DS:bce7); a day's 24 hours turn
+ * the moons' days (8, 1 and 6 days, variables 0x1fd-0x1ff, the phases 0x1fa-0x1fc). */
 static void test_dark_queen_clock(void)
 {
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's clock not checked");
+        return;
+    }
     static cok_adventure game;
-    memset(&game, 0, sizeof game);
-    game.rules = game.vm.rules = &cok_rules_dark_queen;
-    game.view.shape = &cok_rules_dark_queen.view;
-    cok_effects_init(&game.effects, &cok_rules_dark_queen, &game.vm, &game.party, &game.item_types);
-    uint16_t *clock = &game.vm.mem4b00[4];
-    clock[6] = 99; /* the years, variable 0x0b */
-    CHECK(cok_adventure_pass_time(&game, 6, 1));
-    CHECK(clock[6] == 0 && game.effects.aging);
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *c = dqk_member(&game, "ROLANDOF");
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, c));
+    const uint8_t year[] = {DQK_ECL_CLOCK, 0, 1, 0, 6, DQK_EXIT};
+    cok_ecl_store(vm, 0x0b, 199);
+    uint16_t age = cok_field_u16(L, c->record, COK_FIELD_AGE);
+    CHECK(run_code(&game, &s, year, sizeof year, "") == COK_ECL_OK);
+    CHECK(cok_ecl_load_var(vm, 0x0b) == 100 && game.effects.aging);
+    CHECK(cok_field_u16(L, c->record, COK_FIELD_AGE) == age + 1);
+    /* Another year makes 101, and 100 come off: 1 (1396:044d counts first). */
     game.effects.aging = false;
-    clock[6] = 50;
-    CHECK(cok_adventure_pass_time(&game, 6, 1));
-    CHECK(clock[6] == 51 && !game.effects.aging);
-    /* The units before it carry as Champions' do. */
-    clock[0] = 9;
-    CHECK(cok_adventure_pass_time(&game, 0, 1));
-    CHECK(clock[0] == 0 && clock[1] == 1);
-    cok_effects_free(&game.effects);
+    CHECK(run_code(&game, &s, year, sizeof year, "") == COK_ECL_OK);
+    CHECK(cok_ecl_load_var(vm, 0x0b) == 1 && game.effects.aging);
+    CHECK(cok_field_u16(L, c->record, COK_FIELD_AGE) == age + 2);
+    /* A day: 24 hours make a day, so unit 4 is 1 and each moon has a day (its
+     * days 8, 1 and 6): Lunitari (1 day) turns on the second. */
+    const uint8_t day[] = {DQK_ECL_CLOCK, 0, 24, 0, 3, DQK_EXIT};
+    CHECK(run_code(&game, &s, day, sizeof day, "") == COK_ECL_OK);
+    CHECK(cok_ecl_load_var(vm, 0x09) == 1 && cok_ecl_load_var(vm, 0x1fd) == 1 &&
+          cok_ecl_load_var(vm, 0x1fe) == 1 && cok_ecl_load_var(vm, 0x1ff) == 1);
+    CHECK(cok_ecl_load_var(vm, 0x1fa) == 0 && cok_ecl_load_var(vm, 0x1fb) == 0 &&
+          cok_ecl_load_var(vm, 0x1fc) == 0);
+    CHECK(run_code(&game, &s, day, sizeof day, "") == COK_ECL_OK);
+    CHECK(cok_ecl_load_var(vm, 0x1fb) == 1 && cok_ecl_load_var(vm, 0x1fe) == 0 &&
+          cok_ecl_load_var(vm, 0x1fd) == 2 && cok_ecl_load_var(vm, 0x1fa) == 0);
+    /* Five more days: Nuitari (6 days) turns on the fifth, Lunitari to phase 3. */
+    const uint8_t five[] = {DQK_ECL_CLOCK, 0, 120, 0, 3, DQK_EXIT};
+    CHECK(run_code(&game, &s, five, sizeof five, "") == COK_ECL_OK);
+    CHECK(cok_ecl_load_var(vm, 0x1fc) == 1 && cok_ecl_load_var(vm, 0x1ff) == 0 &&
+          cok_ecl_load_var(vm, 0x1fd) == 7 && cok_ecl_load_var(vm, 0x1fb) == 3);
+    cok_adventure_close(&game);
+}
+
+/* The clock's stops (dqk 1396:044d, 0368, 019f): an effect that runs out stops
+ * at 148f:017d (not the crash of the shared clock, nor a stop naming Champions'
+ * table), 255 units never end, and a unit past 6 writes the original's locals;
+ * with no unit passed the clock does nothing. */
+static void test_dark_queen_clock_stops(void)
+{
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's clock stops not checked");
+        return;
+    }
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_character *c = dqk_member(&game, "ROLANDOF");
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, c));
+    CHECK(cok_character_add_effect(c, 0x20, 5, 0, false) != NULL);
+    const uint8_t five[] = {DQK_ECL_CLOCK, 0, 5, 0, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, five, sizeof five, "") == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "148f:017d") != NULL);
+    cok_adventure_close(&game);
+
+    /* A year is 518400 minutes, which 019f's word product keeps as 59648: an
+     * effect of 60000 minutes is left with 352 by it, and does not end. */
+    static cok_adventure other;
+    CHECK(cok_adventure_open(&other, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_character *d = dqk_member(&other, "ROLANDOF");
+    CHECK(cok_party_add(&other.party, &cok_rules_dark_queen, d));
+    CHECK(cok_character_add_effect(d, 0x21, 60000, 0, false) != NULL);
+    const uint8_t year[] = {DQK_ECL_CLOCK, 0, 1, 0, 6, DQK_EXIT};
+    CHECK(run_code(&other, &s, year, sizeof year, "") == COK_ECL_OK);
+    CHECK(cok_character_find_effect(d, 0x21)->duration == 352);
+    const uint8_t all[] = {DQK_ECL_CLOCK, 0, 255, 0, 0, DQK_EXIT};
+    CHECK(run_code(&other, &s, all, sizeof all, "") == COK_ECL_UNDEFINED);
+    CHECK(strstr(other.error, "loops for ever") != NULL);
+    const uint8_t seven[] = {DQK_ECL_CLOCK, 0, 1, 0, 7, DQK_EXIT};
+    CHECK(run_code(&other, &s, seven, sizeof seven, "") == COK_ECL_UNDEFINED);
+    CHECK(strstr(other.error, "seven units") != NULL);
+    const uint8_t none[] = {DQK_ECL_CLOCK, 0, 0, 0, 7, DQK_EXIT};
+    CHECK(run_code(&other, &s, none, sizeof none, "") == COK_ECL_OK);
+    cok_adventure_close(&other);
+}
+
+/* DUMP and FIND SPECIAL on Dark Queen's records (dqk 5f07:0c9b and 0cc5; 177e:1e31
+ * and 1734): DUMP removes the selected member, selects the one before it (or the
+ * second, when it was first), counts the party down (variable 0x20), and keeps a
+ * selection that is not in the party; with none, it selects the first. FIND
+ * SPECIAL's flags say whether the selected member has the effect; with none
+ * selected the original reads 0000:0004, and the port stops. */
+static void test_dark_queen_party_opcodes(void)
+{
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's DUMP and FIND SPECIAL not checked");
+        return;
+    }
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    cok_character *a = dqk_member(&game, "ROLANDOF"), *b = dqk_member(&game, "TIMASALI"),
+                  *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, a) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, b) &&
+          cok_party_add(&game.party, &cok_rules_dark_queen, c));
+    cok_ecl_store(vm, 0x20, 3);
+    CHECK(cok_character_add_effect(a, 0x20, 5, 0, false) != NULL);
+
+    /* FIND SPECIAL 0x20 with a's effect, and with b's none (0x21 neither). */
+    const uint8_t find[] = {DQK_FIND_SPECIAL, 0, 0x20, DQK_EXIT};
+    const uint8_t miss[] = {DQK_FIND_SPECIAL, 0, 0x21, DQK_EXIT};
+    vm->character = a->record;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK && vm->flags[0] &&
+          !vm->flags[1]);
+    CHECK(run_code(&game, &s, miss, sizeof miss, "") == COK_ECL_OK && !vm->flags[0] &&
+          vm->flags[1]);
+    vm->character = b->record;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_OK && !vm->flags[0] &&
+          vm->flags[1]);
+    vm->character = NULL;
+    CHECK(run_code(&game, &s, find, sizeof find, "") == COK_ECL_UNDEFINED);
+    CHECK(strstr(game.error, "0000:0004") != NULL);
+
+    /* DUMP the middle member: a is selected, the party a and c, counted to 2. */
+    const uint8_t dump[] = {DQK_DUMP, DQK_EXIT};
+    vm->character = b->record;
+    CHECK(run_code(&game, &s, dump, sizeof dump, "") == COK_ECL_OK);
+    CHECK(game.party.count == 2 && vm->character == a->record && cok_ecl_load_var(vm, 0x20) == 2);
+    /* A selection not in the party is kept, as 177e:1e31 keeps it (no count out). */
+    uint8_t *stale = calloc(1, 0x19e); /* a record of no party */
+    CHECK(stale != NULL);
+    vm->character = stale;
+    CHECK(run_code(&game, &s, dump, sizeof dump, "") == COK_ECL_OK);
+    CHECK(game.party.count == 2 && vm->character == stale && cok_ecl_load_var(vm, 0x20) == 2);
+    /* None selected: the first member is. */
+    vm->character = NULL;
+    CHECK(run_code(&game, &s, dump, sizeof dump, "") == COK_ECL_OK);
+    CHECK(game.party.count == 2 && vm->character == a->record);
+    /* The first gone: c, the second, is selected, and the count is 1. */
+    CHECK(run_code(&game, &s, dump, sizeof dump, "") == COK_ECL_OK);
+    CHECK(game.party.count == 1 && vm->character == c->record && cok_ecl_load_var(vm, 0x20) == 1);
+    free(stale);
+    cok_adventure_close(&game);
+}
+
+/* PROGRAM (dqk 5f07:0baf, 0c8c, 2093:002d): 2 quits (as the camp's Exit does,
+ * without its questions); 4-255 leave the view to be redrawn at the next CALL 1
+ * (DS:b7f8) and Move mode as it was; 0, 3 and 9 stop, each with its cite. */
+static void test_dark_queen_program(void)
+{
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's PROGRAM not checked");
+        return;
+    }
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    cok_ecl *vm = &game.vm;
+    const uint8_t view[] = {DQK_PROGRAM, 0, 4, DQK_EXIT};
+    game.moving = true;
+    vm->view_changed = false;
+    CHECK(run_code(&game, &s, view, sizeof view, "") == COK_ECL_OK);
+    CHECK(vm->view_changed && game.moving && !game.quit);
+    const uint8_t high[] = {DQK_PROGRAM, 0, 255, DQK_EXIT};
+    CHECK(run_code(&game, &s, high, sizeof high, "") == COK_ECL_OK && game.moving);
+    const uint8_t three[] = {DQK_PROGRAM, 0, 3, DQK_EXIT};
+    CHECK(run_code(&game, &s, three, sizeof three, "") == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "78e4:17dd") != NULL && game.moving);
+    const uint8_t start[] = {DQK_PROGRAM, 0, 0, DQK_EXIT};
+    CHECK(run_code(&game, &s, start, sizeof start, "") == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "7368:046f") != NULL);
+    const uint8_t quit[] = {DQK_PROGRAM, 0, 2, DQK_EXIT};
+    CHECK(run_code(&game, &s, quit, sizeof quit, "") == COK_ECL_OK && game.quit);
+    cok_adventure_close(&game);
 }
 
 int main(void)
 {
     test_clock();
     test_dark_queen_clock();
+    test_dark_queen_clock_stops();
+    test_dark_queen_party_opcodes();
+    test_dark_queen_program();
     test_play();
     test_step_sounds();
     test_opcode_sounds();

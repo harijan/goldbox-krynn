@@ -44,8 +44,6 @@ segment's tables, a section to a concern:
 | `startup` | what startup loads past the font (`3e99:005b`): tile sets from `<tiles>1` and the missiles' icons from `COMSPR`, as (first id, first slot, count); the icon slots (`icon_slots`, at most `COK_ICON_SLOTS_MAX`, 35) and their table's DS offset, for messages; whether the missiles' icons are recoloured as a `CPIC`'s outside CGA (`missiles_recoloured`: 8 to 0) | sets 4 and 0, records 202 and 203; 0-11 into 13-24, 25 into 25; 26 slots at `DS:6172` (`3e99:0466` clears 0xd0 bytes); no (`6d21:01d0`: a `CPIC`'s only) |
 | `spells` | what is keyed by spell id (`magic.c`, `cast.c`): the ids' count; their names and the spell lists' headings, with their tables' DS offsets and sizes for the messages; each id's handler (`cok_rules_cast`: the port's, a `cok_cast_handler`, and the original's address, or `unported`); the durations not taken from the spell table (`cok_rules_duration`); the spell ids the code names (`ids`, by `cok_named_spell`); the spell lists' sizes; the granted powers' ids; an item power's spell; Display's search; byte 7's values for the caster, one picked and the party; who may use a class's spells (`usable_paladin`, `usable_ranger`, `usable_mage_class`) | ids 1-0x6b (`DS:2077` + 41 × id, `DS:0bfa` + 41 × level), the handlers `5b04:58ed` stores at `DS:6e3a`, 7 durations (`5b04:0f78`), 23 names; 58 and 49 (`DS:473a`, `4774`); 101-107; above 0x38, 0x17 less (`3afb:04b2`); spells 1-0x38 (`4888:17ae`); 1, 2, 4 (`5b04:127e`); no paladin, a ranger from 7, any magic-user (`5b04:0083`) |
 | `effects` | what is keyed by effect id (`effect.c`, `cast.c`, `magic.c`): the ids' count; each id's handler (`cok_rules_effect`, as the spells'); the ids each event runs; the ids the party shares and Prayer's reach; those magic resistance leaves pending; the effect ids the code names (by `cok_named_effect`); Display's ids and texts; the rules' routines a game does not have ported yet (the caster level, the saving throw, magic resistance, Display); the effect whose holder's saving throw rolls 1 and where that throw reads a mage's moon; what one an effect does not take "is" | 0x79 (`DS:6b94`, `5b04:58ed` and `3f44:38ea`), events 1-0x18 (`60f4:057c`), 0x15, 0x2d, 0x2e, 0x31 and 0x31 from 6 squares (`60f4:0332`, `0352`), 0x5b and 0x52 (`60f4:04f3`), 80 names, `4888:17ae`'s; none; none, the wrapped byte (`60f4:113a`); `is Unaffected` |
-| `moons` | the three moons (`57e4:001e`, `0143`): the days each stays in a phase, and on the frame each one's column and tile (`drawn`: whether the frame has them) | 8, 1, 6 days; columns 8, 19, 30; tiles 0x114 + phase + 10, 6, 14; Dark Queen's are counted (variables 0x1fa-0x1ff), not drawn (its lamp, `269b:0bd0`, not ported) |
-| `clock` | the last unit of the clock (`57e4:0459`; the units before it are `cok_clock_units`): its limit, and whether a full one comes off and asks for the aging (`last_wraps`) | 256 years, kept full and the aging cleared (`DS:c463`); Dark Queen's 100 come off and the aging is asked for (`DS:bce7`, `1396:0368`) |
 | `frame` | the screens' frames (`screen.c`), by `cok_screen` (the frame, the open frame, the adventure screen, a big picture's, Memorize's, the spell lists', combat's, the sheet's, the credits'): each a `cok_rules_screen`, the screen drawn under it first, the box cleared (`1128:07e6`) and its lines, rows and columns of tiles (`cok_rules_frame_line`: a tile, or a table by the cell's column or row, and on row 0 the moons), each the frame's `base` + its value; which frame main draws after the start menu (`menu_big`) and Begin Adventuring for a loaded game (`resumed`, a `cok_resumed`) | `1128:0000`-`077c`'s layouts, tiles 0x114 + `DS:0e3a`, `0e62`, `0e7a`, `0ea3`, `0eb0`, `0e8b`, `0ebd`, `0f02`, `0f19` and the code's; the big frame in mode 3 on the map (`1000:024b`); in block 0 or off the map (`4def:01b4`) |
 | `start` | the front end (`start.c`, `roster.c`, camp's Save): the title's pictures (record, cell, whether the screen is cleared first, the seconds waited) and credits (lines, their wait, whether they show after a key), a new game's block and the demonstration's file and block; the start menu's items, prompt and word, each item's routine where the port does not carry it out for the game (`unported`, cited: choosing it stops the run); Initialize Mouse/Joystick's file and words (`mouse`, a `cok_rules_mouse_menu`: the file it reads and writes, its list's prompt, word and rows, the calibration's screens and failures); the words of Pick Character, Drop, Exit, Load, Save, the roster's Overwrite, Add, and "from where" for a game that imports another's; the questions' colour; and what its commands do where the games differ (Add's paladin rules, its space, its message and marks; a Drop or Remove that empties the party ending the game; Exit's No saving then quitting; Begin's mode; PROGRAM 0 marking the party on the map; the wall table's entry the end of a game sets) | `2f55:063c`'s pictures, 1, 2, 3 at 5, 1 and 4 at 0, 1 for 5, 10 and 10 seconds, the credits (`2f55:0267`) for 10 unless a key; 0x24, file 2 block 0x39; `DS:0878`, `Choose a FUNCTION `, `Select `, none unported; `krynn.cfg` and `4def:5cc7`'s and `638d`'s words; yellow; paladins, the space, the message and marks; no, no, the entry mode, no; the first |
 | `combat` | the encounter and the battle's frame where the games differ (`monster.c`, `combat.c`, `round.c`, `treasure.c`'s end of combat): `COMBAT`'s vault branch and the vault a game's port does not carry out yet; the show at distance's `0xff` for none; leadership before the setup and its words; the dead exploding after a turn and a blow, a side gone ending the round there; the setup's line, its tile counts, whether a set is kept, the open ground's builder (`cok_wilderness_routine`), the dungeon's fill and corners; the placement's clears, ambush, distances, the cell under a body, status 9; the end of combat's lost weapons, shares, effects lost, may-train, the results' words and key, the treasure menu's condition and stop, a destroyed party's words and whether a party destroyed while a block is entered still reads the adventure's menu once (`killed_command`) | the vault none; no; no; yes, no; none; `A battle begins...`, 0x19 and 0x21, no, `COK_WILDERNESS_CHAMPIONS` (`3cb2:0fc8`), no fill, Champions' corners; 255, no ambush, status 9 off the map; weapons back, shares, `DS:0390`'s 11, no may-train, `The party has won.` ..., `press <enter>/<return> to continue`, always (`351b:1968`), no |
@@ -505,18 +503,31 @@ run, citing their handlers (`unported`). It holds:
   0x2b and 0x2c (`start_stores`) and its locals 0x97-0xc8; `DELAY` 600 ms;
   `CALL` 1 the view again, 2 a step, 3 the picture's next frame
   (`5f07:0aba`); a new game's block 4 (`5f07:10cd`); ECL CLOCK (`5f07:0a35`:
-  `1396:044d`, the carry of `1396:0368`: 100 years come off a full year, the
-  selected member ages a year, the aging is asked for; the moons counted, not
-  drawn), checked on a test block (`dqk_ecl_misc.py`, 2026-11-02); DUMP
-  (`5f07:0c9b`: `177e:1e31` with 0, 1, then the selection kept) and FIND SPECIAL
-  (`5f07:0cc5`, the handler itself: `177e:1734`, the flag set when the selected
-  member has the effect) are ported like Champions', but not compared with the
-  original yet (eclplay has no `--party` for Dark Queen); PROGRAM (`5f07:0baf`)
-  does 1, the ending, and stops at 0 (the start menu, `7368:046f`, and the view
-  after it), 2 (the quit, `2093:002d`), 3 (a level drain, `78e4:17dd`), 9
-  (Encamp, `5f07:0b3b`) and the rest (`5f07:0c8c`: DS:b7f8, the view and status
-  again at the next command; the blocks use only 0, 1, 3 and 9, and the one
-  `PROGRAM` with a variable is the "WHAT PROGRAM # DO YOU WISH?" block's); the arithmetic (ADD, SUBTRACT,
+  the count is the first operand, a byte, the unit the second, a word; `1396:044d` and its carry
+  `1396:0368`: 100 years come off a full year, every member ages a year at +0x52
+  and the aging is asked for (DS:bce7); `1396:00f8` turns the moons on a day, and
+  their lamp is drawn by the port's `moon()` as `1396:000e` draws it outside mode
+  3; the minutes of `1396:019f` run the effects, and an effect ending stops the run
+  (`148f:017d`). A count of 255 loops for ever in the original, and a unit past
+  6 writes its own locals, so both stop. Not modelled: 019f's camp case (mode 2,
+  Encamp's vectors, PROGRAM 9, not ported), which runs only the members whose
+  flags DS:a260 are set. Checked on test blocks with saved game A's party (eclplay's
+  `--character` for its six `.QCH` files): a year with the age, a day and a second
+  day (`dqk_ecl_misc.py`, the clock block, 2026-11-02). DUMP (`5f07:0c9b`:
+  `177e:1e31` unlinks the selection and frees its icon, the one before it or the
+  second is selected, variable 0x20 counts out; a selection not in the party is
+  kept, and none selects the first) and FIND SPECIAL (`5f07:0cc5`, the handler
+  itself: `177e:1734` walks the selection's effects; with none selected the
+  original reads through 0000:0004, and the port stops) are checked by
+  `dqk_ecl_misc.py`'s party block (14 ids for each member; DUMP of the middle
+  member and then the first; 2026-11-02). PROGRAM (`5f07:0baf`) does 1, the ending; 2, the quit
+  (`2093:002d`, as Exit ends a game); and 4-255 (`5f07:0c8c`: DS:b7f8, the view
+  and status again at the next CALL 1, the port's view_changed), with the
+  selection LOAD CHARACTER changed restored and Move mode kept, as the original's
+  prelude does. It stops at 0 (the start menu, `7368:046f`, and the view after it,
+  `5f07:0c15`: about 50-80 lines of follow-up, its camp's b7a7 branches), 3 (a
+  level drain, `78e4:17dd`) and 9 (Encamp, `5f07:0b3b`), each with its cite. The
+  arithmetic (ADD, SUBTRACT,
   MULTIPLY, DIVIDE, AND, OR, SAVE, RANDOM), COMPARE with every IF (9 against 5, 0xffff
   against 1), GOTO, GOSUB (nested), RETURN (at depth 0 too), ON GOTO and ON GOSUB in
   range, at the count and out of range, the flags AND and OR leave, GETTABLE and SAVE

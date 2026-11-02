@@ -1595,9 +1595,7 @@ const cok_rules cok_rules_champions = {
             .column = {8, 19, 30},
             .tile = {10, 6, 14},
             .tile_base = 0x114,
-            .drawn = true,
         },
-    .clock = {.last_unit = 256, .last_wraps = false}, /* 57e4:0459 */
     .frame =
         {
             .base = 0x114, /* 1128's tiles: 0x114 + value */

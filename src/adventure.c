@@ -3329,26 +3329,21 @@ static void moon(cok_adventure *game, unsigned i)
     uint16_t phase = cok_ecl_var_at(vm, COK_VAR_MOONS, i);
     cok_ecl_set_var_at(vm, COK_VAR_MOONS, i, (uint16_t)(phase < 3 ? phase + 1 : 0));
     uint16_t phase_now = cok_ecl_var_at(vm, COK_VAR_MOONS, i);
-    if (moons->drawn)
-        cok_view_tile(&game->screen, &game->view,
-                      moons->tile_base + ((phase_now + moons->tile[i]) & 0xff), moons->column[i],
-                      0, false);
+    cok_view_tile(&game->screen, &game->view,
+                  moons->tile_base + ((phase_now + moons->tile[i]) & 0xff), moons->column[i], 0,
+                  false);
     cok_ecl_set_var_at(vm, COK_VAR_MOON_DAYS, i, 0);
 }
 
 /* Carry each unit that is full into the next, once (57e4:0459). */
 static void carry(cok_adventure *game, uint16_t clock[7])
 {
-    const cok_rules_clock *rules = &cok_game_rules(game)->clock;
     for (size_t i = 0; i < 7; ++i) {
-        uint16_t unit = i == 6 ? rules->last_unit : cok_clock_units[i];
-        if (clock[i] < unit) continue;
+        if (clock[i] < cok_clock_units[i]) continue;
         if (i == 6) {
-            /* A full last unit ages each character a year (the word at
-             * +0x52 in Dark Queen, +0x60 in Champions) every time a unit
-             * passes. Months carry into years without aging anyone. 256
-             * years stay full and clear the aging (Champions); Dark Queen's
-             * 100 come off, and the aging is asked for (1396:0368). */
+            /* A full last unit, 256 years, stays full and ages each
+             * character a year (the word at +0x60) every time a unit
+             * passes. Months carry into years without aging anyone. */
             const cok_character_layout *L = cok_game_rules(game)->character;
             for (size_t k = 0; k < game->party.count; ++k) {
                 uint8_t *c = game->party.members[k]->record;
@@ -3356,12 +3351,7 @@ static void carry(cok_adventure *game, uint16_t clock[7])
                 ++age;
                 cok_field_set16(L, c, COK_FIELD_AGE, age);
             }
-            if (!rules->last_wraps) {
-                game->effects.aging = false; /* dkk 5b7d:042e: DS:c463 */
-                continue;
-            }
-            clock[6] = (uint16_t)(clock[6] - unit);
-            game->effects.aging = true; /* 1396:0368: DS:bce7 = 1 */
+            game->effects.aging = false; /* dkk 5b7d:042e: DS:c463 */
             continue;
         }
         ++clock[i + 1];
