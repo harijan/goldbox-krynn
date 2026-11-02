@@ -256,7 +256,7 @@ BLOCKS = {"text": text_block, "colour_journal": colour_block, "pictures": pictur
           "print_return": print_return_block, "box_exit": box_block}
 
 
-def original(work, name, block, patched, verbose):
+def original(work, name, block, patched, verbose, key_for=lambda opcode: "\\r"):
     """The original's run of the block from its PRESS KEY to its end, a
     Return at each wait. Returns (the screens at the waits, their names, the
     screen at the end, the state there, the variables after, the lamps, the
@@ -300,7 +300,7 @@ def original(work, name, block, patched, verbose):
                 break
             screens.append(shot)
             names.append(WAIT_NAMES.get(state["opcode"], f"opcode {state['opcode']:#x}"))
-            box.keys("\\r")
+            box.keys(key_for(state["opcode"]))
         else:
             raise Unfinished(f"{name}: the block did not end in {MAX_WAITS} waits: "
                              + " ".join(trail[-8:]), trail)
@@ -308,7 +308,7 @@ def original(work, name, block, patched, verbose):
         return screens, names, shot, (state["pc"], state["opcode"]), after, lamps, square
 
 
-def port(work, name, patched, lamps, square, waits):
+def port(work, name, patched, lamps, square, waits, keys=None):
     """eclplay's run of the block entered at the saved game's SQUARE (x, y,
     facing: the square byte at entry is the saved square's, as the original's)
     with the saved game's lamps and the jumper's variable, a BMP at each wait
@@ -341,7 +341,8 @@ def port(work, name, patched, lamps, square, waits):
     # the run ends at the block's EXIT.
     result = subprocess.run([str(cokbox.ECLPLAY), *GAME, *args, "--shots", str(shots),
                              "--screen", str(final), "--vars", str(vars_path),
-                             "--keys", "\\r" * waits, str(assets), str(JUMP)],
+                             "--keys", keys if keys is not None else "\\r" * waits,
+                             str(assets), str(JUMP)],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
     (work / f"port-{name}.txt").write_text(result.stdout + result.stderr)
     bmps = sorted(shots.glob("*.bmp"), key=lambda p: int(p.stem))

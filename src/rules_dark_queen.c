@@ -68,7 +68,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     LISTED(COK_ECL_ON_GOSUB, 2),
     [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
               .skip_list = true, .unported = "dqk 6c70:2127"},
-    NOT(0x28, COK_ECL_ROB, 3, "dqk 6c70:28f8"),
+    OP(0x28, COK_ECL_ROB, 3),        /* 6c70:28f8 */
     OP(0x29, COK_ECL_NOTHING, 0),    /* 5f07:1449 */
     SAME(COK_ECL_GETTABLE, 3),
     LISTED(COK_ECL_HORIZONTAL_MENU, 2), /* 6c70:1ff7 with 0 */
@@ -79,22 +79,22 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     SAME(COK_ECL_OR, 3),
     [0x31] = {.meaning = COK_ECL_ASK_MENU, .operands = COK_ECL_LIST, .header = 2,
               .skip_list = true}, /* 6c70:1ff7 with 1 */
-    NOT(0x32, COK_ECL_FIND_ITEM, 1, "dqk 6c70:2f3b"),
+    OP(0x32, COK_ECL_FIND_ITEM, 1),  /* 6c70:2f3b */
     SAME(COK_ECL_PRINT_RETURN, 0),   /* 5f07:0a68 */
     OP(0x34, COK_ECL_ECL_CLOCK, 2),  /* 5f07:0a35 */
     SAME(COK_ECL_SAVE_TABLE, 3),
     NOT(0x36, COK_ECL_ADD_NPC, 2, "dqk 6c70:307b"),
-    NOT(0x37, COK_ECL_FIND_NPC, 2, "dqk 6c70:31e8"),
+    OP(0x37, COK_ECL_FIND_NPC, 2),   /* 6c70:31e8 */
     OP(0x38, COK_ECL_PROGRAM, 1),      /* 5f07:0baf: dark_queen.c's program() */
-    NOT(0x39, COK_ECL_WHO, 1, "dqk 6c70:2fe0"),
+    SAME(COK_ECL_WHO, 1),            /* 6c70:2fe0 */
     SAME(COK_ECL_DELAY, 0),          /* 5f07:0a26 */
     NOT(0x3b, COK_ECL_SPELL, 3, "dqk 6c70:260f"),
     NOT(0x3c, COK_ECL_STOCK_TREASURE, 1, "dqk 6c70:335e"),
     SAME(COK_ECL_CLEAR_BOX, 0),      /* 5f07:0a8d */
     OP(0x3e, COK_ECL_DUMP, 0),       /* 5f07:0c9b */
     OP(0x3f, COK_ECL_FIND_SPECIAL, 1), /* 5f07:0cc5, the handler itself */
-    NOT(0x40, COK_ECL_DESTROY_ITEMS, 1, "dqk 6c70:30ec"),
-    NOT(0x41, COK_ECL_ADD_EP, 2, "dqk 6c70:2719"),
+    OP(0x40, COK_ECL_DESTROY_ITEMS, 1), /* 6c70:30ec */
+    OP(0x41, COK_ECL_ADD_EP, 2),     /* 6c70:2719 */
 };
 
 /* The character record's fields (field.h), as rules.c's. */
@@ -444,6 +444,13 @@ const cok_rules cok_rules_dark_queen = {
             .vault_extension = "DAT",
         },
     .data = &cok_dark_queen_data,
+    .items =
+        {
+            .destroy_magic = true,      /* 6c70:30ec: 0x80 on a type, bonus items only */
+            .destroy_lost_only = true,  /* 6c70:31af: the stats of the members that lost */
+            .rob_integer = true,        /* 6c70:124f */
+            .unready = COK_UNREADY_QUEEN, /* 86b8:1965 */
+        },
     .character = &dark_queen_character,
     .characters =
         {
@@ -495,9 +502,28 @@ const cok_rules cok_rules_dark_queen = {
             .stores = dark_queen_stores,
             .store_count = sizeof dark_queen_stores / sizeof *dark_queen_stores,
             .delay_ms = 600, /* 5f07:0a26 */
+            /* 6c70:2fe0: 24de compares case-blind, 2543 is equal. */
+            .who_prompt = "who will attempt to disarm the trap?",
+            .who_prompt_instead = "Who will try to disarm?", /* DS:7889 */
         },
     .start =
         {
             .first_block = 4, /* 5f07:10cd: block 4 for a new game (the demonstration's 7) */
+        },
+    /* The pick (WHO's, 76b8:3ae5) also moves on End and Home (its table at 3c12). */
+    .menus =
+        {
+            .pick_end_home = true,
+        },
+    /* The words of ADD EP (6c70:2719, DS:7813, 783f: Champions' texts) in colour 7 (its
+     * push 7), and its routine. */
+    .treasure =
+        {
+            .gains = "Congratulations ",
+            .gains_end = " gains experience!",
+            .party_gains = "Congratulations the party gains experience!",
+            .gains_active_first = true,
+            .gains_colour = 7,
+            .gains_routine = COK_GAINS_DARK_QUEEN,
         },
 };

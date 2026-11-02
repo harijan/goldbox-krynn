@@ -11,6 +11,7 @@
 #include "items.h"
 #include "magic.h"
 #include "monster.h"
+#include "queen_levels.h"
 #include "round.h"
 #include "treasure.h"
 #include "sheet.h"
@@ -1244,6 +1245,11 @@ static void print_text(cok_adventure *game, const char *text, uint8_t fg, bool c
 {
     log_text(game, "print", text);
     game->text_shown = true;
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->window_text != NULL) {
+        drawing->window_text(game, text, fg, clear);
+        return;
+    }
     cok_adventure_wrap(game, &game->vm.cursor, text, cok_adventure_text_window, fg, clear, page);
 }
 
@@ -1271,13 +1277,43 @@ static void load_character(cok_adventure *game)
     vm->missing_character = false;
 }
 
+/* Dark Queen's share of ADD EP's points (dqk 6c70:2719's loop): a character
+ * that can act takes its points times 100, divided among its class levels
+ * that are not 0 (the first seven, unsigned). With none, the software division
+ * (2a72) gives 0xffffffff, which the experience adds: a drop of one, no error.
+ * Then whether it may train, by the Dark Queen's levels (177e:1fe5, +0xcd). */
+static void gain_dark_queen(cok_adventure *game, uint8_t *c, uint16_t points)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    if (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) return;
+    size_t levels = cok_field_count(L, COK_FIELD_CLASS_LEVEL);
+    uint32_t classes = 0;
+    for (size_t i = 0; i < levels; ++i)
+        if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, i) != 0) ++classes;
+    uint32_t share = classes == 0 ? 0xffffffffu : (uint32_t)points * 100u / classes;
+    cok_field_set32(L, c, COK_FIELD_EXPERIENCE,
+                    cok_field_u32(L, c, COK_FIELD_EXPERIENCE) + share);
+    bool may;
+    char error[200];
+    if (!cok_queen_may_train(rules, c, &may, error, sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return;
+    }
+    cok_field_set8(L, c, COK_FIELD_MAY_TRAIN, may);
+}
+
 /* Add experience to a character, divided among its classes (2fd3:36dc;
  * dkk 3632:25f1), then, where the game keeps it, whether it may train (dkk
- * 65cd:38c7, +0xc6). */
+ * 65cd:38c7, +0xc6). Dark Queen's (dqk 6c70:2719) is gain_dark_queen. */
 static void gain_experience(cok_adventure *game, uint8_t *c, uint16_t points)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
+    if (rules->treasure.gains_routine == COK_GAINS_DARK_QUEEN) {
+        gain_dark_queen(game, c, points);
+        return;
+    }
     /* Death Knights' passes over one that cannot act first. */
     if (rules->treasure.gains_active_first && cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0) return;
     uint8_t classes = 0;
@@ -1316,8 +1352,11 @@ static void add_experience(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     const cok_rules *rules = cok_game_rules(game);
     const cok_rules_treasure *T = &rules->treasure;
+    bool dark_queen = T->gains_routine == COK_GAINS_DARK_QUEEN;
     uint16_t points = cok_ecl_value(vm, 1);
     bool one = (uint8_t)cok_ecl_value(vm, 0) == 0;
+    /* Dark Queen's sets the cursor (6c70:2755) before its test of the selected member. */
+    if (dark_queen) vm->cursor = (cok_text_cursor){1, 0x11};
     if (one && T->gains_active_first &&
         (vm->character == NULL || cok_field_u8(rules->character, vm->character,
                                                COK_FIELD_ACTIVE) == 0))
@@ -1331,14 +1370,20 @@ static void add_experience(cok_adventure *game)
     } else {
         snprintf(text, sizeof text, "%s", T->party_gains);
     }
-    print_text(game, text, 10, true);
-    wait_ms(game, game->speed * 100u); /* 521:0b4b */
+    print_text(game, text, T->gains_colour, true);
+    /* Dark Queen's waits the variable 0x12 as it is now (1a62:0949); the others' the
+     * speed as the game loaded it (521:0b4b). Its clock is not run (see docs/games.md). */
+    unsigned speed = dark_queen ? cok_ecl_var(vm, COK_VAR_SPEED) : game->speed;
+    wait_ms(game, speed * 100u);
     if (one) {
         if (vm->character != NULL) gain_experience(game, vm->character, points);
         return;
     }
     for (size_t i = 0; i < game->party.count && vm->status == COK_ECL_OK; ++i)
         gain_experience(game, game->party.members[i]->record, points);
+    /* Dark Queen's redraws the party list after the loop (6c70:2828-2835, 5e22:023b): the
+     * may-train colours. The one-member path does not. */
+    if (dark_queen) cok_adventure_party(game);
 }
 
 /* Pick a character with the menu "Select" (and "Exit" with exit_item)
@@ -1364,6 +1409,7 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         return pick_indexed(game, prompt, who, exit_item, into, ended);
     cok_ecl *vm = &game->vm;
     bool party_clicks = game->mouse.party_clicks;
+    bool end_home = cok_game_rules(game)->menus.pick_end_home;
     game->pick_into = into;
     game->pick = vm->character;
     char menu_prompt[42];
@@ -1382,6 +1428,9 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         if (game->menu_animates) draw_frame(game, game->frame);
         bool special;
         if (vm->mode == 0) game->mouse.party_clicks = true; /* 6346:335c */
+        const cok_drawing *drawing = cok_adventure_drawing(game);
+        if (drawing != NULL && drawing->pick_bar != NULL)
+            drawing->pick_bar(game, menu_prompt, exit_item);
         key = menu_read(game, menu_prompt, items, &special);
         game->mouse.party_clicks = party_clicks;
         game->menu_animates = false;
@@ -1395,15 +1444,18 @@ static uint8_t *pick_character(cok_adventure *game, const char *prompt, uint8_t 
         } else if (key == 0x48 && game->pointer.clicked) {
             /* 6346:340a: the member the click picked. */
             who = into ? game->pick : vm->character;
-        } else if (key == 0x50 || key == 0x48) {
+        } else if (key == 0x50 || key == 0x48 ||
+                   (end_home && (key == 0x4f || key == 0x47))) {
             if (game->party.count == 0) {
                 who = NULL;
             } else {
                 size_t i = cok_party_index(&game->party, who), n = game->party.count;
                 /* The original takes the next of a NULL pick, and loops
-                 * forever looking for the one before a non-member. */
+                 * forever looking for the one before a non-member. Where end_home,
+                 * End (the table's 0x85) is the next and Home (0x87) the one before. */
                 if (i == n) i = 0;
-                who = cok_party_record(&game->party, key == 0x50 ? (i + 1) % n : (i + n - 1) % n);
+                bool next = key == 0x50 || key == 0x4f;
+                who = cok_party_record(&game->party, next ? (i + 1) % n : (i + n - 1) % n);
             }
         }
     }
@@ -1520,9 +1572,14 @@ static void who(cok_adventure *game)
     bool moving = game->moving;
     game->moving = false;
     vm->missing_character = false;
-    cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1521:0b60 */
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->window_clear != NULL)
+        drawing->window_clear(game);
+    else
+        cok_picture_fill(&game->screen, 1, 0x11 * 8, 0x26, 6 * 8, 0); /* 1521:0b60 */
     bool ended;
-    uint8_t *picked = pick_character(game, vm->string[0], vm->character, false, false, &ended);
+    const char *prompt = cok_rules_who_prompt(cok_game_rules(game), vm->string[0]);
+    uint8_t *picked = pick_character(game, prompt, vm->character, false, false, &ended);
     vm->character = picked;
     game->moving = moving;
     if (ended) return;
@@ -1853,23 +1910,33 @@ static void exited(cok_adventure *game)
     game->sprite_loaded = game->closeup_shown = false;
 }
 
-/* DESTROY ITEMS type (2fd3:35a3): every item of that type (+0x2e) of
- * every record in the list goes (6346:1697), unreadied first if readied
- * (546c:1ea7) with its record selected, so that the effect of its power
- * goes from it; a cursed one says "It's Cursed" and goes readied. Each
- * record's stats are then recomputed (6346:0d20), whether it lost any or
- * not, and the selection is restored. The original reads the next item
- * before it unreadies one: where the item's power takes items away or adds
- * them, the item or the next may be freed, and the run stops. */
+/* DESTROY ITEMS type (2fd3:35a3; dqk 6c70:30ec): every item of that type
+ * (+0x2e, item_record's type) of every record in the list goes (6346:1697),
+ * unreadied first if readied (546c:1ea7) with its record selected, so that
+ * the effect of its power goes from it; a cursed one says "It's Cursed" and
+ * goes readied. Each record's stats are then recomputed (6346:0d20), whether
+ * it lost any or not, and the selection is restored. Dark Queen's (items'
+ * destroy_magic, destroy_lost_only): its type's high bit takes only the items
+ * with a bonus, and the stats are recomputed for the members that lost one.
+ * The original reads the next item before it unreadies one: where the item's
+ * power takes items away or adds them, the item or the next may be freed, and
+ * the run stops. */
 static void destroy_items(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_item_record *R = &rules->item_record;
+    const cok_rules_items *I = &rules->items;
+    uint8_t value = (uint8_t)cok_ecl_value(vm, 0);
+    uint8_t type = I->destroy_magic ? (uint8_t)(value & 0x7f) : value;
+    bool magic = I->destroy_magic && (value & 0x80) != 0;
     uint8_t *saved = vm->character;
     for (size_t k = 0; k < game->party.count; ++k) {
         cok_character *c = game->party.members[k];
+        bool lost = false;
         for (size_t i = 0; i < c->item_count;) {
-            if (c->items[i][0x2e] != type) {
+            uint8_t *item = c->items[i];
+            if (item[R->type] != type || (magic && item[R->bonus] == 0)) {
                 ++i;
                 continue;
             }
@@ -1878,7 +1945,7 @@ static void destroy_items(cok_adventure *game)
             c->held = i + 1;
             /* Each record's stats recomputed after (6346:0d20). */
             game->effects.stats_follow = true;
-            bool unreadied = c->items[i][0x34] == 0 || cok_item_unready(game, c->items[i]);
+            bool unreadied = item[R->readied] == 0 || cok_item_unready_routine(game, item);
             game->effects.stats_follow = false;
             if (!unreadied) return;
             size_t held = c->held;
@@ -1890,29 +1957,57 @@ static void destroy_items(cok_adventure *game)
                 return;
             }
             cok_character_remove_item(c, i);
+            lost = true;
         }
-        char error[300];
-        if (!cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
-            return;
+        if (lost || !I->destroy_lost_only) {
+            char error[300];
+            if (!cok_character_stats(c, rules, &game->item_types, error, sizeof error)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+                return;
+            }
         }
     }
     vm->character = saved;
 }
 
-/* FIND ITEM type (2fd3:2b7e): the flags say whether any record in the
- * list has an item of type (+0x2e): = if so, else <>, every other false. */
+/* FIND ITEM type (2fd3:2b7e; dqk 6c70:2f3b): the flags say whether any record
+ * in the list has an item of type (+0x2e, item_record's type): = if so, else
+ * <>, every other false. */
 static void find_item(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
+    const cok_rules_item_record *R = &cok_game_rules(game)->item_record;
     uint8_t type = (uint8_t)cok_ecl_value(vm, 0);
     bool found = false;
     for (size_t k = 0; k < game->party.count && !found; ++k) {
         const cok_character *c = game->party.members[k];
-        for (size_t i = 0; i < c->item_count && !found; ++i) found = c->items[i][0x2e] == type;
+        for (size_t i = 0; i < c->item_count && !found; ++i) found = c->items[i][R->type] == type;
     }
     memset(vm->flags, 0, sizeof vm->flags);
     vm->flags[found ? 0 : 1] = true;
+}
+
+/* FIND NPC name, where (dqk 6c70:31e8): the first member in the list whose
+ * name is the string operand (case-blind, 24de) and whose NPC byte has bit 7
+ * (+0x9b, ADD NPC's) is found, by its position; 0x80 more if it cannot act.
+ * None is 0xff. The position is stored in the second operand's variable, as
+ * wide as its type makes it (6d2). */
+static void find_npc(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t index = 0xff;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const uint8_t *c = game->party.members[i]->record;
+        char name[16];
+        name_of(L, c, name);
+        if (!cok_rules_same_text(vm->string[0], name) ||
+            (cok_field_u8(L, c, COK_FIELD_NPC) & 0x80) == 0)
+            continue;
+        index = (uint8_t)(i | (cok_field_u8(L, c, COK_FIELD_ACTIVE) == 0 ? 0x80 : 0));
+        break;
+    }
+    cok_ecl_store_to(vm, 1, index);
 }
 
 /* FIND SPECIAL id (2fd3:354f): the flags say whether the selected
@@ -2258,6 +2353,7 @@ static void opcode(cok_ecl *vm, void *context)
     case COK_ECL_PROGRAM: program(game); break;
     case COK_ECL_DESTROY_ITEMS: destroy_items(game); break;
     case COK_ECL_FIND_ITEM: find_item(game); break;
+    case COK_ECL_FIND_NPC: find_npc(game); break;
     case COK_ECL_FIND_SPECIAL: find_special(game); break;
     case COK_ECL_SPELL: spell(game); break;
     case COK_ECL_ECL_CLOCK: ecl_clock(game); break;

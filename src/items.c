@@ -4,6 +4,7 @@
 #include "camp.h"
 #include "cast.h"
 #include "magic.h"
+#include "queen_view.h"
 #include "round.h"
 #include "screen.h"
 #include "shop.h"
@@ -183,6 +184,15 @@ static bool power(cok_adventure *game, cok_character *c, const uint8_t *item, bo
                                   cok_game_effect(game, COK_EFFECT_HAMMER)) ||
                effect_failed(game);
     return true;
+}
+
+bool cok_item_unready_routine(cok_adventure *game, uint8_t *item)
+{
+    switch (cok_game_rules(game)->items.unready) {
+    case COK_UNREADY_QUEEN: return queen_item_unready(game, item);
+    case COK_UNREADY_ITEMS: break;
+    }
+    return cok_item_unready(game, item);
 }
 
 bool cok_item_unready(cok_adventure *game, uint8_t *item)

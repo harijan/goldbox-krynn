@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py` and `dqk_program0.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py` and `dqk_program0.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -508,6 +508,21 @@ day (Lunitari's first turn), with the clock's variables 5-11, the moons' 0x1fa-0
 expected from the files' effect lists; then DUMP of the middle member and of the first, with variable
 0x20 and the new selection's age after each. All agree (2026-11-02).
 
+`dqk_ecl_items.py` (two blocks, about a minute; in `make dqk-checks`) runs the item opcodes the same
+way, with saved game A's party on both sides. The `items` block: FIND ITEM for each type the party
+holds and one it does not, then DESTROY ITEMS with 0x80 (bonus items only) and without, the types
+found after each step saved (the expected values: the types nobody destroyed stay, the bonus-less
+0x44 stays under 0x80, the readied 0x25, 0x12 and 0x44 go, unreadied first), and ROLANDOF's armour
+class (ECL 0x571, the base AC) as a word before the DESTROYs and after them, so the stats recompute
+is compared. The `rob` block: ROB of ROARK'CR with 39 percent taken (61 kept) of the 200 of gold and
+chance 100, the coins read as words (the gold becomes 122, an integer; as Reals it would be 121), and
+the types of its items after the d100 draws, which are compared as they fall (one d100 per item, the
+expected flags 0, 1, 1); then a RANDOM of range 10 after ROB, whose value is the seed after the three
+draws, so the number and order of ROB's draws are checked. WALKERKE's readied power item (0x43) is no
+block's: its routine is not ported. The cursed path (an item with +0x34 set: "It's Cursed!") has no
+DOSBox coverage: no item in saved game A is cursed, and the repo test (`test_adventure`) covers it.
+All agree (2026-11-02).
+
 `dqk_program0.py` (about half a minute; in `make dqk-checks`) runs PROGRAM 0, the camp from the
 adventure, the same way, with the party of saved game A on both sides, in two flows; each is a test
 block (PRESS KEY, SAVEs, PROGRAM 0, EXIT) in place of block 1. The hall's sets variable 0x30 and,
@@ -554,6 +569,22 @@ with wall sets 0 and 0xff (the screen), MUSIC, and NEWECL into a test block. An 
 run whose keys are lost before its block starts (its ECL rests at 0x8000 or 0x8015 with
 opcode 0 and never reaches a wait) is retried once; any other failure is not. All nine
 agree (2026-11-02).
+
+`dqk_ecl_party.py` (about a minute; in `make dqk-checks`) runs the party opcodes with
+the saved game A's six members on both sides: eclplay takes their `.QCH` files in the
+saved game's order (`--character`, ROLANDOF, TIMASALI, 'CINDER', BALTHIRN, ROARK'CR,
+WALKERKE). The variables block reads each member's race and class (fields 0xad and
+0xae, ECL 0x4ae and 0x4af) after LOAD CHARACTER 0, 1, 5 and 0x0a (past the end, the
+selection stays), FIND NPC for a member's name and for a name not in the party, and
+WHO with End, End, Home and S, which picks the second member (the keys all read: the
+pick moves on End and Home too). The screen block runs ADD EP's words for one member and
+for the party (the party's ADD EP is 0xffff, so its members may train), and WHO's pick,
+at each wait, with the party's list and the pick's bottom bar compared whole (only the
+pointer and the status line are left out); its waits take S at the pick (`wait_key`).
+Not checked here: ADD EP's experience, which the ECL cannot read (the Dark Queen's
+character variables do not reach it), so `test_adventure`'s `test_dark_queen_party`
+checks its arithmetic and may-train (+0xcd), the party's list's redraw, the cursor, the
+pause's variable and the pick's bar and keys.
 
 To add a block: write it in `dqk_ecl.py`'s `BLOCKS` (a function returning the
 `Block` and `expect`, the values it should leave by variable address), and the

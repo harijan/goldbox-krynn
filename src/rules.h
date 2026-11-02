@@ -451,7 +451,11 @@ typedef struct {
     /* MUSIC n's sound for n 1-6 (dkk 3632:2878: 15dc:0000 with DS:n+1,
      * DS:0002-0007; n past 0x7f is song n & 0x7f, others nothing). */
     uint8_t music_sounds[7];
+    /* WHO's prompt (dqk 6c70:2fe0): a prompt equal to who_prompt, ignoring
+     * case (24de), is shown as who_prompt_instead; NULL, none. */
+    const char *who_prompt, *who_prompt_instead;
 } cok_rules_ecl;
+
 
 /* The 3D view's tile and wall sets (view.c, adventure.c). */
 typedef struct {
@@ -1331,6 +1335,10 @@ typedef struct {
      * 580d:2bb2) keeps the one selected for a key other than Up and Down
      * (dkk), rather than picking the first. */
     bool special_keeps;
+    /* Whether a pick (the adventure's, WHO's: dqk 76b8:3ae5) also moves on End and
+     * Home, as its table does (the keys 0x85 and 0x87): End to the next, Home to the
+     * one before. Champions' and Death Knights' picks do not. */
+    bool pick_end_home;
 } cok_rules_menus;
 
 /* The player's commands in a battle where the games differ (command.c). */
@@ -1371,6 +1379,11 @@ typedef enum {
      * and its Heal and Cure, the items menu's Deposit in mode 7. */
     COK_ITEMS_DEATH_KNIGHTS,
 } cok_items_routine;
+
+/* How a readied item is taken off (DESTROY ITEMS, ROB; items.c's
+ * cok_item_unready_routine): Champions' and Death Knights' (cok_item_unready),
+ * or Dark Queen's readied branch (queen_view.c's queen_item_unready). */
+typedef enum { COK_UNREADY_ITEMS, COK_UNREADY_QUEEN } cok_unready_routine;
 
 /* View and the items menu where the games differ (sheet.c, items.c; see
  * View): the routines, their words and rules. */
@@ -1434,6 +1447,18 @@ typedef struct {
     uint8_t heal_class, heal_effect;
     uint16_t heal_minutes;
     const char *heal_whom, *cure_whom, *feels_better, *unaffected;
+    /* DESTROY ITEMS (dqk 6c70:30ec): whether its type's high bit destroys only
+     * the items with a bonus (+0x30, item_record's bonus), the type being the
+     * low seven bits, rather than every item of the type; and whether the
+     * stats are recomputed for the members that lost an item only (dqk
+     * 6c70:31af), rather than for every member (Champions' 2fd3:35a3). */
+    bool destroy_magic, destroy_lost_only;
+    /* ROB's money (dqk 6c70:124f): each coin times the percent left, over 100,
+     * as integers, rather than as Turbo Pascal Reals (3775:1c7c). */
+    bool rob_integer;
+    /* The readied item's routine (cok_unready_routine), for DESTROY ITEMS
+     * and ROB; Dark Queen's is dqk 86b8:1965's readied branch. */
+    cok_unready_routine unready;
 } cok_rules_items;
 
 /* The shop, its Buy and Appraise, and the temple and its Heal, as each
@@ -1496,6 +1521,10 @@ typedef struct {
     const char *heal_menu, *help, *anyway, *not_blind, *cannot_raise, *not_dead;
     const char *not_poisoned, *not_cursed, *not_stoned, *no_lost_levels;
 } cok_rules_shops;
+
+/* ADD EP's routine (cok_rules_treasure's gains_routine): the one the Champions
+ * and Death Knights share (2fd3:36dc, dkk 3632:25f1), or Dark Queen's. */
+typedef enum { COK_GAINS_STANDARD, COK_GAINS_DARK_QUEEN } cok_gains_routine;
 
 /* Treasure where the games differ (treasure.c, adventure.c's DAMAGE and
  * ADD EP): the item table that TREASURE ITEMS and STOCK take their items
@@ -1564,6 +1593,12 @@ typedef struct {
      * combat section's may_train). */
     const char *gains, *gains_end, *party_gains;
     bool gains_active_first;
+    /* The words' colour (Champions' and Death Knights' 10, Dark Queen's 7:
+     * 6c70:2719's push 7), and the routine that gives the points: the one
+     * above (COK_GAINS_STANDARD), or Dark Queen's (dqk 6c70:2719: points
+     * times 100, divided among the nonzero class levels, see adventure.c). */
+    uint8_t gains_colour;
+    cok_gains_routine gains_routine;
 } cok_rules_treasure;
 
 /* A race's age past which a battle that aged a character says it is very
@@ -2020,6 +2055,12 @@ typedef struct cok_rules {
 } cok_rules;
 
 extern const cok_rules cok_rules_champions, cok_rules_death_knights, cok_rules_dark_queen;
+
+/* The prompt WHO shows for the string operand prompt (cok_rules_ecl's
+ * who_prompt): the replacement, or prompt itself. */
+const char *cok_rules_who_prompt(const cok_rules *rules, const char *prompt);
+/* Two strings equal with their letters' case ignored (dqk 24de). */
+bool cok_rules_same_text(const char *a, const char *b);
 
 /* A named spell's or effect's id in the game (spells.h), which it must
  * have. */
