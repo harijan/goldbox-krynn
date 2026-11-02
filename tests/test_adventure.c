@@ -2547,12 +2547,61 @@ static void test_dark_queen_program(void)
     const uint8_t three[] = {DQK_PROGRAM, 0, 3, DQK_EXIT};
     CHECK(run_code(&game, &s, three, sizeof three, "") == COK_ECL_UNPORTED);
     CHECK(strstr(game.error, "78e4:17dd") != NULL && game.moving);
+    /* 0 is the camp from the adventure (dqk_program0): with no party its
+     * Exit From Game asks, Yes quits. */
     const uint8_t start[] = {DQK_PROGRAM, 0, 0, DQK_EXIT};
-    CHECK(run_code(&game, &s, start, sizeof start, "") == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "7368:046f") != NULL);
+    CHECK(run_code(&game, &s, start, sizeof start, "EY") == COK_ECL_OK && game.quit);
+    game.quit = false;
     const uint8_t quit[] = {DQK_PROGRAM, 0, 2, DQK_EXIT};
     CHECK(run_code(&game, &s, quit, sizeof quit, "") == COK_ECL_OK && game.quit);
     cok_adventure_close(&game);
+}
+
+/* FNV-1a over the screen's pixels: the overland checks compare whole screens. */
+static uint32_t screen_digest(const cok_adventure *game)
+{
+    size_t n = (size_t)game->screen.units * 8 * (size_t)game->screen.height;
+    uint32_t h = 2166136261u;
+    for (size_t i = 0; i < n; ++i) h = (h ^ game->screen.pixels[i]) * 16777619u;
+    return h;
+}
+
+/* PROGRAM 0 from the overland, with Roland in the party: variables 0x22 0 and
+ * 0x24 1 (the store to 0x22 makes mode 3, as eclplay's --set does), the big
+ * picture 0xf0 (variable 0x3e) and the party's place at 5, 5. Begin, then the
+ * screen after it: the camp's Begin draws the overland's frame, and 177e:1ad1
+ * the screen as it was in mode 3 (the overland map again) and the place. With
+ * 0x24 0 the place is not drawn and the map not again (the adventure's screen
+ * stays). Each screen's digest is what dqk_program0.py's overland block shows
+ * the original at its PRESS KEY (the second flow). Skipped without DQKAssets. */
+static void test_dark_queen_program_overland(void)
+{
+    if (!have_dqk_assets()) {
+        puts("adventure: DQKAssets not found; Dark Queen's PROGRAM 0 on the overland not checked");
+        return;
+    }
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    const uint8_t program[] = {DQK_PROGRAM, 0, 0, DQK_EXIT};
+    const uint32_t expected[2] = {0x9117a627u, 0x93a29860u};
+    for (unsigned i = 0; i < 2; ++i) {
+        CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+        cok_ecl *vm = &game.vm;
+        cok_character *a = dqk_member(&game, "ROLANDOF");
+        CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, a));
+        vm->character = a->record;
+        cok_ecl_store(vm, 0x22, 1);
+        cok_ecl_store(vm, 0x22, 0);
+        cok_ecl_store(vm, 0x24, i == 0 ? 1 : 0);
+        cok_ecl_store(vm, 0x3e, 0xf0);
+        cok_ecl_store(vm, 0x25, 5);
+        cok_ecl_store(vm, 0x26, 5);
+        CHECK(run_code(&game, &s, program, sizeof program, "B") == COK_ECL_OK);
+        CHECK(screen_digest(&game) == expected[i]);
+        cok_adventure_close(&game);
+    }
 }
 
 /* LOAD FILES' wall set (6c70:1e30, DS:ca03; saved as the header's +9 by the save,
@@ -2816,6 +2865,7 @@ int main(void)
     test_dark_queen_party_opcodes();
     test_dark_queen_item_opcodes();
     test_dark_queen_program();
+    test_dark_queen_program_overland();
     test_play();
     test_step_sounds();
     test_opcode_sounds();

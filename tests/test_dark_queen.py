@@ -560,6 +560,47 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
 
+    def test_program_0(self):
+        # PROGRAM 0 (5f07:0c15) in block 39, the training hall (92f2), with
+        # BALTHIRN alone, from the adventure (7368:046f with 0): View and
+        # Escape back to the camp's menu, then Begin Adventuring, the block
+        # going on to its end. Then Remove the only member (no new game, the
+        # menu without a party: 7368:06dc) and Exit From Game, Yes.
+        camp = ("menu: Create Character Delete Character Modify Character View Character "
+                "Add Character Remove Character Load Saved Game Save Current Game "
+                "Begin Adventuring Exit From Game")
+        shots = self.folder / "hall"
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--shots", shots, "--keys", "VeB", ASSETS, 39)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            camp, "choice: 5", "menu: Items Trade Drop Exit", "choice: 7", camp, "choice: 10",
+            "(done in block 39)"])
+        saves = self.folder / "saves"
+        saves.mkdir()
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--saves", saves, "--keys", "REY", ASSETS, 39)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            camp, "choice: 7", "save: BALTHIRN.QCH",
+            "menu: Create Character Delete Character Add Character Load Saved Game Exit From Game",
+            "choice: 11", "(quit to DOS in block 39)"])
+        # Remove the only member (DS:b7a7 set), Add her back (the roster's list
+        # is the saves folder's as it was at the start, so the file is there
+        # first) and Begin: the ECL run is left at the camp's end (5f07:0fcb),
+        # which the port does not do yet, so it stops there.
+        saves = self.folder / "removed"
+        saves.mkdir()
+        (saves / "BALTHIRN.QCH").write_bytes((ASSETS / "SAVE" / "BALTHIRN.QCH").read_bytes())
+        result = self.play("--character", ASSETS / "SAVE" / "BALTHIRN.QCH", "--start", "92f2",
+                           "--saves", saves, "--keys", "REYATAEB", ASSETS, 39)
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(result.stdout.splitlines()[-2:], [
+            "choice: 10",
+            "error: not yet ported: The Dark Queen of Krynn's the ECL run ended by DS:b7a7 "
+            "after the camp (dqk 5f07:0fcb)"])
+        self.assertNotIn("(done in block 39)", result.stdout)
+
     def test_items(self):
         # View's Items (86b8:0f41) of Roland of Dust: the list with its
         # ready column, Trade and Drop of a readied item refused, "Can't

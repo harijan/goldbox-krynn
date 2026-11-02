@@ -520,13 +520,23 @@ run, citing their handlers (`unported`). It holds:
   itself: `177e:1734` walks the selection's effects; with none selected the
   original reads through 0000:0004, and the port stops) are checked by
   `dqk_ecl_misc.py`'s party block (14 ids for each member; DUMP of the middle
-  member and then the first; 2026-11-02). PROGRAM (`5f07:0baf`) does 1, the ending; 2, the quit
+  member and then the first; 2026-11-02). PROGRAM (`5f07:0baf`) does 0, the camp from
+  the adventure (`5f07:0c15`: `7368:046f` with 0, the camp's menu as main's, its
+  Remove of the last member setting DS:b7a7 where main makes a new game; then, on Begin
+  Adventuring, the screen as it was (`177e:1ad1`, by the mode: 0 the full window, 3 the
+  view again, 4 the adventure's screen, the view, the party's list and the status; 1, 2, 6
+  and 10 stop, their small pictures not ported) and the party's place on the overland
+  (`7065:0011`) where picture 9 is not shown and variables 0x22 0 and 0x24 1, and the view
+  again at the next CALL 1; DS:c2dc, cleared by a new game (`5f07:10d3`), is taken 0:
+  nothing in the game sets it (only 5f07:10d3 clears it); with DS:b7a7 set the ECL run
+  ends (`5f07:0fcb`), which the port stops at, not yet; its Load stops (`7368:0758`:
+  `5f07:0004` and DS:b7a7, the camp returning without a load; not ported); 1, the ending;
+  2, the quit
   (`2093:002d`, as Exit ends a game); and 4-255 (`5f07:0c8c`: DS:b7f8, the view
   and status again at the next CALL 1, the port's view_changed), with the
   selection LOAD CHARACTER changed restored and Move mode kept, as the original's
-  prelude does. It stops at 0 (the start menu, `7368:046f`, and the view after it,
-  `5f07:0c15`: about 50-80 lines of follow-up, its camp's b7a7 branches), 3 (a
-  level drain, `78e4:17dd`) and 9 (Encamp, `5f07:0b3b`), each with its cite. The
+  prelude does. It stops at 3 (a level drain, `78e4:17dd`) and 9 (Encamp,
+  `5f07:0b3b`), each with its cite. The
   arithmetic (ADD, SUBTRACT,
   MULTIPLY, DIVIDE, AND, OR, SAVE, RANDOM), COMPARE with every IF (9 against 5, 0xffff
   against 1), GOTO, GOSUB (nested), RETURN (at depth 0 too), ON GOTO and ON GOSUB in
@@ -767,8 +777,8 @@ the next view) or the big picture. The view again (`5e22:0000`, `PICTURE
 0x3e's, again; `CALL 3` waits its delay with no small picture too.
 `PROGRAM 1` is the ending (`6523:03cb`): `FINAL.TLB`'s three scenes in the
 overland's frame, each record over its first at cell 1, 1, with waits of
-36 hundredths and more, as its code steps them; the other `PROGRAM`s
-stop the run.
+36 hundredths and more, as its code steps them; the other `PROGRAM`s but 0
+(the camp, above) stop the run.
 
 The start (`5ebd:00ef`): the title (`6523:0345`: each scene's wait,
 `6523:000c`, gives its key's low byte, Space when the time runs out:

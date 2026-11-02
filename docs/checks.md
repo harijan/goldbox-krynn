@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py` and `dqk_ecl_items.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py` and `dqk_program0.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -522,6 +522,24 @@ draws, so the number and order of ROB's draws are checked. WALKERKE's readied po
 block's: its routine is not ported. The cursed path (an item with +0x34 set: "It's Cursed!") has no
 DOSBox coverage: no item in saved game A is cursed, and the repo test (`test_adventure`) covers it.
 All agree (2026-11-02).
+
+`dqk_program0.py` (about half a minute; in `make dqk-checks`) runs PROGRAM 0, the camp from the
+adventure, the same way, with the party of saved game A on both sides, in two flows; each is a test
+block (PRESS KEY, SAVEs, PROGRAM 0, EXIT) in place of block 1. The hall's sets variable 0x30 and,
+after PROGRAM 0, the marker 0x130. After the PRESS KEY's Enter the camp opens; View Character (`v`)
+and Escape back, then Begin Adventuring (`b`) ends it and the block goes on. The overland's first
+sets variable 0x22 to 1 and then 0 (the store makes mode 3), 0x24 to 1, 0x3e to 0xf0 (the big
+picture) and 0x25 and 0x26 to 5 (the party's place), then PROGRAM 0 and a PRESS KEY: Begin (`b`),
+and the screen at that second PRESS KEY, before the block's EXIT, shows the overland's map again
+with the party's place (177e:1ad1). The screens agree at each wait (the PRESS KEY, the camp, the
+view's sheet, the camp again, the overland after Begin), with the mouse's pointer, the status line
+and the view's foot icons left out (the status line and the icons are the adventure's start, which
+eclplay's block entry does not draw). The hall's adventure after Begin is the screen after the
+block's EXIT, where the original's bottom bar shows the game's own DISK READ ERROR (left out): the
+loop's redraw after the EXIT (the view's, CALL 1's DS:b7f8) is not reached in the original, so it is
+not checked. The variables the original changed agree (0x30 and the marker; in the overland flow
+0x22, 0x24, 0x3e, 0x25 and 0x26 too). The other variables are not compared: eclplay starts from a
+fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

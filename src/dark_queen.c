@@ -107,6 +107,10 @@ typedef struct {
      * not yet entered (DS:b1ed); a big picture shown outside the
      * overland, which the party's list is not drawn over (DS:b256). */
     bool saved, loaded_game, big_no_party;
+    /* DS:b7a7: set by the camp when the party is emptied, or a load asked,
+     * from the adventure (PROGRAM 0); read by 5f07:0940 and 5f07:0fcb, not
+     * ported. */
+    bool b7a7;
     /* The small picture's id (DS:ae42, 0xff for none: 63ae:02b0); DS:bd92,
      * which turns Train and Knight new Order on in the camp (0 at startup,
      * its stores found keep what it held); the overland's cell under the
@@ -1634,7 +1638,6 @@ static int timed_wait(cok_adventure *game, unsigned n)
 static const char *program_cite(unsigned n)
 {
     switch (n) {
-    case 0: return "dqk 7368:046f, then 5f07:0c15 (about 50-80 lines more)";
     case 3: return "dqk 78e4:17dd, a level drain";
     case 9: return "dqk 5f07:0b3b, Encamp";
     default: return "dqk 5f07:0baf";
@@ -1719,13 +1722,75 @@ static void ending(cok_adventure *game)
 }
 
 static bool pass_time(cok_adventure *game, unsigned count, unsigned unit);
+static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin);
+static void party_list(cok_adventure *game);
+static void status_line(cok_adventure *game);
+
+/* The screen as it was (177e:1ad1) by the mode (DS:ae57; 177e:1aea's table,
+ * none above 10): 0 the full window (10b2:0030); 3 the view again
+ * (5e22:0000), where picture 9 is not shown and variable 0x24 is 1
+ * (177e:1b82); 4 the adventure's screen, the view, the party's list and the
+ * status (177e:1b5d). Modes 1, 2, 6 and 10 first draw the adventure's screen
+ * (10b2:00e4; in 1 and 10 only where DS:bee9 is set) and a small picture
+ * (63ae:0078, then 000c), then the list and the status: not ported, so they
+ * stop. Other modes draw nothing. False where the run stopped. DS:beea (set
+ * to 0 in mode 4) is read by LOAD FILES' redraw only, not ported. */
+static bool screen_as_it_was(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    queen *q = own(game);
+    switch (vm->mode) {
+    case 0:
+        full_window(game);
+        return true;
+    case 3:
+        if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x24) == 1) view(game);
+        return true;
+    case 4:
+        adventure_screen(game);
+        view(game);
+        party_list(game);
+        status_line(game);
+        return true;
+    case 1: case 2: case 6: case 10:
+        return cok_adventure_not_yet(game, "the screen as it was in modes 1, 2, 6 and 10 "
+                                           "(a small picture, DS:bee9)", "dqk 177e:1ad1");
+    default:
+        return true;
+    }
+}
+
+/* PROGRAM 0 (5f07:0c15): the camp from the adventure (7368:046f with 0),
+ * then, if its menu ended with Begin Adventuring, the screen as it was
+ * (screen_as_it_was) and the party's place on the overland (7065:0011) where
+ * picture 9 is not shown and variables 0x22 0, 0x24 1, and the view again
+ * (DS:b7f8). Then the ECL run goes on only while DS:b7a7 is clear (5f07:0fc4,
+ * the camp's Remove of the last member sets it): where it is set the block is
+ * left. DS:c2dc (cleared by a new game, 5f07:10d3) is taken as 0: nothing in
+ * the game sets it (only 5f07:10d3 clears it). */
+static void camp_program(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    bool begin;
+    cok_ecl_status status = camp(game, false, &begin);
+    if (status != COK_ECL_OK || !begin || vm->abort) return;
+    queen *q = own(game);
+    if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x22) == 0 &&
+        cok_ecl_load_var(vm, 0x24) == 1) {
+        if (!screen_as_it_was(game)) return;
+        marker(game);
+    }
+    vm->view_changed = true;
+    if (q->b7a7)
+        cok_adventure_not_yet(game, "the ECL run ended by DS:b7a7 after the camp", "dqk 5f07:0fcb");
+}
 
 /* PROGRAM n (5f07:0baf): Move mode (DS:af3d) is kept and off meanwhile, the
- * selection LOAD CHARACTER changed is restored first (DS:acc5), then n: 1 the
- * ending; 2 the quit (2093:002d, as the camp's Exit ends the game, without its
- * questions); 4-255 (0c8c) sets DS:b7f8, which 6c70:1685 (CALL 1) reads to
- * redraw the view and status, the port's view_changed; 0, 3 and 9 stop. Move
- * mode is put back after. */
+ * selection LOAD CHARACTER changed is restored first (DS:acc5), then n: 0 the
+ * camp (camp_program); 1 the ending; 2 the quit (2093:002d, as the camp's
+ * Exit ends the game, without its questions); 4-255 (0c8c) sets DS:b7f8,
+ * which 6c70:1685 (CALL 1) reads to redraw the view and status, the port's
+ * view_changed; 3 and 9 stop. Move mode is put back after. */
 static void program(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -1736,11 +1801,13 @@ static void program(cok_adventure *game)
         vm->restore_character = false;
     }
     unsigned n = (uint8_t)cok_ecl_value(vm, 0);
-    if (n == 1) {
+    if (n == 0) {
+        camp_program(game);
+    } else if (n == 1) {
         ending(game);
     } else if (n == 2) {
         cok_adventure_quit(game);
-    } else if (n == 0 || n == 3 || n == 9) {
+    } else if (n == 3 || n == 9) {
         char what[32];
         snprintf(what, sizeof what, "PROGRAM %u", n);
         cok_adventure_not_yet(game, what, program_cite(n));
@@ -3359,23 +3426,27 @@ static int camp_menu(cok_adventure *game, const bool on[CAMP_ITEMS])
     }
 }
 
-/* The camp's menu (7368:046f; with from_main, main's, with none, the
- * adventure's Encamp, not ported): the mode 0, the last mode the one it
+/* The camp's menu (7368:046f; from_main is its argument: 1 from main, 0
+ * from the adventure's PROGRAM 0 (5f07:0c15); the adventure's Encamp
+ * (6c70:34ab) is not ported): the mode 0, the last mode the one it
  * was (DS:ae57, ae67); its screen (20b2:03ce; not again after a key that
  * is no button's), the party's list where a member is selected
  * (5e22:023b), its buttons (camp_flags). Then the full window (20b2:0030)
  * but for Remove, and: Create (66e5:2f95: queen_create.c), Modify
  * (6a87:1293: queen_modify.c), Train (6be8:0022) and Knight new Order
  * (7368:10c2: queen_train.c);
- * Remove; Load (a party not saved first asks "Game not saved. Load
- * anyway? ", DS:7e93), the party emptied, the game loaded, or a new
- * game's where none loads (64b2:04ec); Save; Begin Adventuring (with a
- * party) returns, the mode the last (4 for none), the adventure's screen
- * drawn as the mode has it, variable 0x30 0, the game not saved; Exit
+ * Remove, the party emptied: from main a new game and the mode 0 (2d99:1161),
+ * from the adventure DS:b7a7 set instead (7368:06dc); Load (a party not saved
+ * first asks "Game not saved. Load anyway? ", DS:7e93), the party emptied,
+ * the game loaded, or a new game's where none loads (64b2:04ec); from the
+ * adventure it is not ported (7368:0758: 5f07:0004 and DS:b7a7, then the camp
+ * returns without loading); Save; Begin Adventuring (with a party) returns,
+ * the mode the last (4 for none), the adventure's screen drawn as the mode
+ * has it, variable 0x30 0, the game not saved; Exit
  * From Game asks "Exit to DOS? " and, a party not saved, "Game not saved.
  * Exit anyway? " (No saving it: 604b:3395), then quits (2093:002d).
  * Returns the run's status, COK_ECL_OK with *begin set for Begin. */
-static cok_ecl_status camp(cok_adventure *game, bool *begin)
+static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
 {
     queen *q = own(game);
     cok_ecl *vm = &game->vm;
@@ -3437,8 +3508,12 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
         case CAMP_REMOVE:
             if (!remove_character(game)) return vm->status;
             if (game->party.count == 0) {
-                new_game(game); /* 2d99:1161: 64b2:04ec */
-                vm->mode = 0;
+                if (from_main) {
+                    new_game(game); /* 2d99:1161: 64b2:04ec */
+                    vm->mode = 0;
+                } else {
+                    q->b7a7 = true; /* 7368:06dc */
+                }
             }
             q->saved = false; /* 7368:061b */
             break;
@@ -3447,6 +3522,13 @@ static cok_ecl_status camp(cok_adventure *game, bool *begin)
                 int yes = yes_no(game, "Game not saved. Load anyway? ", true);
                 if (yes < 0) return vm->status;
                 if (!yes) break;
+            }
+            if (!from_main) {
+                /* 7368:0758: 5f07:0004 sets DS:acc4 (1), DS:b7a7, and the
+                 * camp returns to the ECL without loading. */
+                cok_adventure_not_yet(game, "Load Saved Game from the adventure",
+                                      "dqk 7368:0758, 5f07:0004");
+                return vm->status;
             }
             cok_party_free(&game->party); /* 177e:1e31 each */
             vm->character = NULL;
@@ -3912,7 +3994,7 @@ static cok_ecl_status start(cok_adventure *game)
         }
         if (choice != 1) {
             bool begin;
-            cok_ecl_status status = camp(game, &begin);
+            cok_ecl_status status = camp(game, true, &begin);
             if (status != COK_ECL_OK || !begin || vm->abort) return status;
             return adventure(game);
         }
