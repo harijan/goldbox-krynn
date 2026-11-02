@@ -250,7 +250,11 @@ static cok_character *copy_monster(const cok_character *first)
  * arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, slot);
+    const cok_rules *rules = cok_game_rules(game);
+    /* Dark Queen's loader, 204c:00df, is not ported yet: its slot is taken, and
+     * nothing is read or logged (rules.h's monster_icons_unported). */
+    if (rules->combat.monster_icons_unported) return true;
+    return cok_arena_load_icon(game, rules->archives.icons, id, slot);
 }
 
 /* LOAD MONSTER where COMBAT appends the monsters (dqk 6c70:29a3): unless
@@ -433,8 +437,8 @@ static bool append_extra(cok_adventure *game)
     uint16_t v = cok_ecl_load_var(&game->vm, R->extra_monster_var);
     if (v >= R->extra_monster_count) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "var %#x is %u, past the extra monsters' table (dqk 170e's 32 pairs)",
-                           R->extra_monster_var, v);
+                           "var %#x is %u, past the table of %u extra monsters (dqk 170e)",
+                           R->extra_monster_var, v, R->extra_monster_count);
         return false;
     }
     cok_character *first = malloc(sizeof *first);
@@ -484,8 +488,9 @@ static void battle(cok_adventure *game);
  * 5f07:081b 88a-8f0): 63ae:02b0 and 5e98:0200(4) load the overlay, then the
  * text "A battle begins..." (1a62:0046), the appends, and the battle, which
  * the port does not carry out yet for Dark Queen (battle). The open squares
- * (6c70:01c3 and var COK_VAR_DISTANCE, dqk 0x37) are the encounter part's:
- * not run here. */
+ * are the encounter part's and not run here: 6c70:01c3 (COMBAT 5f07:088f-08ba
+ * lowers var COK_VAR_DISTANCE, dqk 0x37, to its result) also sets var 0x38 to
+ * 2 where var 0x22 is 0 (01d9-01e4). */
 static void queen_monsters(cok_adventure *game)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
@@ -496,20 +501,14 @@ static void queen_monsters(cok_adventure *game)
     battle(game);
 }
 
-/* CLEARMONSTERS (2fd3:12fe): forget the monsters loaded, but leave their
- * records in the list, and empty the treasure pool. */
+/* CLEARMONSTERS (2fd3:12fe; Dark Queen's 5f07:07fe): forget the monsters
+ * loaded, but leave their records in the list, and empty the treasure pool.
+ * Dark Queen's 5f07:07fe calls 75cc:151b, which zeroes DS:c2ed (the undead
+ * count), DS:c6f1 and DS:bd4e and sets the next icon slot DS:ad6b to 8, and
+ * then 63ee:0002, which zeroes DS:b1db (Dark Queen's three coins) and frees
+ * the list at DS:b1e7: the same as the shared clear. */
 static void clear_monsters(cok_adventure *game)
 {
-    if (cok_game_rules(game)->combat.monsters_at_combat) {
-        /* dqk 5f07:07fe clears DS:bd4e and DS:c6f1 and nothing else of the
-         * monsters: the icon slots and the undead count stay (6c70:0001 starts
-         * the slots again at each block). */
-        game->monsters = 0;
-        game->monsters_loaded = false;
-        cok_pool_free(&game->pool);
-        log_text(game, "monster", "cleared");
-        return;
-    }
     game->undead = 0;
     game->monsters = 0;
     game->monsters_loaded = false;

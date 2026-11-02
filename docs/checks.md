@@ -596,8 +596,8 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load` and `ground`, in `make
-dqk-checks`, about 20 seconds and a minute) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load`, `clear`, `six` and `ground`, in `make
+dqk-checks`) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
 MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
 sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
 battlefield, turn, sides, round, mode, the monsters' flag and count, RandSeed) is read at the block's entry,
@@ -627,13 +627,21 @@ loader, chooses it; part 7); DUNGCOM 1-3, 5, 6 and WILDCOM 1, 2, 4 differ on the
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
 original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
 while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay, started as setup's
-(`--load --play`), stops at the battle (`--records`: the records and the trailer, c6f1 and ad6b). The original has 19 records (the six and
-13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13 and ad6b 11; the monsters' records agree
+(`--load --play`), stops at the battle (`--records`: the records and the trailer, c6f1, ad6b and the undead count
+DS:c2ed). The original has 19 records (the six and
+13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13, ad6b 11 and no undead; the monsters' records agree
 byte for byte (pointers masked), and so do the party's (`PARTY_GAPS` is empty: the save's import; with
 `--character` four members' records differed). eclplay's variables at the battle's start agree with the
 original's (`PORT_GAPS`). It runs twice, with the entry's difficulty (3) and with difficulty 1 (`--set 27=1`
 after the load in eclplay, as the original sets it at the entry), which halves the hostile monsters' hit
-points (78 to 39, 107 to 53) and no GORGON's.
+points (78 to 39, 107 to 53) and no GORGON's. Flow `clear` (LOAD MONSTER 49 x1, CLEARMONSTERS, LOAD MONSTER
+64 x1, COMBAT): the MINOTAUR's slot and record are forgotten, so the original has 17 records, c6f1 11 and ad6b 10
+(the SHARKMAN in slot 8, 170e's GORGONs in 9). Flow `six` (six LOAD MONSTERs x1: 64, 49, 41, 37, 36, 64, the ZOMBIE
+and the WRAITH undead): 22 records, c6f1 16, ad6b 15 and the undead count 2, with 170e's icon in slot 14 (no icon
+slot error; the icons are not loaded yet, `combat.monster_icons_unported`). Each run's eclplay transcript has no
+error line but the battle's stop. A second fight in one block is not reached: the battle traps the original, and
+the port stops at the battle too, so CLEARMONSTERS' undead reset (`75cc:151b`) is checked by `test_monster.c`'s
+`test_dark_queen_undead_clear` only.
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
@@ -681,10 +689,12 @@ by the wall set's id ("8X8D%c": 'b' for ids below 10, then the record is the id)
 is empty, so the wall set is 0, and 8X8DB.TLB has no record 0 (its ids run 1-9). After LOAD FILES 4 4 the header
 reads 11 11 09 03 11 11 07 04. With LOAD FILES the slot tables read the same at 'monsters' and at the end, and
 the first turn's list holds the two SHARKMEN (the flow's checks).
-CLEARMONSTERS (5f07:07fe) clears DS:bd4e and DS:c6f1 (dqk_fight_lib.py's header), not the slot tables: DS:c7be
-+ slot (icon), DS:c7c4 + slot (id) and DS:c7ca + slot (count), for slots 8 to 13 (6c70:29ac-29ee; COMBAT reads
-slots 8 up to DS:ad6b, 2d82). Nothing below slot 8 is read, and nothing in the tables is stale: DS:c7c4 + 2 is
-DS:c7c6, slot 8's icon (0x40, the id the block passes as the icon).
+CLEARMONSTERS (5f07:07fe) calls 75cc:151b, which clears DS:c2ed (the undead count), DS:c6f1 and DS:bd4e and sets
+the next icon slot DS:ad6b to 8, then 63ee:0002, which frees the treasure pool (the shared clear, as Champions'). It
+does not clear the slot tables: DS:c7be + slot (icon), DS:c7c4 + slot (id) and DS:c7ca + slot (count), for slots 8
+to 13 (6c70:29ac-29ee; COMBAT reads slots 8 up to DS:ad6b, 2d82). Nothing below slot 8 is read, and nothing in the
+tables is stale: a slot is written by LOAD MONSTER before 2d82 reads it. DS:c7c4 + 2 is DS:c7c6, slot 8's icon (0x40,
+the id the block passes as the icon).
 
 The sound (round 4). The fight runs with the sound off. DQK.CFG's sound word (its u16 at 2) is 6, none, as
 INSTALL writes it (`dqk_fight_lib.files`, `SOUND_NONE`); the sound driver's setup (1fd3:000b) compares DS:acd8

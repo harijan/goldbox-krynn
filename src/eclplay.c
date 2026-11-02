@@ -68,8 +68,8 @@ static void save_vars(const cok_adventure *game, const char *path)
 
 /* --records: the party list's records, each as the file holds it (the
  * character's size, in list order: the party, then the monsters COMBAT
- * appended), then the monsters' count and the next icon slot (Dark Queen's
- * DS:c6f1 and DS:ad6b, a byte each). */
+ * appended), then the monsters' count, the next icon slot and the undead
+ * count (Dark Queen's DS:c6f1, DS:ad6b and DS:c2ed, a byte each). */
 static void save_records(const cok_adventure *game, const char *path)
 {
     FILE *f = fopen(path, "wb");
@@ -80,7 +80,7 @@ static void save_records(const cok_adventure *game, const char *path)
     size_t size = cok_game_rules(game)->character->size;
     for (size_t i = 0; i < game->party.count; ++i)
         fwrite(cok_party_record(&game->party, i), 1, size, f);
-    uint8_t trailer[2] = {game->monsters, game->icon_slot};
+    uint8_t trailer[3] = {game->monsters, game->icon_slot, game->undead};
     fwrite(trailer, 1, sizeof trailer, f);
     fclose(f);
 }
@@ -151,8 +151,9 @@ static void usage(const char *program)
     fputs("  --vars FILE     save the variables 0x4b00-0x4eff (Dark Queen's\n"
           "                  0x0001-0x0400), a byte or word each, as FILE at the end\n"
           "  --records FILE  save the party list's records (the character's size each,\n"
-          "                  the monsters after the party), then the monsters' count and\n"
-          "                  the next icon slot, a byte each, as FILE at the end\n"
+          "                  the monsters after the party), then the monsters' count, the\n"
+          "                  next icon slot and the undead count, a byte each, as FILE\n"
+          "                  at the end\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
           "  --start ADDR    run only from code address ADDR (hex)\n"
           "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
