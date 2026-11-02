@@ -1178,10 +1178,18 @@ static bool build(cok_adventure *game)
     bool area = cok_ecl_var(vm, COK_VAR_3D) != 0;
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    if (!(area && R->tiles_kept && combat->dungeon_tiles) &&
-        !load_tiles(game, area ? a->dungeon : a->wilderness, 0,
-                    area ? R->dungeon_tiles : R->wilderness_tiles))
+    const cok_drawing *drawing = cok_adventure_drawing(game);
+    if (drawing != NULL && drawing->arena_tiles != NULL) {
+        /* The game's set and its palette (dqk 59c7:1dd7 -> 0e70: the set
+         * DS:ca03 of DungCom1 where var 0x22 is not 0, else of WildCom1, its
+         * palette applied as it loads, 204c:0007 -> 19a4:0b8c, before the
+         * builders below draw from the seed). */
+        if (!drawing->arena_tiles(game, !area, (unsigned)game->wall_ids[0])) return false;
+    } else if (!(area && R->tiles_kept && combat->dungeon_tiles) &&
+               !load_tiles(game, area ? a->dungeon : a->wilderness, 0,
+                           area ? R->dungeon_tiles : R->wilderness_tiles)) {
         return false;
+    }
     combat->dungeon_tiles = area;
     if (a->random != NULL && !load_tiles(game, a->random, 0x22, 6)) return false;
     combat->active = true;

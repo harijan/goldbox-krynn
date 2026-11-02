@@ -4270,10 +4270,13 @@ bool queen_sheet(cok_adventure *game, cok_character *character)
     return true;
 }
 
-/* The combat ground (queen_arena.c): the battlefield's set, and its palette
- * (record 0 of the set, as 2796:0536 applies it: the colours as the game
- * writes them, the cycles started from the seed), then the view or a cell
- * of the map drawn. */
+/* The combat ground (queen_arena.c). arena_tiles is the battle's set and
+ * its palette: the set is DUNGCOM's or WILDCOM's record `set` (59c7:0e70
+ * loads DS:ca03 of "DungCom1" when var 0x22 is not 0, else of "WildCom1";
+ * combat.c's build calls it in place of the 4-bit tiles, 59c7:1dd7 -> 0e70),
+ * and its record 0 is applied as 204c:0007 applies it (19a4:0b8c, 2796:0536:
+ * the colours, and the cycles started from the seed, 261b:00b1). The view
+ * and the cells are drawn from the map (5837:06e6, 172c). */
 static bool arena_tiles(cok_adventure *game, bool wild, unsigned set)
 {
     queen *q = own(game);
@@ -4291,24 +4294,16 @@ static bool arena_ready(cok_adventure *game)
 
 static bool arena_view(cok_adventure *game)
 {
-    if (!arena_ready(game)) return false;
-    if (cok_queen_arena_view(&game->screen, &own(game)->arena, cok_game_rules(game),
-                             &game->combat))
-        return true;
-    snprintf(game->error, sizeof game->error,
-             "the battle's view has a cell past the map or its set's tiles (DS:6197)");
-    return false;
+    return arena_ready(game) &&
+           cok_queen_arena_view(&game->screen, &own(game)->arena, cok_game_rules(game),
+                                &game->combat, game->error, sizeof game->error);
 }
 
 static bool arena_cell(cok_adventure *game, int x, int y)
 {
-    if (!arena_ready(game)) return false;
-    if (cok_queen_arena_cell(&game->screen, &own(game)->arena, cok_game_rules(game),
-                             &game->combat, x, y))
-        return true;
-    snprintf(game->error, sizeof game->error,
-             "the battle's cell %d,%d is past the map or its set's tiles (DS:6197)", x, y);
-    return false;
+    return arena_ready(game) &&
+           cok_queen_arena_cell(&game->screen, &own(game)->arena, cok_game_rules(game),
+                                &game->combat, x, y, game->error, sizeof game->error);
 }
 
 const cok_drawing cok_dark_queen_drawing = {

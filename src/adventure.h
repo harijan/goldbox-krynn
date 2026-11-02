@@ -206,13 +206,21 @@ typedef struct {
      * it, from block: the game's own loop, to its end (eclplay's --play).
      * NULL: cok_adventure_enter's block, then cok_adventure_play. */
     cok_ecl_status (*play)(cok_adventure *game, uint8_t block);
-    /* The combat ground: the battlefield's tile set, its palette applied as
-     * the battle starts (wild: WILDCOM's set, else DUNGCOM's; DUNGCOM's ids
-     * 1-6, WILDCOM's 1, 2, 4 and 5); then the 7 by 7 view drawn from the
-     * battle's map at its corner (arena.c's scroll, 6beb:07a9), or one cell
-     * of the map (x, y) drawn at its place in the view (6beb:02aa, without
-     * its icon). False with game->error set where the picture is not there.
-     * NULL: the arena's 4-bit tiles, which the game draws in place of these. */
+    /* The battle's ground, drawn by the game itself (a game with these
+     * draws no 4-bit tiles and no buffer; arena.c's cells, view and show
+     * then go through them, and the icons, cursor box, missiles and text
+     * stop, citing the original, until a part draws them).
+     * arena_tiles: the battle's set and its palette, as combat.c's build
+     * applies them in place of its 4-bit tiles: the set is wild's WILDCOM
+     * record, else DUNGCOM's (set: DS:ca03, the wall set, LOAD FILES'
+     * second operand; the choice of wild is var 0x22 = 0, dqk 59c7:0e70),
+     * and the palette is record 0 as 19a4:0b8c applies it, before the
+     * builders (dqk 59c7:1dd7 -> 0e70, 204c:0007 -> 19a4:0b8c).
+     * arena_view: the 7 by 7 view from the battle's map at its corner
+     * (dqk 5837:06e6, the redraw; the scroll is arena.c's). arena_cell: one
+     * cell of the map (x, y) drawn at its place in the view (dqk 5837:172c,
+     * from 04d4, 00f4 and 06e6), without its icon. Each returns false with
+     * game->error set where the picture is not there or not yet drawn. */
     bool (*arena_tiles)(cok_adventure *game, bool wild, unsigned set);
     bool (*arena_view)(cok_adventure *game);
     bool (*arena_cell)(cok_adventure *game, int x, int y);
