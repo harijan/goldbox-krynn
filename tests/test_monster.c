@@ -1638,6 +1638,18 @@ static bool dq_open_keys(cok_adventure *adv)
  * (0524): a member not stoned is asked and, for No, nothing changes and the list comes back; a
  * stoned one is cured (status 0, active, 1 hit point); with a readied item of type 0x8c it stays
  * stoned. */
+/* Whether an 8 by 8 cell of the adventure's screen (pixels at x, y) holds colour c. */
+static bool cell_holds(const cok_adventure *adv, int x, int y, uint8_t c)
+{
+    const cok_picture *pic = &adv->screen;
+    size_t stride = (size_t)pic->units * 8;
+    for (int dy = 0; dy < 8; ++dy)
+        for (int dx = 0; dx < 8; ++dx)
+            if (pic->pixels[((size_t)y + (size_t)dy) * stride + (size_t)x + (size_t)dx] == c)
+                return true;
+    return false;
+}
+
 static void test_dark_queen_heal(void)
 {
     static cok_adventure dqk;
@@ -1669,6 +1681,9 @@ static void test_dark_queen_heal(void)
         DQK_RUN(&dqk, DQK_COMBAT);
         CHECK(dqk.vm.status == COK_ECL_UNPORTED);
         CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), stops[n].cite) != NULL);
+        /* The wounded member's hit points (3 of 9) are black on the window's grey (0x17, bg 8),
+         * as 7825:0737-074b's colour byte 0x00 is drawn: the digit's cell holds the grey. */
+        if (n == 0) CHECK(cell_holds(&dqk, 8 * 0x12, 8 * 0x13, 0x17));
     }
 
     /* Stone to Flesh, not stoned: the question, No, then Escape leaves the list and the temple. */

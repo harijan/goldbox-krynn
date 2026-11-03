@@ -4912,7 +4912,10 @@ static bool heal(cok_adventure *game)
         unsigned hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
         unsigned max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
         int n = snprintf(now, sizeof now, "%u", hp);
-        text(game, 8 * 0x13, 8 * 0x12, now, hp == max ? 0x8b : 0x80); /* 7825:0615: 737-74f */
+        /* 7825:0737-074b: the colour byte is 0x0b at full hit points, else 0x00 (black). The
+         * drawing (1a62:0046) puts it on the window's grey (bg 8) above row 0x17, as say does:
+         * 0x80 | fg: the screen agrees at 0 pixels (0x00 with a black background differs by 121). */
+        text(game, 8 * 0x13, 8 * 0x12, now, 0x80 | (hp == max ? 0x0b : 0x00));
         snprintf(most, sizeof most, "/%u", max);
         text(game, 8 * 0x13, 8 * (0x12 + n), most, 0x8b);
         snprintf(line, sizeof line, "%s, how can we help you?", name);

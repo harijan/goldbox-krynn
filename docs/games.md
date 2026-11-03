@@ -687,8 +687,9 @@ run, citing their handlers (`unported`). It holds:
   `148f:017d` and casts `849a:21b5`) stops, cited; the mode after it is 3
   only on the overland (var 0x22 0 and 0x24 1, `5f07:0917`), else 4, the variable 0x14 cleared
   after the call (`5f07:0861-0871`); the treasure (`75cc:135c`) stops, cited. The temple's View,
-  Heal's list and its question agree with the original in `dqk_shops.py`; the other cures are
-  checked to stop at their routines.
+  Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
+  hit points in the colour the original draws: byte 0x00 on the window's grey; Stone to Flesh on a
+  stoned member, by keys); the other cures are checked to stop at their routines.
   Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
   `5f07:088f`-`08ba`, between the overlay's loads and the text) run now, as the encounter's
   (below). Both need LOAD FILES
