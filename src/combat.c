@@ -261,6 +261,8 @@ bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const co
     for (size_t i = 0; i < party->count; ++i) {
         const uint8_t *r = party->members[i]->record;
         if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) continue;
+        if (rules->combat.sides_skip_status_9 && cok_field_u8(L, r, COK_FIELD_STATUS) == 9)
+            continue;
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) > 1) return false;
         ++combat->sides[cok_field_u8(L, r, COK_FIELD_HOSTILE)];
     }
@@ -851,7 +853,7 @@ typedef struct {
  * out again: 18c2's loop over the sides then leaves DS:86e8, the side the
  * record is placed on (410b:1444, 12f7), 1 (the descriptor's layout_sets_side);
  * dqk 16b3's loop is a local and leaves DS:a96e, the record's own side. */
-static bool lay_out(placement *p, uint8_t facing)
+static bool lay_out(placement *p, uint8_t facing, uint8_t direction)
 {
     cok_adventure *game = p->game;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
@@ -860,7 +862,7 @@ static bool lay_out(placement *p, uint8_t facing)
     if (facing == p->laid) return false;
     p->laid = facing;
     uint16_t distance = cok_combat_layout_distance(R, cok_ecl_var(vm, COK_VAR_DISTANCE), facing,
-                                                   vm->direction, game->demo);
+                                                   direction, game->demo);
     p->quadrant[0] = facing >> 1;
     p->quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
     p->anchor_x[1] = s8((int)distance * cok_step_x[facing]);
@@ -1063,7 +1065,7 @@ bool cok_combat_place_all(cok_adventure *game)
     ways = (uint8_t)(ways << 1);
     p.width[0] = (uint8_t)((combat->sides[0] + 1) >> 1);
     p.width[1] = (uint8_t)((combat->sides[1] + ways - 1) / ways);
-    lay_out(&p, vm->direction);
+    lay_out(&p, vm->direction, vm->direction);
     uint8_t way = 0;
     combat->count = 1;
     uint8_t d = 1;
@@ -1103,7 +1105,7 @@ bool cok_combat_place_all(cok_adventure *game)
             while (((1u << way) & ambush) == 0);
             facing = (uint8_t)(way << 1);
         }
-        bool laid = ambush != 0 && lay_out(&p, facing);
+        bool laid = ambush != 0 && lay_out(&p, facing, vm->direction);
         if (R->ambush) {
             uint8_t from = (uint8_t)(p.side == 1 ? (facing + 4) % 8 : facing);
             c->combat->facing = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, from >> 1);
@@ -1188,6 +1190,157 @@ bool cok_combat_place_all(cok_adventure *game)
         ++combat->count;
         ++i;
     }
+    combat->combatant[combat->count].character = NULL;
+    return true;
+}
+
+/* The placement's own routine (dqk 59c7:1864, 1395 bytes; COK_PLACEMENT_DARK_QUEEN). It has
+ * no Champions or Death Knights twin: it walks the party's records in list order (drop_key
+ * before each, 1985), and for each: its side is its +0x66 (19a9), its size its +0x8a & 7
+ * (19cd), its facing 2 with effect 0xd5, else DS:5d2b by its facing (1a51-1a91). With
+ * DS:c2e7's bits 0-3 (the ambush directions) each record's formations are laid out again:
+ * a hostile one's facing comes from the next direction (19ef-1a2c, the cycle at 1a08), any
+ * other's is the party's (1a00). A hostile one while DS:c2e7 is 0x20 takes its place from
+ * the jump table at 1abf (cases 0-5 set the position alone, then 6 and up place nothing);
+ * any other is placed by find_place (128e). A placed record that is not active (+0x18b) is
+ * a body (59c7:1c0d, stopped: 5837:137a's cell under it and the body list are not ported);
+ * one of status 9 is taken off (1cfb); the occupants are rebuilt (5837:0330 is
+ * cok_combat_occupy here). An unplaced record that is not_party is taken off the list
+ * (1d57: 177e:1e31 with (1, 0), cok_treasure_remove_record keeping the party size), else it
+ * keeps its entry with size 0. */
+static bool place_dark_queen(cok_adventure *game)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    const cok_combat_block *B = rules->combat.combat_block;
+    cok_combat *combat = &game->combat;
+    cok_ecl *vm = &game->vm;
+    if (!cok_combat_count_sides(combat, &game->party, rules)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "a record on a side other than 0 or 1 (+0x18a) counts past DS:6b2d "
+                           "(6346:268a)");
+        return false;
+    }
+    uint8_t ambush = game->ambush; /* DS:c2e7 */
+    /* 51c2:0920 takes one from side 1 with the ambush byte at 0x20 (its 96a). The rounds'
+     * counts do not (not reached yet: the battle stops at the arena). */
+    if (ambush == 0x20 && combat->sides[1] != 0) --combat->sides[1];
+    if (ambush == 0x20) {
+        /* 1874-1896: six cells of the map (its +9 cells, row 0 at 0x9), 0x47-0x4c. */
+        static const struct {
+            uint8_t x, y, cell;
+        } cells[] = {{29, 16, 0x47}, {33, 15, 0x48}, {32, 14, 0x49},
+                     {31, 15, 0x4a}, {30, 15, 0x4b}, {32, 15, 0x4c}};
+        for (unsigned k = 0; k < sizeof cells / sizeof *cells; ++k)
+            combat->cells[cells[k].y][cells[k].x] = cells[k].cell;
+    }
+    uint8_t entry = vm->direction; /* DS:a978, restored at the end (1dcc) */
+    for (unsigned n = 1; n <= 0x34; ++n) combat->combatant[n].size = 0; /* 18c0 */
+    memset(combat->occupant, 0, sizeof combat->occupant);            /* 18e2 */
+    placement p = {.game = game, .laid = 0xff};
+    unsigned ways = 0;
+    for (unsigned b = 0; b < 4; ++b) ways += ambush >> b & 1;
+    if (ways == 0) ways = 1;
+    ways <<= 1;
+    p.width[0] = (uint8_t)((combat->sides[0] + 1) >> 1);
+    p.width[1] = (uint8_t)((combat->sides[1] + ways - 1) / ways);
+    /* 16b3 (1965): laid out for the party's facing; again for each record below. */
+    lay_out(&p, entry, entry);
+    unsigned si = 0; /* the jump table's case */
+    unsigned way = 0; /* DS:ab8b: the ambush direction last used */
+    combat->count = 1;
+    uint8_t d = 1;   /* DS:a95a: the combatant being placed */
+    for (size_t i = 0; i < game->party.count;) {
+        drop_key(game);
+        cok_character *c = game->party.members[i];
+        uint8_t *r = c->record;
+        if (d >= COK_COMBATANTS) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "a 72nd combatant's entry lies past the table (dqk 59c7:1864)");
+            return false;
+        }
+        cok_combatant *e = &combat->combatant[d];
+        e->character = c;
+        combat->entry_held[d] = true;
+        uint8_t hostile = cok_field_u8(L, r, COK_FIELD_HOSTILE);
+        if (hostile > 1) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                               "a record on side %u indexes past the sides' formations "
+                               "(dqk 59c7:128e)", hostile);
+            return false;
+        }
+        p.side = hostile;
+        e->size = cok_field_u8(L, r, COK_FIELD_SIZE) & 7;
+        if (ambush & 0xf) {
+            if (hostile == 0) {
+                vm->direction = entry;
+            } else {
+                do way = (way + 1) & 3;
+                while (((1u << way) & ambush) == 0);
+                vm->direction = (uint8_t)(way << 1);
+            }
+            p.laid = 0xff; /* 16b3 always lays out again */
+            lay_out(&p, vm->direction, entry);
+        }
+        uint8_t facing = vm->direction;
+        if (hostile == 1) facing = (uint8_t)((facing + 4) % 8);
+        cok_combat_record *block = c->combat;
+        block->facing = cok_character_find_effect(c, B->facing_effect) != NULL
+                            ? 2
+                            : cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, facing >> 1);
+        bool placed;
+        if (ambush == 0x20 && hostile == 1) {
+            /* 1abf: the jump table, six cases of position; the rest place nothing. */
+            static const struct {
+                int x, y;
+            } at[6] = {{0x1e, 0x10}, {0x1d, 0x10}, {0x1e, 0x0e},
+                       {0x1f, 0x0e}, {0x21, 0x0f}, {0x20, 0x0e}};
+            if (si <= 5) {
+                e->x = (int8_t)at[si].x;
+                e->y = (int8_t)at[si].y;
+            }
+            ++si;
+            placed = true;
+        } else {
+            if (!find_place(&p, d, &placed)) return false;
+        }
+        if (placed) {
+            if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
+                e->size = 0; /* 1bd8 */
+                if (block->not_party == 0 && cok_field_u8(L, r, COK_FIELD_STATUS) != 8) {
+                    /* 1c0d-1d22: the body's cell (5837:137a) and the body list. */
+                    return cok_adventure_not_yet(
+                        game, "placement's body",
+                        "dqk 59c7:1c0d (5837:137a, the cell under a body)");
+                }
+            }
+            if (cok_field_u8(L, r, COK_FIELD_STATUS) == 9) { /* 1cfb */
+                cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+                e->size = 0;
+            }
+            if (!cok_combat_occupy(combat, rules)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "a footprint is written outside the occupants (dqk 59c7:0330)");
+                return false;
+            }
+        } else {
+            e->size = 0; /* 1d34 */
+            if (block->not_party == 1) {
+                /* 1d57-1d94: taken off the list (177e:1e31 with (1, 0): the party size
+                 * kept, no sound), the walk going on at the record after it, and the
+                 * entry is none (b2f8 cleared, 1d67). */
+                e->character = NULL;
+                combat->entry_held[d] = false;
+                if (!cok_treasure_remove_record(game, i, true, false, false)) return false;
+                continue;
+            }
+        }
+        ++d;
+        ++combat->count;
+        ++i;
+    }
+    vm->direction = entry; /* 1dcc */
     combat->combatant[combat->count].character = NULL;
     return true;
 }
@@ -1364,10 +1517,11 @@ bool cok_combat_setup(cok_adventure *game)
         return false;
     }
     drop_key(game); /* dqk 1e50, after the records (1e4d): the placement's entry is 1e56 */
-    if (cok_game_rules(game)->combat.placement_unported != NULL)
-        return cok_adventure_not_yet(game, "battle's placement",
-                                     cok_game_rules(game)->combat.placement_unported);
-    if (!cok_combat_place_all(game)) return false;
+    if (cok_game_rules(game)->combat.placement == COK_PLACEMENT_DARK_QUEEN) {
+        if (!place_dark_queen(game)) return false;
+    } else if (!cok_combat_place_all(game)) {
+        return false;
+    }
     drop_key(game);
     /* The view's origin, from the first record, whether or not it is on the
      * map; then the screen (6346:300f), which draws the map centred there
@@ -1387,6 +1541,9 @@ bool cok_combat_setup(cok_adventure *game)
     char text[80];
     snprintf(text, sizeof text, "the view from %d,%d", combat->view_x, combat->view_y);
     log_text(game, "combat", text);
+    if (cok_game_rules(game)->combat.arena_unported != NULL)
+        return cok_adventure_not_yet(game, "battle's arena",
+                                     cok_game_rules(game)->combat.arena_unported);
     if (!cok_arena_redraw(game)) return false;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];

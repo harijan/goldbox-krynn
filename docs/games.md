@@ -678,7 +678,7 @@ run, citing their handlers (`unported`). It holds:
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
-  The load flow's party list at the placement (`59c7:1864`): 19 records, the monsters'
+  The load flow's party list at the arena's redraw (`59c7:1e94`, after the placement): 19 records, the monsters'
   bytes equal (pointers masked, whole), and the party's too from the save (`--load`; with `--character`
   four members' import differed: known spells, saving throws, thief skills, not traced). The icons: `CPIC.TLB` records
   do not decode with the port's image reader ("unsupported or malformed image layout"),
@@ -768,7 +768,7 @@ run, citing their handlers (`unported`). It holds:
   routine; the repo test has a synthetic flat map for them).
 - its battlefield (step 4, part 7; `dqk_fight.py`'s flow `field`; `combat.c`'s `build`,
   `cok_combat_dungeon` and `cok_combat_setup`, with the descriptor's `dungeon_*`, `door_corner_*`,
-  `wilderness_unported` and `placement_unported` fields). The battle (`5045:059d`) starts with its
+  `wilderness_unported`, `placement` and `arena_unported` fields). The battle (`5045:059d`) starts with its
   setup (`59c7:1dd7`, mode 5, the setup's clears), then the tiles and 3D map (`59c7:0e70`, part 4's
   set), then the dungeon builder (`59c7:06a7`) for a battle in 3D (var 0x22 set). The builder fills
   the 50 by 25 map with floor (0x16, every cell built), then for each of its 13 by 5 squares the
@@ -776,7 +776,7 @@ run, citing their handlers (`unported`). It holds:
   (`014e`), the north edge (`01fb`), the north-west corner (`0285`: no door as a corner) and the
   north-east (`049e`: a door's corner, tile 7 where the east is open). Dark Queen's loop draws no
   tables and chairs (`dungeon_no_tables`: no dice, so RandSeed is the seed the battle began
-  with). Checked by `dqk_fight.py`'s flow `field`: at the placement (`59c7:1864`, trapped), the
+  with). Checked by `dqk_fight.py`'s flow `field`: at the arena's redraw (`59c7:1e94`, trapped, after the placement `59c7:1864`), the
   original's 50 by 25 cells, the header (+6, +7, +8) and RandSeed agree with eclplay's (`--field`)
   for the fixture's square and for the west edge (0, 3, 2), (12, 12) and (4, 14). The original's
   RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free
@@ -807,7 +807,7 @@ run, citing their handlers (`unported`). It holds:
   ones, checked against the original: the layout's distance is the descriptor's `ambush_distance`
   (1, as Death Knights'); a record laid out again is placed on its own side (`layout_sets_side`
   off: 16b3's loop is a local), where Death Knights' 18c2 leaves it the enemy's (on). The
-  placement (`59c7:1864`) stops the battle, cited.
+  the arena's redraw (`51c2:0c94`: the combatants' icons, part 11) stops the battle, cited. The placement (`59c7:1864`, `cok_combat_place_dark_queen`: the jump table at `1abf` for the ambush's 0x20 with hostile records, a layout per record for the ambush directions, the search `128e` for the rest) is ported; a placed body (`1c0d`, `5837:137a`) and an unlinked not-party record (`1d57`, `177e:1e31`) stop, cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

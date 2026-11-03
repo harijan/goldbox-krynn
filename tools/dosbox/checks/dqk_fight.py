@@ -46,7 +46,7 @@ Flows `load`, `clear` and `six` (step 4, part 5): LOAD FILES, CLEARMONSTERS, a P
 their LOAD MONSTERs (and, for `clear`, a CLEARMONSTERS between them: LOAD MONSTER 49 x1,
 CLEARMONSTERS, LOAD MONSTER 64 x1; for `six`, six LOAD MONSTERs x1, the seventh icon taking
 slot 14), then COMBAT (no SETUP MONSTERS or APPROACH). Where the battle's placement is entered
-(59c7:1864, after the appends and the combat records, 59c7:0f7b) the original's party list, each
+(59c7:1e94, after the appends and the combat records, 59c7:0f7b) the original's party list, each
 record's combat block, c6f1, ad6b and the undead count DS:c2ed are read, and eclplay's, started as
 setup's (--load --play) with --records and --blocks, must agree: every record whole (pointers
 masked; PARTY_GAPS: none) and every combat block (0x18 bytes). `load`: 19 records, c6f1 13,
@@ -63,7 +63,7 @@ close-up at distance 0), PICTURE 0xff (the view again, the sprite and close-up f
 0x37, a PRESS KEY ('raised'), COMBAT (which lowers 0x37 to the open squares), from saved game A. At each
 wait the original's pc, the 1 KB of variables and the screen are read, and eclplay's (--vars, --screen,
 with that many keys) must equal them in RGB except the mouse cursor (the shield at the corner, masked); at
-the placement (59c7:1864) the party's records, their combat blocks and c6f1, ad6b and undead
+the arena's redraw (59c7:1e94) the party's records, their combat blocks and c6f1, ad6b and undead
 agree as in `load`, var 0x37 there is the open squares in both, and eclplay stops at the placement.
 
 Flow `ground` (step 4, part 4): the same block to the first turn, where the original's
@@ -77,7 +77,7 @@ ground). The set is asserted to be DUNGCOM 4 (LOAD FILES 4 4).
 
 Flow `wild` (step 4, part 8): the same fight outside 3D (dqkecl.fight's `ground`: var 0x22 0, the
 flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, each read at the placement
-(59c7:1864, the same trap as `field`) and compared with eclplay's --field: the cells, header, records and RandSeed, which here is
+(59c7:1e94, the same trap as `field`) and compared with eclplay's --field: the cells, header, records and RandSeed, which here is
 the original's after its draws past SEED (the open ground's rolls).
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
@@ -341,8 +341,8 @@ def setup(v, work, opts):
 # GORGONs). Each block runs LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled
 # 'monsters', its steps (a LOAD MONSTER (id, count), or CLEARMONSTERS), then COMBAT
 # with no SETUP MONSTERS or APPROACH (the original allows it after LOAD FILES). The
-# party list and the combat blocks are read at the placement's entry (59c7:1864), the
-# appends and the combat records done and the placement not yet. A flow's monsters are
+# party list and the combat blocks are read where the port stops (59c7:1e94, after the
+# placement), the appends, the combat records and the placement done. A flow's monsters are
 # those its steps leave after the last CLEARMONSTERS; the expected c6f1, ad6b, undead count
 # and records follow from them.
 CLEAR = "CLEAR"
@@ -352,14 +352,16 @@ PARTY = 6                      # the party's records come first in the list
 SIX_IDS = (64, 49, 41, 37, 36, 64)
 # How long COMBAT may take to reach the placement after the LOAD MONSTERs (wall clock).
 COMBAT_SECONDS = 300
-# The battle's stop (step 4, part 9a): the battle starts, builds its battlefield and makes its
-# combat records (59c7:0f7b, ported), then stops at the placement (59c7:1864), not ported yet.
-# The load flows and encounter read the original at 1864's entry, where the port stops (after
-# 1e50's key poll): the records and blocks are then final, so they compare whole. The trap is
-# set after the block's last PRESS KEY, as 59c7 is loaded only once the battle starts.
-PLACEMENT = (0x59C7, 0x1864)
-BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's placement "
-               "(dqk 59c7:1864)")
+# The battle's stop (step 4, part 9c): the battle starts, builds its battlefield, makes its
+# combat records (59c7:0f7b) and places them (59c7:1e94), then sets the view's origin (1dd7's
+# 4837:0aea, 0b19), all ported; it stops before the arena's redraw (59c7:1e94, the call of
+# 51c2:0c94: its combatants' icons are part 11's). The original is trapped there too: the
+# placement and the origin are final, so the records, blocks, combatants, occupants and
+# the view compare whole. The trap is set after the block's last PRESS KEY, as 59c7 is loaded
+# only once the battle starts.
+PLACEMENT = (0x59C7, 0x1E94)
+BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's arena "
+               "(dqk 51c2:0c94)")
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -395,6 +397,13 @@ class Flow:
         """The records COMBAT appends: each slot's count (a count of 0 is 1, which
         the flows do not use), then 170e's extras."""
         return sum(count for _, count in self.kept) + EXTRAS
+
+    @property
+    def placed(self):
+        """The monsters the placement keeps on the list (59c7:1864): the loaded ones. 170e's
+        extras find no place there and the placement takes them off the list (59c7:1d57, which
+        the battle's walk makes), so the list holds the party and these."""
+        return sum(count for _, count in self.kept)
 
     @property
     def icon_slot(self):
@@ -458,7 +467,7 @@ def load_original(work, patched, flow, difficulty, verbose):
 
 
 def at_placement(box):
-    """The placement's entry (59c7:1864) trapped once the battle has its code (after the block's
+    """The arena's redraw (59c7:1e94, after the placement) trapped once the battle has its code (after the block's
     last key: the battle's overlay is loaded when it starts), and the spin held: COMBAT has made
     the records. Returns the trap's handle. The wait is by a time limit, not a count of checks: a
     count of 180 ran out once under make test's load (each check settles a second of the game's
@@ -472,7 +481,7 @@ def at_placement(box):
         if time.monotonic() > end:
             state = dqk_lib.ecl_state(box)
             raise cokbox.BoxError(
-                f"COMBAT did not reach the placement (59c7:1864) in {COMBAT_SECONDS} s "
+                f"COMBAT did not reach the arena's redraw (59c7:1e94) in {COMBAT_SECONDS} s "
                 f"({checks} checks): ECL pc {state['pc']:#x}, opcode {state['opcode']:#x}, "
                 f"keyboard polls {box.hook('polls')}")
     return handle
@@ -516,12 +525,13 @@ def load_run(v, work, opts, flow, difficulty):
         tag += f", difficulty {difficulty}"
     tag += ")" if tag else ""
     r = load_original(work, patched, flow, difficulty, opts.verbose)
-    v.check(r["traps"] >= 1, f"the battle's placement (59c7:1864) is trapped{tag}",
+    v.check(r["traps"] >= 1, f"the battle's placement (59c7:1e94) is trapped{tag}",
             f"{r['traps']} copies")
-    v.check(len(r["records"]) == PARTY + flow.appended and r["count"] == flow.appended and
+    v.check(len(r["records"]) == PARTY + flow.placed and r["count"] == flow.appended and
             r["icon_slot"] == flow.icon_slot and r["undead"] == flow.undead,
-            f"at the placement the list holds the party and {flow.appended} monsters, "
-            f"c6f1 {flow.appended}, ad6b {flow.icon_slot} and undead {flow.undead}{tag}",
+            f"at the arena's redraw the list holds the party and {flow.placed} monsters (170e's "
+            f"GORGONs taken off), c6f1 {flow.appended}, ad6b {flow.icon_slot} and undead "
+            f"{flow.undead}{tag}",
             f"{len(r['records'])} records, c6f1 {r['count']}, ad6b {r['icon_slot']}, "
             f"undead {r['undead']}: " + " ".join(r["names"][PARTY:]))
     name = f"{flow.name}-{difficulty}"
@@ -574,7 +584,7 @@ def load(v, work, opts):
     LOAD MONSTER records, their copies included) and no GORGON's."""
     runs = {d: load_run(v, work, opts, LOAD, d) for d in LOAD.difficulties}
     base, low = runs[None][0]["records"], runs[1][0]["records"]
-    monsters = range(PARTY, PARTY + LOAD.appended)
+    monsters = range(PARTY, PARTY + LOAD.placed)
     hit = [i for i in monsters if masked(base[i]) != masked(low[i])]
     loaded = range(PARTY, PARTY + sum(count for _, count in LOAD.kept))
     hp = [(bytes.fromhex(base[i])[HIT_POINTS], bytes.fromhex(low[i])[HIT_POINTS])
@@ -690,7 +700,7 @@ def ground(v, work, opts):
 # 9 in var 0x37 (above the open squares), the 'raised' wait; then COMBAT lowers it to the open
 # squares before the battle's text (5f07:088f-08ba). The original waits at each PRESS KEY; there
 # the variables (the whole 1 KB) and the screen are read, and eclplay must agree with both. At
-# COMBAT the placement is trapped (59c7:1864) and the monsters and party read, as the load
+# COMBAT the placement is trapped (59c7:1e94) and the monsters and party read, as the load
 # flows do, with var 0x37.
 ENC_SPRITE, ENC_DISTANCE, ENC_CLOSEUP = 82, 16, 21
 ENC_SPRITE2, ENC_WALL_DISTANCE, ENC_RAISED = 2, 3, 9  # the open squares are 0 here: a wall at once
@@ -736,7 +746,7 @@ def encounter_block():
 def encounter_original(work, patched, verbose):
     """The original's run of the encounter block: at each of its five waits, the wait's
     pc and opcode, the block's variables and the screen (in colours); after COMBAT, the
-    placement is trapped (59c7:1864, where COMBAT spins) and the party's records, their
+    placement is trapped (59c7:1e94, where COMBAT spins) and the party's records, their
     combat blocks and the monsters' count, icon slot and undead count are read there."""
     waits = []
     with cokbox.Box(workdir=work / "box-encounter", game="dark-queen", verbose=verbose,
@@ -837,9 +847,9 @@ def encounter(v, work, opts):
             " ".join(str(i) for i in where))
     blocks_agree(v, battle["blocks"], blocks, "")
     v.check(battle["count"] == ENCOUNTER.appended and battle["icon_slot"] == ENCOUNTER.icon_slot
-            and battle["undead"] == 0 and len(battle["records"]) == PARTY + ENCOUNTER.appended,
-            f"the battle starts with the party and {ENCOUNTER.appended} monsters (the SHARKMEN "
-            f"and 170e's ten GORGONs), "
+            and battle["undead"] == 0 and len(battle["records"]) == PARTY + ENCOUNTER.placed,
+            f"the arena's redraw has the party and {ENCOUNTER.placed} monsters (the SHARKMEN; "
+            f"170e's ten GORGONs taken off), "
             f"c6f1 {battle['count']}, ad6b {battle['icon_slot']}, undead {battle['undead']}",
             " ".join(battle["names"][PARTY:]))
 
@@ -847,10 +857,12 @@ def encounter(v, work, opts):
 # The battlefield (step 4, parts 7 and 9a): the battle's setup builds the battlefield (59c7:1dd7:
 # the tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b), makes the
 # combat records (59c7:0f7b: each record's combat block, checked at every offset) and stops at
-# the placement, 59c7:1864. The original is trapped at its entry, after those: the view's origin
-# (far DS:bedb +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9), each record's combat
-# block (0x18 bytes at +0x40) and RandSeed; eclplay --field and --blocks, at its stop, must hold
-# the same. The trap moved from 0f7b to 1864 when 0f7b was ported (9a): the stop is after it.
+# the placement, 59c7:1864, and the view's origin (1dd7's 4837:0aea, 0b19), then stops before
+# the arena's redraw (59c7:1e94). The original is trapped there: the view's origin (far DS:bedb
+# +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9), the occupants (DS:b7fd), the
+# combatants (DS:c3f1 + 6n: x, y, size), each record's combat block (0x18 bytes at +0x40) and
+# RandSeed; eclplay --field and --blocks, at its stop, must hold the same. The trap moved from
+# 0f7b (9a), to 1864's entry (9b-9c), to 1e94 once 1864 was ported (9c).
 # The dungeon draws no dice, and the memory cache's purges draw none in the box
 # (dqk_fight_lib.freeze_purges), so RandSeed is the seed the battle began with, as in eclplay. The fixture's battle is in 3D (var 0x22 set), asserted; the
 # origin is written after the placement (1dd7's 4837:0aea), so it is what the battle before left,
@@ -904,6 +916,7 @@ def field_original(work, patched, verbose, square=None, tag="field"):
         listed = L.records(box)
         result = dict(traps=len(handle), held=held, polls=(polls, polls_held),
                       field=L.battlefield(box), seed=box.ds_dword(L.DS_SEED),
+                      combatants=combatants_at(box),
                       purges=purges(box) - purges_at_seed,
                       records=[raw.hex() for _, raw in listed],
                       blocks=[None if cb is None else cb[1].hex()
@@ -913,15 +926,31 @@ def field_original(work, patched, verbose, square=None, tag="field"):
         return result
 
 
+def combatants_at(box):
+    """The combatants 1 to count - 1 (DS:c3ef is the count): (n, x, y, size) each, from
+    DS:c3f1 + 6n. The entry at the count is the next one, not yet placed, and is not compared."""
+    count = box.ds_byte(L.DS_COMBATANT_COUNT)
+    return [(c["n"], c["x"], c["y"], c["size"]) for c in L.combatants(box) if c["n"] < count]
+
+
+def s8(value):
+    """A byte as the signed value the port keeps."""
+    return value - 256 if value >= 128 else value
+
+
 def parse_field(path):
     """eclplay --field's file: RandSeed, the view's origin (signed), the header's three bytes
-    (cursor, cursor size, see-all) and the cells in hex."""
+    (cursor, cursor size, see-all), the cells in hex, the occupants in hex (25 rows), and the
+    combatants (a count, then n x y size a line each)."""
     lines = path.read_text().splitlines()
     seed = int(lines[0].split()[1], 16)
     view = [int(v) for v in lines[1].split()[1:]]
     header = [int(v) for v in lines[2].split()[1:]]
     cells = "".join(lines[3:3 + 25])
-    return seed, view, header, cells
+    occupants = "".join(lines[28:28 + 25])
+    count = int(lines[53].split()[1])
+    combatants = [tuple(int(v) for v in line.split()) for line in lines[54:54 + count]]
+    return seed, view, header, cells, occupants, combatants
 
 
 def field(v, work, opts):
@@ -977,7 +1006,7 @@ def wild_one(v, work, opts, state, river, tag):
 
 
 def spins_at_placement(v, r):
-    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:1864)",
+    v.check(r["traps"] >= 1 and r["held"], "the original spins at the arena's redraw (59c7:1e94)",
             f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
     v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
 
@@ -1004,7 +1033,7 @@ def placement(v, work, patched, tag, where, square, r, drawn=False):
     got = port_vars[0x3C - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
     v.check(got == gate, f"var 0x3c (the records' effect gate) agrees at the placement at {where}",
             f"eclplay {got}, the original {gate}")
-    seed, view, header, ported = parse_field(path)
+    seed, view, header, ported, occupants, combatants = parse_field(path)
     if drawn:
         n = L.draws(SEED, r["seed"])
         v.check(seed == r["seed"] and n is not None,
@@ -1058,9 +1087,27 @@ def placement(v, work, patched, tag, where, square, r, drawn=False):
     # The origin (far DS:bedb +2, +4) is written after the placement (1dd7's 4837:0aea and
     # 0b19), so at its entry the original holds what was there before: 0, 0 for the fixture,
     # 117, 118 for the west edge (a leftover). Not compared; eclplay's stays as setup left it.
-    v.check(view == [0, 0], "eclplay's view origin at the stop is as setup left it (0, 0)",
-            f"eclplay {view}; the original's {[original['view'][0], original['view'][1]]} "
-            "(a leftover: written after the placement)")
+    # The origin (far DS:bedb +2, +4): 1dd7's 4837:0aea and 0b19 write it after the placement,
+    # from the first record (the port's view_x, view_y): both read it at the arena's redraw.
+    origin = [s8(original["view"][0]), s8(original["view"][1])]
+    v.check(view == origin, f"the view's origin agrees at the arena's redraw at {where}",
+            f"eclplay {view}, the original {origin}")
+    # The combatants (DS:c3f1 + 6n: x, y, size, 59c7:1864) and the occupants (DS:b7fd, 0330's
+    # footprints): every one the original placed, and the occupants at the same cells.
+    # An entry of size 0 (a record off the map: the placement's failures, the GORGONs) is not
+    # compared by position: the x and y it keeps are the last cell its search tried, which the
+    # original's and eclplay's searches differ on for the failures (the unplaced entries of
+    # the fixture squares). Its size, and every placed combatant's position, are compared.
+    def placed_only(rows):
+        return [(n, x, y, size) if size else (n, None, None, 0) for n, x, y, size in rows]
+    original_c = placed_only(r["combatants"])
+    v.check(placed_only(combatants) == original_c,
+            f"every combatant's position and size agree (59c7:1864; the off-map entries' sizes "
+            f"only) at {where}",
+            f"eclplay {combatants}, the original {original_c}")
+    v.check(occupants == original["occupants"],
+            f"the occupants agree (59c7:0330's footprints, the table DS:b7fd) at {where}",
+            f"{sum(1 for i in range(0, len(occupants), 2) if occupants[i:i+2] != original['occupants'][i:i+2])} bytes differ")
 
 
 def main():

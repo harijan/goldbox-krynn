@@ -608,7 +608,8 @@ const cok_rules cok_rules_dark_queen = {
      * COMBAT appends them (6c70:2d82, 170e) and lowers the distance to the open
      * squares; the battle (5045:059d) starts (its setup, cok_combat_setup, builds
      * the battlefield: 59c7:1dd7's tiles and builders), makes its combat records
-     * (59c7:0f7b, the combat block), and stops at the placement (59c7:1864). The
+     * (59c7:0f7b, the combat block), places them (59c7:1864), and the view's origin
+     * (59c7:1dd7), and stops before the arena's redraw (51c2:0c94: the icons). The
      * branches with no monsters (5f07:081b's vault, temple and treasure) are not
      * ported. The encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is
      * ported. */
@@ -660,9 +661,11 @@ const cok_rules cok_rules_dark_queen = {
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
              * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */
             .wilderness = COK_WILDERNESS_DARK_QUEEN,
-            /* The placement (59c7:1864, after the combat records at 59c7:0f7b) and the
-             * battle's rounds are not ported: the battle stops after its records are made. */
-            .placement_unported = "dqk 59c7:1864",
+            /* The placement (59c7:1864, its own routine). The setup stops before the
+             * arena's redraw (51c2:0c94): its combatants' icons are part 11's. */
+            .placement = COK_PLACEMENT_DARK_QUEEN,
+            .arena_unported = "dqk 51c2:0c94",
+            .sides_skip_status_9 = true,
             .combat_block = &dark_queen_combat_block,
         },
     .effects =

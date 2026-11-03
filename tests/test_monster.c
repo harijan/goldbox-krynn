@@ -1297,7 +1297,7 @@ static void test_dark_queen_appends(void)
      * slot 10), then the battle is not ported: the run stops there. */
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
     CHECK(dqk.undead == 0);
     static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
@@ -1366,7 +1366,7 @@ static void test_dark_queen_clear_between(void)
     CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
     char name[16];
     CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
@@ -1389,7 +1389,7 @@ static void test_dark_queen_six_loads(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 14);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(dqk.party.count == 16 && dqk.monsters == 16 && dqk.icon_slot == 15);
     CHECK(dqk.undead == 2);
     cok_adventure_close(&dqk);
@@ -1433,9 +1433,9 @@ static void test_dark_queen_open_ground_flags(void)
     if (!dq_open(&a)) return;
     CHECK(dq_open(&b) && dq_open(&c));
     CHECK(open_ground_fight(&a, 0) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(open_ground_fight(&b, 1) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(memcmp(a.combat.cells, b.combat.cells, sizeof a.combat.cells) != 0);
     CHECK(open_ground_fight(&c, 32) == COK_ECL_UNDEFINED);
     CHECK(strstr(cok_adventure_why(&c, c.vm.status), "var 0x1a2 is 32, past its flags") != NULL);
@@ -1505,7 +1505,7 @@ static void test_dark_queen_encounter(void)
     cok_ecl_set_var(&dqk.vm, COK_VAR_DISTANCE, 5);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 51c2:0c94") != NULL);
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_DISTANCE) == 2);
     cok_adventure_close(&dqk);
 }
@@ -1553,6 +1553,29 @@ static void test_dark_queen_picture_flags(void)
     CHECK(dqk.vm.status == COK_ECL_LOAD_FAILED);
     cok_adventure_close(&dqk);
 }
+/* The placement's jump table (dqk 59c7:1abf): with SETUP MONSTERS' ambush DS:c2e7 at 0x20,
+ * each hostile record of the first six takes its case's position (1abf's cases 0-5, 1acb to
+ * 1b8e), and the battle stops at the arena's redraw (51c2:0c94, after the view). Six
+ * SHARKMEN are hostile and come first in the list; 170e's GORGONs (hostile 0) come after and
+ * are placed by the search. */
+static void test_dark_queen_jump_table(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) return;
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 6, 0, 64);
+    dqk.ambush = 0x20;
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 51c2:0c94") != NULL);
+    static const int8_t at[6][2] = {{0x1e, 0x10}, {0x1d, 0x10}, {0x1e, 0x0e},
+                                    {0x1f, 0x0e}, {0x21, 0x0f}, {0x20, 0x0e}};
+    for (unsigned n = 1; n <= 6; ++n) {
+        CHECK(dqk.combat.combatant[n].x == at[n - 1][0]);
+        CHECK(dqk.combat.combatant[n].y == at[n - 1][1]);
+    }
+}
+
 #undef DQK_PICTURE
 #undef DQK_SETUP
 #undef DQK_APPROACH
@@ -1584,6 +1607,7 @@ int main(void)
     test_death_knights_monsters();
     test_dark_queen_monsters();
     test_dark_queen_appends();
+    test_dark_queen_jump_table();
     test_dark_queen_clear_between();
     test_dark_queen_six_loads();
     test_dark_queen_undead_clear();
