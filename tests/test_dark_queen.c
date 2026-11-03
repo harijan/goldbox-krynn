@@ -10,7 +10,9 @@
 #include "ecl.h"
 #include "data_dark_queen.h"
 #include "field.h"
+#include "hlib.h"
 #include "party.h"
+#include "queen.h"
 #include "queen_levels.h"
 #include "rules.h"
 #include "test_temp.h"
@@ -716,6 +718,51 @@ static void test_relayout_side(void)
     CHECK(x[0] == 27 && y[0] == 13 && x[1] == 27 && y[1] == 12);
 }
 
+/* Whether queen_icon's slot and image hold record id of the library, byte for byte. */
+static bool icon_is(const cok_adventure *game, unsigned slot, unsigned image,
+                    const hlib_library *lib, unsigned id)
+{
+    const uint8_t *want = NULL, *got = NULL;
+    size_t want_size = 0, got_size = 0;
+    return hlib_record(lib, id, &want, &want_size) == HLIB_OK &&
+           queen_icon(game, slot, image, &got, &got_size) && got_size == want_size &&
+           memcmp(got, want, want_size) == 0;
+}
+
+/* A loaded save's combat icons (dark_queen.c's loaded, member_icon, 604b:05d7): each member's
+ * slot (+0xc5) holds CBODY +0xc4 and +0xc4 + 0x80. Skipped without DQKAssets/. */
+static void test_loaded_icons(void)
+{
+    struct stat st;
+    if (stat("DQKAssets/SAVE/SAVGAMA.QSV", &st) != 0 ||
+        stat("DQKAssets/DISK3/CBODY.TLB", &st) != 0) {
+        puts("dark queen: no DQKAssets/ saved game; its members' icons not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
+    const cok_drawing *d = cok_adventure_drawing(&game);
+    CHECK(d != NULL && d->load != NULL && d->load(&game, "DQKAssets/SAVE/SAVGAMA.QSV"));
+    uint8_t *bytes = NULL;
+    size_t n = 0;
+    hlib_library cbody;
+    CHECK(hlib_read_file("DQKAssets/DISK3/CBODY.TLB", &bytes, &n) == HLIB_OK);
+    CHECK(hlib_parse(bytes, n, &cbody) == HLIB_OK);
+    const cok_character_layout *L = R->character;
+    CHECK(game.party.count == 6);
+    for (size_t k = 0; k < game.party.count; ++k) {
+        const uint8_t *r = game.party.members[k]->record;
+        unsigned slot = cok_field_u8(L, r, COK_FIELD_ICON);
+        unsigned body = cok_field_u8(L, r, COK_FIELD_ICON_BODY);
+        CHECK(slot < 8 && body < 0x80);
+        CHECK(icon_is(&game, slot, 0, &cbody, body) &&
+              icon_is(&game, slot, 1, &cbody, body + 0x80));
+    }
+    free(bytes);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_wilderness();
@@ -728,6 +775,7 @@ int main(void)
     test_experience();
     test_party_again();
     test_added();
+    test_loaded_icons();
     puts("dark queen tests passed");
     return 0;
 }

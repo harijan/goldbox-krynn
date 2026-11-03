@@ -668,9 +668,9 @@ run, citing their handlers (`unported`). It holds:
   and DS:bd4e, sets the next icon slot DS:ad6b to 8 and frees the treasure pool (DS:b1db's
   coins, the list at DS:b1e7): the shared clear (`monster.c`'s `clear_monsters`, as
   Champions'). The slot tables (DS:c7c4, c7ca, c7be) are not cleared, and nothing reads them
-  above the next slot. The icon loads are not ported yet: `204c:00df` loads one CPIC record
-  into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
-  (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
+  above the next slot. The icon loads are ported (`204c:00df` loads one CPIC record into a slot
+  and into slot + 0x26: `29fc:2b0b`, `170e:17d3`; dark_queen.c's `icon_load`, the table
+  `queen_icon`), so each slot holds its monster's icons.
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
   extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters, the
   branches of `5f07:081b` in their order: the vault (var 0x31, `771f:09a0`) stops, cited; the

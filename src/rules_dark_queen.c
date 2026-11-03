@@ -639,8 +639,6 @@ const cok_rules cok_rules_dark_queen = {
             .leadership_chance_kept = false,
             .monster_records_max = 0x28,    /* 29fc's cap (dqk 6c70:2a10) */
             .monster_records_extra = 0x32,  /* 170e's cap (dqk 6c70:1a31) */
-            /* The icon loads (204c:00df) are the drawing part's: slots only. */
-            .monster_icons_unported = true,
             /* The distance (dqk 6c70:01c3, 2db1): with no 3D area the open squares
              * set var 0x38, the distance wanted, and a wanted 16 is 2 squares. */
             .open_squares_wanted = true,

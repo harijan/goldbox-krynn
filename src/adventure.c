@@ -3127,8 +3127,9 @@ static void loaded_vars(cok_adventure *game)
  * game's letter's (2ab4: DS:c3ea). The original reports "SCROLLS
  * DROPPED!" as it reads each character that drops some (604b:05fd). Each is
  * recomputed as 28f8 does (177e:0be2). The combat icons 2ab4 then loads
- * (604b:05d7, 204c:00df) are not ported. What the screen shows again (the map, the big picture, the frame's colours) is
- * the drawing's. */
+ * (604b:05d7, 204c:00df) are the drawing's (dark_queen.c's loaded; cok_arena_join for
+ * Champions' and Death Knights'). What the screen shows again (the map, the big picture, the
+ * frame's colours) is the drawing's. */
 static bool restore_whole(cok_adventure *game, const char *path, cok_saved_game *saved)
 {
     cok_ecl *vm = &game->vm;

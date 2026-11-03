@@ -80,6 +80,12 @@ flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, eac
 (59c7:1e99, the same trap as `field`) and compared with eclplay's --field: the cells, header, records and RandSeed, which here is
 the original's after its draws past SEED (the open ground's rolls).
 
+Flow `slots` (step 4, part 11a: the combatants' icons loaded): the same two blocks (the fixture's dungeon, and
+WILD_GROUNDS[0]) to the placement; the original's head layers (DS:a848, all 0), its party records' bodies and slots, each
+combatant's slot, and the table's images are read, and eclplay's --icons and --screen must agree: the table byte for
+byte against hlib's records (CBODY, CPIC, COMSPR), and the drawn combatants' icons composed over eclplay's screen equal the
+original's view (pointer masked).
+
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
 the field flow (below) checks it at each square and records the purges.
@@ -89,13 +95,14 @@ masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load,clear,six,ground,encounter,field]
+        [--flows setup,load,clear,six,ground,encounter,field,wild,slots]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
 import json
 import pathlib
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -559,8 +566,8 @@ def load_run(v, work, opts, flow, difficulty):
             f"(PORT_GAPS){tag}", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
     v.check(port_last == BATTLE_STOP, f"eclplay stops at the battle (not yet ported){tag}",
             port_last)
-    # No icon error: the monsters' icons are not loaded yet (monster_icons_unported),
-    # so the transcript's only error line is the battle's stop.
+    # No icon error: the monsters' icons load as they register (CPIC, dark_queen.c's
+    # icon_load), so the transcript's only error line is the battle's stop.
     transcript = (work / f"port-{name}.txt").read_text().splitlines()
     errors = [line for line in transcript if line.startswith("error:")]
     v.check(errors == [BATTLE_STOP], f"eclplay's transcript has no error but the battle's{tag}",
@@ -1116,11 +1123,198 @@ def placement(v, work, patched, tag, where, square, r, drawn=False):
             f"{sum(1 for i in range(0, len(occupants), 2) if occupants[i:i+2] != original['occupants'][i:i+2])} bytes differ")
 
 
+
+# The combatants' icons (step 4, part 11a: dark_queen.c's icon table, loaded by the party's and
+# the monsters' loads, and COMSPR's slots 0x0f-0x25 at the battle's set): at the placement the
+# original's screenshot, the head layers (DS:a848: none in Dark Queen, 204c:00e5), each party
+# member's and combatant's record, and the table's images are read; eclplay's --icons dump and
+# --screen must agree: the table byte for byte against hlib's records, and the drawn combatants'
+# icons composed over eclplay's screen (the combatants' cells as the original draws them, the
+# pointer masked) equal the original's view. The original's screen is read here, not composed
+# by eclplay's blit, so the composition is this check's own (the mirror of facing 4 to 7, the
+# palette of the set and ALWAYS for colours 0-0xf, as scope.md's note).
+ICON_SLOTS = 0x26                       # DS:b17d: 0x26 slots, two images each
+ICON_MISSILES = range(0x0F, 0x26)      # the battle's COMSPR slots (59c7:0e80-0f06)
+ICON_BODY_HIGH = 0x80                  # image 1 is record + 0x80 (004b:0140-0191)
+ICON_CLIP = (8, 8, 176, 176)           # the view's ends, 5837:1367 (the blit's clip)
+SLOT_SHARKMEN, SLOT_GORGON = 8, 9      # LOAD MONSTER 64 x2's slot, 170e's extra monsters
+GORGON_VAR = 0x3A                      # var 0x3a: the index DS:75b8 takes (170e:17d3)
+GORGON_TABLE = 0x75B8                  # DS:75b8, words by var 0x3a * 2
+COMBAT_BLOCK_FACING = 0xA             # the combat record's facing (+0xa)
+SLOT_SCREEN = (320, 200)
+
+
+def slots_original(work, patched, tag, verbose):
+    """The original at the placement (field_original's keys and trap): the screenshot, DS:a848
+    (0x26 bytes), the party's records (+0xc4, +0xc5), each combatant 1..count-1 (its record's
+    +0x9b, +0xbd, +0xc4, +0xc5, +0x18b, status +0x64 and combat facing; sx, sy at DS:aeac/aee0 +
+    n; size at DS:c3f1 + 6n + 5), the set the battle drew (DS:ca03, var 0x22) and the GORGON's
+    CPIC id (DS:75b8 by var 0x3a)."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")
+        box.settled(tolerance=64)
+        box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
+        handle = L.trap(box, *PLACEMENT, until=lambda: True, seconds=180)
+        L.frozen_at_trap(box)
+        box.settled(tolerance=64)
+        held, polls, polls_held = L.held(box, handle)
+        screen = box.screenshot(path=str(work / f"{tag}-original.png"))
+        variables = block_vars(box)
+        party = [raw for _, raw in L.records(box)[:PARTY]]
+        count = box.ds_byte(L.DS_COMBATANT_COUNT)
+        combatants = []
+        for n in range(1, count):
+            off, seg = struct.unpack("<HH", box.ds_read(0xB2F8 + 4 * n, 4))
+            raw = None if (off, seg) == (0, 0) else box.read(seg * 16 + off, L.RECORD)
+            facing = None
+            if raw is not None:
+                cb = L.combat_record(box, raw)
+                facing = None if cb is None else cb[1][COMBAT_BLOCK_FACING]
+            combatants.append(dict(
+                n=n, raw=raw, facing=facing,
+                sx=L.signed(box.ds_byte(0xAEAC + n)), sy=L.signed(box.ds_byte(0xAEE0 + n)),
+                size=box.ds_byte(L.DS_POSITIONS + 6 * n + 5)))
+        result = dict(traps=len(handle), held=held, polls=(polls, polls_held),
+                      mode=box.ds_word(L.DS_MODE), screen=screen,
+                      a848=box.ds_read(0xA848, ICON_SLOTS),
+                      party=party, combatants=combatants,
+                      wall=box.ds_byte(GROUND_SET_RECORD),
+                      three_d=variables[0x22 - 1],
+                      gorgon=box.ds_word(GORGON_TABLE + 2 * variables[GORGON_VAR - 1]))
+        L.untrap(box, handle)
+        return result
+
+
+def read_icons(path):
+    """eclplay --icons: {(slot, image): record bytes, or None where the slot is empty}."""
+    icons = {}
+    for line in path.read_text().splitlines():
+        parts = line.split()
+        slot, image = int(parts[0]), int(parts[1])
+        empty = len(parts) < 3 or parts[2] == "-"
+        icons[(slot, image)] = None if empty else bytes.fromhex(parts[2])
+    return icons
+
+
+def slots_palette(set_name):
+    """RGB of each palette index as scope.md's note: the set's record 0 (DUNGCOM or WILDCOM set 4)
+    for 0x20-0xff, ALWAYS's record 0 for 0-0xf; each 8-bit value v is ((v>>2)<<2) | ((v>>2)>>4)."""
+    def rgb_of(record):
+        first, colours, _ = hlib.palette(record)
+        return {first + i: tuple(((v >> 2) << 2) | ((v >> 2) >> 4) for v in c)
+                for i, c in enumerate(colours)}
+    table = dict(rgb_of(dict(hlib.load(dqk_lib.ASSETS / "DISK1" / "ALWAYS.TLB").entries())[0]))
+    library = hlib.load(dqk_lib.ASSETS / "DISK2" / f"{set_name.upper()}.TLB")
+    table.update(rgb_of(dict(hlib.Library(dict(library.entries())[4]).entries())[0]))
+    return table
+
+
+def slots_port(work, patched, tag):
+    """eclplay's run to the placement as `placement` runs it, with --icons and --screen."""
+    icons, screen = work / f"port-{tag}.icons", work / f"port-{tag}.bmp"
+    extra = ["--load", str(saved_entry(work)), "--play", "--icons", str(icons),
+             "--screen", str(screen)]
+    variables, last, _ = dqk_ecl.port(work, f"port-{tag}", patched, typed="\\r\\r", extra=extra,
+                                      block=None)
+    return variables, last, icons, screen
+
+
+def slots(v, work, opts):
+    """The combatants' icons flow (step 4, part 11a) at the battle's placement, for the
+    fixture's dungeon and WILD_GROUNDS[0] (the open ground), each run against eclplay."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    cbody = dict(hlib.load(dqk_lib.ASSETS / "DISK3" / "CBODY.TLB").entries())
+    cpic = dict(hlib.load(dqk_lib.ASSETS / "DISK2" / "CPIC.TLB").entries())
+    comspr = dict(hlib.load(dqk_lib.ASSETS / "DISK2" / "COMSPR.TLB").entries())
+    runs = (("slots0", fight_block(), "the fixture's dungeon"),
+            ("slots1", wild_block(*WILD_GROUNDS[0]), f"the open ground {WILD_GROUNDS[0]}"))
+    for tag, block, where in runs:
+        patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
+        r = slots_original(work, patched, tag, opts.verbose)
+        spins_at_placement(v, r)
+        set_name = "dungcom" if r["three_d"] != 0 else "wildcom"
+        v.check(r["wall"] == 4, f"the battle's set at {where} is set 4 (DS:ca03)",
+                f"set {r['wall']}")
+        v.check(all(b == 0 for b in r["a848"]),
+                f"the head layers DS:a848 are all 0 at {where} (no CHEAD in Dark Queen: "
+                f"204c:00e5)", r["a848"].hex())
+        _, last, icons_path, screen_path = slots_port(work, patched, tag)
+        v.check(last == BATTLE_STOP, f"eclplay stops at the placement at {where}", last)
+        if not icons_path.exists() or not screen_path.exists():
+            v.check(False, f"eclplay writes its icons and screen at {where}", last)
+            continue
+        icons = read_icons(icons_path)
+        # (b) the table: each party member's body, the monsters' and 170e's, and COMSPR.
+        bad = []
+        for k, raw in enumerate(r["party"]):
+            body, slot = raw[0xC4], raw[0xC5]
+            for image, record in ((0, body), (1, body + ICON_BODY_HIGH)):
+                if icons.get((slot, image)) != cbody.get(record):
+                    bad.append(f"member {k} slot {slot} image {image} (CBODY {record})")
+        v.check(not bad, f"each party member's slot holds CBODY +0xc4 and +0xc4 + 0x80 at {where}",
+                "; ".join(bad))
+        want = {(SLOT_SHARKMEN, 0): cpic.get(64), (SLOT_SHARKMEN, 1): cpic.get(64 + ICON_BODY_HIGH),
+                (SLOT_GORGON, 0): cpic.get(r["gorgon"]),
+                (SLOT_GORGON, 1): cpic.get(r["gorgon"] + ICON_BODY_HIGH)}
+        differ = [f"{key}" for key, rec in want.items() if icons.get(key) != rec]
+        v.check(not differ,
+                f"the SHARKMEN's slot 8 holds CPIC 64 and 192, 170e's slot 9 the GORGON's CPIC id "
+                f"{r['gorgon']} and +0x80 at {where}", ", ".join(differ))
+        missiles = [k for k in ICON_MISSILES for image in (0, 1)
+                    if icons.get((k, image)) != comspr.get(k - 15 + image * ICON_BODY_HIGH)]
+        v.check(not missiles, f"slots 0x0f-0x25 hold COMSPR k-15 and +0x80 at {where}",
+                " ".join(map(str, missiles)))
+        # (c) the view: each drawn combatant's icon composed over eclplay's screen.
+        port = cokbox.RGBScreen.load(screen_path, SLOT_SCREEN)
+        palette = slots_palette(set_name)
+        pixels = bytearray(port.pixels)
+        drawn = []
+        for e in r["combatants"]:
+            raw = e["raw"]
+            if raw is None or e["size"] == 0 or not (0 <= e["sx"] < 7 and 0 <= e["sy"] < 7):
+                continue
+            if not (raw[0x18B] or struct.unpack_from("<H", raw, 0x64)[0] == 10):
+                continue
+            drawn.append(e["n"])
+            record = icons.get((raw[0xC5], 0))
+            if record is None:
+                continue
+            _, _, _, _, _, rows = hlib.picture(record, None)
+            flip = e["facing"] is not None and e["facing"] > 3
+            for j, row in enumerate(rows):
+                if flip:
+                    row = row[::-1]
+                for i, value in enumerate(row):
+                    x, y = 8 + 24 * e["sx"] + i, 8 + 24 * e["sy"] + j
+                    if value is None or x >= ICON_CLIP[2] or y >= ICON_CLIP[3]:
+                        continue
+                    at = 3 * (y * SLOT_SCREEN[0] + x)
+                    pixels[at:at + 3] = bytes(palette.get(value, (255, 0, 255)))
+        composed = cokbox.RGBScreen(SLOT_SCREEN[0], SLOT_SCREEN[1], bytes(pixels))
+        gx, gy, gw, gh = GROUND
+        outside = [(0, 0, 320, gy, "outside the ground"),
+                   (0, gy + gh, 320, 200 - gy - gh, "outside the ground"),
+                   (0, gy, gx, gh, "outside the ground"),
+                   (gx + gw, gy, 320 - gx - gw, gh, "outside the ground")]
+        count, box = checklib.masked_diff(r["screen"], composed, outside + [GROUND_POINTER])
+        v.check(count == 0,
+                f"the view agrees with the original's, the combatants' icons composed over "
+                f"eclplay's screen (the pointer masked) at {where} ({len(drawn)} combatants drawn: "
+                f"{drawn})",
+                f"{count} pixels differ in {box}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field,wild",
-                        help="which flows: setup, load, clear, six, ground, encounter, field, wild")
+    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field,wild,slots",
+                        help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
+                             "slots")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -1143,6 +1337,8 @@ def main():
         field(v, work, opts)
     if "wild" in flows:
         wild(v, work, opts)
+    if "slots" in flows:
+        slots(v, work, opts)
     return v.finish()
 
 

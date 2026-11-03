@@ -798,6 +798,9 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
 
 bool cok_arena_load_icon(cok_adventure *game, const char *name, uint8_t id, uint8_t slot)
 {
+    const cok_drawing *d = cok_adventure_drawing(game);
+    if (d != NULL && d->arena_load_icon != NULL)
+        return d->arena_load_icon(game, name, id, slot) || own_failed(game);
     return load_icon(game, name, strlen(name), id, slot, game->vm.file);
 }
 
@@ -879,8 +882,8 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 
 bool cok_arena_join(cok_adventure *game, uint8_t file)
 {
-    /* A game whose party's combat icons are not ported (Dark Queen's, its
-     * CHEAD and CBODY: DARK-QUEEN.md's step 4) loads none. */
+    /* A game whose party's combat icons the game loads itself (Dark Queen's:
+     * dark_queen.c's member_icon, with no CHEAD) loads none here. */
     if (!cok_game_rules(game)->startup.party_icons) return true;
     const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {

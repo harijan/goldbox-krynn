@@ -103,6 +103,12 @@ bool queen_mouse(const cok_adventure *game);
 /* The character written to the save path as <name>.QCH (604b:23a7), asking
  * about a file there. False where the run stopped. */
 bool queen_write_character(cok_adventure *game, const cok_character *character);
+/* The combat icon of slot (0-0x25) and image (0 ready, 1 attacking) as the table holds it
+ * (dqk 19a4:0881's copy, header included): record and size, NULL and 0 for an empty slot.
+ * False for a game that has no such table (not Dark Queen's) or a slot or image past it. For
+ * the tests and eclplay --icons. */
+bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const uint8_t **record,
+                size_t *size);
 /* A frame record (FRAME.TLB) or a record of ALWAYS.TLB drawn at pixel
  * row, col. */
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);
