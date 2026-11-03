@@ -59,6 +59,51 @@ bool cok_queen_arena_cell(cok_picture *screen, const hlib_library *tiles, const 
                 size);
 }
 
+/* A multiple of 4 at or below x (the unchained VGA's byte column, as 269b:0a9c's). */
+static int down4(int x)
+{
+    return x >= 0 ? x & ~3 : -((-x + 3) & ~3);
+}
+
+bool cok_queen_arena_icon(cok_picture *screen, const uint8_t *record, size_t size, int x, int y,
+                          unsigned facing, char *error, size_t error_size)
+{
+    /* 269b:0a9c: NULL draws nothing (at facing <= 3). Above 3, 030f:034b copies the empty
+     * entry into the scratch slot 0x98 (19a4:0881:08f5-0921 does not reallocate for a size 0
+     * source, so 0977 copies nothing and 0x98 keeps the last mirrored picture), and that stale
+     * picture is drawn: not ported, so a stop. */
+    if (record == NULL) {
+        if (facing <= 3) return true;
+        snprintf(error, error_size,
+                 "an empty icon faced above 3 draws the scratch slot 0x98's last picture (dqk "
+                 "204c:030f:034b, 19a4:0881:08f5)");
+        return false;
+    }
+    cok_vga_image image = {0};
+    if (cok_vga_decode(record, size, NULL, &image) != COK_VGA_OK) {
+        snprintf(error, error_size, "a combat icon is not a picture (dqk 269b:0a9c)");
+        return false;
+    }
+    /* 030f:0342: a facing above 3 mirrors the picture (0881 to the scratch slot, 2796:000c). */
+    if (facing > 3 && !cok_vga_mirror(&image)) {
+        snprintf(error, error_size, "Invalid type (%x) to Mirror (dqk DS:9db6, 2796:000c)",
+                 image.format);
+        cok_vga_free(&image);
+        return false;
+    }
+    /* 030f:0314-0340: the cell's pixel, less the hotspot (decode keeps the header's i16 at 2
+     * as image.x, the row's, and at 4 as image.y, the column's). The y < -900 quirk
+     * (030f:0329) is not reached: a cell is 0..6. */
+    const cok_vga_clip view = {COK_QUEEN_ARENA_Y, COK_QUEEN_ARENA_X,
+                               COK_QUEEN_ARENA_Y + COK_QUEEN_ARENA_CELL * COK_QUEEN_ARENA_VIEW,
+                               COK_QUEEN_ARENA_X + COK_QUEEN_ARENA_CELL * COK_QUEEN_ARENA_VIEW};
+    int row = COK_QUEEN_ARENA_Y + COK_QUEEN_ARENA_CELL * y - image.x;
+    int col = down4(COK_QUEEN_ARENA_X + COK_QUEEN_ARENA_CELL * x - image.y);
+    cok_vga_draw(screen, &image, col, row, &view, NULL);
+    cok_vga_free(&image);
+    return true;
+}
+
 bool cok_queen_arena_view(cok_picture *screen, const hlib_library *tiles, const cok_rules *rules,
                           const cok_combat *combat, char *error, size_t size)
 {

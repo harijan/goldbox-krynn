@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "arena.h"
 #include "config.h"
+#include "queen.h"
 #include "crt.h"
 #include "keyscript.h"
 #include "setup.h"
@@ -63,6 +64,33 @@ static void save_vars(const cok_adventure *game, const char *path)
         uint8_t b[2] = {(uint8_t)game->vm.mem4b00[i], (uint8_t)(game->vm.mem4b00[i] >> 8)};
         fwrite(b, 1, width, f);
     }
+    fclose(f);
+}
+
+/* --icons: the combat icons' table (Dark Queen's DS:b17d), one line per slot 0-0x25 and image
+ * 0-1: "slot image hex" (the record, header included), "-" for an empty slot. */
+static void save_icons(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    for (unsigned slot = 0; slot < 0x26; ++slot)
+        for (unsigned image = 0; image < 2; ++image) {
+            const uint8_t *record;
+            size_t size;
+            if (!queen_icon(game, slot, image, &record, &size)) {
+                fprintf(stderr, "--icons: %s has no combat icons' table\n",
+                        cok_game_rules(game)->text.name);
+                fclose(f);
+                return;
+            }
+            fprintf(f, "%u %u ", slot, image);
+            if (record == NULL) fputs("-", f);
+            for (size_t i = 0; record != NULL && i < size; ++i) fprintf(f, "%02x", record[i]);
+            fputc('\n', f);
+        }
     fclose(f);
 }
 
@@ -243,6 +271,8 @@ static void usage(const char *program)
             program, program, program);
     fputs("  --vars FILE     save the variables 0x4b00-0x4eff (Dark Queen's\n"
           "                  0x0001-0x0400), a byte or word each, as FILE at the end\n"
+          "  --icons FILE    save the combat icons' table (Dark Queen's), one line per slot\n"
+          "                  (0-0x25) and image (0-1): \"slot image hex\" (\"-\" when empty)\n"
           "  --records FILE  save the party list's records (the character's size each,\n"
           "                  the monsters after the party), then the monsters' count, the\n"
           "                  next icon slot and the undead count, a byte each, as FILE\n"
@@ -883,6 +913,7 @@ static int run(int argc, char **argv)
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
     const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
+    const char *icons = NULL;
     const char *turns = NULL;
     const char *ground = NULL, *ground_set = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
@@ -999,6 +1030,8 @@ static int run(int argc, char **argv)
             screen = argv[++i];
         } else if (strcmp(option, "--vars") == 0 && has_value) {
             vars = argv[++i];
+        } else if (strcmp(option, "--icons") == 0 && has_value) {
+            icons = argv[++i];
         } else if (strcmp(option, "--records") == 0 && has_value) {
             records = argv[++i];
         } else if (strcmp(option, "--blocks") == 0 && has_value) {
@@ -1284,6 +1317,7 @@ static int run(int argc, char **argv)
         if (vars != NULL) save_vars(&game, vars);
         if (records != NULL) save_records(&game, records);
         if (blocks != NULL) save_blocks(&game, blocks);
+        if (icons != NULL) save_icons(&game, icons);
         if (turns != NULL) save_turns(&game, turns);
         int result = 0;
         if (status != COK_ECL_OK) {
@@ -1364,6 +1398,7 @@ static int run(int argc, char **argv)
     if (vars != NULL) save_vars(&game, vars);
     if (records != NULL) save_records(&game, records);
     if (blocks != NULL) save_blocks(&game, blocks);
+    if (icons != NULL) save_icons(&game, icons);
     if (field != NULL) save_field(&game, field);
     if (turns != NULL) save_turns(&game, turns);
     /* Keys the run never read (stderr, so the stdout's last line stays as it

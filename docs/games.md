@@ -649,9 +649,14 @@ run, citing their handlers (`unported`). It holds:
   (204c:0007 -> 19a4:0b8c), whose colour cycles draw random(8) from the seed (261b:00b1), one
   for DUNGCOM 3 and 6 (`tests/test_queen_arena.c`). The clouds and the bodies (values 0x1b-0x1f
   and 0x46: 172c:17ac, 137a's lists DS:c2d6 and DS:c526, COMSPR's overlay) stop the drawing
-  with their cite, and so do the combatants' icons (5837:025d, 104c:030f), the cursor's box
-  (5837:00f4), a body's skull (`cok_arena_kill`, 025d), missiles and the side panel and text
-  (parts 11-12); each is a stop (`cok_arena_icon`, `cursor`, `say`), never a picture left out.
+  with their cite. The combatants' icons are drawn (part 11b: `cok_arena_icon` through the game's
+  `arena_icon`, the blit of 204c:030f as `queen_arena.c`'s `cok_queen_arena_icon`: the table's
+  entry, a facing above 3 mirrored (2796:000c, `cok_vga_mirror`), at 24 x + 8 and 24 y + 8 less the
+  hotspot, clipped to the view), and so are the cursor's box (slot 0x1e, COMSPR 15, 5837:00f4) and a
+  pose with effect 0xd5, which faces 2 (5837:09ab). Not yet: a body's skull (`cok_arena_kill`,
+  025d, part 12), and the missiles and the side panel and text (parts 11-12), each a stop
+  (`cok_arena_kill`, `say`), never a picture left out. The redraw's frame (20b2:02fa) is not drawn
+  by the icons.
   Arena.c's one cell draw (`terrain`) goes to the game's `arena_cell` (5837:04d4, 00f4, 172c)
   and its show does not blit the 4-bit buffer. `eclplay --ground FILE --ground-set dungcom4`
   draws a map file's ground and saves `--screen`.
@@ -668,9 +673,14 @@ run, citing their handlers (`unported`). It holds:
   and DS:bd4e, sets the next icon slot DS:ad6b to 8 and frees the treasure pool (DS:b1db's
   coins, the list at DS:b1e7): the shared clear (`monster.c`'s `clear_monsters`, as
   Champions'). The slot tables (DS:c7c4, c7ca, c7be) are not cleared, and nothing reads them
-  above the next slot. The icon loads are not ported yet: `204c:00df` loads one CPIC record
-  into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
-  (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
+  above the next slot. The icon loads are ported (`204c:00df` loads one CPIC record into a slot
+  and into slot + 0x26: `29fc:2b0b`, `170e:17d3`; dark_queen.c's `icon_load`, the table
+  `queen_icon`), so each slot holds its monster's icons. The party's icons (`604b:05d7`: CBODY
+  +0xc4 into +0xc5; an NPC's CPIC +0xbd) load in `loaded()` and the import, and Add Character loads
+  CBODY for any joiner (`queen_added_icons`, 7368:0af4, 0ba7, no NPC test). The slot is the join's
+  (`cok_party_add`, 604b:3491). Drop and the other removals free the member's slot (`177e:1e9d`:
+  `queen_remove_icons`, 204c:004d). Creation's editor (66e5) and Alt Icon (7070:1ce2) call 05d7
+  too: not ported. A record missing stops, storing neither image (`19a4:004b`, untraced: Q1).
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
   extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters, the
   branches of `5f07:081b` in their order: the vault (var 0x31, `771f:09a0`) stops, cited; the
@@ -697,12 +707,11 @@ run, citing their handlers (`unported`). It holds:
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
-  The load flow's party list after the arena's redraw (`59c7:1e99`, after the placement): 19 records, the monsters'
+  The load flow's party list at the first turn (`5045:078b`, after the placement): 19 records, the monsters'
   bytes equal (pointers masked, whole), and the party's too from the save (`--load`; with `--character`
-  four members' import differed: known spells, saving throws, thief skills, not traced). The icons: `CPIC.TLB` records
-  do not decode with the port's image reader ("unsupported or malformed image layout"),
-  logged by the loader, and Dark Queen's colour tables (the CPIC recolour) are not in its
-  data: the icons load unrecoloured, and nothing draws them yet.
+  four members' import differed: known spells, saving throws, thief skills, not traced). The icons
+  load unrecoloured into the table `queen_icon` (part 11a; `dqk_fight.py`'s flow `slots`); the
+  combatants are drawn over the view (part 11b; `dqk_fight.py`'s flow `icons`).
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
 - its adventure's camp (step 4, part 44; `dark_queen.c`'s `encamp`, `encamp_menu`,
@@ -796,7 +805,7 @@ run, citing their handlers (`unported`). It holds:
   (`014e`), the north edge (`01fb`), the north-west corner (`0285`: no door as a corner) and the
   north-east (`049e`: a door's corner, tile 7 where the east is open). Dark Queen's loop draws no
   tables and chairs (`dungeon_no_tables`: no dice, so RandSeed is the seed the battle began
-  with). Checked by `dqk_fight.py`'s flow `field`: after the arena's redraw (`59c7:1e99`, trapped, after the placement `59c7:1864`), the
+  with). Checked by `dqk_fight.py`'s flow `field`: at the first turn (`5045:078b`, trapped, after the arena's redraw `59c7:1e99` and the placement `59c7:1864`), the
   original's 50 by 25 cells, the header (+6, +7, +8) and RandSeed agree with eclplay's (`--field`)
   for the fixture's square and for the west edge (0, 3, 2), (12, 12) and (4, 14). The original's
   RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free

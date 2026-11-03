@@ -524,7 +524,8 @@ typedef struct {
      * the icons load as the library holds them). */
     bool icons_unrecoloured;
     /* Whether the party's combat icons are loaded as the characters join
-     * (cok_arena_join: Champions', Death Knights'; not Dark Queen's yet). */
+     * (cok_arena_join: Champions', Death Knights'). Dark Queen's are loaded by its own
+     * hooks (dark_queen.c's member_icon: its load, import and Add Character). */
     bool party_icons;
 } cok_rules_startup;
 
@@ -1283,12 +1284,6 @@ typedef struct {
     uint8_t monster_records_max, monster_records_extra;
     const uint8_t (*extra_monsters)[2];
     uint8_t extra_monster_count, extra_monster_var, extra_monsters_appended;
-    /* Whether the monsters' combat icons are not loaded yet (dqk 204c:00df, one
-     * CPIC record stored at the slot and at slot + 0x26: 29fc:2b0b and 170e:17d3
-     * call it; the drawing part's): LOAD MONSTER and COMBAT still take the slot,
-     * and nothing is read or logged. Champions' and Death Knights' load theirs
-     * (cok_arena_load_icon, 6d21:01d0). */
-    bool monster_icons_unported;
     /* COMBAT with no monsters loaded, the treasure branch (dqk 5f07:081b's last: 75cc:135c)
      * where the port does not carry it out for the game yet (the text of what stops, or
      * NULL), and the battle's routine the port does not carry out yet (dqk 5045:059d;

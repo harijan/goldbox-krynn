@@ -96,6 +96,11 @@ bool cok_vga_is_palette(const uint8_t *record, size_t size);
 cok_vga_status cok_vga_decode(const uint8_t *record, size_t size, const hlib_library *library,
                               cok_vga_image *image);
 void cok_vga_free(cok_vga_image *image);
+/* Flip a decoded picture left to right, its pixels and mask (dqk 2796:000c, which
+ * 204c:030f calls for a facing above 3; the header is kept). Only the formats
+ * (format & 0xf) of 0x10, 0x11 and 0x15 are flipped: any other is refused, false
+ * (2796:000c's "Invalid type (%x) to Mirror", DS:9db6). */
+bool cok_vga_mirror(cok_vga_image *image);
 
 /* A palette record's colours into the DAC (and rgb), as dqk 2796:0536 and
  * 261b:00b1 load it: u16 type (bit 0: first and count hold, else all 256;

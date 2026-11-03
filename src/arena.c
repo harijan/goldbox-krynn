@@ -452,9 +452,6 @@ static bool cursor(cok_adventure *game, int8_t x, int8_t y)
         if (!cok_combat_footprint(cok_game_rules(game), c->cursor_size, k, &dx, &dy)) continue;
         if (!cok_combat_on_view(s8(sx + dx), s8(sy + dy))) continue;
         if (!terrain(game, (sx + dx) * 3, (sy + dy) * 3, x + dx, y + dy, "6beb:00fc")) return false;
-        if (c->cursor != 0 && own_ground(game) != NULL)
-            return fail(game, "the cursor's box is not drawn on this game's ground yet "
-                              "(dqk 5837:00f4)");
         if (c->cursor != 0 && !cok_arena_icon(game, s8(sx + dx), s8(sy + dy), 0, 0,
                                               cok_game_rules(game)->commands.cursor_slot))
             return false;
@@ -580,6 +577,12 @@ bool cok_arena_pose(cok_adventure *game, cok_character *c, uint8_t pose, uint8_t
     if (((pose >> 2) != (c->combat->facing >> 2) || image != 0 || hide) && cb->show_actions &&
         !cok_arena_erase(game, 0, 0, n))
         return false;
+    /* A record with the battle's facing effect (dqk 5837:09ab:0a4b, 177e:1734 with 0xd5)
+     * faces 2, and its pose is drawn as 2. The erase above has the given pose. */
+    const cok_combat_block *B = cok_game_rules(game)->combat.combat_block;
+    if (B != NULL && B->facing_effect != 0 &&
+        cok_character_find_effect(c, B->facing_effect) != NULL)
+        pose = 2;
     c->combat->facing = pose;
     if (hide) return true;
     if (!cok_combat_visible(cb, cok_game_rules(game), c->record, false, &shown))
@@ -798,6 +801,9 @@ static bool load_icon(cok_adventure *game, const char *name, size_t length, uint
 
 bool cok_arena_load_icon(cok_adventure *game, const char *name, uint8_t id, uint8_t slot)
 {
+    const cok_drawing *d = cok_adventure_drawing(game);
+    if (d != NULL && d->arena_load_icon != NULL)
+        return d->arena_load_icon(game, name, id, slot) || own_failed(game);
     return load_icon(game, name, strlen(name), id, slot, game->vm.file);
 }
 
@@ -879,8 +885,8 @@ bool cok_arena_party_icon(cok_adventure *game, cok_character *c, bool colours)
 
 bool cok_arena_join(cok_adventure *game, uint8_t file)
 {
-    /* A game whose party's combat icons are not ported (Dark Queen's, its
-     * CHEAD and CBODY: DARK-QUEEN.md's step 4) loads none. */
+    /* A game whose party's combat icons the game loads itself (Dark Queen's:
+     * dark_queen.c's member_icon, with no CHEAD) loads none here. */
     if (!cok_game_rules(game)->startup.party_icons) return true;
     const cok_character_layout *L = cok_game_rules(game)->character;
     for (size_t i = 0; i < game->party.count; ++i) {
