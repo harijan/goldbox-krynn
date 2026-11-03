@@ -233,6 +233,27 @@ def combatants(box):
     return out
 
 
+def turn_order(box, records):
+    """The turn list (5045:0447's: DS:bd99 + 4n, n from 1 to 0x48), each entry that is not
+    empty as eclplay's --turns writes it: (n, index, initiative), index the record's place in
+    `records` (the party list's order, from records(box)) and initiative the combat block's
+    +0x03, signed. Returns the list in n's order."""
+    places = {ptr: i for i, (ptr, _) in enumerate(records)}
+    out = []
+    for n in range(1, COMBATANTS + 1):
+        ptr = far(box, DS_COMBATANT_LIST + 4 * n)
+        if ptr is None:
+            continue
+        if ptr not in places:
+            raise cokbox.BoxError(f"turn list entry {n} ({ptr[0]:04x}:{ptr[1]:04x}) is not a "
+                                  "record of the party's list")
+        combat = combat_record(box, records[places[ptr]][1])
+        if combat is None:
+            raise cokbox.BoxError(f"turn list entry {n}'s record has no combat record")
+        out.append((n, places[ptr], signed(combat[1][3])))
+    return out
+
+
 def battlefield(box):
     """The battlefield: the view (+2, +4), the header's cursor, cursor size and see-all
     (+6, +7, +8), the cells (50 by 25 at +9) and the occupants (DS:b7fd, 50 by 25). Cells

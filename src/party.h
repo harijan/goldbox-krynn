@@ -50,6 +50,10 @@ enum {
  * readied quarrels (type 0x0c). */
 typedef struct {
     uint8_t type[COK_ITEM_TYPES][16];
+    /* Where an item record keeps its type (the rules' item_record.type): 0x2e for Champions and
+     * DKK, 0x28 for Dark Queen (177e:0be2). Set by cok_item_types_read_at to 0x2e, and by the
+     * game's ITEMS read to its own. */
+    uint8_t record_type_at;
 } cok_item_types;
 
 /* Read the item types from path. A short file leaves the rest zero, as the

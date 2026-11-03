@@ -888,6 +888,7 @@ bool cok_item_types_read_at(const char *path, size_t at, cok_item_types *types, 
      * into DS:5886; ITEMS holds 128, so the 129th stays zero (dqk
      * 64b2:0006 reads 0x800 from the start of ITEMS.DAT). */
     memset(types, 0, sizeof *types);
+    types->record_type_at = 0x2e;
     if (size > at) {
         size_t length = size - at < sizeof types->type ? size - at : sizeof types->type;
         memcpy(types->type, data + at, length);

@@ -1326,7 +1326,7 @@ class DarkQueenTests(unittest.TestCase):
                            r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
         self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's battle's "
-                         "setup tail (dqk 59c7:1e99, 1dd7's tail)\n")
+                         "first turn (dqk 5045:078b, the first turn's dispatch)\n")
         moves = [line for line in result.stdout.splitlines()
                  if line.startswith(("step:", "turn:"))]
         self.assertEqual(len(moves), 29)
@@ -1366,11 +1366,15 @@ class DarkQueenTests(unittest.TestCase):
                                  ASSETS)):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stderr,
-                             "not yet ported: The Dark Queen of Krynn's battle's setup "
-                             "tail (dqk 59c7:1e99, 1dd7's tail)\n")
+                             "not yet ported: The Dark Queen of Krynn's battle's first "
+                             "turn (dqk 5045:078b, the first turn's dispatch)\n")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
                                  for line in result.stdout.splitlines()), 29)
-            outs.append(result.stdout[result.stdout.index("protection:"):])
+            # The first turn's turn log (the round's order, "1: NAME 8 ...") depends on RandSeed at
+            # the battle's start, which the start menu's own draws leave different (open: the
+            # records and their order agree); the rest of the walk must agree.
+            outs.append([line for line in result.stdout[result.stdout.index("protection:"):]
+                         .splitlines(True) if not line.startswith("round: ")])
         self.assertEqual(outs[0], outs[1])
 
     def test_view_clicks(self):

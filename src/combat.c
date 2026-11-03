@@ -281,6 +281,9 @@ void cok_combat_enemy_health(cok_combat *combat, const cok_party *party, const c
     for (size_t i = 0; i < party->count; ++i) {
         const uint8_t *r = party->members[i]->record;
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) != 1) continue;
+        if (rules->combat.enemy_health_skip_status_9 &&
+            cok_field_u8(L, r, COK_FIELD_STATUS) == 9)
+            continue;
         if (cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0)
             hp = (uint16_t)(hp + cok_field_u8(L, r, COK_FIELD_HIT_POINTS));
         most = (uint16_t)(most + cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS));
@@ -1544,21 +1547,21 @@ bool cok_combat_setup(cok_adventure *game)
     snprintf(text, sizeof text, "the view from %d,%d", combat->view_x, combat->view_y);
     log_text(game, "combat", text);
     if (!cok_arena_redraw(game)) return false;
-    if (cok_game_rules(game)->combat.tail_unported != NULL)
-        return cok_adventure_not_yet(game, "battle's setup tail",
-                                     cok_game_rules(game)->combat.tail_unported);
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
-        c->combat->turns = 0;
+        /* Dark Queen's 1ea5 clears the block's turning byte (+0x12), not turns (+0x11). */
+        if (R->setup_clears_turning) c->combat->turning = 0;
+        else c->combat->turns = 0;
         if (!cok_effects_dispatch(&game->effects, c, 8) ||
-            !cok_effects_dispatch(&game->effects, c, 0x16)) {
+            (!R->setup_effect_8_only && !cok_effects_dispatch(&game->effects, c, 0x16))) {
             return cok_adventure_effect_failed(game);
         }
     }
     cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     /* 3cb2:1dee-1dfd: no Move nor aiming cursor (DS:71a6, 71a5), the
-     * mode, no Move mode. */
-    game->combat_moving = game->aiming = false;
+     * mode, no Move mode. Dark Queen's 1dd7 leaves the cursors (setup_keeps_aim). */
+    if (!R->setup_keeps_aim) game->combat_moving = game->aiming = false;
     vm->mode = 5;
     game->moving = false;
     /* 3cb2:1e13: the debug trace of each record, its name, status (+0x188)

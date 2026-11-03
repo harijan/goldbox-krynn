@@ -399,6 +399,9 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_PARTY_SIZE] = VAR(0x20), /* 604b:3491 adds 1 */
     [COK_VAR_FLED] = VAR(0x36),       /* 59c7:1e3e clears it, 52db:2aef sets it */
     [COK_VAR_RECORD_EFFECT] = VAR(0x3c), /* 59c7:0f7b:10cf reads it (not named elsewhere yet) */
+    [COK_VAR_MOVE_BONUS] = VAR(0x1c),    /* 177e:0a5f: the party's movement's bonus */
+    [COK_VAR_SURPRISE] = VAR(0x2e),   /* 52db:0004 (initiative: a bit per side) and 5045:059d's
+                                       * reset (DS:b20f+0x2e) */
     [COK_VAR_CLOCK] = VARS(0x0005, COK_CLOCK_UNITS), /* 1396:044d */
     [COK_VAR_MOONS] = VARS(0x01fa, 3), /* 1396:000e: the phases */
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
@@ -411,6 +414,13 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
  * (148f:19c2) given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
 static const cok_combat_block dark_queen_combat_block = {
     .spell = 0x00,
+    .may_cast = 0x01,
+    .may_use = 0x02,
+    .initiative = 0x03,
+    .initiative_high = 0x04,
+    .attack_slot = 0x05,
+    .movement = 0x07,
+    .attacked = 0x09,
     .facing = 0x0a,
     .not_party = 0x14,
     .in_battle = 0x17,
@@ -610,7 +620,9 @@ const cok_rules cok_rules_dark_queen = {
      * the battlefield: 59c7:1dd7's tiles and builders), makes its combat records
      * (59c7:0f7b, the combat block), places them (59c7:1864), and the view's origin
      * (59c7:1dd7), redraws the arena (51c2:0c94: the icons are not drawn yet), and
-     * stops after it (59c7:1e99, the shared tail's effects are not checked yet). The
+     * sets each record's effect 8 (1e99's tail). The round's start (5045:059d's loop: the
+     * sides, 52db:0004 and the initiative, 5045:0447's order) is made, and the battle
+     * stops before the first turn (5045:078b, the turn's dispatch, not ported yet). The
      * branches with no monsters (5f07:081b's vault, temple and treasure) are not
      * ported. The encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is
      * ported. */
@@ -662,12 +674,22 @@ const cok_rules cok_rules_dark_queen = {
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
              * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */
             .wilderness = COK_WILDERNESS_DARK_QUEEN,
-            /* The placement (59c7:1864, its own routine). The setup stops after the
-             * arena's redraw (51c2:0c94, 59c7:1e99): the shared tail is not checked yet. */
+            /* The placement (59c7:1864, its own routine). */
             .placement = COK_PLACEMENT_DARK_QUEEN,
-            .tail_unported = "dqk 59c7:1e99, 1dd7's tail",
+            /* 1dd7's tail (59c7:1e99): effect 8 only, the turning byte, Move mode off and the
+             * cursors kept; the enemy health leaves out status 9 (52db:29f1). */
+            .setup_effect_8_only = true,
+            .setup_clears_turning = true,
+            .setup_keeps_aim = true,
+            .movement_from_base = true,
+            .may_cast_needs_spell = true,
+            .enemy_health_skip_status_9 = true,
             .sides_skip_status_9 = true,
             .sides_ambush_0x20 = true,
+            /* The first turn (5045:078b): the round's start is made, the turn list is
+             * sorted, and the battle stops before the first turn's dispatch. */
+            .turn_unported = "dqk 5045:078b, the first turn's dispatch",
+            .end_unported = "dqk 5045:0001, the battle's end before any round",
             .combat_block = &dark_queen_combat_block,
         },
     .effects =

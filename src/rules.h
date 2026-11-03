@@ -1083,6 +1083,11 @@ typedef struct {
     uint8_t facing_effect; /* 0xd5 (0f7b:0ff6, 103f): facing 2 at once. */
     uint8_t gate_effect;   /* 0x95, added by 148f:19c2 (0f7b:10f4). */
     uint8_t gate_var;      /* a cok_var (ecl.h): 0x3c, which gates gate_effect (0f7b:10cf). */
+    /* The round's start writes these (52db:0004; eclplay's --blocks has them): the combat record's
+     * fields at their offsets here. initiative is a word (initiative_high its high byte, 0 or 0xff
+     * for a negative one); attack_slot, movement and attacked are the record's +4, +6 and +8 in
+     * the port. */
+    uint8_t may_cast, may_use, initiative, initiative_high, attack_slot, movement, attacked;
 } cok_combat_block;
 
 /* The encounter and the battle's frame where the games differ (monster.c,
@@ -1163,10 +1168,27 @@ typedef struct {
     const char *wilderness_unported;
     /* The placement's routine (above). */
     cok_placement_routine placement;
-    /* The setup's tail after the arena's redraw and the view's origin (dqk 59c7:1e99, after
-     * 51c2:0c94): the shared tail's effects 8 and 0x16, turns and the enemies' health are not
-     * checked for the game yet, so the battle stops there (NULL: none; its citation). */
-    const char *tail_unported;
+    /* The setup's tail after the arena's redraw (dqk 59c7:1e99, 1dd7's tail; Champions' and
+     * DKK's is cok_combat_setup's). Dark Queen's gives each record effect 8 only (1ea5-1ed3, no
+     * 0x16) and clears its block's turning byte (+0x12), not turns (+0x11); and 1dd7 clears Move
+     * mode (DS:af3d) and leaves the cursors (DS:71a5, 71a6) as they are: setup_effect_8_only,
+     * setup_clears_turning and setup_keeps_aim. */
+    bool setup_effect_8_only, setup_clears_turning, setup_keeps_aim;
+    /* The movement is Dark Queen's (dqk 177e:0a5f and 01ef: the base movement at +0x90, the readied
+     * items' weights, the effects 0x27, 0x2a, 0x4a, 0x96 and 0xb2, and the party's var 0x1c; no
+     * event 0x12 of its own, which 52db:0004 makes before it). */
+    bool movement_from_base;
+    /* Dark Queen's may cast (dqk 52db:0004's +1): a record may cast only with a memorised spell,
+     * a byte of 1 to 0x7f in its 0x89 bytes from the memorized field (+0xce), and not in a cloud. */
+    bool may_cast_needs_spell;
+    /* The enemy health (52db:29f1, the side count's own test at 51c2:094c): a record of status 9
+     * is left out of it (dqk; Champions and DKK count it). */
+    bool enemy_health_skip_status_9;
+    /* The first turn's dispatch (dqk 5045:078b, after 51c2:0920, 52db:0004 and 5045:0447): where
+     * the battle stops before it, with its citation (NULL: none). A battle that is over before
+     * any round (a side gone at the start, 5045:059d's done) goes to its end (5045:0001), which
+     * is end_unported's citation: the end's effects are not ported. */
+    const char *turn_unported, *end_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions
