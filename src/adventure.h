@@ -822,6 +822,9 @@ void cok_adventure_print(cok_adventure *game, const char *text, cok_text_window 
  * COK_ECL_UNPORTED, "not yet ported: <game>'s <what> (<routine>)". Returns
  * false. */
 bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine);
+/* Whether a load is asked for the overland's mark after a fight (rules' combat.load_asked; Dark
+ * Queen's DS:b7a7): false where the game has none. */
+bool cok_adventure_load_asked(cok_adventure *game);
 /* Set game->error, log it, set game->vm.status to status and end the run. */
 void cok_adventure_fail(cok_adventure *game, cok_ecl_status status, const char *format, ...);
 

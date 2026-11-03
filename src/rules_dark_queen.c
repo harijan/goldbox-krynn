@@ -407,6 +407,9 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
     [COK_VAR_RIVER] = VAR(0x33),      /* 59c7:0860: a river on the open ground */
     [COK_VAR_ABYSS] = VAR(0x1a2),     /* 59c7:0e3b: the open ground's flags index */
+    [COK_VAR_SEARCH] = VAR(0x19),     /* 5f07:0937 keeps bit 0 */
+    [COK_VAR_VAULT] = VAR(0x31),      /* 5f07:084b: COMBAT opens the vault */
+    [COK_VAR_TEMPLE] = VAR(0x14),     /* 5f07:0861: COMBAT opens the temple */
 };
 
 /* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
@@ -576,6 +579,10 @@ const cok_rules cok_rules_dark_queen = {
             .who_prompt = "who will attempt to disarm the trap?",
             .who_prompt_instead = "Who will try to disarm?", /* DS:7889 */
         },
+    .shops =
+        {
+            .routine = COK_SHOPS_DARK_QUEEN, /* the temple (dqk 7825:0af6, dark_queen.c) */
+        },
     .start =
         {
             .first_block = 4, /* 5f07:10cd: block 4 for a new game (the demonstration's 7) */
@@ -622,10 +629,10 @@ const cok_rules cok_rules_dark_queen = {
      * (59c7:1dd7), redraws the arena (51c2:0c94: the icons are not drawn yet), and
      * sets each record's effect 8 (1e99's tail). The round's start (5045:059d's loop: the
      * sides, 52db:0004 and the initiative, 5045:0447's order) is made, and the battle
-     * stops before the first turn (5045:078b, the turn's dispatch, not ported yet). The
-     * branches with no monsters (5f07:081b's vault, temple and treasure) are not
-     * ported. The encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is
-     * ported. */
+     * stops before the first turn (5045:078b, the turn's dispatch, not ported yet). With
+     * no monsters, COMBAT's vault (5f07:084b, 771f:09a0) and treasure (75cc:135c) stop,
+     * cited; the temple (7825:0af6) runs (dark_queen.c). The encounter (SETUP MONSTERS,
+     * APPROACH, the sprite and close-up) is ported. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -669,8 +676,16 @@ const cok_rules cok_rules_dark_queen = {
             .dungeon_no_tables = true,
             .door_corner_nw = false,
             .door_corner_ne = true,
-            .no_monsters_unported = "dqk 5f07:081b with no monsters: 771f:09a0 (the vault), "
-                                    "7825:0af6 (the temple), 75cc:135c (the treasure)",
+            /* The vault's menu (5f07:084b, var 0x31) comes first, then the temple (var 0x14),
+             * then the treasure; there is no shop branch (its shops open from STOCK). */
+            .vault = true,
+            .vault_unported = "dqk 771f:09a0 (the vault)",
+            .no_monsters_treasure_unported = "dqk 75cc:135c (the treasure)",
+            /* The mode after COMBAT (5f07:0917) and the overland's mark (5f07:0964). */
+            .overland_var = 0x24,
+            .overland_mark_unported = "dqk 7065:0011 (the party's place on the overland)",
+            .load_asked = COK_LOAD_ASKED_DARK_QUEEN,
+            .temple_var_after = true, /* 5f07:0861-0871 clears var 0x14 after the temple's call */
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
              * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */
             .wilderness = COK_WILDERNESS_DARK_QUEEN,

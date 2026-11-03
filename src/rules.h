@@ -9,6 +9,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct cok_adventure cok_adventure;
+
+/* Which routine says whether a load is asked (cok_adventure_load_asked), or none. */
+typedef enum { COK_LOAD_ASKED_NONE, COK_LOAD_ASKED_DARK_QUEEN } cok_load_asked;
+
 /* What differs between the games the port plays: one descriptor a game,
  * chosen once at startup (--game) and reached through cok_game_rules (and,
  * in the tools without a game, passed in). Shared code reads what it needs
@@ -1275,12 +1280,23 @@ typedef struct {
      * and nothing is read or logged. Champions' and Death Knights' load theirs
      * (cok_arena_load_icon, 6d21:01d0). */
     bool monster_icons_unported;
-    /* COMBAT with no monsters loaded, where the port does not carry out the
-     * game's branches yet (dqk 5f07:081b: the vault (771f:09a0), the temple
-     * (7825:0af6), the treasure (75cc:135c); the text of what stops, or NULL),
-     * and the battle's routine the port does not carry out yet (dqk 5045:059d;
+    /* COMBAT with no monsters loaded, the treasure branch (dqk 5f07:081b's last: 75cc:135c)
+     * where the port does not carry it out for the game yet (the text of what stops, or
+     * NULL), and the battle's routine the port does not carry out yet (dqk 5045:059d;
      * NULL where the rounds are run). */
-    const char *no_monsters_unported, *battle_unported;
+    const char *no_monsters_treasure_unported, *battle_unported;
+    /* Where the mode after COMBAT is 3 only on the overland: with no 3D area (var COK_VAR_3D 0)
+     * and this address 1 (dqk 5f07:0917-0949 read 0x24; the mode is 4 otherwise), or 0 where it
+     * is 3 with no 3D area (Champions', Death Knights'). The overland's mark after a fight (dqk
+     * 5f07:0964-0982, 7065:0011) is not ported: its text, or NULL. */
+    uint8_t overland_var;
+    const char *overland_mark_unported;
+    /* Whether a load is asked (Dark Queen's DS:b7a7, 5f07:0974): the mark is not made while it is
+     * set (adventure.c's cok_adventure_load_asked); the mark is also not made after an abort. */
+    cok_load_asked load_asked;
+    /* Whether the temple's variable COK_VAR_TEMPLE is cleared after the temple runs (dqk
+     * 5f07:0861-0871: it reads 1 meanwhile); Champions' and Death Knights' clear it first. */
+    bool temple_var_after;
     /* Dark Queen's combat block and the records that differ (59c7:0f7b), or NULL where
      * cok_combat_records is the records (3cb2:10d9, dkk 410b's). */
     const cok_combat_block *combat_block;
@@ -1615,6 +1631,7 @@ typedef struct {
 typedef enum {
     COK_SHOPS_CHAMPIONS,
     COK_SHOPS_DEATH_KNIGHTS,
+    COK_SHOPS_DARK_QUEEN, /* the temple (dqk 7825:0af6, dark_queen.c); the shops as Champions' */
 } cok_shops_routine;
 
 /* Shops and the temple where the games differ (shop.c, items.c's Sell and

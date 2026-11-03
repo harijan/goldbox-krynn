@@ -1521,6 +1521,8 @@ void cok_temple(cok_adventure *game)
 {
     if (cok_game_rules(game)->shops.routine == COK_SHOPS_DEATH_KNIGHTS)
         dk_temple(game);
+    else if (cok_game_rules(game)->shops.routine == COK_SHOPS_DARK_QUEEN)
+        cok_dark_queen_temple(game);
     else
         temple(game);
 }

@@ -1269,6 +1269,47 @@ static cok_ecl_status dq_run(cok_adventure *adv, const uint8_t *code, size_t siz
 #define DQK_RUN(adv, ...) \
     dq_run(adv, (const uint8_t[]){__VA_ARGS__}, sizeof (const uint8_t[]){__VA_ARGS__})
 
+/* COMBAT with no monsters (dqk 5f07:081b's branches, in its order): the vault (var 0x31 1)
+ * stops, cited (771f:09a0); the temple (var 0x14 1) runs its menu, with no key the run goes on
+ * (the variable cleared, the mode 4 with no 3D area and variable 0x24 not 1, 3 where it is 1);
+ * with none wanted the treasure stops (75cc:135c). */
+static void test_dark_queen_no_monsters(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's no-monster COMBAT not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_VAULT, 1);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_VAULT) == 0);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 771f:09a0") != NULL);
+    CHECK(cok_ecl_var(&dqk.vm, COK_VAR_TEMPLE) == 1);
+
+    /* The temple: no key, so its menu runs out and the branch ends with status OK. */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_VAULT, 0);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && cok_ecl_var(&dqk.vm, COK_VAR_TEMPLE) == 0);
+    CHECK(dqk.vm.mode == 4); /* no 3D area (0x22 0) and variable 0x24 not 1 */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    cok_ecl_store(&dqk.vm, 0x24, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.mode == 3); /* the overland */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    cok_ecl_store(&dqk.vm, 0x22, 1); /* a 3D area: fought (the redraw), mode 4 */
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.mode == 4);
+    cok_ecl_store(&dqk.vm, 0x22, 0);
+    cok_ecl_store(&dqk.vm, 0x24, 0);
+
+    /* The treasure: nothing wanted, cited (75cc:135c). */
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
+}
+
 /* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the
  * MINOTAUR, then 170e's ten GORGONs (the icon in slot 10), and stops at the
  * battle (no party: over before any round, 5045:0001). CLEARMONSTERS then resets the slots and the undead count, as
@@ -1317,14 +1358,14 @@ static void test_dark_queen_appends(void)
 
     /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the
      * next icon slot back to 8 (the block's start, 6c70:0001, does the same). The
-     * records stay in the list. The next COMBAT with none loaded: the vault,
-     * temple and treasure stop, cited (5f07:081b). */
+     * records stay in the list. The next COMBAT with none loaded and no vault or
+     * temple wanted: the treasure stops, cited (5f07:081b's last branch, 75cc:135c). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
     CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5f07:081b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
 
     /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
      * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
@@ -1556,6 +1597,160 @@ static void test_dark_queen_picture_flags(void)
     CHECK(dqk.vm.status == COK_ECL_LOAD_FAILED);
     cok_adventure_close(&dqk);
 }
+/* The scripted keys for a temple test: s is read from the start. */
+static void keys_to(const char *keys)
+{
+    s.keys = keys;
+    s.at = 0;
+    s.length = strlen(keys);
+    s.log[0] = '\0';
+}
+
+/* The temple's keys: the bar's Heal, the list's Down (an extended key: 1 then 'P') down times,
+ * then end (Enter, Escape, No ...), in buf. */
+static void temple_keys(char *buf, size_t size, unsigned down, const char *end)
+{
+    size_t at = 0;
+    buf[at++] = 'h';
+    for (unsigned d = 0; d < down && at + 3 < size; ++d) {
+        buf[at++] = 1;
+        buf[at++] = 'P';
+    }
+    snprintf(buf + at, size - at, "%s", end);
+}
+
+/* dq_open with the scripted keys s: the adventure opened for a test that types the temple's keys. */
+static bool dq_open_keys(cok_adventure *adv)
+{
+    static cok_keyboard keys;
+    static cok_adventure_hooks hooks;
+    keys = (cok_keyboard){scripted, &s, NULL, NULL};
+    hooks = (cok_adventure_hooks){.log = log_line, .context = &s};
+    FILE *f = fopen("DQKAssets/DISK2/MONCHA.GLB", "rb");
+    if (f == NULL) return false;
+    fclose(f);
+    CHECK(cok_adventure_open(adv, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    adv->vm.file = 1;
+    adv->vm.status = COK_ECL_OK;
+    adv->wall_ids[0] = 4;
+    return true;
+}
+
+/* The temple's Heal (dqk 7825:0615): Heal picks the list's current cure, and each cure but Stone
+ * to Flesh stops, cited with its routine (0045, 00b8, 0193, 0394, 02c0, 0479, 059e). Stone to Flesh
+ * (0524): a member not stoned is asked and, for No, nothing changes and the list comes back; a
+ * stoned one is cured (status 0, active, 1 hit point); with a readied item of type 0x8c it stays
+ * stoned. */
+/* Whether an 8 by 8 cell of the adventure's screen (pixels at x, y) holds colour c. */
+static bool cell_holds(const cok_adventure *adv, int x, int y, uint8_t c)
+{
+    const cok_picture *pic = &adv->screen;
+    size_t stride = (size_t)pic->units * 8;
+    for (int dy = 0; dy < 8; ++dy)
+        for (int dx = 0; dx < 8; ++dx)
+            if (pic->pixels[((size_t)y + (size_t)dy) * stride + (size_t)x + (size_t)dx] == c)
+                return true;
+    return false;
+}
+
+static void test_dark_queen_heal(void)
+{
+    static cok_adventure dqk;
+    static const struct {
+        unsigned down;
+        const char *cite;
+    } stops[] = {{0, "dqk 7825:0045"}, {1, "dqk 7825:00b8"}, {2, "dqk 7825:0193"},
+                 {6, "dqk 7825:0394"}, {7, "dqk 7825:02c0"}, {8, "dqk 7825:0479"},
+                 {10, "dqk 7825:059e"}};
+    char keys[32];
+    static const char *const escape = "\x1b\x1b\x1b\x1b";
+    if (!dq_open_keys(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's Heal not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_game_rules(&dqk)->character;
+    cok_character *m = calloc(1, sizeof *m);
+    CHECK(m != NULL);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 9);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 3);
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 1);
+    CHECK(cok_party_add(&dqk.party, &cok_rules_dark_queen, m));
+    dqk.vm.character = m->record; /* the member the temple's Heal works on (the selection) */
+    for (size_t n = 0; n < sizeof stops / sizeof *stops; ++n) {
+        temple_keys(keys, sizeof keys, stops[n].down, "\r");
+        keys_to(keys);
+        cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+        DQK_RUN(&dqk, DQK_COMBAT);
+        CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+        CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), stops[n].cite) != NULL);
+        /* The wounded member's hit points (3 of 9) are black on the window's grey (0x17, bg 8),
+         * as 7825:0737-074b's colour byte 0x00 is drawn: the digit's cell holds the grey. */
+        if (n == 0) CHECK(cell_holds(&dqk, 8 * 0x12, 8 * 0x13, 0x17));
+    }
+
+    /* Stone to Flesh, not stoned: the question, No, then Escape leaves the list and the temple. */
+    temple_keys(keys, sizeof keys, 9, "\r");
+    snprintf(keys + strlen(keys), sizeof keys - strlen(keys), "n%s", escape);
+    keys_to(keys);
+    cok_field_set8(L, m->record, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 3);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.mode == 4);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_HIT_POINTS) == 3);
+
+    /* Stoned: cured, and the list comes back (Escape ends it, then the temple). */
+    temple_keys(keys, sizeof keys, 9, "\r");
+    snprintf(keys + strlen(keys), sizeof keys - strlen(keys), "%s", escape);
+    keys_to(keys);
+    cok_field_set8(L, m->record, COK_FIELD_STATUS, 7);
+    m->record[0x65] = 1; /* the status word's high byte: 7825:0588 writes it too */
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 0);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_STATUS) == 0);
+    CHECK(m->record[0x65] == 0);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_ACTIVE) == 1);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_HIT_POINTS) == 1);
+
+    /* Stoned with a readied item of type 0x8c (+0x37, readied +0x32): "spell dosn't work!",
+     * and the member stays stoned with its hit points. */
+    static uint8_t item[1][COK_ITEM_SIZE];
+    uint8_t (*saved)[COK_ITEM_SIZE] = m->items;
+    size_t saved_count = m->item_count;
+    memset(item, 0, sizeof item);
+    item[0][0x37] = 0x8c;
+    item[0][0x32] = 1;
+    m->items = item;
+    m->item_count = 1;
+    temple_keys(keys, sizeof keys, 9, "\r");
+    snprintf(keys + strlen(keys), sizeof keys - strlen(keys), "%s", escape);
+    keys_to(keys);
+    cok_field_set8(L, m->record, COK_FIELD_STATUS, 7);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 3);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_STATUS) == 7);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_HIT_POINTS) == 3);
+
+    /* The same item not readied (+0x32 0): it does not stop the cure. */
+    item[0][0x32] = 0;
+    keys_to(keys);
+    cok_field_set8(L, m->record, COK_FIELD_STATUS, 7);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 3);
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 0);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && cok_field_u8(L, m->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, m->record, COK_FIELD_HIT_POINTS) == 1);
+    m->items = saved;
+    m->item_count = saved_count;
+    cok_adventure_close(&dqk);
+}
+
 /* The placement's jump table (dqk 59c7:1abf): with SETUP MONSTERS' ambush DS:c2e7 at 0x20,
  * each hostile record of the first six takes its case's position (1abf's cases 0-5, 1acb to
  * 1b8e), and the battle, with no party, is over before any round (5045:0001). Six
@@ -1658,6 +1853,8 @@ int main(void)
     test_death_knights_monsters();
     test_dark_queen_monsters();
     test_dark_queen_appends();
+    test_dark_queen_no_monsters();
+    test_dark_queen_heal();
     test_dark_queen_jump_table();
     test_dark_queen_ambush_gorgons();
     test_dark_queen_clear_between();
