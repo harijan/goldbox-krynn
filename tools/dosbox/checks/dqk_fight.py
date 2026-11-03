@@ -357,12 +357,15 @@ COMBAT_SECONDS = 300
 # The battle's stop (step 4, part 10a): the battle starts, builds its battlefield, makes its combat
 # records (59c7:0f7b), places them (59c7:1864), sets the view's origin and redraws the arena (51c2:0c94),
 # runs 1dd7's tail (59c7:1e99), and then the round's start: 5045:059d's sides, 52db:0004 for each
-# combatant (initiative), 5045:0447's turn list. It stops at the first turn's dispatch, 5045:078b
-# (not ported yet). The original is trapped there too (TURN), so the whole state is final: the records,
+# combatant (initiative), 5045:0447's turn list. It stops at the first turn's cursor (BATTLE_STOP, below;
+# the dispatch 5045:078b comes after it). The original is trapped at 5045:078b too (TURN), so the whole state is final: the records,
 # blocks, combatants, occupants, the view, the turn list and RandSeed compare. The trap is set after
 # the block's last PRESS KEY, as 59c7 is loaded only once the battle starts.
-BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's first turn "
-               "(dqk 5045:078b, the first turn's dispatch)")
+# The first turn's stop (step 4, part 10b): 5045:078b's arena turn (5837:12f5, cursor on) draws the
+# cursor's box before the turn's dispatch (5045:08cf, 5bb8:0000: ported, with repo tests, as
+# round.c's cok_combat_act). The box is part 11's (arena.c's cursor, dqk 5837:00f4), so the battle
+# stops there, cited, until it lands; the dispatch is not reached in these flows yet.
+BATTLE_STOP = "error: the cursor's box is not drawn on this game's ground yet (dqk 5837:00f4)"
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and

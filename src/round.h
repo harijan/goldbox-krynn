@@ -77,6 +77,12 @@ void cok_combat_turn_order(cok_adventure *game);
  * 0 the computer (+0x18b) or the player acts for it. */
 bool cok_combat_turn(cok_adventure *game, cok_character *c);
 
+/* The dispatch of a turn that has one (5045:078b's 5bb8:0000 or 5045:08cf, Dark Queen's; the
+ * computer's and the player's turn otherwise, cok_combat_turn's act): computer is the record's
+ * computer flag. A descriptor's stop (computer_unported, menu_unported) returns false with the
+ * stop; a record that cannot act (+0x18b 0) at the menu returns true, its turn not ended. */
+bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer);
+
 /* 3995:0b6d: the end of a round. A minute passes (57e4:0549, every
  * record's effects counted down in mode 5), the round is counted
  * (DS:714b), the enemies' health worked out (432f:2df3); each record runs

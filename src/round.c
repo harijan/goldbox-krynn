@@ -851,8 +851,9 @@ void cok_combat_turn_order(cok_adventure *game)
  * --keys) the player's turns pass, the computer's are played; with --combat melee every turn attacks the
  * nearest enemy it can reach (cok_combat_melee), and with --combat pass
  * every turn passes, the computer's too. */
-static bool act(cok_adventure *game, cok_character *c, bool computer)
+bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer)
 {
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_character_layout *L = cok_game_rules(game)->character;
     char name[16], text[48];
     name_of(L, c->record, name);
@@ -863,6 +864,15 @@ static bool act(cok_adventure *game, cok_character *c, bool computer)
     if (stub == COK_COMBAT_PASS) {
         cok_combat_end_turn(c);
         return true;
+    }
+    /* Dark Queen's dispatch (5045:078b): the computer's turn is 5bb8:0000 (part 15); the
+     * party's is 5045:08cf, the command menu, which returns at once for a record that cannot act
+     * (+0x18b, ACTIVE 0). Both stop the run here, citing the routine. */
+    if (computer && R->computer_unported != NULL)
+        return cok_adventure_not_yet(game, "computer's turn", R->computer_unported);
+    if (!computer && R->menu_unported != NULL) {
+        if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) return true;
+        return cok_adventure_not_yet(game, "party's command menu", R->menu_unported);
     }
     if (computer) return cok_combat_computer(game, c);
     if (stub == COK_COMBAT_PLAYER) return cok_combat_commands(game, c, 0);
@@ -904,7 +914,7 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     if (!cok_arena_panel(game, c)) return false;
     if (!event(game, c, 0x0f)) return false;
     if (cr->spell == 0 && !event(game, c, 0x15)) return false;
-    if (cr->initiative > 0 && !act(game, c, cok_field_u8(L, r, COK_FIELD_COMPUTER) != 0))
+    if (cr->initiative > 0 && !cok_combat_act(game, c, cok_field_u8(L, r, COK_FIELD_COMPUTER) != 0))
         return false;
     return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
@@ -1117,8 +1127,6 @@ static bool rounds(cok_adventure *game)
         log_order(game);
         cok_character *c = combat->turn[1];
         combat->turn_index = 1;
-        if (c != NULL && R->turn_unported != NULL)
-            return cok_adventure_not_yet(game, "battle's first turn", R->turn_unported);
         while (c != NULL && !done && !vm->abort) {
             if (!cok_combat_turn(game, c) || (R->explode && !cok_combat_explode(game)))
                 return false;

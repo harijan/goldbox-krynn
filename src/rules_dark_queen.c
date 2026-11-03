@@ -629,7 +629,7 @@ const cok_rules cok_rules_dark_queen = {
      * (59c7:1dd7), redraws the arena (51c2:0c94: the icons are not drawn yet), and
      * sets each record's effect 8 (1e99's tail). The round's start (5045:059d's loop: the
      * sides, 52db:0004 and the initiative, 5045:0447's order) is made, and the battle
-     * stops before the first turn (5045:078b, the turn's dispatch, not ported yet). With
+     * stops at the first turn's cursor (5837:00f4, part 11) before the turn's dispatch (5045:078b). With
      * no monsters, COMBAT's vault (5f07:084b, 771f:09a0) and treasure (75cc:135c) stop,
      * cited; the temple (7825:0af6) runs (dark_queen.c). The encounter (SETUP MONSTERS,
      * APPROACH, the sprite and close-up) is ported. */
@@ -704,9 +704,10 @@ const cok_rules cok_rules_dark_queen = {
             .enemy_health_skip_status_9 = true,
             .sides_skip_status_9 = true,
             .sides_ambush_0x20 = true,
-            /* The first turn (5045:078b): the round's start is made, the turn list is
-             * sorted, and the battle stops before the first turn's dispatch. */
-            .turn_unported = "dqk 5045:078b, the first turn's dispatch",
+            /* Each turn (5045:078b): the computer's turn stops at 5bb8:0000, the party's at the
+             * command menu (5045:08cf) for a record that can act. */
+            .menu_unported = "dqk 5045:08cf, the command menu (part 22)",
+            .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
             .end_unported = "dqk 5045:0001, the battle's end before any round",
             .combat_block = &dark_queen_combat_block,
         },

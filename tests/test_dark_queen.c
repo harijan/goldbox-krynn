@@ -259,6 +259,55 @@ static void test_round_start_queen(void)
     cok_adventure_close(&game);
 }
 
+/* The first turn's dispatch (dqk 5045:078b) in Dark Queen's game: a party member that can act
+ * (+0x18b) stops at the command menu (5045:08cf), a computer's turn at 5bb8:0000, and a member
+ * that cannot act returns at once (08cf's test), with its initiative kept (no turn is ended). */
+static void test_turn_dispatch(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the turn's dispatch not checked");
+        return;
+    }
+    static cok_rules rules;
+    rules = *R;
+    rules.fight.cloud_tile = 0x1e;
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    CHECK(cok_adventure_open(&game, &rules, "DQKAssets", &keys, &hooks));
+    const cok_character_layout *L = R->character;
+    cok_character *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, R, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_combat *k = &game.combat;
+    memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
+    k->count = 1;
+    place(&game, c, 5, 5);
+    game.vm.seed = 1;
+    CHECK(cok_combat_round_start(&game, c));
+    c->combat->initiative = 5;
+    /* A party member that can act: the stop at the command menu, its turn not ended. */
+    CHECK(!cok_combat_act(&game, c, false));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5045:08cf") != NULL);
+    CHECK(c->combat->initiative == 5);
+    /* One that cannot act (+0x18b 0): the menu returns at once, and the turn goes on. */
+    game.vm.status = COK_ECL_OK;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+    CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
+    CHECK(c->combat->initiative == 5);
+    /* A computer's turn stops at 5bb8:0000. */
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    CHECK(!cok_combat_act(&game, c, true));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
+    cok_adventure_close(&game);
+}
+
 /* A copy of path as dir/name with the byte at offset made value (0 of
  * offset: unchanged). */
 static void copy_patched(const char *path, const char *dir, const char *name, size_t offset,
@@ -851,6 +900,7 @@ int main(void)
     test_party_again();
     test_added();
     test_round_start_queen();
+    test_turn_dispatch();
     puts("dark queen tests passed");
     return 0;
 }

@@ -1201,11 +1201,13 @@ typedef struct {
     /* The enemy health (52db:29f1, the side count's own test at 51c2:094c): a record of status 9
      * is left out of it (dqk; Champions and DKK count it). */
     bool enemy_health_skip_status_9;
-    /* The first turn's dispatch (dqk 5045:078b, after 51c2:0920, 52db:0004 and 5045:0447): where
-     * the battle stops before it, with its citation (NULL: none). A battle that is over before
-     * any round (a side gone at the start, 5045:059d's done) goes to its end (5045:0001), which
-     * is end_unported's citation: the end's effects are not ported. */
-    const char *turn_unported, *end_unported;
+    /* Each turn's dispatch (dqk 5045:078b, after 51c2:0920, 52db:0004 and 5045:0447): a
+     * computer's turn is 5bb8:0000 and a party's is the command menu, 5045:08cf, which returns at
+     * once for a record that cannot act (+0x18b). Reaching either stops the run there, with its
+     * citation (NULL: none). A battle that is over before any round (a side gone at the start,
+     * 5045:059d's done) goes to its end (5045:0001), which end_unported's citation stops: the
+     * end's effects are not ported. */
+    const char *menu_unported, *computer_unported, *end_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions
