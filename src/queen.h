@@ -73,6 +73,14 @@ void queen_prompt_box(cok_adventure *game, int x, const char *s, unsigned fg, un
  * code (Escape; with dirs the extended keys and Alt's), or -1. */
 int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                    size_t count, bool dirs);
+/* The command menu of a Dark Queen party member's turn (1bdb:1595 without its mouse areas,
+ * dqk 5045:0cd7): the items on the bottom bar in one row (BAR_ROW) when split < 0, else in two,
+ * the items up to split (the index of the '@' item) on row 178 and the rest from column 8 on row
+ * 190; no prompt, the extended keys, Escape and '`' as codes, and Space as 0x20 (no beep). It
+ * returns the item's index, a filtered key's code, or -1 when the keys ran out. */
+int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split);
+/* The command menu taken off (1bdb:03d7): the bottom bar, then FRAME 6 over the whole window. */
+void queen_combat_menu_close(cok_adventure *game);
 /* queen_bar_menu with areas of the screen after its buttons (1bdb:1429): a
  * click on one gives QUEEN_AREA + its index. */
 enum { QUEEN_AREA = 0x100 };
@@ -114,6 +122,10 @@ void queen_remove_icons(cok_adventure *game, const uint8_t *record);
  * the tests and eclplay --icons. */
 bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const uint8_t **record,
                 size_t *size);
+/* A Dark Queen party member's turn (dqk 5045:08cf, queen_commands.c): the command menu until a
+ * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). False
+ * where the run stopped; true, with the turn not ended, when the keys ran out. */
+bool queen_commands(cok_adventure *game, cok_character *c);
 /* A frame record (FRAME.TLB) or a record of ALWAYS.TLB drawn at pixel
  * row, col. */
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);

@@ -806,7 +806,24 @@ its entry, 0x144 on): the state is read where the dispatch starts. DS:ad67, the 
 first combatant (57fb:019e), and the records, blocks, combatants, battlefield, turn list and RandSeed (0x1756582c)
 are those at the turn. eclplay stops at the command menu (`5045:08cf`, cited: part 22), after the side panel
 (`177e:085f`, drawn by `combat_panel`), so its stop is compared with that state (`placement`). The computer's
-(`5045:0891`, `5bb8:0000`) is not checked: the first turn is the party's.
+(`5045:0891`, `5bb8:0000`) is not checked: the first turn is the party's. The menu's whole screen is
+compared too (`menu_screen_agrees`: the original's at its wait, 08cf given back and settled for a second, against
+eclplay's `--screen` at the menu's stop, the mouse pointer (8, 8, 10, 10) masked: 0 pixels). eclplay's menu line
+is `Aim Use Guard Quick@Delay View Speed End`, which the flow checks.
+
+Flow `keys` (step 4, part 22a: the command menu's keys). From the same first menu, End, Guard and Delay are each
+typed in their own run (`keys_original`: the menu as `dispatch` reads it, then the key). The original's turn tail
+is trapped at `5045:066a` (the lcall `148f:2ab8` right after 078b returns: `TURN` - 0x121 in the same copies), and
+its state read there: records, blocks, turn list, RandSeed and the whole screen. eclplay runs to the menu (its menu
+screen and state, as `placement`) and to the tail after the key (`tail_run`, stopped by `148f:2ab8`, the cited
+turn tail). Checked: the menu's line; the original's RandSeed past the menu (Guard: one draw, the message's wait;
+End and Delay none) and its DS:bd2d at the tail (End and Guard 1, Delay 0); the RandSeed, records, blocks (the named
+guarding, dying, hits, forced, turns and turning bytes), turn list and whole screen at the tail. Traps: 078b is given
+back before 08cf is spun; 066a is spun only after the key (the keyboard polls held over 0.6 s); the menu is given back
+(`write_paused`) and settled a second before its screenshot.
+Gap (not resolved): at the tail the original keeps the cursor's box (COMSPR 15) at the combatant's cell after 078b's
+tail redraw, while eclplay's `cok_arena_redraw_cell` erases it (356 pixels, the 24 by 24 cell at (104, 80)). The
+whole-screen compare masks that cell (`TAIL_CURSOR_CELL`); the menu's and the other screens are not masked there.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

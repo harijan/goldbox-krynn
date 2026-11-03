@@ -1589,9 +1589,11 @@ bool cok_combat_end(cok_adventure *game)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     /* Dark Queen's battle's end (5045:0001) has effects of its own: a cited stop. */
-    if (cok_game_rules(game)->combat.end_unported != NULL)
+    if (cok_game_rules(game)->combat.end_unported != NULL) {
+        if (game->vm.abort) return true; /* the keys ran out: the run is over */
         return cok_adventure_not_yet(game, "battle's end",
                                      cok_game_rules(game)->combat.end_unported);
+    }
     cok_cloud_free(&game->combat);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];

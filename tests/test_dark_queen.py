@@ -1322,21 +1322,29 @@ class DarkQueenTests(unittest.TestCase):
         # To Caergoth (the palace, Leave), its commands and steps (6fea:0365,
         # 0753) along the ruins to the dragons' fight: SETUP MONSTERS, APPROACH
         # and the sprite (step 4, part 6), then the battle, where the port stops.
-        result = self.play("--start-menu", "--keys",
-                           r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r", ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's party's command "
-                         "menu (dqk 5045:08cf, the command menu (part 22))\n")
+        walk = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT
+        result = self.play("--start-menu", "--keys", walk + r"\r", ASSETS)
+        # The keys run out at the first turn's command menu (5045:08cf), which ends the run.
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 4 at 8c20)")
+        self.assertIn("menu: Aim Use Guard Quick@Delay View Speed End",
+                      result.stdout.splitlines())
         moves = [line for line in result.stdout.splitlines()
                  if line.startswith(("step:", "turn:"))]
         self.assertEqual(len(moves), 30)
         self.assertEqual(moves[:3], ["step: 4,2 facing 2", "step: 5,2 facing 2",
                                      "step: 6,2 facing 2"])
         self.assertEqual(moves[-2], "step: 13,8 facing 2")
-        # The first turn: CINDER (initiative 8) draws the side panel and stops at the command menu.
-        self.assertEqual(moves[-1], "turn: 'CINDER' (initiative 8)")
+        # The first turn: TIMASALIN (initiative 9, the turn list's first) draws the side panel and
+        # reads the command menu; the keys run out there.
+        self.assertEqual(moves[-1], "turn: TIMASALIN (initiative 9)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
+        # End at that menu: the turn's tail is the next stop (148f:2ab8, the pending lists).
+        result = self.play("--start-menu", "--keys", walk + r"\rE", ASSETS)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("a turn's tail (dqk 148f:2ab8, 2c4f, 2d9b", result.stderr)
 
     def test_load_and_play(self):
         # eclplay --load SAVGAMA.QSV is the start menu's Load (cok_drawing.load),
@@ -1370,10 +1378,8 @@ class DarkQueenTests(unittest.TestCase):
                                  "--keys", walk, ASSETS),
                        self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTAB" + walk,
                                  ASSETS)):
-            self.assertEqual(result.returncode, 1)
-            self.assertEqual(result.stderr,
-                             "not yet ported: The Dark Queen of Krynn's party's command menu "
-                             "(dqk 5045:08cf, the command menu (part 22))\n")
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 4 at 8c20)")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
                                  for line in result.stdout.splitlines()), 30)
             # The whole walk from "protection:" on agrees, the turn order and the rounds included.

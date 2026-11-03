@@ -1099,6 +1099,11 @@ typedef struct {
      * for a negative one); attack_slot, movement and attacked are the record's +4, +6 and +8 in
      * the port. */
     uint8_t may_cast, may_use, initiative, initiative_high, attack_slot, movement, attacked;
+    /* The combat record's guarding, dying, hits, forced, turns and turning bytes (dqk +0x08,
+     * +0x0f, +0x10, +0x11, +0x12, +0x13: the port's cok_combat_record's, one byte on). Set by
+     * Dark Queen's command menu (queen_commands.c) and read by its conditions and the
+     * placement's checks; eclplay's --blocks writes them. */
+    uint8_t guarding, dying, hits, forced, turns, turning;
 } cok_combat_block;
 
 /* The encounter and the battle's frame where the games differ (monster.c,
@@ -1211,15 +1216,17 @@ typedef struct {
      * computer's turn is 5bb8:0000 and a party's is the command menu, 5045:08cf, for a record
      * that can act (+0x18b). A record that cannot act is ended at once (51c2:0c11, its turn
      * ended); one with a spell pending (its combat block's spell) is cast at 849a:145b
-     * (spell_unported) instead of the menu. Reaching any of these stops the run there, with its
-     * citation (NULL: none). The menu and the computer's are checked before --combat's stubs,
-     * so no stub passes a turn over them.
+     * (spell_unported) instead of the menu. Reaching a stop returns with its citation (NULL:
+     * none). menu_first: the party's turn is the commands' routine (cok_combat_commands, the
+     * command menu, 5045:08cf) and is dispatched before --combat's stubs, so no stub passes a
+     * turn over it. The computer's stop is checked before the stubs too.
      * After each turn (5045:059d's tail, before the sides and ends_in_round's early end),
      * turn_tail_unported stops at 148f:2ab8, 2c4f, 2d9b and 161b:05be. The round's end
      * (5045:0f6c, round_end_unported) and the battle's end (5045:0001, end_unported, also
      * before any round: 5045:059d's done) are Dark Queen's own routines, not the shared ones:
      * their effects (clouds, 0xb0 and 0xd0, the Continue question) are not ported. */
-    const char *menu_unported, *computer_unported, *spell_unported;
+    bool menu_first;
+    const char *computer_unported, *spell_unported;
     const char *turn_tail_unported, *round_end_unported, *end_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
@@ -1473,6 +1480,10 @@ typedef enum {
      * on it, and no Done; Move (3e05:10bb), aiming (5340:3888 with 36f2,
      * 34b3, 2bee, 2f3d, 2dca) and Speed (3e05:14aa) with menus by index. */
     COK_COMMANDS_DEATH_KNIGHTS,
+    /* dqk 5045:08cf: the command menu of 0cd7's items (Aim, Use, Guard, Quick, Delay, View, Speed,
+     * End, and the others when they hold), shown on the bottom bar in two rows (1bdb:1595), and
+     * its routines by index (queen_commands.c). */
+    COK_COMMANDS_DARK_QUEEN,
 } cok_commands_routine;
 
 /* The game's menu loop (menu.c): Champions' by the hotkeys' letters
