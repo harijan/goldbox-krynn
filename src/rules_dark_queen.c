@@ -566,6 +566,7 @@ const cok_rules cok_rules_dark_queen = {
             .name_address = 0x401, /* 6c70:0c18 */
             .special_stores_kept = true,
             .compare_and_unequal_strings = true, /* 5f07:05be */
+            .flags_cleared = 4,                  /* 5f07:05c4, 6c70:003b */
             .variable_bytes = 1, /* 6c70:0897, 06d2 */
             .vars = dark_queen_vars,
             .start_stores = dark_queen_start,
@@ -679,7 +680,8 @@ const cok_rules cok_rules_dark_queen = {
              * then the treasure; there is no shop branch (its shops open from STOCK). */
             .vault = true,
             .vault_unported = "dqk 771f:09a0 (the vault)",
-            .no_monsters_treasure_unported = "dqk 75cc:135c (the treasure)",
+            /* 75cc:135c, the treasure branch with no monsters (dark_queen.c). */
+            .no_monsters_treasure = COK_NO_MONSTERS_TREASURE_DARK_QUEEN,
             /* The mode after COMBAT (5f07:0917) and the overland's mark (5f07:0964). */
             .overland_var = 0x24,
             .overland_mark_unported = "dqk 7065:0011 (the party's place on the overland)",

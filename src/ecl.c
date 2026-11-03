@@ -1037,7 +1037,7 @@ static void run_opcode(cok_ecl *vm)
         vm->ip = vm->calls[--vm->depth];
         return;
     case COK_ECL_COMPARE_AND:
-        memset(vm->flags, 0, sizeof vm->flags);
+        memset(vm->flags, 0, vm->rules->ecl.flags_cleared);
         if (cok_ecl_operands(vm, 4) != COK_ECL_OK) return;
         if (same_pair(vm, 0) && same_pair(vm, 2))
             vm->flags[0] = true;
@@ -1147,7 +1147,7 @@ cok_ecl_status cok_ecl_start(cok_ecl *vm, bool reset_vars)
     vm->c059_changed = true;
     vm->ip = COK_ECL_BASE;
     vm->depth = 0;
-    memset(vm->flags, 0, sizeof vm->flags);
+    memset(vm->flags, 0, vm->rules->ecl.flags_cleared);
     for (unsigned i = 0; i < vm->rules->ecl.start_count; ++i)
         cok_ecl_set_var(vm, (cok_var)vm->rules->ecl.start[i].var, vm->rules->ecl.start[i].value);
     for (unsigned i = 0; i < vm->rules->ecl.start_store_count; ++i)

@@ -13,6 +13,8 @@ typedef struct cok_adventure cok_adventure;
 
 /* Which routine says whether a load is asked (cok_adventure_load_asked), or none. */
 typedef enum { COK_LOAD_ASKED_NONE, COK_LOAD_ASKED_DARK_QUEEN } cok_load_asked;
+/* COMBAT with no monsters' treasure branch (rules.h's combat no_monsters_treasure). */
+typedef enum { COK_NO_MONSTERS_TREASURE_NONE, COK_NO_MONSTERS_TREASURE_DARK_QUEEN } cok_no_monsters_treasure;
 
 /* What differs between the games the port plays: one descriptor a game,
  * chosen once at startup (--game) and reached through cok_game_rules (and,
@@ -405,6 +407,9 @@ typedef struct {
      * always (dqk 5f07:05be compares the slots' addresses, not their
      * strings, testing the first's type alone). */
     bool compare_and_unequal_strings;
+    /* How many of the flags COMPARE AND and a block's start clear, from flags[0] (dqk 5f07:05c4
+     * and 6c70:003b clear 4; Champions' and Death Knights' 6, as their fillchars do). */
+    uint8_t flags_cleared;
     /* The bytes a variable address holds: 2 where each holds a word
      * (Champions, 3775:0e06), 1 where each holds a byte and an operand of
      * type 2 and up reads and writes a little-endian word over two
@@ -1284,11 +1289,12 @@ typedef struct {
     uint8_t monster_records_max, monster_records_extra;
     const uint8_t (*extra_monsters)[2];
     uint8_t extra_monster_count, extra_monster_var, extra_monsters_appended;
-    /* COMBAT with no monsters loaded, the treasure branch (dqk 5f07:081b's last: 75cc:135c)
-     * where the port does not carry it out for the game yet (the text of what stops, or
-     * NULL), and the battle's routine the port does not carry out yet (dqk 5045:059d;
-     * NULL where the rounds are run). */
-    const char *no_monsters_treasure_unported, *battle_unported;
+    /* COMBAT with no monsters loaded, the treasure branch (dqk 5f07:081b's last: 75cc:135c),
+     * which the game runs itself (its enum; none: the shared end of combat), and the
+     * battle's routine the port does not carry out yet (dqk 5045:059d; NULL where the rounds
+     * are run). */
+    cok_no_monsters_treasure no_monsters_treasure;
+    const char *battle_unported;
     /* Where the mode after COMBAT is 3 only on the overland: with no 3D area (var COK_VAR_3D 0)
      * and this address 1 (dqk 5f07:0917-0949 read 0x24; the mode is 4 otherwise), or 0 where it
      * is 3 with no 3D area (Champions', Death Knights'). The overland's mark after a fight (dqk

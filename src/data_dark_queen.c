@@ -834,11 +834,17 @@ static const uint8_t footprints[96] = {
 };
 
 /* DS:00a1: the effects the battle removes, k 1-16 (dqk 148f:1b66 pushes DS:00a1 + k, its
- * low byte, 148f:017d compares it): element i is DS:00a1 + i + 1. The 18-entry list at
- * DS:631e + k that 75cc:06cb reads is not here: its role is not named. */
+ * low byte, 148f:017d compares it): element i is DS:00a1 + i + 1. */
 static const uint8_t battle_only[16] = {
     0x03, 0x03, 0x0b, 0x15, 0x17, 0x1b, 0x1e, 0x1f,
     0x23, 0x34, 0x4d, 0x6a, 0x6b, 0x6f, 0xb2, 0x76,
+};
+
+/* DS:631e + k, k 0-0x11: the effects 75cc:0593's loop 3 removes from each party record (06cb,
+ * 148f:017d compares the low byte). The table is not zero-ended: 0x85 at DS:6330 is not one. */
+const uint8_t cok_dark_queen_end_effects[COK_DARK_QUEEN_END_EFFECTS] = {
+    0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35,
+    0x78, 0x76, 0x6f, 0x6a, 0xb2, 0xb1, 0x95, 0x4d,
 };
 
 /* DS:6342: a cloud's cells' directions, k 1-9 (dqk 5837:13c4 in 5837:137a reads DS:6341 + k

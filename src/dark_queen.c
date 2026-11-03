@@ -2,6 +2,7 @@
 #include "dark_queen.h"
 
 #include "adventure.h"
+#include "data_dark_queen.h"
 #include "hlib.h"
 #include "magic.h"
 #include "queen.h"
@@ -131,6 +132,11 @@ typedef struct {
      * too, not ported. Cleared at the adventure's end (5f07:1338). Read by
      * 5f07:0940, not ported. */
     bool b7a7;
+    /* The end of combat's flags (75cc:135c, 0593): DS:af3f, a member standing (0593 calls 01fb,
+     * the experience, when it is set); DS:c7de, a member fled; DS:c7df, monsters present (11b0
+     * sets it, 135c clears it); DS:b1da, the members out. */
+    bool standing, fled, monsters_present;
+    uint8_t out;
     /* DS:acc4: a load asked from the adventure's camp (5f07:0004 sets it to 1;
      * 5f07:000f reads it at 5f07:1372). The loop loads it (5f07:137a), then
      * main takes the camp from main again (5ebd:0312). */
@@ -2581,9 +2587,9 @@ static bool opcode(cok_adventure *game)
         return true;
     }
     case COK_ECL_YES_NO: {
-        /* 5f07:13c4: 1bdb:0424, the flags cleared first (2093:0015). */
+        /* 5f07:13c4: 1bdb:0424, the flags cleared first (2093:0015 with 4: 13c8). */
         static const char *const items[] = {"Yes", "No"};
-        memset(vm->flags, 0, sizeof vm->flags);
+        for (int k = 0; k < 4; ++k) vm->flags[k] = false;
         log_menu(game, items, 2);
         int yes = yes_no(game, "", game->picture_shown);
         if (yes < 0) return true;
@@ -5254,6 +5260,119 @@ static bool stone_to_flesh(cok_adventure *game, cok_character *who)
 bool cok_dark_queen_load_asked(cok_adventure *game)
 {
     return own(game)->b7a7;
+}
+
+/* 75cc:0593's loops 1 and 3 stop at a record past the party: its combat record's not_party 1
+ * (cok_character_combat's zero block with none). The original reads that byte at 0000:0014 when
+ * the record has no combat block, as the end of combat with no monsters finds (every record's
+ * is NULL, measured): the IVT byte, 0x54, is not 1, so the loops take every record. */
+static bool past_party(const cok_character *c)
+{
+    return cok_character_combat(c)->not_party == 1;
+}
+
+/* The word at a one-byte field and the next byte: the status and hostile that 0593's cmpw tests
+ * (5b7-6ba, 680), not the byte alone. */
+static uint16_t word_field(const cok_character_layout *L, const uint8_t *r, cok_field f)
+{
+    size_t at = cok_field_offset(L, f);
+    return (uint16_t)(r[at] | r[at + 1] << 8);
+}
+
+/* 75cc:0593, the party's after combat (135c calls it unless the demonstration runs). It sets
+ * b1da, b7a7, c7de and af3f from the records (loops 1 to 3, as the original's), removes the
+ * effects that end with the battle (cok_dark_queen_end_effects) from each record, and stops
+ * where the experience (01fb, part 19b) runs, cited: at 0723 when a member stands, else at
+ * 0736 (the rest, part 19b). A record holding one of the effects stops first, cited (148f:017d,
+ * part 27). */
+static void after_combat(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    size_t n = game->party.count;
+    q->out = 0;                /* 599 */
+    q->b7a7 = true;            /* 59e */
+    q->fled = false;           /* 5a3 */
+    for (size_t i = 0; i < n && !past_party(game->party.members[i]); ++i) { /* loop 1, 5a8 */
+        uint8_t *r = cok_party_record(&game->party, i);
+        if (word_field(L, r, COK_FIELD_STATUS) == 3) q->fled = true;
+    }
+    bool found = false; /* loop 2, 5e5: the first member out, to the first found */
+    for (size_t i = 0; i < n && !found; ++i) {
+        uint8_t *r = cok_party_record(&game->party, i);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
+        found = cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0 || status == 3 || status == 4 ||
+                status == 5;
+    }
+    if (found && cok_ecl_load_var(vm, 0x1d) != 0) q->b7a7 = false; /* 633-644: var 0x1d */
+    q->standing = false;       /* 649 */
+    for (size_t i = 0; i < n && !past_party(game->party.members[i]); ++i) { /* loop 3, 665 */
+        cok_character *c = game->party.members[i];
+        uint8_t *r = cok_party_record(&game->party, i);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
+        bool npc = (cok_field_u8(L, r, COK_FIELD_NPC) & 0x80) != 0;
+        if ((status == 3 || status == 1 || status == 0) &&
+            word_field(L, r, COK_FIELD_HOSTILE) == 0 && !npc)
+            q->b7a7 = false; /* 67d-68f */
+        if (status == 1 || status == 0) { /* 694-6aa */
+            q->standing = true;
+            q->fled = false;
+        }
+        if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || status == 1) ++q->out; /* 6af-6c1 */
+        for (size_t k = 0; k < COK_DARK_QUEEN_END_EFFECTS; ++k)
+            if (cok_character_find_effect(c, cok_dark_queen_end_effects[k]) != NULL) {
+                cok_adventure_not_yet(game, "the treasure",
+                                      "dqk 148f:017d (an effect's end, part 27)");
+                return;
+            }
+    }
+    if (q->standing)
+        cok_adventure_not_yet(game, "the treasure",
+                              "dqk 75cc:01fb (0593's call at 0723: the experience, part 19b)");
+    else
+        cok_adventure_not_yet(game, "the treasure",
+                              "dqk 75cc:0736 (0593's rest: the party's, part 19b)");
+}
+
+/* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat
+ * come back (1297; none here, a list that is not empty stops), var 0x2e is cleared (136a), the
+ * flags = <> < > are cleared (2093:0015 with DS:b2f5 and 4: 136f), DS:c7df is cleared (1380),
+ * then 0593 unless the demonstration runs (1385; then 1390 on, part 19c, cited). */
+void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (game->lost_weapon_count != 0) {
+        cok_adventure_not_yet(game, "the treasure", "dqk 75cc:1297 (a weapon lost in combat "
+                                                    "goes back)");
+        return;
+    }
+    cok_ecl_set_var(vm, COK_VAR_SURPRISE, 0); /* 136a */
+    for (int k = 0; k < 4; ++k) vm->flags[k] = false; /* 136f */
+    own(game)->monsters_present = false; /* 1380: DS:c7df */
+    if (game->demo) {
+        cok_adventure_not_yet(game, "the treasure", "dqk 75cc:1390 (the demonstration's: mode 6 "
+                                                    "and 11b0, part 19c)");
+        return;
+    }
+    after_combat(game);
+}
+
+void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)
+{
+    own(game)->monsters_present = present;
+}
+
+cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game)
+{
+    cok_dark_queen_end_state s = {0};
+    if (game->own == NULL) return s;
+    s.standing = own(game)->standing;
+    s.fled = own(game)->fled;
+    s.monsters_present = own(game)->monsters_present;
+    s.out = own(game)->out;
+    s.b7a7 = own(game)->b7a7;
+    return s;
 }
 
 /* The temple (dqk 7825:0af6): "Heal View Repair Exit" by the bar's buttons, the party's list

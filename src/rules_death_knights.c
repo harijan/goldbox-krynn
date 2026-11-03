@@ -1570,6 +1570,7 @@ const cok_rules cok_rules_death_knights = {
              * 2, 7, none, 3 and 4 (+0x4a, 45, 4b, 47, 4c, 48, 49). */
             .class_bits = {5, 0, 6, 2, 7, 0xff, 3, 4},
             .compare_and_strings = true, /* 3632:0bed */
+            .flags_cleared = 6,          /* 3632:0bf3 */
             .delay_ms = 600,             /* 3632:1c90 */
             .menu_single_item = false,   /* 3632:11fd */
             .music_sounds = {0, 0x0c, 0x09, 0x04, 0x07, 0x0a, 0x0b}, /* DS:0002-0007 */
