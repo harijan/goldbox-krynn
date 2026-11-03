@@ -1317,7 +1317,7 @@ static void test_dark_queen_no_monsters(void)
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     dqk.lost_weapons = calloc(1, sizeof *dqk.lost_weapons);
     dqk.lost_weapon_count = 1;
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
@@ -1360,7 +1360,7 @@ static void test_dark_queen_experience(void)
     dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1;
     cok_ecl_store(&dqk.vm, 0x20, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_dark_queen_end_state_of(&dqk).out == 0);
@@ -1392,7 +1392,7 @@ static void test_dark_queen_experience(void)
     cok_field_set32(L, a->record, COK_FIELD_EXPERIENCE, 0);
     cok_field_set32(L, b->record, COK_FIELD_EXPERIENCE, 0);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0xffffffffu);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0xffffffffu);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 0);
@@ -1463,7 +1463,7 @@ static void test_dark_queen_pool_and_past_party(void)
     dq_clear_pool(&dqk);
     dq_pool_item(&dqk, 3);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 1200); /* 3 * 400 */
     dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 82;
     DQK_RUN(&dqk, DQK_COMBAT);
@@ -1493,7 +1493,7 @@ static void test_dark_queen_pool_and_past_party(void)
     cok_ecl_store(&dqk.vm, 0x20, 0);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0xffffffffu);
     dq_pool_item(&dqk, 82); /* -32736 over 0 */
     DQK_RUN(&dqk, DQK_COMBAT);
@@ -1520,21 +1520,19 @@ static void test_dark_queen_pool_and_past_party(void)
     cok_party_remove(&dqk.party, dqk.party.count - 1); /* c */
     CHECK(c != NULL && dqk.party.count == 2);
 
-    /* A record past the party: not hostile, or status 0, 3 or 9, sets nothing (c7df, the coins).
-     * a and b stand, so the experience runs and its share is 0 with nothing in the pool. */
+    /* A record past the party: not hostile, or status 0, 3 or 9, adds no coins and no sum (01fb).
+     * 11b0 still removes it (its not_party 1, part 19d) and sets DS:c7df. a and b stand, so the
+     * experience runs and its share is 0 with nothing in the pool. */
     cok_ecl_store(&dqk.vm, 0x20, 2);
-    static const uint8_t quiet[] = {0, 3, 9};
+    static const uint8_t quiet[] = {0, 3, 9, 2};
     for (size_t k = 0; k < sizeof quiet; ++k) {
         dq_clear_pool(&dqk);
-        cok_character *p = dq_past_party(&dqk, quiet[k]);
         cok_dark_queen_set_monsters_present_for_test(&dqk, false);
+        cok_character *p = dq_past_party(&dqk, quiet[k]);
+        if (k == sizeof quiet - 1) cok_field_set8(L, p->record, COK_FIELD_HOSTILE, 0);
         DQK_RUN(&dqk, DQK_COMBAT);
-        CHECK(!cok_dark_queen_end_state_of(&dqk).monsters_present && dqk.pool.coins[4] == 0);
-        cok_field_set8(L, p->record, COK_FIELD_HOSTILE, 0);
-        cok_field_set8(L, p->record, COK_FIELD_STATUS, 2);
-        DQK_RUN(&dqk, DQK_COMBAT);
-        CHECK(!cok_dark_queen_end_state_of(&dqk).monsters_present && dqk.pool.coins[4] == 0);
-        cok_party_remove(&dqk.party, dqk.party.count - 1);
+        CHECK(dqk.pool.coins[4] == 0 && cok_dark_queen_end_state_of(&dqk).monsters_present);
+        CHECK(dqk.party.count == 2); /* 11b0 removed p */
     }
 
     /* A record past the party, hostile with status 2: its coins (5, 7, 11) go to the pool's 4-6
@@ -1544,27 +1542,31 @@ static void test_dark_queen_pool_and_past_party(void)
     cok_dark_queen_set_monsters_present_for_test(&dqk, false);
     cok_character *p = dq_past_party(&dqk, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(dqk.pool.coins[4] == 5 && dqk.pool.coins[5] == 7 && dqk.pool.coins[6] == 11);
     CHECK(cok_dark_queen_end_state_of(&dqk).monsters_present);
     CHECK(cok_dark_queen_end_state_of(&dqk).share ==
           (uint32_t)((100 + 5 * 2 + 7 * 250 + 11 * 2200) / 2));
 
     /* Its item: var 0x1e keeps it (2a5, no stop); without, its first item not 'i' (+0x28 not
-     * 0x69) stops at 01fb's item move (02cb, cited); 'i' is no move. */
+     * 0x69) stops at 01fb's item move (02cb, cited) before 11b0 removes the record; 'i' is no
+     * move. Each run after one that removes the record is given a new one. */
     uint8_t it[COK_ITEM_SIZE] = {0};
     it[cok_rules_dark_queen.item_record.type] = 0x27;
+    p = dq_past_party(&dqk, 2);
     CHECK(cok_character_insert_item(p, p->item_count, it));
     cok_ecl_store(&dqk.vm, 0x1e, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     cok_ecl_store(&dqk.vm, 0x1e, 0);
+    p = dq_past_party(&dqk, 2);
+    CHECK(cok_character_insert_item(p, p->item_count, it));
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
           strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:02cb") != NULL);
     p->items[0][cok_rules_dark_queen.item_record.type] = 0x69;
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
 }
 
 /* TREASURE ITEMS (6c70:2127, dark_queen.c's treasure_items): the header's three words (word 1000,
@@ -1617,7 +1619,7 @@ static void test_dark_queen_after_combat(void)
     cok_ecl_store(&dqk.vm, 0x20, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0);
     CHECK(!dqk.vm.flags[0] && !dqk.vm.flags[1] && !dqk.vm.flags[2] && !dqk.vm.flags[3]);
     CHECK(dqk.vm.flags[4] && dqk.vm.flags[5]);
@@ -1630,7 +1632,7 @@ static void test_dark_queen_after_combat(void)
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 3);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.standing && st.fled && st.out == 0 && !st.b7a7);
 
@@ -1643,7 +1645,7 @@ static void test_dark_queen_after_combat(void)
     cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(!st.standing && !st.fled && st.out == 2 && st.b7a7);
     CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
     a = dq_member(&dqk, 2, 0);
@@ -1661,7 +1663,7 @@ static void test_dark_queen_after_combat(void)
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.b7a7 && st.out == 1 && dqk.party.count == 2);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "13a4") != NULL);
     cok_ecl_store(&dqk.vm, 0x1d, 0);
 
     /* The status and hostile are words (0593's cmpw, 5b7 and 680): a high byte of 1 makes
@@ -1678,7 +1680,7 @@ static void test_dark_queen_after_combat(void)
     a->record[0x67] = 1;
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(!st.standing && st.b7a7 && st.out == 1); /* b is inactive: out; a is not */
 
     /* An effect that ends with the battle (0x03, the first of DS:631e) on a record stops at
@@ -1691,7 +1693,7 @@ static void test_dark_queen_after_combat(void)
     cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 1);
     CHECK(cok_character_add_effect(b, 0x01, 0, 0, false) != NULL);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_character_add_effect(a, 0x03, 0, 0, false) != NULL);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
@@ -1707,6 +1709,42 @@ static void test_dark_queen_after_combat(void)
     CHECK(cok_dark_queen_end_state_of(&dqk).b7a7 == st.b7a7 &&
           cok_dark_queen_end_state_of(&dqk).out == st.out);
     dqk.demo = false;
+    cok_party_free(&dqk.party);
+}
+
+/* 75cc:11b0, after 0593 (135c, part 19d): a record past the party (its combat record's not_party
+ * 1) is removed without the party's size (177e:1e31's first argument 1), and a hostile record in
+ * the party (hostile word 1, inactive) is removed with it one less (its variable 0x20 counts 3
+ * down to 2 once; the record past the party leaves it at 2). DS:c7df is set by either, variable
+ * 0x15 counts the inactive one, the selection ends on the first record (1287), and a record that
+ * stays loses its combat block (123b-126a). The stop is at 135c's 13a4. */
+static void test_dark_queen_enemies(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's enemies not run");
+        return;
+    }
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_party_free(&dqk.party);
+    cok_character *a = dq_member(&dqk, 0, 1);
+    cok_character *h = dq_member(&dqk, 2, 0);
+    cok_field_set8(L, h->record, COK_FIELD_HOSTILE, 1);
+    cok_character *b = dq_member(&dqk, 0, 1);
+    dq_past_party(&dqk, 0); /* m: a monster past the party, active */
+    a->combat = calloc(1, sizeof *a->combat);
+    CHECK(a->combat != NULL);
+    cok_ecl_store(&dqk.vm, 0x20, 3);
+    cok_dark_queen_set_monsters_present_for_test(&dqk, false);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
+    CHECK(dqk.party.count == 2 && dqk.party.members[0] == a && dqk.party.members[1] == b);
+    CHECK(cok_ecl_load_var(&dqk.vm, 0x15) == 1); /* h, inactive; m is active */
+    CHECK(cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 2); /* h counted, m not */
+    CHECK(cok_dark_queen_end_state_of(&dqk).monsters_present);
+    CHECK(dqk.vm.character == a->record); /* 1287, after b's selection (1f07) */
+    CHECK(a->combat == NULL);
     cok_party_free(&dqk.party);
 }
 
@@ -1732,7 +1770,7 @@ static void test_dark_queen_rest(void)
 
     /* Status 4, no hit points, var 0x1d clear: stays 4 (7a4, 7ca). */
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 4);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_ACTIVE) == 0);
 
@@ -1774,13 +1812,14 @@ static void test_dark_queen_rest(void)
     dqk.vm.character = c->record; /* the selection on the member removed (7d8) */
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(st.fled && !st.b7a7 && dqk.party.count == before - 1);
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 2);
     CHECK(cok_field_u8(L, a->record, COK_FIELD_STATUS) == 0);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
-    /* 1f07-1f31: the selection is the one before the removed member, b (not NULL). */
-    CHECK(dqk.vm.character == b->record);
+    /* 1f07-1f31 leave the selection on b (the one before c), but 11b0 then sets the first
+     * record (1287: a), which the stop shows. */
+    CHECK(dqk.vm.character == a->record);
     cok_party_free(&dqk.party);
 
     /* m1: a lost party (818-86e) leaves var 0x20 at 0 whatever it was: 9 less two removals
@@ -1789,7 +1828,7 @@ static void test_dark_queen_rest(void)
     b = dq_member(&dqk, 2, 0);
     cok_ecl_store(&dqk.vm, 0x20, 9);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
     CHECK(cok_dark_queen_end_state_of(&dqk).b7a7);
     cok_party_free(&dqk.party);
@@ -1801,20 +1840,23 @@ static void test_dark_queen_rest(void)
     cok_ecl_store(&dqk.vm, 0x20, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     CHECK(!st.fled && !st.b7a7 && dqk.party.count == 2);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_ACTIVE) == 1);
     cok_party_free(&dqk.party);
 
     /* m4: loop A stops at a record past the party (804-810): a status 4 member with hit points
-     * past it is not revived. */
+     * after it is not revived. The record past the party is removed by 11b0 (part 19d), so the
+     * member after it, c, shows the stop: c keeps status 4. */
     a = dq_member(&dqk, 0, 1);
-    cok_character *p = dq_past_party(&dqk, 4);
-    cok_field_set8(L, p->record, COK_FIELD_HIT_POINTS, 5);
+    dq_past_party(&dqk, 4);
+    cok_character *k4 = dq_member(&dqk, 4, 1);
+    cok_field_set8(L, k4->record, COK_FIELD_HIT_POINTS, 5);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
-    CHECK(cok_field_u8(L, p->record, COK_FIELD_STATUS) == 4);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
+    CHECK(dqk.party.count == 2 && dqk.party.members[1] == k4);
+    CHECK(cok_field_u8(L, k4->record, COK_FIELD_STATUS) == 4);
     cok_party_free(&dqk.party);
 
     /* A knight of no order (+0xa6 1, order +0x19a 0): the award's may-train (177e:1fe5) stops
@@ -1885,19 +1927,14 @@ static void test_dark_queen_appends(void)
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
     /* The records are past the empty party, so loops 1 and 3 take none (59c7:0f7b, 0fec):
-     * the blocks are the first COMBAT's, left by the battle that stopped at 5045:0001 (11b0
-     * frees them, part 19c, after 0593). Loop 2 has no such test: it finds record 0 (active),
-     * and var 0x1d is 0, so b7a7 stays set (59e, 633). */
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+     * the blocks are the first COMBAT's, left by the battle that stopped at 5045:0001. Loop 2
+     * has no such test: it finds record 0 (active), and var 0x1d is 0, so b7a7 stays set
+     * (59e, 633). Then 11b0 removes the 13 monsters (part 19d): the party is empty, DS:c7df
+     * is set, and the stop is at 13a4. */
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:13a4") != NULL);
     cok_dark_queen_end_state st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.standing && !st.fled && st.out == 0 && st.b7a7);
-    /* With var 0x1d set, loop 2 clears b7a7 on the same record: it walks past the party. */
-    cok_ecl_store(&dqk.vm, 0x1d, 1);
-    DQK_RUN(&dqk, DQK_COMBAT);
-    st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
-    CHECK(!st.standing && !st.b7a7 && st.out == 0);
-    cok_ecl_store(&dqk.vm, 0x1d, 0);
+    CHECK(dqk.party.count == 0 && st.monsters_present);
 
     /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
      * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
@@ -2406,6 +2443,7 @@ int main(void)
     test_dark_queen_appends();
     test_dark_queen_no_monsters();
     test_dark_queen_after_combat();
+    test_dark_queen_enemies();
     test_dark_queen_rest();
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();

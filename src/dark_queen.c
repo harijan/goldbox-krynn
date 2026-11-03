@@ -2135,7 +2135,7 @@ static void camp_program(cok_adventure *game)
     if (q->b7a7) vm->halt = true; /* a load asked: the adventure's loop loads it */
 }
 
-static void remove_selected(cok_adventure *game);
+static void remove_selected(cok_adventure *game, bool counted);
 static void bar_message(cok_adventure *game, const char *s);
 
 /* Alt's items (7070:1ce2; DS:5220): "Order Drop Speed Icon Level Exit". */
@@ -2248,7 +2248,7 @@ static bool alt_drop(cok_adventure *game)
         snprintf(text, sizeof text, active ? "%s bids you farewell." : "You dump %s out back.",
                  name);
         bar_message(game, text);
-        remove_selected(game);
+        remove_selected(game, true);
     }
     party_list(game);
     return !vm->abort;
@@ -4033,10 +4033,10 @@ static bool save_game(cok_adventure *game)
     return true;
 }
 
-/* The selected member removed (177e:1e31 with 0, 1): the selection the
- * one before it, or after it where it was the first, or the first; the
- * party's size (variable 0x20) one less. */
-static void remove_selected(cok_adventure *game)
+/* The selected member removed (177e:1e31): the selection the one before it, or after it where
+ * it was the first, or the first; the party's size (variable 0x20) one less when counted (1f12:
+ * 1e31's first argument 0; 11b0 passes 1 for a record past the party). */
+static void remove_selected(cok_adventure *game, bool counted)
 {
     cok_ecl *vm = &game->vm;
     size_t i = cok_party_index(&game->party, vm->character);
@@ -4044,7 +4044,7 @@ static void remove_selected(cok_adventure *game)
     queen_remove_icons(game, vm->character); /* 177e:1e9d's flag 1 (204c:004d) */
     cok_party_remove(&game->party, i);
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
-    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
+    if (counted) cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
 }
 
 /* 604b:23a7 with no name: the character written to the save path as
@@ -4104,7 +4104,7 @@ static bool remove_character(cok_adventure *game)
         return false;
     }
     if (!write_character(game, game->party.members[i])) return false;
-    remove_selected(game);
+    remove_selected(game, true);
     return true;
 }
 
@@ -5422,7 +5422,7 @@ static bool award(cok_adventure *game)
 static void remove_member(cok_adventure *game, size_t i)
 {
     game->vm.character = cok_party_record(&game->party, i);
-    remove_selected(game);
+    remove_selected(game, true);
 }
 
 /* 7bb and 777's revive: status 0 and active (+0x18b); 777 also sets the hit points (+0x198). */
@@ -5431,6 +5431,37 @@ static void revive(const cok_character_layout *L, uint8_t *r, bool hit_points)
     cok_field_set8(L, r, COK_FIELD_STATUS, 0);
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
     if (hit_points) cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+}
+
+/* 75cc:11b0, after 0593 (135c): each monster (its combat record's not_party 1, or hostile word
+ * 1) sets DS:c7df, counts in variable 0x15 (DROPPED) when it is not active (+0x18b), and is
+ * removed (177e:1e31 with the first argument its not_party test: the party's size is one less
+ * only for a record in the party). Every other record loses its combat block (1df9:03c1 frees
+ * the 0x18 bytes at +0x40; +0x40 and +0x42 are 0). The selection ends on the first record
+ * (1287). Records are walked by index, a removal leaving the next record at the same index. */
+static void enemies_removed(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_ecl_store(vm, 0x15, 0); /* 11ba */
+    for (size_t i = 0; i < game->party.count;) {
+        cok_character *c = game->party.members[i];
+        uint8_t *r = cok_party_record(&game->party, i);
+        bool not_party = cok_character_combat(c)->not_party == 1; /* 11d3 */
+        if (not_party || word_field(L, r, COK_FIELD_HOSTILE) == 1) {
+            q->monsters_present = true; /* 11e4: DS:c7df */
+            if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) /* 11f4: the byte at 0x15 + 1 */
+                cok_ecl_store(vm, 0x15, (uint8_t)(cok_ecl_load_var(vm, 0x15) + 1));
+            vm->character = r;                 /* 1208: DS:ad67 */
+            remove_selected(game, !not_party); /* 1229: 1e31(not_party, 1) */
+            continue;
+        }
+        free(c->combat); /* 123b-126a: the combat block back to its pool */
+        c->combat = NULL;
+        ++i;
+    }
+    vm->character = cok_party_record(&game->party, 0); /* 1287: DS:ad67 = the first record */
 }
 
 /* 75cc:0736 with no load asked (DS:b7a7 clear: a member stands), loop A: each record until one
@@ -5535,8 +5566,8 @@ static bool after_combat(cok_adventure *game)
 /* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat
  * come back (1297; none here, a list that is not empty stops), var 0x2e is cleared (136a), the
  * flags = <> < > are cleared (2093:0015 with DS:b2f5 and 4: 136f), DS:c7df is cleared (1380),
- * then 0593 unless the demonstration runs (1385; then 1390 on, part 19c, cited). After 0593 the
- * mode is 6 (1390) and the stop is at 11b0 (the enemies removed, part 19c). */
+ * then 0593 unless the demonstration runs (1385; then 1390 on, part 19d, cited). After 0593 the
+ * mode is 6 (1390), 11b0 removes the enemies, and the stop is at 13a4 (135c's loop after it). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -5550,13 +5581,14 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
     own(game)->monsters_present = false; /* 1380: DS:c7df */
     if (game->demo) {
         cok_adventure_not_yet(game, "the treasure", "dqk 75cc:1390 (the demonstration's: mode 6 "
-                                                    "and 11b0, part 19c)");
+                                                    "and 11b0, part 19d)");
         return;
     }
     if (!after_combat(game)) return;
     vm->mode = 6; /* 1390: DS:ae57 */
-    cok_adventure_not_yet(game, "the treasure", "dqk 75cc:11b0 (135c's call after 0593: the "
-                                                "enemies removed, part 19c)");
+    enemies_removed(game);
+    cok_adventure_not_yet(game, "the treasure", "dqk 75cc:13a4 (135c after 11b0: the loop of "
+                                                "177e:0be2 over the records, part 19d)");
 }
 
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)
