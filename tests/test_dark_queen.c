@@ -6,6 +6,7 @@
  * saved game in DQKAssets/ (the checks needing either are skipped, with a
  * line saying so, where it is not there). */
 #include "adventure.h"
+#include "arena.h"
 #include "combat.h"
 #include "ecl.h"
 #include "data_dark_queen.h"
@@ -1125,6 +1126,108 @@ static void test_combat_frame(void)
     cok_adventure_close(&game);
 }
 
+/* Whether any pixel of cells x1-x2 in row (8 by 8 pixels a cell) is colour. */
+static bool row_has(const cok_adventure *game, int x1, int x2, int row, uint8_t colour)
+{
+    for (int y = 8 * row; y < 8 * row + 8; ++y)
+        for (int x = 8 * x1; x < 8 * (x2 + 1); ++x)
+            if (game->screen.pixels[y * 320 + x] == colour) return true;
+    return false;
+}
+
+/* Whether any pixel of cells 23-38 in row differs from the window's grey. */
+static bool ink_row(const cok_adventure *game, int row)
+{
+    for (int y = 8 * row; y < 8 * row + 8; ++y)
+        for (int x = 8 * 23; x < 8 * 39; ++x)
+            if (game->screen.pixels[y * 320 + x] != 0x17) return true;
+    return false;
+}
+
+/* The time the text's delay waited (hooks.delay): the weapon's name is printed without it. */
+static unsigned waited_ms;
+
+static void count_delay(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)game;
+    (void)context;
+    waited_ms += ms;
+}
+
+/* The side panel (dark_queen.c's combat_panel, cok_arena_panel's hook, 177e:085f): cells 23-38 by
+ * 1-21 cleared to the window's grey, the name on row 1, "Hitpoints" and "AC" on rows 3 and 5,
+ * the hit points in light cyan below the most (colour 0x0b), the armour class "-2" at 62, the
+ * readied weapon's name on row 7 (at once, no delay), the casting line two rows below its last
+ * row (row 9 for CINDER's one-line name, row 7 with none), and nothing else in the panel.
+ * Skipped without DQKAssets/. */
+static void test_combat_panel(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the side panel not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    hooks.delay = count_delay;
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 2); /* the text's delay, 6 ms a character if slow */
+    const cok_character_layout *L = R->character;
+    cok_character *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, R, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 7);
+    cok_field_set8(L, r, COK_FIELD_AC, 62);
+    game.vm.mode = 5;
+    memset(game.screen.pixels, 0x00, 320 * 200);
+    game.combat.panel = true;
+    CHECK(cok_arena_panel(&game, c) && !game.combat.panel);
+    /* CINDER's readied weapon is on row 7 (its name, grey), the status line is not due. */
+    CHECK(ink_row(&game, 1) && ink_row(&game, 3) && ink_row(&game, 5) && ink_row(&game, 7));
+    CHECK(!ink_row(&game, 2) && !ink_row(&game, 4) && !ink_row(&game, 6));
+    CHECK(!ink_row(&game, 8) && !ink_row(&game, 21));
+    CHECK(row_has(&game, 23, 31, 3, 0x07) && !row_has(&game, 23, 38, 3, 0x0a));
+    CHECK(row_has(&game, 33, 35, 3, 0x0b));
+    CHECK(row_has(&game, 23, 24, 5, 0x07) && row_has(&game, 26, 27, 5, 0x07));
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 10);
+    game.combat.panel = true;
+    CHECK(cok_arena_panel(&game, c));
+    CHECK(!row_has(&game, 33, 35, 3, 0x0b) && row_has(&game, 33, 34, 3, 0x07));
+    /* A combatant who casts: "(Casting)" on row 9, two below CINDER's one-line weapon name's
+     * row 7, in light cyan. */
+    c->combat->spell = 3;
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 7);
+    memset(game.screen.pixels, 0x00, 320 * 200);
+    game.combat.panel = true;
+    CHECK(cok_arena_panel(&game, c) && row_has(&game, 23, 38, 9, 0x0b));
+    CHECK(!row_has(&game, 23, 38, 7, 0x0b) && !ink_row(&game, 8));
+    /* With no readied weapon (slot 0 of the battle's items cleared) the line is on row 7. */
+    size_t slot = c->slots[0];
+    c->slots[0] = 0;
+    memset(game.screen.pixels, 0x00, 320 * 200);
+    game.combat.panel = true;
+    CHECK(cok_arena_panel(&game, c) && row_has(&game, 23, 38, 7, 0x0b));
+    CHECK(!ink_row(&game, 9) && !ink_row(&game, 8));
+    c->slots[0] = slot;
+    c->combat->spell = 0;
+    /* A readied weapon's name (CINDER's, slot 0) is drawn on row 7 from column 23 in grey
+     * (177e:0311), at once (no delay), and with no status nothing else is drawn on row 7. */
+    CHECK(c->slots[0] != 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    memset(game.screen.pixels, 0x00, 320 * 200);
+    game.combat.panel = true;
+    waited_ms = 0;
+    CHECK(cok_arena_panel(&game, c) && ink_row(&game, 7) && row_has(&game, 23, 38, 7, 0x07));
+    CHECK(waited_ms == 0);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_wilderness();
@@ -1141,6 +1244,7 @@ int main(void)
     test_join_icons();
     test_loaded_slots();
     test_combat_frame();
+    test_combat_panel();
     test_round_start_queen();
     test_turn_dispatch();
     puts("dark queen tests passed");

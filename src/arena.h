@@ -187,7 +187,8 @@ bool cok_arena_join(cok_adventure *game, uint8_t file);
  * in columns 23-38 from row 7; then two rows below the text's last, in
  * white, its status (DS:1330) if it cannot act, "(Helpless)" if it has
  * effect 0x1f or 0x33-0x35 (6346:0cdb), or "(Casting)" while it casts a
- * spell. */
+ * spell. A game that draws its own ground may draw it in its own hook
+ * (cok_drawing.arena_panel: Dark Queen's, 177e:085f). */
 bool cok_arena_panel(cok_adventure *game, cok_character *c);
 
 /* Say text about c (6346:1883): in combat its name (6346:199d) at column
