@@ -712,6 +712,16 @@ const cok_rules cok_rules_dark_queen = {
              * command menu (5045:08cf) for a record that can act, or at 849a:145b for one with a
              * spell pending (cast; not ported). A record that cannot act is ended at 08cf's
              * 51c2:0c11, which is cok_combat_end_turn. */
+            /* The menu, verified by disassembly (part 22a): 5045:08cf's loop (0925) runs 0cd7,
+             * which builds the menu at the combatant's cell (1bdb:0005 per item, the window
+             * library's 1595 shows it: not ported) and gives the result (0-12, Move..End of
+             * DS:50b3). The result jumps by 0925's table: Move 0b8b, Aim 0976, Use 099d, Cast
+             * 09b1, Turn 09c7, Guard 0a19 (51c2:0c52, Guarding at DS:5a2a; reads +0x11, not
+             * yet known for Dark Queen), Quick 0a2c, Delay 0a60 (initiative 1, the turn list
+             * shifted: the shared delay), Bandage 0adb, Yell 0ae9, View 0af8, Speed 0b22
+             * (166c), End 0b29 (51c2:0c11 = cok_combat_end_turn). With DS:c2f5 set the result
+             * is a key code instead, matched by 0b3c's table: 0x20, 0x81-0x88, 0xc0, 0xcc, 0xd0,
+             * 0xd7. Each item's stop, and the loop's redraw (12f5, 177e:085f), are cited. */
             .menu_unported = "dqk 5045:08cf, the command menu (part 22)",
             .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
             .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
