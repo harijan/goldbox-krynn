@@ -79,8 +79,9 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c);
 
 /* The dispatch of a turn that has one (5045:078b's 5bb8:0000 or 5045:08cf, Dark Queen's; the
  * computer's and the player's turn otherwise, cok_combat_turn's act): computer is the record's
- * computer flag. A descriptor's stop (computer_unported, menu_unported, spell_unported) returns
- * false with the stop, and those are checked before the --combat stubs. A record that cannot act
+ * computer flag. With the descriptor's menu_first the party's turn is cok_combat_commands (the
+ * command menu), before the --combat stubs; a descriptor's stop (computer_unported,
+ * spell_unported) returns false with the stop, checked before them too. A record that cannot act
  * (+0x18b 0) at the menu has its turn ended (51c2:0c11, cok_combat_end_turn) and returns true. */
 bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer);
 

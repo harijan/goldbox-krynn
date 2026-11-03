@@ -108,6 +108,7 @@ Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs.""
 import argparse
 import json
 import pathlib
+import re
 import shutil
 import struct
 import subprocess
@@ -391,8 +392,10 @@ COMBAT_SECONDS = 300
 # combat_panel, ported), then the turn's dispatch (5045:08cf: the first combatant is a party
 # member (TIMASALIN or BALTHIR NOMOON in these flows; CINDER in the repo test's walk), so its
 # command menu is next, cited as part 22; the computer's turn 5bb8:0000 is not reached). eclplay stops there: the `dispatch` flow compares the original's state at 08cf with it.
-BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's party's command menu (dqk 5045:08cf, "
-               "the command menu (part 22))")
+# The first turn's command menu (5045:08cf, queen_commands.c) is read; the keys run out there, so
+# eclplay ends the battle with the out-of-keys line, at the block-1 IP the menu's read stops at (it
+# differs per flow: 802c, 8030, 8048, ...). No error line is written.
+BATTLE_STOP = re.compile(r"\(out of keys in block 1 at [0-9a-f]{4}\)")
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -619,13 +622,14 @@ def load_run(v, work, opts, flow, difficulty):
     v.check(len(port_vars) == dqk_ecl.VARIABLES and tuple(diff) == PORT_GAPS,
             f"eclplay's variables at the placement agree with the original's "
             f"(PORT_GAPS){tag}", f"differ: {' '.join(f'{a:#x}' for a in diff)}")
-    v.check(port_last == BATTLE_STOP, f"eclplay stops at the battle (not yet ported){tag}",
+    v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
+            f"eclplay ends at the battle's command menu (out of keys){tag}",
             port_last)
     # No icon error: the monsters' icons load as they register (CPIC, dark_queen.c's
     # icon_load), so the transcript's only error line is the battle's stop.
     transcript = (work / f"port-{name}.txt").read_text().splitlines()
     errors = [line for line in transcript if line.startswith("error:")]
-    v.check(errors == [BATTLE_STOP], f"eclplay's transcript has no error but the battle's{tag}",
+    v.check(errors == [], f"eclplay's transcript has no error at the battle's menu{tag}",
             "; ".join(errors))
     data = records.read_bytes() if records.exists() else b""
     size = L.RECORD
@@ -688,6 +692,9 @@ GROUND = (8, 8, 168, 168)                   # the view: x, y, w, h (queen_arena.
 GROUND_CELL = 24
 GROUND_SET_RECORD = 0xCA03                  # DS:ca03, the wall set (59c7:0e70's operand)
 GROUND_POINTER = (8, 8, 8, 9, "the mouse pointer at the corner (ALWAYS 2, not the ground)")
+# The bottom bar's rows, where eclplay's command menu is drawn at the first turn (rows 176-199;
+# the original's PANEL has none): masked in the screen compares at PANEL.
+MENU_ROWS = (0, 176, 320, 24, "the command menu's rows (eclplay only at the first turn)")
 
 
 def ground_original(work, patched, verbose):
@@ -757,7 +764,7 @@ def ground(v, work, opts):
     outside = [(0, 0, 320, gy, "outside the ground"), (0, gy + gh, 320, 200 - gy - gh,
                "outside the ground"), (0, gy, gx, gh, "outside the ground"),
                (gx + gw, gy, 320 - gx - gw, gh, "outside the ground")]
-    screen_masks = outside + masks
+    screen_masks = outside + masks + [MENU_ROWS]
     covered = sum(1 for y in range(gy, gy + gh) for x in range(gx, gx + gw)
                   if any(a <= x < a + w and b <= y < b + h for a, b, w, h, *_ in masks))
     count, box = checklib.masked_diff(screen, port, screen_masks)
@@ -909,7 +916,8 @@ def encounter(v, work, opts):
     port_vars, port_last = port(work, patched, name="encounter",
                                 typed="\\r" * len(ENC_WAITS), records=records, blocks=blocks,
                                 turns=turns)
-    v.check(port_last == BATTLE_STOP, "eclplay stops at the battle (not yet ported)", port_last)
+    v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys)", port_last)
     ported37 = port_vars[0x37 - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
     v.check(ported37 == battle["var37"] and battle["var37"] == wall_dist(waits),
             "COMBAT lowers var 0x37 to the open squares before the battle, in both",
@@ -1108,7 +1116,8 @@ def placement(v, work, patched, tag, where, square, r):
     turns = work / f"port-{tag}.turns"
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
                                 records=records, blocks=blocks, turns=turns)
-    v.check(port_last == BATTLE_STOP, "eclplay stops at the placement (not yet ported)", port_last)
+    v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys)", port_last)
     if not path.exists():
         v.check(False, "eclplay writes its battlefield at the stop", port_last)
         return
@@ -1325,7 +1334,8 @@ def slots(v, work, opts):
         v.check(len(r["party"]) == PARTY, f"the original's party list holds {PARTY} records at "
                 f"{where}", f"{len(r['party'])}")
         _, last, icons_path, screen_path = slots_port(work, patched, tag)
-        v.check(last == BATTLE_STOP, f"eclplay stops at the first turn at {where}", last)
+        v.check(BATTLE_STOP.fullmatch(last or "") is not None,
+                f"eclplay ends at the first turn's command menu at {where}", last)
         if not icons_path.exists() or not screen_path.exists():
             v.check(False, f"eclplay writes its icons and screen at {where}", last)
             continue
@@ -1377,7 +1387,7 @@ def slots(v, work, opts):
         v.check(len(drawn) >= PARTY, f"at least {PARTY} combatants are drawn in the view at "
                 f"{where}", f"{len(drawn)}: {drawn}")
         composed = cokbox.RGBScreen(SLOT_SCREEN[0], SLOT_SCREEN[1], bytes(pixels))
-        count, box = checklib.masked_diff(r["screen"], composed, OUTSIDE + [GROUND_POINTER])
+        count, box = checklib.masked_diff(r["screen"], composed, OUTSIDE + [GROUND_POINTER, MENU_ROWS])
         v.check(count == 0,
                 f"the view agrees with the original's, the combatants' icons composed over "
                 f"eclplay's screen (the pointer masked) at {where} ({len(drawn)} combatants drawn: "
@@ -1411,7 +1421,8 @@ def icons(v, work, opts):
         r = slots_original(work, patched, tag, opts.verbose, square, where=PANEL)
         spins_at_placement(v, r)
         _, last, _, screen_path = slots_port(work, patched, tag, square)
-        v.check(last == BATTLE_STOP, f"eclplay stops at the first turn at {where}", last)
+        v.check(BATTLE_STOP.fullmatch(last or "") is not None,
+                f"eclplay ends at the first turn's command menu at {where}", last)
         if not screen_path.exists():
             v.check(False, f"eclplay writes its screen at {where}", last)
             continue
@@ -1426,7 +1437,7 @@ def icons(v, work, opts):
         corner = [e["n"] for e in drawn if e["sx"] == 0 and e["sy"] == 0]
         v.check(not corner, f"no combatant stands at cell 0, 0 (the pointer's mask would hide its "
                 f"icon) at {where}", f"{corner}")
-        count, box = checklib.masked_diff(r["screen"], port, [dqk_views.POINTER])
+        count, box = checklib.masked_diff(r["screen"], port, [dqk_views.POINTER, MENU_ROWS])
         v.check(count == 0,
                 f"the whole screen agrees with the original's, the combatants' icons and the frame "
                 f"not masked (the mouse pointer only) at {where} ({len(drawn)} combatants drawn, "

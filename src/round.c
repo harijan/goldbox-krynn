@@ -866,14 +866,14 @@ bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer)
      * pending is cast (849a:145b) before the menu. Each stop cites its routine. */
     if (computer && R->computer_unported != NULL)
         return cok_adventure_not_yet(game, "computer's turn", R->computer_unported);
-    if (!computer && R->menu_unported != NULL) {
+    if (!computer && R->menu_first) {
         if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) {
             cok_combat_end_turn(c); /* 08cf -> 0cc3 -> 51c2:0c11 */
             return true;
         }
         if (c->combat->spell > 0 && R->spell_unported != NULL)
             return cok_adventure_not_yet(game, "pending spell's cast", R->spell_unported);
-        return cok_adventure_not_yet(game, "party's command menu", R->menu_unported);
+        return cok_combat_commands(game, c, 0); /* 08cf: the command menu (queen_commands.c) */
     }
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
@@ -929,7 +929,8 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
 bool cok_combat_turn_tail(cok_adventure *game)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    if (R->turn_tail_unported != NULL)
+    /* Once the keys ran out the run is over (vm.abort): the tail is not reached. */
+    if (R->turn_tail_unported != NULL && !game->vm.abort)
         return cok_adventure_not_yet(game, "a turn's tail", R->turn_tail_unported);
     return true;
 }

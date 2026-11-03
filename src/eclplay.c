@@ -145,6 +145,12 @@ static void save_blocks(const cok_adventure *game, const char *path)
             block[B->attack_slot] = cr->attack_slot;
             block[B->movement] = cr->movement;
             block[B->attacked] = cr->attacked;
+            block[B->guarding] = cr->guarding;
+            block[B->dying] = cr->dying;
+            block[B->hits] = cr->hits;
+            block[B->forced] = cr->forced;
+            block[B->turns] = cr->turns;
+            block[B->turning] = cr->turning;
         }
         fwrite(block, 1, sizeof block, f);
     }

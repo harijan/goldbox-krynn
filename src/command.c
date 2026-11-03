@@ -7,6 +7,7 @@
 #include "cast.h"
 #include "cloud.h"
 #include "items.h"
+#include "queen.h"
 #include "magic.h"
 #include "round.h"
 #include "sheet.h"
@@ -309,6 +310,8 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
     }
     if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DEATH_KNIGHTS)
         return dk_commands(game, c, pressed); /* dkk 3e05:08af */
+    if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DARK_QUEEN)
+        return queen_commands(game, c); /* dqk 5045:08cf */
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool done = false;
     while (!done) {
@@ -978,7 +981,7 @@ bool cok_combat_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_
 /* Delay: initiative 1, and c moved to the end of the round's order, each
  * after it moving up, as far as entry 72; the battle then goes on with the
  * one after it. */
-static void delay(cok_adventure *game, cok_character *c)
+void cok_combat_delay(cok_adventure *game, cok_character *c)
 {
     cok_combat *combat = &game->combat;
     c->combat->initiative = 1;
@@ -1031,7 +1034,7 @@ bool cok_combat_done(cok_adventure *game, cok_character *c, bool *done)
             *done = true;
             break;
         case 'D':
-            delay(game, c);
+            cok_combat_delay(game, c);
             *done = true;
             break;
         case 'Q':
@@ -1311,7 +1314,7 @@ static bool dk_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
                 done = true;
                 if (!cok_combat_computer(game, c)) return false;
                 break;
-            case DK_DELAY: delay(game, c); done = true; break;
+            case DK_DELAY: cok_combat_delay(game, c); done = true; break;
             case DK_BANDAGE:
                 (void)cok_combat_bandage(game, true); /* 65cd:3326 with 1 */
                 cok_combat_end_turn(c);
