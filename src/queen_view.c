@@ -73,7 +73,7 @@ static int may_lose(cok_adventure *game, cok_character *character, const uint8_t
         cok_field_name(rules->character, character->record, name);
         game->vm.cursor = (cok_text_cursor){(int)strlen(name) + 2, 0x15};
         if (!queen_print_window(game, " was going to scribe from that scroll", 1, 0x15, 0x26, 0x16,
-                                0x0b, false, false))
+                                0x0b, false))
             return -1;
         answer = queen_ask(game, "is it Okay to lose it? ", false);
         if (answer < 0) return -1;
@@ -419,7 +419,7 @@ bool queen_view_items(cok_adventure *game, cok_character *character)
             char name[48], text[160];
             queen_item_name(&game->party, character->items[index], false, name, sizeof name);
             snprintf(text, sizeof text, "Your %swill be gone forever", name);
-            if (!queen_print_window(game, text, 1, 0x15, 0x26, 0x16, 0x0b, false, true)) {
+            if (!queen_print_window(game, text, 1, 0x15, 0x26, 0x16, 0x0b, false)) {
                 ok = false;
                 break;
             }

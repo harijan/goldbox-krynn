@@ -30,9 +30,9 @@ int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *
                     int x1, int y1, int y2, int x2);
 /* 177e:153c: a message on the bar for the speed's time. */
 void queen_bar_message(cok_adventure *game, const char *s);
-/* 1a62:0311: text in cells x1-x2 by y1-y2. */
+/* 1a62:0311: text in cells x1-x2 by y1-y2, a character at a time while DS:ae65 is set. */
 bool queen_print_window(cok_adventure *game, const char *s, int x1, int y1, int x2, int y2,
-                        unsigned fg, bool clear, bool slow);
+                        unsigned fg, bool clear);
 /* The party's list (5e22:023b) with the member `selected` (a record, or
  * NULL for none) in light cyan. */
 void queen_party_list(cok_adventure *game, const uint8_t *selected);

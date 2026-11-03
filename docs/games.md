@@ -723,7 +723,10 @@ run, citing their handlers (`unported`). It holds:
   (`177e:1e31`, the count one less only for a record in the party); the other records lose their combat
   blocks; the selection ends on the first record. Then 135c (part 19d) sets flag 1 and runs `177e:0be2`
   over the records; a lost party (b7a7) prints its three words (slow while DS:ae65 is set: each character's
-  delay draws `random(1000)`, `1a62:0311`) and waits at the continue prompt (`1460`, `1bdb:0511`, answered by
+  delay draws `random(1000)`, `1a62:0311`; DS:ae65 is the text's state: set at the start and a new game,
+  set around each PRINT, PRINTCLEAR and JOURNAL and cleared after it (`6c70:1d02-1d84`, `32fc-3323`),
+  cleared by the battle's setup (`59c7:1de2`), set by 135c (`14eb`), and every text window reads it, so
+  the lines after a PRINT draw none) and waits at the continue prompt (`1460`, `1bdb:0511`, answered by
   Return or the button); then COMBAT's return (`5f07:0987`) and the adventure's menu, which waits with the
   party empty and DS:b7a7 kept (`5f07:11f3`, cited: `adventure()` stops there, not ported); else fled frees the pool's items, otherwise flag 0 is set
   and flag 1 cleared (`1427`); the results (`091f`: "the party has fled." / "you have lost the fight." /

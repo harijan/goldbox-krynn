@@ -444,7 +444,7 @@ record (`177e:0be2`) of a character the original had not already recomputed;
 the two agree but for the far pointers (2026-10-29), and `tests/test_dark_queen.py`
 holds the digest.
 
-`dqk_ecl.py` (about 50 seconds for its four blocks) runs test blocks of the
+`dqk_ecl.py` (about 50 seconds for its four blocks, and four more for the text's delay, DS:ae65: a PRINT, an ASK MENU and a VERTICAL MENU at speed 4, each ending in a RANDOM) runs test blocks of the
 ECL in both (`tools/dqkecl.py` writes them, as `src/ecl.c` reads their
 operands; `tools/hlib.py`'s `replace` puts one in a copy of `DISK3\ECL.GLB`
 for block 1, the developers' jumper). The original's block variable is set to 1

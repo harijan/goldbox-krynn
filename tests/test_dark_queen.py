@@ -540,6 +540,22 @@ class DarkQueenTests(unittest.TestCase):
                                  2: "584012cb6e5b8a267d80151b2452911b",
                                  3: "78ee9900f8cefeea87b261916a58febd"})
 
+    def test_lost_party_view(self):
+        # A lost party leaves the view black: block 18's corridor (LOAD FILES at 8065), then
+        # COMBAT with no party and no monsters (0593 keeps DS:b7a7: the lost party, 1460, its
+        # continue prompt answered) and COMBAT's ending redraws the screen in mode 4 (177e:1b5d),
+        # whose view (5e22:0000) draws nothing while DS:b7a7 is set (5e22:0000-0005).
+        bmp, state = self.folder / "lost-view.bmp", self.folder / "lost-view.state"
+        result = self.play("--start", "8065", "--set", "806a=24", "--set", "806b=0", "--set",
+                           "34=6", "--set", "35=d", "--set", "22=1", "--set", "16=1", "--keys",
+                           r"\r", "--state", state, "--screen", bmp, ASSETS, 18)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("b7a7 1", state.read_text().splitlines())
+        self.assertIn("mode 4", state.read_text().splitlines())
+        data = pixels(bmp)
+        view = {data[3 * (320 * y + x):][:3] for y in range(24, 112) for x in range(24, 112)}
+        self.assertEqual(view, {bytes(3)})
+
     def test_saved_game(self):
         # Load Saved Game, Tdqk, A: SAVE/SAVGAMA.QSV (604b:2e87, 28f8) and
         # the camp with its party; Down; View (86b8:0b0c) and Exit; Begin
@@ -1336,11 +1352,12 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[:3], ["step: 4,2 facing 2", "step: 5,2 facing 2",
                                      "step: 6,2 facing 2"])
         self.assertEqual(moves[-2], "step: 13,8 facing 2")
-        # The first turn: BALTHIR NOMOON (record 1, initiative 9, the turn list's first: dqk_fight's
-        # turn list agrees with the original's 5045:0447) draws the side panel and reads the
-        # command menu; the keys run out there. The per-character draws of the text (1a62:0311's
-        # delay) move RandSeed, which breaks the tie of initiative 9.
-        self.assertEqual(moves[-1], "turn: BALTHIR NOMOON (initiative 9)")
+        # The first turn: BALTHIR NOMOON (record 1, the turn list's first: dqk_fight's turn list
+        # agrees with the original's 5045:0447) draws the side panel and reads the command menu;
+        # the keys run out there. The per-character draws of the texts (1a62:0311's delay, while
+        # DS:ae65 is set) move RandSeed, so the initiative (1d6 and dexterity) is 7. The "what do
+        # you do?" after the PRINT before it draws none: PRINT clears DS:ae65 (6c70:1d84).
+        self.assertEqual(moves[-1], "turn: BALTHIR NOMOON (initiative 7)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
         # End at that menu: the turn's tail is the next stop (148f:2ab8, the pending lists).

@@ -29,6 +29,12 @@ RETURN at depth 0 ending the block; GETTABLE and SAVE TABLE; and the wrap-around
 of 16-bit sums and products. DIVIDE by zero is not here: the original hangs
 in it (docs/checks.md). About 50 seconds for the four blocks.
 
+Then four speed blocks (speed_blocks): the text speed 4 with a PRINT, an ASK MENU
+and a VERTICAL MENU, which draw random(1000) per character while the text's delay
+state (DS:ae65) is set, so each RANDOM 255 into 0x110 shows the draws before it. The
+state is set at the start, cleared after PRINT's text and by the battle's setup: an
+ASK or VERTICAL MENU after a PRINT draws nothing (a8, 1d, a8, a8).
+
     python3 tools/dosbox/checks/dqk_ecl.py [--workdir DIR] [--verbose]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what
@@ -46,7 +52,7 @@ import checklib  # noqa: E402
 import dqk_lib  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
-from dqkecl import OPCODES, Block, Ref, imm, var, wvar, word  # noqa: E402
+from dqkecl import OPCODES, Block, Ref, imm, text, var, wvar, word  # noqa: E402
 
 cokbox = checklib.cokbox
 ROOT = cokbox.ROOT
@@ -295,6 +301,54 @@ def edges():
 
 BLOCKS = {"arithmetic": arithmetic, "control": control, "flags": flags, "edges": edges}
 
+# The text's delay (DS:ae65, the state 1a62:0476 reads): PRINT, ASK MENU and VERTICAL
+# MENU at the text speed 4 (variable 0x12: 3 ms times 4 a character). A character
+# drawn while the state is set draws random(1000) through pass (1df9:052a), so each
+# block's RANDOM 255 into 0x110 shows the draws made before it. The speed and 0x12
+# are compared too (they are the block's own).
+SPEED_WINDOW = WINDOW + [0x12]
+dqkecl.OPCODES.update({"PRINT": 0x11, "PRINTCLEAR": 0x12})
+
+
+def speed_start():
+    b = Block()
+    b.op("PRESS_KEY")
+    prelude(b)
+    b.op("SAVE", imm(4), var(0x12))
+    return b
+
+
+def speed_blocks():
+    """Name: (block, expect, typed). PRINT then nothing: 5 characters drawn (a8).
+    ASK MENU alone: its state set at the block's start, 15 drawn (1d). PRINT then
+    ASK MENU: the PRINT cleared the state after its text, so the ASK draws none
+    (a8; the port drew 20 and gave fc). PRINT then VERTICAL MENU: its header
+    draws none (a8; the port drew 9 and gave d8)."""
+    out = {}
+    b = speed_start()
+    b.op("PRINT", text("HELLO"))
+    b.op("RANDOM", imm(0xFF), var(0x110))
+    b.op("EXIT")
+    out["speed_print"] = (b, {0x110: 0xA8}, "")
+    b = speed_start()
+    b.op("ASK_MENU", var(0x106), imm(2), text("GO"), text("STAY"))
+    b.op("RANDOM", imm(0xFF), var(0x110))
+    b.op("EXIT")
+    out["speed_ask"] = (b, {0x110: 0x1D}, "s")
+    b = speed_start()
+    b.op("PRINT", text("HELLO"))
+    b.op("ASK_MENU", var(0x106), imm(2), text("GO"), text("STAY"))
+    b.op("RANDOM", imm(0xFF), var(0x110))
+    b.op("EXIT")
+    out["speed_print_ask"] = (b, {0x110: 0xA8}, "s")
+    b = speed_start()
+    b.op("PRINT", text("HELLO"))
+    b.op("VERTICAL_MENU", var(0x107), text("PICK"), imm(2), text("ONE"), text("TWO"))
+    b.op("RANDOM", imm(0xFF), var(0x110))
+    b.op("EXIT")
+    out["speed_print_vertical"] = (b, {0x110: 0xA8}, "\\r")
+    return out
+
 
 def port(work, name, patched, typed="", extra=(), block=JUMP):
     """eclplay's run of the block (from a copy of the assets with the block
@@ -501,6 +555,9 @@ def main():
     for name, make in BLOCKS.items():
         block, expect = make()
         run_block(verdict, work, name, glb, block, expect, "", base_vars, opts.verbose)
+    for name, (block, expect, typed) in speed_blocks().items():
+        run_block(verdict, work, name, glb, block, expect, typed, base_vars, opts.verbose,
+                  SPEED_WINDOW)
     return verdict.finish()
 
 

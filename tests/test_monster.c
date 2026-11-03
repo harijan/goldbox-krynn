@@ -1889,7 +1889,7 @@ static void share_scene(cok_adventure *adv, uint16_t experience, uint8_t *snap)
 static void test_dark_queen_results(void)
 {
     static cok_adventure won, won_1f, lost_fight, lost_party, all, share_a, share_b, coins;
-    static uint8_t snap[6][320 * 200];
+    static uint8_t snap[7][320 * 200];
     cok_adventure *every[] = {&won, &won_1f, &lost_fight, &lost_party, &all, &share_a, &share_b,
                               &coins};
     for (size_t k = 0; k < sizeof every / sizeof every[0]; ++k)
@@ -1915,7 +1915,12 @@ static void test_dark_queen_results(void)
 
     /* The lost party (b7a7: the member out, no monster): the three words on rows 5 to 7, then
      * the continue prompt, which waits. */
+    cok_ecl_store(&lost_party.vm, 0x12, 4); /* the text's speed: 12 ms a character */
+    lost_party.vm.seed = 12345;
     dq_results_scene(&lost_party, 2, 0, false, 0, 0, 0, snap[3]);
+    /* DS:ae65 is set (14eb, the start): each of the 98 characters draws random(1000) (1a62:0311's
+     * 1df9:052a), the original's RandSeed at 5f07:0987 in dqk_treasure's lost flow. */
+    CHECK(lost_party.vm.seed == 0xfc7bdf17u);
     CHECK(dq_ink(snap[3], 5, 2, 16) && dq_ink(snap[3], 6, 2, 16) && dq_ink(snap[3], 7, 2, 16));
     CHECK(cok_dark_queen_end_state_of(&lost_party).b7a7);
 
@@ -1939,10 +1944,41 @@ static void test_dark_queen_results(void)
 
     /* The fled party with a monster's experience (100) and with none: the line "each character
      * receives" is the same pixel for pixel, the share is 0 when fled. */
+    /* DS:ae4f is written by 01fb alone (75cc:0716: a member standing), so a fled COMBAT after a
+     * won one keeps the won share (here it stops at the treasure menu, its share made): 091f's
+     * 957-95c prints 0 all the same. */
+    DQK_RUN(&share_a, DQK_CLEARMONSTERS);
+    cok_party_free(&share_a.party);
+    dq_member(&share_a, 0, 1);
+    cok_field_set16(cok_rules_dark_queen.character, dq_past_party(&share_a, 2)->record,
+                    COK_FIELD_MONSTER_EXPERIENCE, 100);
+    cok_ecl_store(&share_a.vm, 0x1d, 0);
+    cok_ecl_store(&share_a.vm, 0x1f, 0);
+    cok_ecl_store(&share_a.vm, 0x20, 2);
+    dq_combat(&share_a);
+    uint32_t won_share = cok_dark_queen_end_state_of(&share_a).share;
+    CHECK(won_share != 0);
     share_scene(&share_a, 100, snap[4]);
+    CHECK(cok_dark_queen_end_state_of(&share_a).share == won_share);
     share_scene(&share_b, 0, snap[5]);
     CHECK(dq_ink(snap[4], 5, 1, 16) && dq_ink(snap[5], 5, 1, 16));
     CHECK(dq_same_line(snap[4], snap[5], 5));
+
+    /* The lost fight after a won one in the same adventure: 9d7-9dc sets the share 0 (the line
+     * "each character receives 0", rows 5 and 7), though DS:ae4f keeps the won share (01fb alone
+     * writes it). */
+    DQK_RUN(&lost_fight, DQK_CLEARMONSTERS);
+    cok_party_free(&lost_fight.party);
+    dq_member(&lost_fight, 0, 1);
+    cok_field_set16(cok_rules_dark_queen.character, dq_past_party(&lost_fight, 2)->record,
+                    COK_FIELD_MONSTER_EXPERIENCE, 100);
+    cok_ecl_store(&lost_fight.vm, 0x1d, 0);
+    cok_ecl_store(&lost_fight.vm, 0x1f, 0);
+    cok_ecl_store(&lost_fight.vm, 0x20, 2);
+    dq_combat(&lost_fight);
+    CHECK(cok_dark_queen_end_state_of(&lost_fight).share != 0);
+    dq_results_scene(&lost_fight, 2, 1, true, 100, 1, 0, snap[6]);
+    CHECK(dq_same_line(snap[2], snap[6], 5) && dq_same_line(snap[2], snap[6], 7));
 
     /* The fled coins (4-6) and items go before the treasure menu (091f's 934 and 13e7): with
      * the key, the run goes on past the results (no 0e93 stop), and the coins are 0 at the end. */

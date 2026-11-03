@@ -10,6 +10,7 @@
 #include "combat.h"
 #include "ecl.h"
 #include "dark_queen.h"
+#include "queen_view.h"
 #include "data_dark_queen.h"
 #include "field.h"
 #include "hlib.h"
@@ -1159,6 +1160,37 @@ static void count_delay(cok_adventure *game, unsigned ms, void *context)
     waited_ms += ms;
 }
 
+/* 1a62:0311's character delay (1df9:052a: random(1000) through pass, 3 ms times the speed) while
+ * DS:ae65 (the text's delay state) is set: the start sets it, and the battle's setup clears it
+ * (59c7:1de2, arena_tiles). PRINT and JOURNAL set and clear it around their text (6c70:1d02-1d84,
+ * 32fc-3323): dqk_ecl's speed blocks check that against the original. Skipped without DQKAssets/. */
+static void test_text_delay_state(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the text's delay state not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    hooks.delay = count_delay;
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 4); /* 12 ms a character */
+    game.vm.seed = 12345;
+    uint32_t want = 12345;
+    for (int i = 0; i < 5; ++i) cok_tp_random(&want, 1000);
+    waited_ms = 0;
+    CHECK(queen_print_window(&game, "HELLO", 1, 0x11, 0x26, 0x16, 7, true));
+    CHECK(game.vm.seed == want && waited_ms == 5 * 12);
+    /* The battle's setup clears the state: no delay, no draw. */
+    CHECK(cok_adventure_drawing(&game)->arena_tiles(&game, false, 4));
+    want = game.vm.seed;
+    waited_ms = 0;
+    CHECK(queen_print_window(&game, "HELLO", 1, 0x11, 0x26, 0x16, 7, true));
+    CHECK(game.vm.seed == want && waited_ms == 0);
+    cok_adventure_close(&game);
+}
+
 /* The side panel (dark_queen.c's combat_panel, cok_arena_panel's hook, 177e:085f): cells 23-38 by
  * 1-21 cleared to the window's grey, the name on row 1, "Hitpoints" and "AC" on rows 3 and 5,
  * the hit points in light cyan below the most (colour 0x0b), the armour class "-2" at 62, the
@@ -1177,6 +1209,9 @@ static void test_combat_panel(void)
     hooks.delay = count_delay;
     CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
     cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 2); /* the text's delay, 6 ms a character if slow */
+    /* The battle's setup clears the text's delay state (59c7:1de2, arena_tiles): the weapon's
+     * name is then printed at once. */
+    CHECK(cok_adventure_drawing(&game)->arena_tiles(&game, false, 4));
     const cok_character_layout *L = R->character;
     cok_character *c = dqk_member(&game, "'CINDER'");
     CHECK(cok_party_add(&game.party, R, c));
@@ -1556,6 +1591,7 @@ int main(void)
     test_command_menu_text();
     test_command_menu_keys();
     test_pass_draw();
+    test_text_delay_state();
     puts("dark queen tests passed");
     return 0;
 }
