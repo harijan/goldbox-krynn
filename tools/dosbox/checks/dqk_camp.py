@@ -25,8 +25,15 @@ slot D (s, d, n, Escape): each step's screen in RGB and the variables compared, 
 saved game D compared as the Save above is (five members now; the bytes the save pads past
 the item table are masked, 604b:3352-3366).
 
-Not compared: Magic, Rest, Fix, Icon and Load's yes (they stop eclplay: their routines
-are not ported). About a minute.
+Then the flow `load`: after the Alt steps (the adventure, saved game D's Save done), Encamp and
+Load: its question answered Yes (y), the run ends and main takes the camp from main (5ebd:0331:
+the camp's screen and the variables compared); its Load (Yes to "Game not saved. Load anyway? ",
+Tdqk, A) loads saved game A (the camp after it compared); Begin (B) takes the game on from its
+block (the adventure's screen compared; no copy protection question, which only the start menu's
+Begin asks). The state waits as the others (wait_key).
+
+Not compared: Magic, Rest, Fix and Icon (they stop eclplay: their routines are not ported). About
+a minute, and the load steps add a little.
 
     python3 tools/dosbox/checks/dqk_camp.py [--workdir DIR] [--verbose]
 
@@ -86,6 +93,12 @@ ALT_STEPS = [
     ("the adventure after Save D, No and Escape", "sdn\\e"),
 ]
 MEMBERS_AFTER_DROP = 5
+# The adventure's Load after the Alt steps (the question's No, the Alt steps, then Encamp, Load (its
+# question, Yes: the run ends), then the camp from main: Load (Yes to its question, Tdqk, A) and Begin.
+LOAD_BASE = QUESTION + "\\e" + "".join(keys for _, keys in ALT_STEPS)
+LOAD_CAMP = LOAD_BASE + "Ely"
+LOAD_CAMP_LOADED = LOAD_CAMP + "LyTA"
+LOAD_BEGIN = LOAD_CAMP_LOADED + "B"
 
 
 def port_run(work, name, keys, saved=SAVED):
@@ -288,6 +301,43 @@ def main():
                       "pointer by nil-ness)",
                       saved_differences(original_alt_saved, port_alt_saved, MEMBERS_AFTER_DROP)
                       if original_alt_saved else {"missing": True}, {})
+
+        # The load flow (the docstring's): Encamp, Load (Yes to its question) ends the run; the
+        # camp from main; its Load (Yes, Tdqk, A); Begin. Each state waited for and compared.
+        load_shot = {name: port_run(work, name, keys) for name, keys in
+                     (("load-camp", LOAD_CAMP), ("load-loaded", LOAD_CAMP_LOADED),
+                      ("load-begin", LOAD_BEGIN))}
+        for name, (_, log_load, _, _) in load_shot.items():
+            verdict.check("not yet ported" not in log_load, f"the port runs {name} (no stop)",
+                          log_load.strip().splitlines()[-1] if log_load.strip() else "")
+        box.keys("e")
+        wait_key(box)
+        box.keys("l")
+        wait_key(box)
+        box.keys("y")
+        shot = wait_key(box)
+        shot.save_png(out / "load-camp.png")
+        verdict.screen("the camp from main after the adventure's Load", shot,
+                       load_shot["load-camp"][0], masks=[POINTER], work=work)
+        compare_variables("the camp from main after the adventure's Load",
+                          load_shot["load-camp"][3])
+        for keys in ("l", "y", "t"):
+            box.keys(keys)
+            wait_key(box)
+        box.keys("a")
+        shot = wait_key(box)
+        shot.save_png(out / "load-loaded.png")
+        verdict.screen("the camp from main after its Load of saved game A", shot,
+                       load_shot["load-loaded"][0], masks=[POINTER], work=work)
+        compare_variables("the camp from main after its Load of saved game A",
+                          load_shot["load-loaded"][3])
+        box.keys("b")
+        shot = wait_key(box)
+        shot.save_png(out / "load-begin.png")
+        verdict.screen("the game begun after the load (its block's first text)", shot,
+                       load_shot["load-begin"][0], masks=[POINTER], work=work)
+        compare_variables("the game begun after the load (its block's first text)",
+                          load_shot["load-begin"][3])
     menu_line = "menu: View Magic Rest Alt Fix Load Save Exit"
     verdict.check(menu_line in log_menu and menu_line in log_save and "save: " in log_save,
                   "the port's Encamp menu shows its words, and Save writes the game",

@@ -564,6 +564,32 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
 
+    def test_camp_load_from_adventure(self):
+        # Encamp's Load (7070:2efe) asks "Game not saved. Load anyway? " (Yes); the run
+        # ends (DS:acc4, DS:b7a7) and main takes the camp from main again (5ebd:0331, 1d99:1175
+        # with 1): its Load (Yes to its question, Tdqk, A) loads saved game A, and Begin (B)
+        # takes the game on from its block (10cd), with no copy protection question (only
+        # 5ebd:00ef's Begin asks it).
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.folder / "load"
+        shutil.copytree(ASSETS / "SAVE", saves)
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
+                           start + "Ely" + "Ly" + "TAB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("not yet", result.stderr)
+        lines = result.stdout.splitlines()
+        camp = ("menu: Create Character Delete Character Modify Character View Character "
+                "Remove Character Load Saved Game Save Current Game Begin Adventuring "
+                "Exit From Game")
+        encamp = "menu: View Magic Rest Alt Fix Load Save Exit"
+        at = lines.index(encamp)
+        self.assertEqual(lines[at:at + 9], [encamp, "choice: 5", camp, "choice: 8",
+                                            "menu: Tdqk Dkk Exit", "choice: 0", "menu: A",
+                                            "choice: 0", camp])
+        self.assertEqual(lines[at + 9], "choice: 10")  # Begin: the block's first text next
+        self.assertTrue(lines[at + 10].startswith("print: YOU ARRIVE IN PALANTHAS"))
+        self.assertEqual(sum(line.startswith("protection:") for line in lines), 1)
+
     def test_camp_alt(self):
         # The adventure's camp at Caergoth's three steps west: Encamp (e), then Alt
         # (7070:1ce2) with Speed (1bab) Slower, Level (1b15) Champion, Order (19a3)
