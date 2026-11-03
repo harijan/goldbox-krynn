@@ -18,8 +18,15 @@ C, "Exit to DOS?" answered No (n), Escape: the saved game (SAVGAMC.QSV) compared
 the screen. Then Encamp and Load: "Game not saved. Load anyway? " is asked (the
 game was saved, then the camp's Exit cleared that: DS:ae5b), its screen compared.
 
-Not compared: Magic, Rest, Alt, Fix and Load's yes (they stop eclplay: their
-routines are not ported). About a minute.
+Then the Alt menu (a, 7070:1ce2), after Load's question is answered No (Escape): Speed
+(s: Slower, Exit), Level (l: Champion), Order (o: Select, then Down moves the selected
+member, Place, Exit), Drop (d: Yes, Yes: one member goes) and Exit, and the camp's Save to
+slot D (s, d, n, Escape): each step's screen in RGB and the variables compared, and the
+saved game D compared as the Save above is (five members now; the bytes the save pads past
+the item table are masked, 604b:3352-3366).
+
+Not compared: Magic, Rest, Fix, Icon and Load's yes (they stop eclplay: their routines
+are not ported). About a minute.
 
     python3 tools/dosbox/checks/dqk_camp.py [--workdir DIR] [--verbose]
 
@@ -66,10 +73,23 @@ AGAIN = START + "Ev\\e"
 LEAVE = START + "Ev\\e\\e"
 SAVE = START + "Ev\\e\\eESCN\\e"
 QUESTION = START + "Ev\\e\\eESCN\\eEl"
+# The Alt menu after the question's No (Escape): each step's keys, typed after the last.
+ALT_SLOT = "D"
+ALT_SAVED = f"SAVGAM{ALT_SLOT}.QSV"
+ALT_STEPS = [
+    ("the camp's Alt menu", "a"),
+    ("Alt's Speed, Slower and Exit", "sse"),
+    ("Alt's Level, Champion", "lc"),
+    ("Alt's Order: Select", "os"),
+    ("Alt's Order: a member moved down and placed, Exit", "\\vpe"),
+    ("the camp's menu after Alt's Drop of the selected member and Exit", "dyye"),
+    ("the adventure after Save D, No and Escape", "sdn\\e"),
+]
+MEMBERS_AFTER_DROP = 5
 
 
-def port_run(work, name, keys):
-    """eclplay's last shot, its log, its saved game C (bytes or b"") and its
+def port_run(work, name, keys, saved=SAVED):
+    """eclplay's last shot, its log, its saved game (bytes or b"") and its
     variables 0x0001-0x0400 at the end (bytes or b"")."""
     saves = work / f"saves-{name}"
     if saves.exists():
@@ -87,26 +107,31 @@ def port_run(work, name, keys):
     (work / f"port-{name}.txt").write_text(log)
     files = sorted(shots.glob("*.bmp"), key=lambda p: int(p.stem))
     shot = cokbox.RGBScreen.load(files[-1]) if files else None
-    saved = (saves / SAVED).read_bytes() if (saves / SAVED).exists() else b""
+    game = (saves / saved).read_bytes() if (saves / saved).exists() else b""
     variables = vars_path.read_bytes() if vars_path.exists() else b""
-    return shot, log, saved, variables
+    return shot, log, game, variables
 
 
 def nil(data):
     return data == bytes(len(data))
 
 
-def saved_differences(original, port):
+def saved_differences(original, port, members=PARTY):
     """The offsets where the two saved games differ, and the pointers' nil-ness.
     Masked: each character's record next (0-3), the items' pointer's high word (10-11)
     and each effect's next (the original's are its heap's addresses, as
-    dqk_create.far_pointers masks them). Compared by nil-ness, not masked: the effects'
-    pointer (+4-7) and the 13 slots (+0x0c-0x3f): the original's slots are the readied
-    items' (dqk_create.original_slots, model_slots: the port's model of them)."""
+    dqk_create.far_pointers masks them), and the bytes from the item table's end on
+    (the save pads from DS:c6de past its 0x10ef bytes, 604b:3352-3366, which the original
+    fills with its heap: the port writes 0 there, party.c). Compared by nil-ness, not
+    masked: the effects' pointer (+4-7) and the 13 slots (+0x0c-0x3f): the original's
+    slots are the readied items' (dqk_create.original_slots, model_slots: the port's model
+    of them)."""
     if len(original) != len(port):
         return {"size": (len(original), len(port))}
     mask, nil_area, diffs = set(), set(), {}
-    for member in range(PARTY):
+    pad = dqk_modify.record_at(original, members)  # the characters' end, where the pad starts
+    mask.update(range(pad + 0x10EF, len(original)))
+    for member in range(members):
         at = dqk_modify.record_at(original, member)
         mask.update(at + o for o in dqk_create.far_pointers(original[at:])
                     if not (4 <= o < 8 or 0x0C <= o < 0x40))
@@ -234,6 +259,35 @@ def main():
         verdict.screen("the camp's Load after Save and Exit asks whether to load anyway", shot,
                        question, masks=[POINTER, PICTURE], work=work)
         compare_variables("the camp's Load question", port_question_vars)
+
+        # Alt after the question's No (Escape): Speed, Level, Order, Drop, Exit, and Save D.
+        box.keys("\\e")
+        wait_key(box)
+        typed = ""
+        for what, keys in ALT_STEPS:
+            typed += keys
+            name = f"alt-{len(typed)}"
+            port_shot, log_alt, port_alt_saved, port_alt_vars = port_run(
+                work, name, QUESTION + "\\e" + typed, saved=ALT_SAVED)
+            if "not yet ported" in log_alt:
+                verdict.check(False, f"the port runs {what} (no stop)", log_alt.strip().splitlines()[-1])
+            box.keys(keys)
+            shot = wait_key(box)
+            shot.save_png(out / f"{checklib.slug(what)}.png")
+            # Drop's farewell is a timed message: the step after its keys (Exit) is where the
+            # state is compared, once the list is drawn again.
+            if what.startswith("the adventure"):
+                verdict.screen(what, shot, port_shot, masks=[POINTER], work=work)
+            else:
+                verdict.screen(what, shot, port_shot, masks=[POINTER, PICTURE], work=work)
+            compare_variables(what, port_alt_vars)
+        original_alt_saved = (box.game / "SAVE" / ALT_SAVED).read_bytes() \
+            if (box.game / "SAVE" / ALT_SAVED).exists() else b""
+        verdict.value(f"the saved game {ALT_SLOT} after Alt the original and the port write "
+                      "(byte for byte, the far pointers masked, the slots and the effects' "
+                      "pointer by nil-ness)",
+                      saved_differences(original_alt_saved, port_alt_saved, MEMBERS_AFTER_DROP)
+                      if original_alt_saved else {"missing": True}, {})
     menu_line = "menu: View Magic Rest Alt Fix Load Save Exit"
     verdict.check(menu_line in log_menu and menu_line in log_save and "save: " in log_save,
                   "the port's Encamp menu shows its words, and Save writes the game",

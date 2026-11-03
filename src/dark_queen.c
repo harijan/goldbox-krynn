@@ -1372,7 +1372,7 @@ static void horizontal(cok_adventure *game, bool ask)
     /* In colour 7 whatever variable 0x39 says (6c70:200e pushes 7, as
      * JOURNAL's 6c70:330c does; PRINT's 3 is not its colour). */
     if (ask && !print_colour(game, "what do you do?", false, 7)) return; /* DS:7791 */
-    const char *items[COK_ECL_MAX_STRINGS];
+    const char *items[COK_ECL_MAX_STRINGS] = {NULL}; /* none read where count is 0 */
     char forms[COK_ECL_MAX_STRINGS][64];
     size_t count = vm->operands < COK_ECL_MAX_STRINGS ? vm->operands : COK_ECL_MAX_STRINGS;
     for (size_t i = 0; i < count; ++i) items[i] = vm->string[i];
@@ -1873,6 +1873,234 @@ static void camp_program(cok_adventure *game)
         cok_adventure_not_yet(game, "the ECL run ended by DS:b7a7 after the camp", "dqk 5f07:0fcb");
 }
 
+static void remove_selected(cok_adventure *game);
+static void bar_message(cok_adventure *game, const char *s);
+
+/* Alt's items (7070:1ce2; DS:5220): "Order Drop Speed Icon Level Exit". */
+enum { ALT_ORDER, ALT_DROP, ALT_SPEED, ALT_ICON, ALT_LEVEL, ALT_EXIT, ALT_ITEMS };
+static const char *const alt_words[ALT_ITEMS] = {"Order", "Drop", "Speed", "Icon", "Level",
+                                                 "Exit"};
+
+/* The filtered keys the list's selection takes (5e22:067c's table: Down 0x84, End 0x85,
+ * Home 0x87, Up 0x88; Left and the rest do nothing). Not ported: a member picked by one. */
+static bool list_key(int key)
+{
+    return key == 0x84 || key == 0x85 || key == 0x87 || key == 0x88;
+}
+
+/* The selected member's name line and the text under it (177e:156e, the camp's shape:
+ * 177e:1665's window cleared from row 17, the name on 18, the text on 19 in colour 7).
+ * The Dark Queen camp is never resting, so the window starts at row 17. A NULL member
+ * gives the text alone (its name line is skipped). */
+static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
+{
+    clear_cells(game, 1, 0x11, 0x26, 0x16);
+    size_t i = cok_party_index(&game->party, c);
+    if (i < game->party.count) queen_name_line(game, game->party.members[i], 1, 0x12, false);
+    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false, true);
+}
+
+/* Set the speed: the variable 0x12 the Speed menu reads and the text's delay reads
+ * (1a62:0311), and the game's speed the waits use. */
+static void set_speed(cok_adventure *game, unsigned speed)
+{
+    game->speed = (uint8_t)speed;
+    cok_ecl_set_var(&game->vm, COK_VAR_SPEED, (uint16_t)speed);
+}
+
+/* Alt's Order (7070:19a3, the party's list by 5e22:023b). The bar's Select (or Place
+ * while a member is moving) and Exit: Select toggles the moving state, which says "has
+ * been selected" over the member while on, and clears the text while off. While moving,
+ * Down or End moves the member down the party and Up or Home up (179b, 18b6: the
+ * party's order wraps, as cok_party_move does), and the list is drawn again. Escape
+ * leaves, after the list's redraw. Not moving, Down, End, Home and Up change the
+ * member selected (5e22:067c): not ported, so it stops. False where the run stopped. */
+static bool alt_order(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    bool moving = false;
+    for (;;) {
+        const char *items[] = {moving ? "Place" : "Select", "Exit"};
+        log_menu(game, items, 2);
+        int choice = bar_menu(game, "party order ", items, 2, true, true, 0, 0);
+        if (choice < 0) return false;
+        log_choice(game, choice);
+        if (choice == 0x1b) {
+            party_list(game);
+            return true;
+        }
+        if (choice >= 0x80) {
+            if (!moving && list_key(choice))
+                return cok_adventure_not_yet(game, "a member picked by a key in the adventure's "
+                                                   "camp's Order", "dqk 5e22:067c");
+            if (moving && list_key(choice)) {
+                size_t i = cok_party_index(&game->party, vm->character);
+                if (i == game->party.count) {
+                    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                       "moving a character not in the party (7070:179b)");
+                    return false;
+                }
+                cok_party_move(&game->party, i, choice == 0x84 || choice == 0x85);
+            }
+            party_list(game);
+            continue;
+        }
+        if (choice == 1) return true;
+        moving = !moving;
+        if (moving) member_say(game, vm->character, "has been selected");
+        else clear_cells(game, 1, 0x12, 0x26, 0x16);
+    }
+}
+
+/* Alt's Drop (7368:0ee9): "Drop <name> forever? " and "Are you sure? " by Yes or No
+ * (1bdb:0424, without the animation); No to either is "<name> breathes a sigh of
+ * relief." The member removed (177e:1e31 with 0, 1) after "<name> bids you farewell."
+ * (active, +0x18b) or "You dump <name> out back.", and the list drawn. With no member
+ * selected the list alone is drawn. 177e:1e31 also calls 177e:1c87, which only gives
+ * the member's blocks back to their pools (memory; cok_party_remove frees them too).
+ * The saved game after a removal holds the original's heap past the item table
+ * (604b:3352-3366 pads from DS:c6de; the port writes 0): dqk_camp.py masks those
+ * bytes. False where the run stopped. */
+static bool alt_drop(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (vm->character == NULL) {
+        party_list(game);
+        return true;
+    }
+    char name[17], text[64];
+    cok_field_name(L, vm->character, name);
+    snprintf(text, sizeof text, "Drop %s forever? ", name);
+    int yes = yes_no(game, text, false);
+    if (yes < 0) return false;
+    if (yes) {
+        yes = yes_no(game, "Are you sure? ", false);
+        if (yes < 0) return false;
+    }
+    if (!yes) {
+        snprintf(text, sizeof text, "%s breathes a sigh of relief.", name);
+        bar_message(game, text);
+    } else {
+        bool active = cok_field_u8(L, vm->character, COK_FIELD_ACTIVE) != 0;
+        snprintf(text, sizeof text, active ? "%s bids you farewell." : "You dump %s out back.",
+                 name);
+        bar_message(game, text);
+        remove_selected(game);
+    }
+    party_list(game);
+    return !vm->abort;
+}
+
+/* Alt's Level (7070:1b15): "Novice Squire Veteran Adept Champion" (DS:5241), the
+ * difficulty (variable 0x27) becoming the item's number from 1; Escape keeps it. False
+ * where the keys ran out. */
+static bool alt_level(cok_adventure *game)
+{
+    static const char *const words[] = {"Novice", "Squire", "Veteran", "Adept", "Champion"};
+    log_menu(game, words, 5);
+    int choice = bar_menu(game, "", words, 5, false, true, 0, 0);
+    if (choice < 0) return false;
+    log_choice(game, choice);
+    if (choice < 5) cok_ecl_set_var(&game->vm, COK_VAR_DIFFICULTY, (uint16_t)(choice + 1));
+    return true;
+}
+
+/* Alt's Speed (7070:1bab): "Game Speed (0=fastest 9=slowest) = N" on row 18 (the text
+ * in colour 7, unwiped), and the bar's Faster (Down, while above 0), Slower (Up, below 9)
+ * and Exit: Escape is Exit, and the other filtered keys do nothing. The speed (0-9) is
+ * the variable 0x12 the text's delay reads. The text's row is cleared on Exit (177e:1665).
+ * False where the keys ran out. */
+static bool alt_speed(cok_adventure *game)
+{
+    for (;;) {
+        unsigned speed = cok_ecl_var(&game->vm, COK_VAR_SPEED);
+        char text[64];
+        snprintf(text, sizeof text, "Game Speed (0=fastest 9=slowest) = %u", speed);
+        say(game, 1, 0x12, text, 7);
+        const char *items[3];
+        int index[3], n = 0;
+        if (speed > 0) {
+            index[n] = 0;
+            items[n++] = "Faster";
+        }
+        if (speed < 9) {
+            index[n] = 1;
+            items[n++] = "Slower";
+        }
+        index[n] = 2;
+        items[n++] = "Exit";
+        log_menu(game, items, (size_t)n);
+        int choice = bar_menu(game, "game speed: ", items, (size_t)n, true, true, 0, 0);
+        if (choice < 0) return false;
+        log_choice(game, choice);
+        int pick = -1;
+        if (choice == 0x1b) {
+            pick = 2;
+        } else if (choice == 0x84) {
+            if (speed > 0) set_speed(game, speed - 1u);
+        } else if (choice == 0x88) {
+            if (speed < 9) set_speed(game, speed + 1u);
+        } else if (choice >= 0x80) {
+            continue;
+        } else {
+            pick = index[choice];
+        }
+        if (pick == 2) break;
+        if (pick == 0 && speed > 0) set_speed(game, speed - 1u);
+        if (pick == 1 && speed < 9) set_speed(game, speed + 1u);
+    }
+    clear_cells(game, 1, 0x12, 0x26, 0x16);
+    return true;
+}
+
+/* Alt (7070:1ce2), from the camp's menu: its words "Order Drop Speed Icon Level Exit"
+ * in the bar, each item below and its routine. Drop only with more than one member
+ * (variable 0x20). Icon is the combat icon editor (7070:1da5 calls 2d99:13ff), not
+ * ported: it stops for a member, and an NPC has none. Down, End, Home and Up stop
+ * (5e22:067c: the list's selection); the other filtered keys do nothing. Escape is Exit.
+ * False where the run stopped. */
+static bool alt(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (;;) {
+        log_menu(game, alt_words, ALT_ITEMS);
+        int choice = bar_menu(game, "", alt_words, ALT_ITEMS, true, true, 0, 0);
+        if (choice < 0) return false;
+        if (choice == 0x1b) choice = ALT_EXIT;
+        else if (choice >= 0x80) {
+            if (list_key(choice))
+                return cok_adventure_not_yet(game, "a member picked by a key in the adventure's "
+                                                   "camp's Alt", "dqk 5e22:067c");
+            continue;
+        }
+        log_choice(game, choice);
+        bool ok = true;
+        switch (choice) {
+        case ALT_ORDER: ok = alt_order(game); break;
+        case ALT_DROP:
+            if (cok_ecl_load_var(vm, 0x20) > 1) ok = alt_drop(game);
+            break;
+        case ALT_SPEED: ok = alt_speed(game); break;
+        case ALT_ICON:
+            if (vm->character == NULL) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "Icon with no character selected reads through NULL (7070:1da5)");
+                return false;
+            }
+            if (cok_field_u8(L, vm->character, COK_FIELD_NPC) < 0x80)
+                return cok_adventure_not_yet(game, "Icon in the adventure's camp (the combat icon "
+                                                   "editor)", "dqk 2d99:13ff");
+            break;
+        case ALT_LEVEL: ok = alt_level(game); break;
+        case ALT_EXIT: return true;
+        default: break;
+        }
+        if (!ok || vm->abort) return false;
+    }
+}
+
 /* The adventure's camp menu (7070:2d3c), from Encamp and PROGRAM 9: its words
  * "View Magic Rest Alt Fix Load Save Exit" (DS:51d2), by index. Rest and Fix are
  * off where variable 0x2b is 1 and 0x2c is 0x64 or more (2dfd-2e09). */
@@ -1907,8 +2135,8 @@ static void forget_members(cok_adventure *game)
  * Load asks "Game not saved. Load anyway? " where a member is selected and the game
  * is not saved, then stops: 5f07:0004 sets DS:acc4 and DS:b7a7 and main (5ebd:0312)
  * loads the game, not ported. Save saves the game (604b:3395) and asks "Exit to DOS? "
- * (DS:4776), Yes quitting. Magic, Rest, Alt and Fix stop (7070:1671, 0aac, 1ce2,
- * 2ad0). Exit puts the mode back, clears the spells' marks (02f2), the status line
+ * (DS:4776), Yes quitting. Alt is alt (7070:1ce2). Magic, Rest and Fix stop (7070:1671,
+ * 0aac, 2ad0). Exit puts the mode back, clears the spells' marks (02f2), the status line
  * and rows 18-22 and the bar. */
 static bool encamp_menu(cok_adventure *game)
 {
@@ -1972,7 +2200,8 @@ static bool encamp_menu(cok_adventure *game)
         case ENCAMP_REST:
             return cok_adventure_not_yet(game, "Rest in the adventure's camp", "dqk 7070:0aac");
         case ENCAMP_ALT:
-            return cok_adventure_not_yet(game, "Alt in the adventure's camp", "dqk 7070:1ce2");
+            if (!alt(game)) return false;
+            break;
         case ENCAMP_FIX:
             return cok_adventure_not_yet(game, "Fix in the adventure's camp", "dqk 7070:2ad0");
         default: break;
@@ -3568,9 +3797,10 @@ static bool write_character(cok_adventure *game, const cok_character *character)
 }
 
 /* Remove Character (7368:066f): a member (+0x9b below 0x80) written
- * (604b:23a7) then removed (177e:1e31); an NPC (7368:0ee9: "Drop %s
- * forever? ", "Are you sure? ") not ported yet. False where the run
- * stopped. */
+ * (604b:23a7) then removed (177e:1e31); an NPC (+0x9b bit 7) stops, though
+ * 7368:0ee9 is alt_drop's Drop ("Drop %s forever? "): 066f's screen before 0ee9
+ * is the adventure's, not Alt's camp, and no check runs it. False where the
+ * run stopped. */
 static bool remove_character(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
