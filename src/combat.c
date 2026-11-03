@@ -849,7 +849,8 @@ typedef struct {
  * distance squares ahead (cok_combat_layout_distance), and each side's formation
  * cells are all free again. Returns whether it laid them
  * out again: 18c2's loop over the sides then leaves DS:86e8, the side the
- * record is placed on (410b:1444, 12f7), 1. */
+ * record is placed on (410b:1444, 12f7), 1 (the descriptor's layout_sets_side);
+ * dqk 16b3's loop is a local and leaves DS:a96e, the record's own side. */
 static bool lay_out(placement *p, uint8_t facing)
 {
     cok_adventure *game = p->game;
@@ -880,9 +881,12 @@ static bool lay_out(placement *p, uint8_t facing)
 /* 3cb2:122c: try column, row of formation k, from square ax, ay: if the
  * formation's cell is free, the combatant stands at the cell it gives,
  * and if nothing is there and it can be walked on (6beb:0c9d), the cell is
- * taken. Dark Queen's (dqk 59c7:113a) is the same: its probe (4837:0bd1, here
+ * taken. Dark Queen's (dqk 59c7:113a) is the same: its probe (5837:0bd1, here
  * cok_combat_probe) is not checked for failure there, and its occupant, terrain
- * and terrain cost 0xff tests are these three. */
+ * and terrain cost 0xff tests are these three. Its occupant and terrain outputs
+ * equal cok_combat_probe's; its cloud outputs (tiles 0x1b-0x1d stored as the tile
+ * value, 0x46 as 1; 0bd1's 0cca-0cf0) are not modelled for Dark Queen (no .fight
+ * cloud or pool tiles), so a later part that needs them must add them. */
 static bool try_cell(placement *p, uint8_t d, int8_t column, int8_t row, int8_t ax, int8_t ay,
                      uint8_t k, bool *placed)
 {
@@ -1104,10 +1108,10 @@ bool cok_combat_place_all(cok_adventure *game)
             uint8_t from = (uint8_t)(p.side == 1 ? (facing + 4) % 8 : facing);
             c->combat->facing = cok_data_u8_at(D, COK_DATA_QUADRANT_DIRECTIONS, from >> 1);
         }
-        /* The formations laid out again for this record's facing leave it
-         * placed as the enemy's side, whatever its own (DS:86e8 1), its
-         * facing its own (+0xc9). */
-        if (laid) p.side = 1;
+        /* Death Knights' formations laid out again for this record's facing leave
+         * it placed as the enemy's side, whatever its own (DS:86e8 1, dkk 410b:18c2);
+         * Dark Queen's (dqk 59c7:16b3) keep its own side. Its facing is its own (+0xc9). */
+        if (laid && R->layout_sets_side) p.side = 1;
         bool found;
         if (!find_place(&p, d, &found)) return false;
         char name[16], text[80];

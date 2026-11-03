@@ -636,6 +636,8 @@ const cok_rules cok_rules_dark_queen = {
              * set var 0x38, the distance wanted, and a wanted 16 is 2 squares. */
             .open_squares_wanted = true,
             .distance_16_is_2 = true,
+            /* 59c7:16b3's loop is a local: a record keeps its own side. */
+            .layout_sets_side = false,
             /* The placement's distance where it is 0 and the facing is not the party's
              * (dqk 59c7:16b3's flag: var 0x37 when it is set, else 1). */
             .ambush_distance = 1,

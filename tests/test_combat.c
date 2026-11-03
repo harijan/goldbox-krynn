@@ -1118,6 +1118,8 @@ static void test_layout_distance(void)
     CHECK(cok_combat_layout_distance(K, 3, 2, 0, false) == 3);
     CHECK(cok_combat_layout_distance(K, 0, 2, 0, true) == 2);
     CHECK(cok_combat_layout_distance(C, 0, 2, 0, true) == 0);
+    /* Champions has no ambush, so no record is laid out again (layout_sets_side off). */
+    CHECK(!C->layout_sets_side);
 }
 
 int main(void)
