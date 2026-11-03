@@ -556,8 +556,9 @@ run, citing their handlers (`unported`). It holds:
   MENU's store takes the first item's type (`6c70:1e91` reads `DS:b216` in its
   item loop; the port took the last item's, fixed in 2026-11-02's part). The mouse
   branches of YES NO (`1bdb:0424`, 0452) and HORIZONTAL and ASK (`6c70:0e3f`) read
-  `DS:c2f5`, which `1bdb:1206` sets for a mouse hit on a control (not a driver's
-  flag, as `queen.h` has it); not run;
+  `DS:c2f5`, which `1bdb:1206` sets when a menu's result is a code and not an item (a
+  key below 0x20, an extended key, a view area's click; not a mouse hit on a control,
+  nor a driver's flag as `queen.h` had it); the port tells codes apart by value; not run;
   its text, picture and wait opcodes (PRINT, PRINTCLEAR, PRINT RETURN, PRESS KEY,
   JOURNAL, DELAY, CLEAR BOX, CLEAR EXIT, PICTURE, and the view again after a small and
   after a big picture; `dqk_ecl_text.py`) agree with the original at every wait (the
@@ -732,7 +733,9 @@ run, citing their handlers (`unported`). It holds:
   and flag 1 cleared (`1427`); the results (`091f`: "the party has fled." / "you have lost the fight." /
   "The party has won." with monsters, the share's "each character receives N experience points.", the
   treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with
-  money or items the treasure menu is cited (`75cc:0e93`, part 20); the pool is emptied (`63ee:0002`),
+  money or items the treasure menu runs (`75cc:0e93`: View, the sheet and the screen again; Exit's claim
+  question, Yes or No; Escape is Exit; Up and Down pick a member (`5e22:067c`), End and Home do nothing (`75cc:103e`); Take, Pool, Share
+  and Detect are cited stops, parts 20b and 28); the pool is emptied (`63ee:0002`),
   vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
   clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at

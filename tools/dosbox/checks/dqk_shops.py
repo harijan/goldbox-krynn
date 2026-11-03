@@ -63,6 +63,7 @@ TEMPLE = 0x14  # the variable COMBAT reads for the temple (5f07:0861)
 ROLAND = 0  # the first member of saved game A (dqk_modify.record_at)
 WOUNDED = 100  # Roland's hit points in the wounded copy (his most is 134: +0x89)
 STONED = 7  # the status +0x64 that 7825:0524 tests for stone
+NAME = 0x68  # the record's name, 16 bytes (rules_dark_queen.c's COK_FIELD_NAME)
 
 # The steps: (what, the keys typed at it). Each flow's steps run after the block's entry PRESS KEY.
 DOWN9 = "\\v" * 9  # the list's Down nine times: Stone to Flesh (its index 9)
@@ -72,6 +73,8 @@ TEMPLE_STEPS = [("the temple's menu", ""), ("View's sheet", "v"),
                 ("Heal's question for Stone to Flesh", DOWN9 + "\\r"),
                 ("Heal's menu after No", "n"),
                 ("the temple's menu after Heal", "\\e"),
+                ("the temple's menu after Down: the next member selected", "\\v"),
+                ("the temple's menu after Up: the first member selected", "\\^"),
                 ("the adventure after Exit", "e")]
 WOUNDED_STEPS = [("the temple's menu", ""),
                  ("Heal's menu, Roland wounded", "h"),
@@ -112,7 +115,8 @@ def typed_after(steps):
 def flows():
     """Each flow: its steps, and the saved game's bytes (None: saved game A as it is)."""
     return {
-        "temple": dict(steps=TEMPLE_STEPS, qsv=None),
+        # The member keys (7825:0af6 calls 5e22:067c): Down picks member 1 and Up member 0.
+        "temple": dict(steps=TEMPLE_STEPS, qsv=None, selects={7: 1, 8: 0}),
         "wounded": dict(steps=WOUNDED_STEPS, qsv=dqk_modify.patched(
             {0x198: WOUNDED}, member=ROLAND)),
         "stoned": dict(steps=STONED_STEPS, qsv=dqk_modify.patched(
@@ -123,6 +127,12 @@ def flows():
 def block_vars(box):
     """The block's 1 KB of variables (dqk_fight's read at DS:b20f)."""
     return dqk_fight.block_vars(box)
+
+
+def selected_name(box):
+    """The name of the selected record (DS:ad67, a far pointer), or b"" for none."""
+    sel = box.far(box.ds * 16 + 0xAD67)
+    return box.read(sel + NAME, 16) if sel is not None else b""
 
 
 def entry_file(work, name, qsv):
@@ -165,7 +175,7 @@ def original(work, name, steps, patched, qsv, verbose):
             shot = box.settled(tolerance=64)
             out.append(dict(what=what, screen=shot, vars=block_vars(box),
                             records=[raw for _, raw in L.records(box)],
-                            waiting=box.waiting()))
+                            selected=selected_name(box), waiting=box.waiting()))
     return out
 
 
@@ -201,6 +211,8 @@ def run_flow(v, work, patched, flow, spec, verbose):
     """One flow: the original's steps, then eclplay's at each, compared."""
     steps, qsv = spec["steps"], spec["qsv"]
     orig = original(work, flow, steps, patched, qsv, verbose)
+    if "selects" in spec:
+        saved = qsv if qsv is not None else (dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()
     (work / f"original-{flow}").mkdir(exist_ok=True)
     for o in orig:
         o["screen"].save_png(work / f"original-{flow}" / f"{checklib.slug(o['what'])}.png")
@@ -231,6 +243,11 @@ def run_flow(v, work, patched, flow, spec, verbose):
         v.check(len(want) == len(have) and want == have,
                 f"the party's records at {what} agree (pointers masked, {flow})",
                 f"{len(have)} records, the original {len(want)}")
+        if i in spec.get("selects", {}):
+            member = spec["selects"][i]
+            want_name = saved[dqk_modify.record_at(saved, member) + NAME:][:16]
+            v.check(o["selected"] == want_name, f"the selected record at {what} is member "
+                    f"{member} by name ({flow})", f"{o['selected']!r}, want {want_name!r}")
 
 
 def main():

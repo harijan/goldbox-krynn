@@ -2027,7 +2027,8 @@ TURNS_SEED = 0x1756582C         # RandSeed at SHARKMAN's computer turn (0 draws 
 ROUND_SEED = 0x427245C1         # RandSeed at round 2's first menu (fixture 1)
 ROUND_TURN = 1                  # DS:bd2d at round 2's first menu (CINDER's entry)
 TURNS_LINE = "turn: SHARKMAN (initiative 5)"
-COMBAT_END = re.compile(r".*75cc:0e93.*")       # won: the treasure menu's stop (part 20)
+# won: the treasure menu's key wait (75cc:0e93, ported in part 20a): the keys run out there
+COMBAT_END = re.compile(r".*\(out of keys in block 1 at 8030\).*")
 WON_CHAINS_OFF = (0xB0, 0xD0, 0x0B)             # won: effects the battle's end and 1b66 read (none held)
 WON_STATE = ["mode 6", "seed 00003039", "flags 1 0 0 0 0 0", "standing 1", "fled 0", "monsters 1",
              "out 0", "b7a7 0", "share 1336", "pool 8 0 0"]
@@ -2252,7 +2253,14 @@ def won_original(work, patched, verbose):
                         b7a7=box.ds_byte(0xB7A7), share=int.from_bytes(box.ds_read(0xAE4F, 4), "little"),
                         pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xB1DB, 0xB1DF, 0xB1E3)),
                         flags=list(box.ds_read(0xB2F5, 6)), chains=sorted_chains(box))
-        out["end_screen"] = box.screenshot(path=str(work / "won-end.png"))
+        # the menu's key wait, after the trap is given back (part 20a: the menu draws past 0e93)
+        L.untrap(box, hold)
+        t0 = time.monotonic()
+        while not box.waiting():
+            if time.monotonic() - t0 > 60:
+                raise cokbox.BoxError("no key wait at the treasure menu after 75cc:0e93")
+        out["end_screen"] = box.settled()
+        out["end_screen"].save_png(str(work / "won-end.png"))
         return out
 
 
@@ -2305,13 +2313,13 @@ def won(v, work, opts):
             "b7a7 0, share 1336, pool 8 0 0, RandSeed 0x3039 (the won path draws nothing)",
             f"mode {e['mode']} share {e['share']} pool {e['pool']} seed {e['seed']:#x}")
     base = work / "port-won"
-    port(work, patched, name="won-wait", typed="\\r\\r\\r\\r", combat="won",
+    port(work, patched, name="won-wait", typed="\\r\\r", combat="won",
          screen=work / "port-won-wait.bmp")
-    end_v, end_last = port(work, patched, name="won", typed="\\r\\r\\r\\r\\r", combat="won",
+    end_v, end_last = port(work, patched, name="won", typed="\\r\\r\\r\\r", combat="won",
                            records=base.with_suffix(".records"), state=base.with_suffix(".state"),
                            screen=base.with_suffix(".bmp"))
     v.check(COMBAT_END.fullmatch(end_last or "") is not None,
-            "eclplay stops at the treasure menu (75cc:0e93) after the results' key", end_last)
+            "eclplay waits at the treasure menu (75cc:0e93, part 20a) after the results' key", end_last)
     got = base.with_suffix(".state").read_text().splitlines() if base.with_suffix(".state").exists() else []
     v.check(got == WON_STATE, "eclplay's --state at the treasure menu is the original's", got)
     data = base.with_suffix(".records").read_bytes() if base.with_suffix(".records").exists() else b""

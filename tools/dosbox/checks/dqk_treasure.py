@@ -19,11 +19,16 @@ removals), the load asked (DS:b7a7) removes the party (818-86e). Then 135c sets 
 calls 11b0 (the enemies removed, part 19d), and finishes (part 19d, ported): the stats (177e:0be2)
 of each record, the lost party's words (b7a7, 1460) or the results (091f: the texts, the share's
 line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75cc:151b), and back
-to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93, part
-20) is the stop; a lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu
-after it (5f07:11f3, no b7a7 test) is the stop.
+to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93) runs:
+its waits are read one at a time (POOL_STEPS and the others: the screen, the variables, the records,
+the pool's coins, and the selected record by name), and its last keys lead to COMBAT's return
+(5f07:0987), the end. Take, Pool, Share and Detect are not typed (cited stops, part 20b and 28). A
+lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
+b7a7 test) is the stop.
 
-The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
+The menu's animation is frozen in the original only (freeze_frame: 1bdb:1168's incb DS:b20e is four
+nops), so the menu's screens are compared exactly, the treasure picture included (eclplay never
+advances a frame). The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
 so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, the flow's end
 (75cc:0e93 or 5f07:0987, COMBAT's return after 135c) is trapped too, then 2093:0015 is
 given back. The game then waits at its first key (the results' bar, or the lost party's continue
@@ -44,13 +49,20 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
 - `lost`: every member's status word 2 and inactive: 0736 removes the six (818-86e: the count to 0),
   nobody standing or fled, b7a7 set, b1da 6.
 - `pool`: TREASURE ITEMS 1000 3 1 0 first (the pool's coins 1000, 3, 1; no items): the share is
-  4950 / 6 = 825, and each member gets its share by class (the bonus, the half and the third).
+  4950 / 6 = 825, and each member gets its share by class (the bonus, the half and the third). The
+  menu's steps (POOL_STEPS): View's sheet (v) and Escape back to the menu (the mode-6 screen), Down
+  (the next member selected: by name), Exit's question (e), Yes (y: the menu, window cleared), the
+  question again (e) and No (n): the end. Its frame check (frame_kept, bug 3): DS:b20e poked to 2 at
+  the sheet, the mode-6 redraw's menu held at its entry (1bdb:1073: 2) and first pass (1bdb:113f:
+  2), the first pass's screen the screen it settles to.
 - `bonus`: `pool` with the classes changed so that each rule shows (+0x5a: 2, 0 at members 0 and 3,
-  5 and 6 at 4 and 5): the 10% bonus, the mage with int 15 (none), the thief's dexterity.
+  5 and 6 at 4 and 5): the 10% bonus, the mage with int 15 (none), the thief's dexterity. The menu:
+  Escape (the question), No.
 - `zero`: SAVE 0 -> var 0x20 and member 5 inactive: 01fb's divisor is 0 (b1da 1 -> 0), so LDIV@ gives
   0xffffffff; member 0 (class 1) gets -1, the others 0 (-1/3 and -1/2 are 0).
 - `negative`: `pool`, SAVE 0 -> var 0x20 and members 3-5 inactive: b1da 3 -> 2, the divisor -2, the
   share -2475; members 0-2 get -2475, -825 and -825 (the third of a negative share is negative).
+  The menu: Exit (e), No (n).
 - `rest`: the statuses 3, 4 (hit points 0, 5) and 5 and 2 at members 1-5, none fled: 0736's loop A
   revives 3, 4 with hit points and 5 becomes 4 (no var 0x1d), the 4 with 0 hit points stays.
 - `gentle`: `rest` with var 0x1d set (SAVE 1): 4 with 0 hit points and 5 are revived (777, 78e).
@@ -104,6 +116,18 @@ TREASURE = ("TREASURE_ITEMS", (dqkecl.word(1000), imm(3), imm(1), imm(0)))  # st
 SAVE_ZERO = ("SAVE", (imm(0), var(0x20)))  # var 0x20 (the shares' divisor) is 0
 ZERO = [0] * MEMBERS
 NO_POOL = (0, 0, 0)
+# The treasure menu's steps (75cc:0e93, dark_queen.c's treasure_menu): (what, the keys typed at
+# it). The first step is the menu after the results' key; each later step's keys are typed at
+# its key wait; the last step's keys lead to COMBAT's return (5f07:0987), which is the end.
+POOL_STEPS = [("the treasure menu after the results", ""), ("View's sheet", "v"),
+              ("the menu after the sheet (mode 6's screen)", "\\e"),
+              ("Down: the next member selected", "\\v"), ("Exit's question", "e"),
+              ("the menu after Yes (the window cleared)", "y"), ("Exit's question again", "e"),
+              ("the adventure after No", "n")]
+BONUS_STEPS = [("the treasure menu after the results", ""), ("Escape is Exit: the question", "\\e"),
+               ("the adventure after No", "n")]
+NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
+                  ("the adventure after No", "n")]
 FLOWS = {
     # flow: the saved game's changes (per member, or None), the block's ops before COMBAT (extra),
     # the stop's cite, the expected state (standing, fled, b7a7, out), DS:ae4f (the share; None
@@ -116,19 +140,20 @@ FLOWS = {
     "lost": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS, extra=[],
                  end="lost", expect=(False, False, True, MEMBERS), share=None,
                  pool=NO_POOL, gained=[], may=[], members=0),
-    "pool": dict(changes=None, extra=[TREASURE], end="treasure",
-                 expect=(True, False, False, 0), share=825, pool=(1000, 3, 1),
+    "pool": dict(changes=None, extra=[TREASURE], end="end", steps=POOL_STEPS, selects=(3, 1),
+                 frame=True,
+                 expect=(True, False, False, 0), share=825, pool=NO_POOL,
                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
     "bonus": dict(changes=[{0x5a: 2}, {}, {}, {0x5a: 0}, {0x5a: 5}, {0x5a: 6}],
-                  extra=[TREASURE], end="treasure", expect=(True, False, False, 0),
-                  share=825, pool=(1000, 3, 1), gained=[907, 275, 275, 907, 825, 907],
+                  extra=[TREASURE], end="end", steps=BONUS_STEPS, expect=(True, False, False, 0),
+                  share=825, pool=NO_POOL, gained=[907, 275, 275, 907, 825, 907],
                   may=[0, 0, 0, 0, 1, 0]),
     "zero": dict(changes=[{}, {}, {}, {}, {}, {0x18b: 0}], extra=[SAVE_ZERO],
                  end="end", expect=(True, False, False, 0), share=0xffffffff,
                  pool=NO_POOL, gained=[-1, 0, 0, 0, 0, 0], may=ZERO),
     "negative": dict(changes=[{}, {}, {}, {0x18b: 0}, {0x18b: 0}, {0x18b: 0}],
-                     extra=[TREASURE, SAVE_ZERO], end="treasure",
-                     expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=(1000, 3, 1),
+                     extra=[TREASURE, SAVE_ZERO], end="end", steps=NEGATIVE_STEPS,
+                     expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=NO_POOL,
                      gained=[-2475, -825, -825, 0, 0, 0], may=ZERO),
     "rest": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
                           {0x64: 2}], extra=[], end="end",
@@ -155,6 +180,16 @@ FLOWS = {
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
                   may=[], members=0),
 }
+# The small picture's frame advance (1bdb:1168, incb DS:b20e), frozen in the box only
+# (freeze_frame): the frame then changes only by a load (63ae:0299) or the check's own poke, as
+# eclplay's does (it never advances: no time passes there).
+FRAME_ADVANCE = (0x1BDB, 0x1168)
+FRAME_ADVANCE_BYTES = bytes.fromhex("fe060eb2")  # incb DS:b20e
+FRAME_NOPS = b"\x90" * 4
+FRAME = 0xB20E   # DS:b20e, the small picture's frame
+FRAME_SEG = 0x1BDB               # the menu library's wait (1bdb:1008)
+FRAME_ENTRY = 0x1073             # the wait's entry: the frame it reads
+FRAME_FIRST = 0x113F             # its first pass: the frame it draws
 MODE = 6     # DS:ae57 at the stop: 135c's 1390 sets it before 11b0 (and 11b0 leaves it)
 EXP = 0x44   # the experience, a dword (rules_dark_queen.c: DWORD(0x44))
 MAY = 0xcd   # the may-train byte (BYTE(0xcd))
@@ -207,6 +242,88 @@ def flags_of(box):
     return list(box.ds_read(0xb2f5, 6))
 
 
+def pool_of(box):
+    """The pool's coins 4-6 (DS:b1db, b1df, b1e3)."""
+    return tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3))
+
+
+def selected_name(box):
+    """The name of the selected record (DS:ad67, a far pointer; NAME bytes), or b"" for none."""
+    sel = box.far(box.ds * 16 + 0xAD67)
+    return box.read(sel + NAME, 16) if sel is not None else b""
+
+
+def freeze_frame(box):
+    """The small picture's frame advance (1bdb:1168) frozen in the box only: the four bytes
+    incb DS:b20e become four nops. Checked by its bytes first: BoxError if they differ. Call it
+    after the block's entry (the menu library is resident there)."""
+    at = L.code(box, *FRAME_ADVANCE)
+    if box.read(at, 4) != FRAME_ADVANCE_BYTES:
+        raise cokbox.BoxError(f"1bdb:1168 is not incb DS:b20e: {box.read(at, 4).hex()}")
+    box.write(at, FRAME_NOPS)
+
+
+def frame_frozen(box):
+    return box.read(L.code(box, *FRAME_ADVANCE), 4) == FRAME_NOPS
+
+
+def hold(box, addr, seg, off):
+    """A spin at addr (a mid-routine address: its two bytes EB FE), as the trap of dqk_fight_lib."""
+    orig = box.read(addr, 2)
+    box.write(addr, b"\xeb\xfe")
+    return L.Trap([(addr, orig)], seg, off)
+
+
+def held_at(box, handle, what):
+    t0 = time.monotonic()
+    while not L.held(box, handle, 0.3)[0]:
+        if time.monotonic() - t0 > 30:
+            raise cokbox.BoxError(f"{what} did not hold")
+
+
+def frame_kept(box, keys):
+    """Bug 3 in the original (63ae:00c4-00d9 keeps the frame of the picture already loaded). At
+    the sheet DS:b20e was poked to 2 (the sheet animates nothing); the keys (Escape: the mode-6
+    redraw, then the menu) are typed, and the menu's wait is held at its entry (1bdb:1073: the
+    frame it reads) and at its first pass (1bdb:113f: the frame it draws). Its screen settles with
+    frame 2 still (the shot of the first pass is the settled screen's box). Then DS:b20e is 0
+    again, so the later passes draw frame 0 as eclplay does. Returns (the frame at the entry, the
+    frame at the first pass, the first pass's shot, the settled screen with frame 2)."""
+    seg = FRAME_SEG
+    entry = hold(box, L.code(box, seg, FRAME_ENTRY), seg, FRAME_ENTRY)
+    box.keys(keys)
+    held_at(box, entry, "1bdb:1073 (the menu's entry after the sheet)")
+    at_entry = box.ds_byte(FRAME)
+    first = hold(box, L.code(box, seg, FRAME_FIRST), seg, FRAME_FIRST)
+    L.untrap(box, entry)
+    held_at(box, first, "1bdb:113f (the menu's first pass)")
+    at_first = box.ds_byte(FRAME)
+    shot = box.screenshot()
+    L.untrap(box, first)
+    t0 = time.monotonic()
+    while not box.waiting():
+        if time.monotonic() - t0 > 60:
+            raise cokbox.BoxError("the game waits for no key after the first pass")
+    settled = box.settled()
+    box.ds_write(FRAME, b"\x00")
+    return at_entry, at_first, shot, settled
+
+
+def step_state(box, what):
+    """The treasure menu's wait (a key wait, its screen settled): the screen, the variables, the
+    records, the pool, RandSeed (read after the settle: the animation's clock moves it not),
+    the selected record's name, whether the frame advance is frozen, and whether the game waits."""
+    t0 = time.monotonic()
+    while not box.waiting():
+        if time.monotonic() - t0 > 60:
+            raise cokbox.BoxError(f"the game waits for no key at {what}")
+    shot = box.settled()
+    return dict(what=what, shot=shot, vars=dqk_fight.block_vars(box),
+                records=[raw for _, raw in L.records(box)], pool=pool_of(box),
+                seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
+                selected=selected_name(box), frozen=frame_frozen(box), waiting=box.waiting())
+
+
 def read_state(box):
     """The original's state where it spins: the variables, the records, the flags and the
     end-of-combat bytes, the mode, RandSeed and the effect table."""
@@ -219,16 +336,17 @@ def read_state(box):
         b7a7=box.ds_read(0xb7a7, 1)[0] != 0, demo=box.ds_read(0xae59, 1)[0],
         mode=box.ds_word(0xae57), seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
         effects=box.ds_read(0x631e, 18), share=int.from_bytes(box.ds_read(0xae4f, 4), "little"),
-        pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3)))
+        pool=pool_of(box))
 
 
 # lost: 5f07:0987 is COMBAT's return after the lost party (the continue prompt answered first)
-END_STOPS = {"treasure": (0x75CC, 0x0E93), "lost": (0x5F07, 0x0987), "end": (0x5F07, 0x0987)}
+END_STOPS = {"lost": (0x5F07, 0x0987), "end": (0x5F07, 0x0987)}
 TYPED_TO_WAIT = "\\r"            # the PRESS KEY before COMBAT (eclplay's entry key comes first)
 TYPED_TO_END = "\\r\\r\\r"       # that, the results' key (or the continue prompt's) and one more
+TYPED_TO_RESULTS = "\\r\\r"      # the PRESS KEY and the results' key: the treasure menu's wait
 
 
-def original(work, name, changes, patched, verbose, end):
+def original(work, name, changes, patched, verbose, end, steps=None, frame_check=False):
     """The original's run of the block from its entry to the end's stop (END_STOPS): stage 1 at
     2093:0015 (the flags' clear), the end's trap set while it spins, then the game waits at its
     first key (the results' bar, or the continue prompt): its screen there is read, the key is
@@ -238,9 +356,10 @@ def original(work, name, changes, patched, verbose, end):
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose, timeout=900,
                     files=L.files(patched), saves=saves if changes is not None else []) as box:
         dqk_fight.enter(box)
+        freeze_frame(box)
         box.set_seed(SEED)
         box.keys("\\r")  # the entry PRESS KEY: LOAD FILES, the flags, SAVE, then the PRESS KEY
-        box.settled(tolerance=64)
+        box.settled()
         waiting = box.waiting()
         v = box.far(box.ds * 16 + dqk_ecl.DS_VARS)
         code = L.code(box, 0x2093, 0x0015)
@@ -262,8 +381,20 @@ def original(work, name, changes, patched, verbose, end):
         while not box.waiting():
             if time.monotonic() - t0 > 60:
                 raise cokbox.BoxError("the game waits for no key before the end of the treasure")
-        wait_shot = box.settled(tolerance=64)
+        wait_shot = box.settled()
         box.keys("\\r")  # the results' bar, or the continue prompt
+        found = []
+        frame = None
+        if steps:  # the treasure menu: each step's keys at its wait, the last step's lead to the end
+            for i, (what, keys) in enumerate(steps[:-1]):
+                if i == 2 and frame_check:
+                    frame = frame_kept(box, keys)  # the mode-6 redraw after the sheet (bug 3)
+                elif i > 0:
+                    box.keys(keys)
+                found.append(step_state(box, what))
+                if i == 1 and frame_check:
+                    box.ds_write(FRAME, b"\x02")  # the sheet: DS:b20e poked (frame 2)
+            box.keys(steps[-1][1])
         hold = L.Trap(list(h_end), seg, off)
         t0 = time.monotonic()
         while not L.held(box, hold)[0]:
@@ -272,10 +403,12 @@ def original(work, name, changes, patched, verbose, end):
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
+        state["steps"] = found
+        state["frame"] = frame
         if end == "end":  # 5f07:0987 is before the adventure loop draws its bar: its next wait
             L.untrap(box, hold)
             box.wait_input()
-        end_shot = box.settled(tolerance=64)
+        end_shot = box.settled()
         return state, qsv, wait_shot, end_shot
 
 
@@ -317,10 +450,64 @@ def port(work, name, patched, qsv, typed, shots=False):
 MASKS = [dqk_ecl_text.POINTER_WIDE]  # the mouse's pointer at the corner (DOSBox-X's own)
 
 
+def check_steps(v, work, patched, name, steps, selects, qsv, found):
+    """Each treasure menu wait but the last (the end): eclplay's run typed up to that step, its
+    last shot compared with the original's screen, and its variables, records and pool compared
+    with the original's there. SELECTS (step, member): the selected record is that member, by
+    name, at that step (the original's DS:ad67; eclplay's screen shows the highlight)."""
+    for i, ((what, _), o) in enumerate(zip(steps[:-1], found)):
+        typed = TYPED_TO_RESULTS + "".join(keys for _, keys in steps[:i + 1])
+        variables, ported, lines, transcript, shot = port(work, f"{name}-{i}", patched, qsv,
+                                                          typed=typed, shots=True)
+        v.check(o["waiting"], f"the original waits for a key at {what} ({name})")
+        v.check(len(variables) == VARIABLES and "error:" not in transcript,
+                f"eclplay runs to {what} with no error ({name})", transcript.strip()[-200:])
+        if shot is not None:
+            v.screen(f"the screen at {what} ({name})", o["shot"], shot, masks=MASKS, work=work)
+        else:
+            v.check(False, f"eclplay saves the screen at {what} ({name})")
+        differing = [a for a in range(1, VARIABLES + 1) if o["vars"][a - 1] != variables[a - 1]]
+        v.check(not differing, f"the variables at {what} agree ({name})",
+                ", ".join(f"{a:x}: original {o['vars'][a - 1]:02x}, port {variables[a - 1]:02x}"
+                          for a in differing[:8]))
+        want = [dqk_shops.masked(raw) for raw in o["records"]]
+        have = [dqk_shops.masked(raw) for raw in ported]
+        v.check(len(want) == len(have) and want == have,
+                f"the party's records at {what} agree (pointers masked, {name})",
+                f"{len(have)} records, the original {len(want)}")
+        port_pool = tuple(int(x) for x in lines.get("pool", "").split())
+        v.check(port_pool == o["pool"], f"the pool's coins 4-6 at {what} agree ({name})",
+                f"original {o['pool']}, port {port_pool}")
+        v.check(lines.get("seed") == o["seed"], f"RandSeed at {what} agrees ({name})",
+                f"original {o['seed']}, port {lines.get('seed')}")
+        v.check(o["frozen"], f"the frame advance is still frozen at {what} ({name})")
+        if selects is not None and selects[0] == i:
+            member = selects[1]
+            want_name = qsv[dqk_modify.record_at(qsv, member) + NAME:][:16]
+            v.check(o["selected"] == want_name, f"the selected record at {what} is member "
+                    f"{member} by name ({name})", f"{o['selected']!r}, want {want_name!r}")
+
+
+def check_frame(v, work, name, frame):
+    """Bug 3 in the original: the frame DS:b20e poked to 2 at the sheet is still 2 at the menu's
+    entry (63ae:00c4-00d9 keeps it), at its first pass, and the first pass's screen is the screen
+    the menu settles to with frame 2 (the frame it draws). eclplay's side is the repo test
+    (test_dark_queen_picture_frame_kept): it cannot be poked."""
+    at_entry, at_first, shot, settled = frame
+    v.check(at_entry == 2, f"DS:b20e is 2 at the menu's entry after the sheet (1bdb:1073): the "
+            f"mode-6 redraw keeps the frame ({name})", f"{at_entry}")
+    v.check(at_first == 2, f"DS:b20e is 2 at the menu's first pass (1bdb:113f) ({name})",
+            f"{at_first}")
+    v.screen(f"the first pass draws frame 2 (the screen it settles to with frame 2) ({name})",
+             settled, shot, masks=MASKS, work=work)
+
+
 def run_flow(v, work, patched, name, verbose):
     spec = FLOWS[name]
     end = spec["end"]
-    orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end)
+    steps = spec.get("steps")
+    orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end,
+                                              steps, spec.get("frame", False))
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
     v.check(orig["stage1_surprise"] == 0, f"var 0x2e is 0 at 2093:0015's spin: 135c's start ran "
             f"({name})", f"{orig['stage1_surprise']}")
@@ -335,12 +522,8 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["demo"] == 0, f"the original is not the demonstration ({name})")
     # The mode: 6 where the flow stops in 135c (the treasure menu), else COMBAT's ending has set
     # it (3 or 4: monster.c's overland, at 5f07:0987 for the lost party too).
-    if end in ("end", "lost"):
-        v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
-                f"mode {orig['mode']}")
-    else:
-        v.check(orig["mode"] == MODE, f"the mode is 6 at the stop, as 135c sets it at 1390 "
-                f"({name})", f"mode {orig['mode']}")
+    v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
+            f"mode {orig['mode']}")
     v.check(orig["monsters"] == spec.get("monsters", 0), f"DS:c7df is as 11b0 sets it ({name})",
             f"{orig['monsters']}, want {spec.get('monsters', 0)}")
     # The flow's own expectations on the original's side: the share, the pool's coins, each
@@ -367,9 +550,16 @@ def run_flow(v, work, patched, name, verbose):
     v.screen(f"the screen at the first key wait ({name})", wait_shot, first, masks=MASKS,
              work=work)
 
+    if steps:
+        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"])
+    if orig["frame"] is not None:
+        check_frame(v, work, name, orig["frame"])
+    # The menu's last keys (the end's) are the last of the typed keys, then the adventure's wait.
+    typed_end = TYPED_TO_RESULTS + "".join(keys for _, keys in steps) + "\\r" if steps \
+        else TYPED_TO_END
     variables, ported, lines, transcript, end_screen = port(work, name, patched, qsv,
-                                                           typed=TYPED_TO_END)
-    stop = {"treasure": "dqk 75cc:0e93", "lost": "dqk 5f07:11f3", "end": None}[end]
+                                                           typed=typed_end)
+    stop = {"lost": "dqk 5f07:11f3", "end": None}[end]
     if stop is not None:
         v.check(stop in transcript and "error:" in transcript,
                 f"eclplay stops at {stop}, cited ({name})", transcript.strip()[-200:])
