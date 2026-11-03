@@ -1889,7 +1889,7 @@ static bool list_key(int key)
 }
 
 /* The selected member's name line and the text under it (177e:156e, the camp's shape:
- * 177e:1665's window cleared from row 17, the name on 18, the text on 19 in colour 10).
+ * 177e:1665's window cleared from row 17, the name on 18, the text on 19 in colour 7).
  * The Dark Queen camp is never resting, so the window starts at row 17. A NULL member
  * gives the text alone (its name line is skipped). */
 static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
@@ -1897,10 +1897,11 @@ static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     size_t i = cok_party_index(&game->party, c);
     if (i < game->party.count) queen_name_line(game, game->party.members[i], 1, 0x12, false);
-    print_window(game, text, 1, 0x13, 0x26, 0x16, 10, false, true);
+    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false, true);
 }
 
-/* Set the game's speed and the variable it is read from (the text's delay, 1a62:0311). */
+/* Set the speed: the variable 0x12 the Speed menu reads and the text's delay reads
+ * (1a62:0311), and the game's speed the waits use. */
 static void set_speed(cok_adventure *game, unsigned speed)
 {
     game->speed = (uint8_t)speed;
@@ -1955,10 +1956,11 @@ static bool alt_order(cok_adventure *game)
  * (1bdb:0424, without the animation); No to either is "<name> breathes a sigh of
  * relief." The member removed (177e:1e31 with 0, 1) after "<name> bids you farewell."
  * (active, +0x18b) or "You dump <name> out back.", and the list drawn. With no member
- * selected the list alone is drawn. The removal's 177e:1e31 also calls 177e:1c87 (the
- * member's items and effects copied away, not ported); after a removal the original's
- * saved game differs from the port's in the item table's entries 250-252 (dqk_camp's
- * save D, not traced). False where the run stopped. */
+ * selected the list alone is drawn. 177e:1e31 also calls 177e:1c87, which only gives
+ * the member's blocks back to their pools (memory; cok_party_remove frees them too).
+ * The saved game after a removal holds the original's heap past the item table
+ * (604b:3352-3366 pads from DS:c6de; the port writes 0): dqk_camp.py masks those
+ * bytes. False where the run stopped. */
 static bool alt_drop(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -2012,16 +2014,17 @@ static bool alt_level(cok_adventure *game)
 static bool alt_speed(cok_adventure *game)
 {
     for (;;) {
+        unsigned speed = cok_ecl_var(&game->vm, COK_VAR_SPEED);
         char text[64];
-        snprintf(text, sizeof text, "Game Speed (0=fastest 9=slowest) = %u", game->speed);
+        snprintf(text, sizeof text, "Game Speed (0=fastest 9=slowest) = %u", speed);
         say(game, 1, 0x12, text, 7);
         const char *items[3];
         int index[3], n = 0;
-        if (game->speed > 0) {
+        if (speed > 0) {
             index[n] = 0;
             items[n++] = "Faster";
         }
-        if (game->speed < 9) {
+        if (speed < 9) {
             index[n] = 1;
             items[n++] = "Slower";
         }
@@ -2035,17 +2038,17 @@ static bool alt_speed(cok_adventure *game)
         if (choice == 0x1b) {
             pick = 2;
         } else if (choice == 0x84) {
-            if (game->speed > 0) set_speed(game, game->speed - 1u);
+            if (speed > 0) set_speed(game, speed - 1u);
         } else if (choice == 0x88) {
-            if (game->speed < 9) set_speed(game, game->speed + 1u);
+            if (speed < 9) set_speed(game, speed + 1u);
         } else if (choice >= 0x80) {
             continue;
         } else {
             pick = index[choice];
         }
         if (pick == 2) break;
-        if (pick == 0 && game->speed > 0) set_speed(game, game->speed - 1u);
-        if (pick == 1 && game->speed < 9) set_speed(game, game->speed + 1u);
+        if (pick == 0 && speed > 0) set_speed(game, speed - 1u);
+        if (pick == 1 && speed < 9) set_speed(game, speed + 1u);
     }
     clear_cells(game, 1, 0x12, 0x26, 0x16);
     return true;
@@ -3794,9 +3797,10 @@ static bool write_character(cok_adventure *game, const cok_character *character)
 }
 
 /* Remove Character (7368:066f): a member (+0x9b below 0x80) written
- * (604b:23a7) then removed (177e:1e31); an NPC (7368:0ee9: "Drop %s
- * forever? ", "Are you sure? ") not ported yet. False where the run
- * stopped. */
+ * (604b:23a7) then removed (177e:1e31); an NPC (+0x9b bit 7) stops, though
+ * 7368:0ee9 is alt_drop's Drop ("Drop %s forever? "): 066f's screen before 0ee9
+ * is the adventure's, not Alt's camp, and no check runs it. False where the
+ * run stopped. */
 static bool remove_character(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;

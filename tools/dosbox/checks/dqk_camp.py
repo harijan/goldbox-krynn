@@ -19,10 +19,11 @@ the screen. Then Encamp and Load: "Game not saved. Load anyway? " is asked (the
 game was saved, then the camp's Exit cleared that: DS:ae5b), its screen compared.
 
 Then the Alt menu (a, 7070:1ce2), after Load's question is answered No (Escape): Speed
-(s: Slower, Exit), Level (l: Veteran), Order (o: Select, Down moves the selected member,
-Place, Exit), Drop (d: Yes, Yes: one member goes) and Exit, and the camp's Save to slot D
-(s, d, n, Escape): each step's screen in RGB and the variables compared, and the saved
-game D compared as the Save above is (five members now).
+(s: Slower, Exit), Level (l: Champion), Order (o: Select, then Down moves the selected
+member, Place, Exit), Drop (d: Yes, Yes: one member goes) and Exit, and the camp's Save to
+slot D (s, d, n, Escape): each step's screen in RGB and the variables compared, and the
+saved game D compared as the Save above is (five members now; the bytes the save pads past
+the item table are masked, 604b:3352-3366).
 
 Not compared: Magic, Rest, Fix, Icon and Load's yes (they stop eclplay: their routines
 are not ported). About a minute.
@@ -78,8 +79,9 @@ ALT_SAVED = f"SAVGAM{ALT_SLOT}.QSV"
 ALT_STEPS = [
     ("the camp's Alt menu", "a"),
     ("Alt's Speed, Slower and Exit", "sse"),
-    ("Alt's Level, Veteran", "lv"),
-    ("Alt's Order: a member moved down and placed, Exit", "os\\vpe"),
+    ("Alt's Level, Champion", "lc"),
+    ("Alt's Order: Select", "os"),
+    ("Alt's Order: a member moved down and placed, Exit", "\\vpe"),
     ("the camp's menu after Alt's Drop of the selected member and Exit", "dyye"),
     ("the adventure after Save D, No and Escape", "sdn\\e"),
 ]
@@ -118,12 +120,17 @@ def saved_differences(original, port, members=PARTY):
     """The offsets where the two saved games differ, and the pointers' nil-ness.
     Masked: each character's record next (0-3), the items' pointer's high word (10-11)
     and each effect's next (the original's are its heap's addresses, as
-    dqk_create.far_pointers masks them). Compared by nil-ness, not masked: the effects'
-    pointer (+4-7) and the 13 slots (+0x0c-0x3f): the original's slots are the readied
-    items' (dqk_create.original_slots, model_slots: the port's model of them)."""
+    dqk_create.far_pointers masks them), and the bytes from the item table's end on
+    (the save pads from DS:c6de past its 0x10ef bytes, 604b:3352-3366, which the original
+    fills with its heap: the port writes 0 there, party.c). Compared by nil-ness, not
+    masked: the effects' pointer (+4-7) and the 13 slots (+0x0c-0x3f): the original's
+    slots are the readied items' (dqk_create.original_slots, model_slots: the port's model
+    of them)."""
     if len(original) != len(port):
         return {"size": (len(original), len(port))}
     mask, nil_area, diffs = set(), set(), {}
+    pad = dqk_modify.record_at(original, members)  # the characters' end, where the pad starts
+    mask.update(range(pad + 0x10EF, len(original)))
     for member in range(members):
         at = dqk_modify.record_at(original, member)
         mask.update(at + o for o in dqk_create.far_pointers(original[at:])

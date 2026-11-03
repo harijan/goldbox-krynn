@@ -712,15 +712,16 @@ run, citing their handlers (`unported`). It holds:
   moving, the list drawn after each, and Escape leaves; Down, End, Home and Up not moving stop at
   `5e22:067c` (the list's selection). Speed (`1bab`): "Game Speed (0=fastest 9=slowest) = N" on
   row 18, the bar's Faster (Down, above 0), Slower (Up, below 9) and Exit, the speed kept in
-  variable 0x12 (the text's delay) and the game's speed. Level (`1b15`): "Novice Squire Veteran
+  variable 0x12 (the menu and the text's delay read it) and the game's speed. Level (`1b15`): "Novice Squire Veteran
   Adept Champion" sets variable 0x27 to 1-5, Escape keeps it. Drop (`7368:0ee9`): "Drop <name>
   forever? " and "Are you sure? " by Yes or No, No is "<name> breathes a sigh of relief.", else
   "<name> bids you farewell." (active, +0x18b) or "You dump <name> out back.", then the member
-  removed (`177e:1e31`, as Remove Character does). Its removal also calls `177e:1c87`, which the
-  port does not run: the saved game after a removal differs in the item table's entries 250-252
-  (`dqk_camp.py`'s save D, not traced). Icon (`2d99:13ff`, the combat icon editor) stops for a
-  member; an NPC has none. Escape and the rest of the bar's filtered keys do what the original's
-  do: the others nothing, Down, End, Home and Up stop as above. The camp's entry zeroes the rest time (DS:b1cc, 14 bytes) and
+  removed (`177e:1e31`, as Remove Character does). Its removal also calls `177e:1c87`, which only
+  gives the member's blocks back to their pools (memory; the port's `cok_party_remove` frees them):
+  the saved game after a removal holds the original's heap past the item table (the save pads
+  from `DS:c6de`, `604b:3352-3366`; the port writes 0 there), which `dqk_camp.py` masks.
+  Icon (`2d99:13ff`, the combat icon editor) stops for a member; an NPC has none. Escape and
+  the rest of the bar's filtered keys do what the original's do: the others nothing, Down, End, Home and Up stop as above. The camp's entry zeroes the rest time (DS:b1cc, 14 bytes) and
   DS:bce1 (`2d4e-2d5c`); the port does not model them: its rest time (`game->rest`) is cited at
   DS:7120, not b1cc, so that cite waits for Rest's part.
   Checked by `dqk_camp.py` (2026-11-02): the menu, View's sheet and the menu again, the adventure
@@ -729,9 +730,9 @@ run, citing their handlers (`unported`). It holds:
   writes its heap's addresses there, as `dqk_create.py` masks them); Load's question after Save
   and Exit. The camping picture animates while the camp's menu waits (DS:c2ef above 0), so it is
   masked on the screens that show it. Alt (`dqk_camp.py`'s flow `alt`, 2026-11-03): after Load's
-  question's No, Speed (Slower, Exit), Level (Veteran), Order (Select, Down, Place, Exit), Drop
-  (Yes, Yes) and Exit: each step's screen and the variables agree, and the saved game D (after
-  the Drop) differs in the item table's entries 250-252 (`177e:1c87`, above), not yet traced.
+  question's No, Speed (Slower, Exit), Level (Champion), Order (Select, then Down, Place,
+  Exit), Drop (Yes, Yes) and Exit: each step's screen and the variables agree, and so does the
+  saved game D after the Drop (the pad past the item table masked, as above).
 - its encounter (step 4, part 6; `dqk_fight.py`'s flow `encounter`; `monster.c` and
   `dark_queen.c`'s `encounter`, the drawing hook `cok_drawing.encounter`). SETUP MONSTERS
   (`6c70:2db1`) takes four operands: the sprite (op 1, a SPRIT.TLB record, 82 in block 7:

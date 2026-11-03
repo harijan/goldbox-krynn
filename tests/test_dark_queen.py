@@ -566,13 +566,13 @@ class DarkQueenTests(unittest.TestCase):
 
     def test_camp_alt(self):
         # The adventure's camp at Caergoth's three steps west: Encamp (e), then Alt
-        # (7070:1ce2) with Speed (1bab) Slower, Level (1b15) Veteran, Order (19a3)
+        # (7070:1ce2) with Speed (1bab) Slower, Level (1b15) Champion, Order (19a3)
         # Select, Down (the member moved down), Place, Exit, Drop (7368:0ee9) of the
         # selected member (ROLAND, Yes and Yes: "bids you farewell"), Exit, and the
         # camp's Exit. The menus and choices in the log; the variables after: the speed
         # (0x12, from 4), the party's size (0x20, from 6) and the difficulty (0x27).
         start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
-        keys = start + r"Eas" + r"se" + r"lv" + r"os\vped" + r"yye\e"
+        keys = start + r"Eas" + r"se" + r"lc" + r"os\vped" + r"yye\e"
         saves = self.folder / "saves"
         shutil.copytree(ASSETS / "SAVE", saves)
         varfile = self.folder / "alt.vars"
@@ -590,7 +590,7 @@ class DarkQueenTests(unittest.TestCase):
             "menu: ~Faster ~Slower ~Exit", "choice: 1",
             "menu: ~Faster ~Slower ~Exit", "choice: 2",
             alt, "choice: 4",
-            "menu: ~Novice ~Squire ~Veteran ~Adept ~Champion", "choice: 2",
+            "menu: ~Novice ~Squire ~Veteran ~Adept ~Champion", "choice: 4",
             alt, "choice: 0",
             "menu: ~Select ~Exit", "choice: 0",
             "menu: ~Place ~Exit", "choice: 132",
@@ -601,7 +601,72 @@ class DarkQueenTests(unittest.TestCase):
             alt, "choice: 5",
             camp, "choice: 7"])
         variables = varfile.read_bytes()
-        self.assertEqual((variables[0x11], variables[0x1F], variables[0x26]), (5, 5, 3))
+        self.assertEqual((variables[0x11], variables[0x1F], variables[0x26]), (5, 5, 5))
+
+    def camp_alt_saves(self, name="alt", speed=None):
+        """SAVE copied, saved game A's variable 0x12 set to speed when given."""
+        saves = self.folder / name
+        shutil.copytree(ASSETS / "SAVE", saves)
+        if speed is not None:
+            data = bytearray((saves / "SAVGAMA.QSV").read_bytes())
+            data[0x11] = speed  # the variables' byte n - 1 is variable n
+            (saves / "SAVGAMA.QSV").write_bytes(bytes(data))
+        return saves
+
+    def test_camp_alt_order(self):
+        # Alt's Order (19a3) with ROLAND, the first member, moved up: Up on the first
+        # wraps him to the last (179b, as cok_party_move does), Place, Exit. The camp's
+        # Save (C, No) then writes the party in its new order: each record's name (the
+        # C string at +0x68).
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.camp_alt_saves()
+        shipped = (saves / "SAVGAMA.QSV").read_bytes()
+        names = [self.name_of(shipped, at) for at, _ in characters(shipped)]
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
+                           start + r"Eaos\^pe" + r"e" + "SCN" + r"\e", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("choice: 136", result.stdout.splitlines())  # Up, while moving
+        saved = (saves / "SAVGAMC.QSV").read_bytes()
+        self.assertEqual([self.name_of(saved, at) for at, _ in characters(saved)],
+                         names[1:] + names[:1])
+
+    @staticmethod
+    def name_of(data, at):
+        return bytes(data[at + 0x68:at + 0x78]).split(b"\0")[0].decode("latin-1")
+
+    def test_camp_alt_speed_bounds(self):
+        # Alt's Speed reads variable 0x12 (7070:1bab), not the game's speed. At 0 the
+        # menu is "Slower Exit" alone and Down does nothing; Exit leaves it at 0. At 9 the
+        # menu is "Faster Exit" alone and Up does nothing; Faster goes to 8.
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        for speed, keys, menu, pick, want in (
+                (0, r"\ve", "menu: ~Slower ~Exit", "choice: 132", 0),
+                (9, r"\^fe", "menu: ~Faster ~Exit", "choice: 136", 8)):
+            saves = self.camp_alt_saves(f"speed{speed}", speed)
+            varfile = self.folder / f"speed{speed}.vars"
+            result = self.play("--start-menu", "--mouse", "--saves", saves, "--vars", varfile,
+                               "--keys", start + "Eas" + keys + r"\e" + r"\e", ASSETS)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            lines = result.stdout.splitlines()
+            self.assertIn(menu, lines)
+            self.assertIn(pick, lines)
+            self.assertEqual(varfile.read_bytes()[0x11], want)
+
+    def test_camp_alt_selected_colour(self):
+        # Order's Select (177e:156e, the camp's branch): "has been selected" on row 19 in
+        # colour 7 (1a62:0311), as the original draws it (170, 170, 170), not colour 10.
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        shots = self.folder / "selected"
+        result = self.play("--start-menu", "--mouse", "--saves", self.camp_alt_saves(), "--shots",
+                           shots, "--keys", start + "Eaos", ASSETS)
+        self.assertIn("menu: ~Place ~Exit", result.stdout.splitlines())
+        bmp = sorted(shots.glob("*.bmp"))[-1]
+        width = struct.unpack_from("<i", bmp.read_bytes(), 18)[0]
+        data = pixels(bmp)
+        text = {data[3 * (y * width + x):3 * (y * width + x) + 3]
+                for y in range(152, 159) for x in range(9, 144)}
+        self.assertIn(bytes((170, 170, 170)), text)
+        self.assertNotIn(bytes((85, 255, 85)), text)
 
     def test_program_0(self):
         # PROGRAM 0 (5f07:0c15) in block 39, the training hall (92f2), with
