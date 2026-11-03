@@ -4956,6 +4956,7 @@ static bool stone_to_flesh(cok_adventure *game, cok_character *who)
         }
     }
     cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    c[0x65] = 0; /* 7825:0588's movw: the status is a word, +0x64 and +0x65 */
     cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
     cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
     return true;

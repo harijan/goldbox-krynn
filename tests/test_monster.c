@@ -1702,11 +1702,13 @@ static void test_dark_queen_heal(void)
     snprintf(keys + strlen(keys), sizeof keys - strlen(keys), "%s", escape);
     keys_to(keys);
     cok_field_set8(L, m->record, COK_FIELD_STATUS, 7);
+    m->record[0x65] = 1; /* the status word's high byte: 7825:0588 writes it too */
     cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 0);
     cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_OK);
     CHECK(cok_field_u8(L, m->record, COK_FIELD_STATUS) == 0);
+    CHECK(m->record[0x65] == 0);
     CHECK(cok_field_u8(L, m->record, COK_FIELD_ACTIVE) == 1);
     CHECK(cok_field_u8(L, m->record, COK_FIELD_HIT_POINTS) == 1);
 
