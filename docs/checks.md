@@ -648,9 +648,9 @@ ground does). Compared: 24,696 of the 28,224 ground pixels, 0 differing. DUNGCOM
 the same map (on nearly every pixel); the check covers the choice of the set and the palette on set 4 only (the seed's
 draws on set 3 and 6: `tests/test_queen_arena.c`).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
-original allows it after LOAD FILES) reads the party list at the battle's placement's entry (`59c7:1864`, trapped
+original allows it after LOAD FILES) reads the party list after the arena's redraw (`59c7:1e99`, after the placement; trapped
 once the battle's overlay is in and the block's last key is read; the records and blocks are then made, as
-`59c7:0f7b` has run), and eclplay, started as setup's (`--load --play`), stops at the placement (`--records` and
+`59c7:0f7b` has run), and eclplay, started as setup's (`--load --play`), stops at the arena's redraw (`--records` and
 `--blocks`: the records and the trailer, c6f1, ad6b and the undead count DS:c2ed; each combat block, 0x18 bytes). The original has 19 records (the six and
 13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13, ad6b 11 and no undead; the monsters' records agree
 whole (pointers masked), and so do the party's (`PARTY_GAPS` is empty: the save's import; with
@@ -672,13 +672,13 @@ KEY, COMBAT) waits at each of its five PRESS KEYs ('setup', 'near', 'nearer', 'w
 1 KB of variables and its screen are read, and eclplay's, started from saved game A with that many keys (`--vars`,
 `--screen`), must agree: the variables all (0x37 is the distance, 2, 1 and 0 at the approaches; the open squares at 'wall',
 0 here, a wall at once; 9 at 'raised'), and the screen in RGB, all 320 by 200 pixels, except the mouse cursor (the shield at the corner, 16
-by 18: the front end draws it, not the screen the port's BMP holds). At the placement (`59c7:1864`) var 0x37 is the open
+by 18: the front end draws it, not the screen the port's BMP holds). After the arena's redraw (`59c7:1e99`) var 0x37 is the open
 squares in both (COMBAT's lowering of 9), the party and the monsters' records and combat blocks, c6f1, ad6b and the undead count agree as in
 `load`, and eclplay stops at the placement. The close-up is one frame (PICA 21), so its screen at distance 0 agrees; PIC 14
 is not used: it animates during PRESS KEY (`63ae:0269`), so a settled screen catches a later frame than eclplay's.
 Flow `field` (step 4, parts 7 and 9a: the battle's setup, the dungeon builder, and the combat records, `59c7:1dd7` to the placement). For two
 party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
-eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:1864` (the placement's
+eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:1e99` (after the arena's redraw, which follows the placement; the placement's
 entry, after the tiles, the dungeon builder and the combat records `59c7:0f7b`), where the 50 by 25 cells, each record's combat block, RandSeed and the mode are read (the original's
 spin holds, and the battle is in 3D: var 0x22 set). Four squares: the fixture's, the west edge (0, 3, 2), (12, 12, 0)
 (049e's door corner and the 17th column) and (4, 14, 0) (the 17th row, 0285's door again); each catches a mutation the
@@ -713,8 +713,10 @@ trap (`dqk_fight_lib.frozen_at_trap`: `31 c0 90 90 90`), so a flow with no purge
 Memory settings do not stop the purges: with `memsize=64`, `ems` and `xms` true, or `umb` true (the Box's own
 settings are all off), the west edge's purges were 5 to 7 (2026-11-02, probes; umb moves DS:da80 at the battle's call
 from 20 to 19, not the purges), and DQK_FULL.EXE makes no EMS call (no INT 67h). The view's
-origin (DS:bedb +2, +4) is not compared: it is written after the placement (`1dd7`'s `4837:0aea`, `0b19`), so the
-original holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
+origin (DS:bedb +2, +4) is compared at the stop: it is written after the placement (`1dd7`'s `5837:0aea`, `0b19`).
+Every combatant is compared, the entries of size 0 too (`placed` in `dqk_fight.py`: the trap's spin holds with the
+count at 2 or more and the party's head set, so a stop taken before the placement is waited out, as the six-loads
+flow needs).
 
 Flow `wild` (step 4, part 8: the open ground's builders, `59c7:0e3b`, to the placement). The block is the fight
 block with the battle outside 3D: after LOAD FILES it stores var 0x22 0, var 0x1a2 and var 0x33 (`dqkecl.fight`'s

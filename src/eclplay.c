@@ -118,7 +118,10 @@ static void save_blocks(const cok_adventure *game, const char *path)
 /* --field: the battlefield as the run left it: RandSeed, the view's origin, the
  * header's cursor, cursor size and see-all (the map's +6, +7, +8) and the cells (50 by 25,
  * row by row, in hex). Where the battle stops before its placement, the origin is what
- * the setup left (zero until placement sets it). */
+ * the setup left (zero until placement sets it). Then the occupants (50 by 25, row by row,
+ * in hex, dqk 59c7:0330's table at DS:b7fd), and the combatants: a line "combatants N" and
+ * N lines "n x y size" (the combatants 1 to N - 1: Dark Queen's DS:c3f1 + 6n, n below its
+ * count DS:c3ef). */
 static void save_field(const cok_adventure *game, const char *path)
 {
     FILE *f = fopen(path, "w");
@@ -133,6 +136,16 @@ static void save_field(const cok_adventure *game, const char *path)
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x) fprintf(f, "%02x", game->combat.cells[y][x]);
         fputc('\n', f);
+    }
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x)
+            fprintf(f, "%02x", game->combat.occupant[y][x]);
+        fputc('\n', f);
+    }
+    fprintf(f, "combatants %u\n", game->combat.count - 1u);
+    for (unsigned n = 1; n < game->combat.count; ++n) {
+        const cok_combatant *e = &game->combat.combatant[n];
+        fprintf(f, "%u %d %d %u\n", n, e->x, e->y, e->size);
     }
     fclose(f);
 }
@@ -209,7 +222,7 @@ static void usage(const char *program)
           "  --blocks FILE   save each party record's combat block (Dark Queen's 0x18\n"
           "                  bytes, the named ones at their offsets, the rest 0), in list order\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
-          "                  origin and the 50 by 25 cells in hex\n"
+          "                  origin, the 50 by 25 cells and occupants in hex, the combatants\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
           "  --start ADDR    run only from code address ADDR (hex)\n"
           "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"

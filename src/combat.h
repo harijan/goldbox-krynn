@@ -270,8 +270,11 @@ bool cok_combat_place_all(cok_adventure *game);
 
 /* 6346:268a: count the records that can act on each side (+0x18a 0 or
  * 1). Returns false for a record on another side, which the original
- * counts, as a signed byte, in the data around DS:6b2c. */
-bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules);
+ * counts, as a signed byte, in the data around DS:6b2c. ambush is DS:c2e7
+ * (game->ambush): the rules' sides_ambush_0x20 takes one from side 1 at 0x20
+ * (dqk 51c2:0920's 096a-0978). */
+bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules,
+                            uint8_t ambush);
 
 /* 432f:2df3: the enemies' (+0x18a 1) hit points, of those that can act,
  * as a percentage of all their most, in fives: (20 * hp as a word) /

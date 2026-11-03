@@ -224,6 +224,11 @@ typedef struct {
     bool (*arena_tiles)(cok_adventure *game, bool wild, unsigned set);
     bool (*arena_view)(cok_adventure *game);
     bool (*arena_cell)(cok_adventure *game, int x, int y);
+    /* A combatant's icon (arena.c's cok_arena_icon: image 0 ready or 1 attacking, of slot,
+     * at the screen cell x, y facing facing), drawn by the game in place of arena.c's. A
+     * game with arena_cell has this too. */
+    bool (*arena_icon)(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
+                       uint8_t slot);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',
