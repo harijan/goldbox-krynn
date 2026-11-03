@@ -17,6 +17,7 @@
 #include "round.h"
 #include "rules.h"
 #include "test_temp.h"
+#include "vga.h"
 
 #include <stdbool.h>
 #include <stdio.h>
@@ -1086,6 +1087,44 @@ static void test_loaded_slots(void)
     cok_adventure_close(&game);
 }
 
+/* The combat screen (dark_queen.c's combat_screen, 20b2:02fa): the screen cleared, then the
+ * panel's cells 23-38 by 1-21 to the window's grey (0x17), FRAME 1, 2, 3 and 5, FRAME 4 within
+ * rows 186-199, FRAME 6, each drawn as cok_vga_draw_record draws it (the same records, the
+ * same clip, the same order), and nothing else: the adventure's frame (compass, lamps, FRAME 7)
+ * is not drawn. Skipped without DQKAssets/. */
+static void test_combat_frame(void)
+{
+    struct stat st;
+    if (stat("DQKAssets/DISK3/FRAME.TLB", &st) != 0) {
+        puts("dark queen: no DQKAssets/ FRAME.TLB; the combat frame not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
+    uint8_t *bytes = NULL;
+    size_t n = 0;
+    hlib_library frame;
+    CHECK(hlib_read_file("DQKAssets/DISK3/FRAME.TLB", &bytes, &n) == HLIB_OK);
+    CHECK(hlib_parse(bytes, n, &frame) == HLIB_OK);
+    cok_picture want;
+    CHECK(cok_picture_create_vga(&want, game.screen.units, 200, 1, NULL) == COK_PICTURE_OK);
+    cok_vga_fill(&game.screen, 0, 0, 320, 200, 0x00);
+    cok_adventure_screen(&game, COK_SCREEN_COMBAT);
+    cok_vga_fill(&want, 0, 0, 320, 200, 0x00);
+    cok_vga_fill(&want, 8 * 23, 8, 8 * 16, 8 * 21, 0x17);
+    for (unsigned id = 1; id <= 3; ++id)
+        CHECK(cok_vga_draw_record(&want, &frame, id, 0, 0, NULL, NULL));
+    CHECK(cok_vga_draw_record(&want, &frame, 5, 0, 0, NULL, NULL));
+    const cok_vga_clip bottom = {186, 0, 200, 320};
+    CHECK(cok_vga_draw_record(&want, &frame, 4, 0, 0, &bottom, NULL));
+    CHECK(cok_vga_draw_record(&want, &frame, 6, 0, 0, NULL, NULL));
+    CHECK(memcmp(want.pixels, game.screen.pixels, 320 * 200) == 0);
+    cok_picture_free(&want);
+    free(bytes);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_wilderness();
@@ -1101,6 +1140,7 @@ int main(void)
     test_loaded_icons();
     test_join_icons();
     test_loaded_slots();
+    test_combat_frame();
     test_round_start_queen();
     test_turn_dispatch();
     puts("dark queen tests passed");

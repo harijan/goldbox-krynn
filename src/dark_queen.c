@@ -1013,10 +1013,29 @@ static void overland_screen(cok_adventure *game)
     draw_frame_record(game, 7, 8 * 16, 0, NULL);
 }
 
+/* The combat screen (20b2:02fa, the frame of 51c2:0c94's redraw, which
+ * cok_arena_redraw makes by 1128:04c1): the panel cleared (1a62:09a1 with
+ * 8, the window's grey: cells 23-38 by 1-21), FRAME 1, 2, 3 and 5, FRAME 4
+ * within rows 186-199 (bottom_bar, 151e:06cb and 075c around it), FRAME 6.
+ * The view's cells are left as they are: the ground is drawn over them
+ * after this (cok_arena_centre). Its begin and flush of the page (19a4:05ee,
+ * 1bdb:0d1d) are the one screen's (games.md's Dark Queen section). The
+ * panel's text and the party's list are not drawn: part 12. */
+static void combat_screen(cok_adventure *game)
+{
+    clear_cells(game, 23, 1, 38, 21);
+    for (unsigned i = 1; i <= 3; ++i) draw_frame_record(game, i, 0, 0, NULL);
+    draw_frame_record(game, 5, 0, 0, NULL);
+    bottom_bar(game);
+    draw_frame_record(game, 6, 0, 0, NULL);
+}
+
 static void frame(cok_adventure *game, int screen)
 {
-    (void)screen;
-    adventure_screen(game);
+    if (screen == COK_SCREEN_COMBAT)
+        combat_screen(game);
+    else
+        adventure_screen(game);
 }
 
 /* 5e98:0200: the graphics' state to state, leaving the last one's
