@@ -21,6 +21,14 @@
 static const cok_rules *const R = &cok_rules_dark_queen;
 static cok_adventure game;
 
+/* Whether queen_icon's slot and image are empty. */
+static bool icon_empty(unsigned slot, unsigned image)
+{
+    const uint8_t *got = NULL;
+    size_t got_size = 1;
+    return queen_icon(&game, slot, image, &got, &got_size) && got == NULL && got_size == 0;
+}
+
 /* Whether queen_icon's slot and image hold record id of the library file, byte for byte
  * (hlib's record). */
 static bool icon_holds(unsigned slot, unsigned image, const char *file, unsigned id)
@@ -78,10 +86,11 @@ int main(void)
     CHECK(icon_holds(8, 0, cpic, 64) && icon_holds(8, 1, cpic, 192));
     CHECK(d->arena_load_icon(&game, "CPIC.TLB", 49, 9));
     CHECK(icon_holds(9, 0, cpic, 49) && icon_holds(9, 1, cpic, 177));
-    /* CPIC 72 has no record 72: pose 0 is 100 + id (172, 004b:0056-0087), and pose 1 (200)
-     * is missing, which stops with 19a4:004b (Q1). */
+    /* CPIC 72 has no record 72: pose 0 is 100 + id (172, 004b:0056-0087), but pose 1 (200)
+     * is missing, which stops with 19a4:004b (Q1). Neither image is stored (004b fails at
+     * 0193 before 0881), so the slot stays empty. */
     CHECK(!d->arena_load_icon(&game, "CPIC.TLB", 72, 10));
-    CHECK(strstr(game.error, "19a4:004b") != NULL && icon_holds(10, 0, cpic, 172));
+    CHECK(strstr(game.error, "19a4:004b") != NULL && icon_empty(10, 0) && icon_empty(10, 1));
     /* Another name than the rules' icons stops, cited 204c:00df; a slot past the table
      * stops, cited DS:b17d. */
     CHECK(!d->arena_load_icon(&game, "DUNGCOM.TLB", 64, 11) && strstr(game.error, "204c:00df"));

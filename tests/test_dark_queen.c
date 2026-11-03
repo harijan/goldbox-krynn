@@ -763,6 +763,117 @@ static void test_loaded_icons(void)
     cok_adventure_close(&game);
 }
 
+/* Whether queen_icon's slot and image are empty. */
+static bool icon_empty(const cok_adventure *game, unsigned slot, unsigned image)
+{
+    const uint8_t *got = NULL;
+    size_t got_size = 1;
+    return queen_icon(game, slot, image, &got, &got_size) && got == NULL && got_size == 0;
+}
+
+/* Add Character's joins and icons (cok_party_add's slot, 604b:3491; queen_added_icons, 7368:0af4):
+ * each joined member takes the lowest of 0-7 no other member holds (the .QCH file's 0x0d is
+ * replaced), and its CBODY goes into it; an NPC too. Skipped without DQKAssets/. */
+static void test_join_icons(void)
+{
+    struct stat st;
+    static cok_item_types types;
+    char error[300];
+    if (stat("DQKAssets/DISK3/CBODY.TLB", &st) != 0 ||
+        stat("DQKAssets/SAVE/ROLANDOF.QCH", &st) != 0 ||
+        !cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error)) {
+        puts("dark queen: no DQKAssets/ characters; the joins' icons not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
+    uint8_t *bytes = NULL;
+    size_t n = 0;
+    hlib_library cbody;
+    CHECK(hlib_read_file("DQKAssets/DISK3/CBODY.TLB", &bytes, &n) == HLIB_OK);
+    CHECK(hlib_parse(bytes, n, &cbody) == HLIB_OK);
+    const cok_character_layout *L = R->character;
+    static const char *const names[] = {"ROLANDOF", "WALKERKE", "BALTHIRN"};
+    for (unsigned k = 0; k < 3; ++k) {
+        cok_character *c = malloc(sizeof *c);
+        CHECK(c != NULL && cok_character_read_file(c, R, "DQKAssets/SAVE", names[k], "QCH",
+                                                   &types, error, sizeof error));
+        if (k == 2) /* BALTHIRN as an NPC (+0x9b bit 7) */
+            cok_field_set8(L, c->record, COK_FIELD_NPC,
+                           cok_field_u8(L, c->record, COK_FIELD_NPC) | 0x80);
+        CHECK(cok_party_add(&game.party, R, c));
+        CHECK(queen_added_icons(&game, c->record));
+        unsigned slot = cok_field_u8(L, c->record, COK_FIELD_ICON);
+        unsigned body = cok_field_u8(L, c->record, COK_FIELD_ICON_BODY);
+        CHECK(slot == k && body < 0x80);
+        CHECK(icon_is(&game, slot, 0, &cbody, body) && icon_is(&game, slot, 1, &cbody, body + 0x80));
+    }
+    free(bytes);
+    cok_adventure_close(&game);
+}
+
+/* A saved game whose members' icon slots are 0x0d, as the .QCH files hold them: loaded, the
+ * members take 0-5 in list order (the restore's joins, 604b:28f8 with cok_party_add), each CBODY
+ * into its slot (2ab4's loop). Then a member removed (177e:1e31) empties its slot and no other.
+ * The copy is patched in a temporary folder. Skipped without DQKAssets/. */
+static void test_loaded_slots(void)
+{
+    struct stat st;
+    static uint8_t data[8192];
+    static cok_item_types types;
+    char error[300], dir[512], path[600];
+    size_t n = read_whole("DQKAssets/SAVE/SAVGAMA.QSV", data, sizeof data);
+    if (n == 0 || stat("DQKAssets/DISK3/CBODY.TLB", &st) != 0 ||
+        !cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error)) {
+        puts("dark queen: no DQKAssets/ saved game; the loaded slots not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    size_t at = 0x40f, count = (size_t)(data[0x40d] | data[0x40e] << 8);
+    CHECK(count == 6);
+    for (size_t i = 0; i < count; ++i) {
+        cok_character c;
+        size_t used;
+        CHECK(cok_character_from_bytes(&c, R, data + at, sizeof data - at, 0, &used, error,
+                                       sizeof error));
+        CHECK(data[at + 0xc5] == cok_field_u8(L, c.record, COK_FIELD_ICON));
+        data[at + 0xc5] = 0x0d;
+        at += used;
+        cok_character_free(&c);
+    }
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_dqk_slots") != NULL);
+    snprintf(path, sizeof path, "%s/SAVGAMA.QSV", dir);
+    FILE *f = fopen(path, "wb");
+    CHECK(f != NULL && fwrite(data, 1, n, f) == n);
+    fclose(f);
+
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
+    const cok_drawing *d = cok_adventure_drawing(&game);
+    CHECK(d != NULL && d->load != NULL && d->load(&game, path));
+    uint8_t *bytes = NULL;
+    size_t cbody_size = 0;
+    hlib_library cbody;
+    CHECK(hlib_read_file("DQKAssets/DISK3/CBODY.TLB", &bytes, &cbody_size) == HLIB_OK);
+    CHECK(hlib_parse(bytes, cbody_size, &cbody) == HLIB_OK);
+    CHECK(game.party.count == 6);
+    for (unsigned k = 0; k < 6; ++k) {
+        const uint8_t *r = game.party.members[k]->record;
+        unsigned body = cok_field_u8(L, r, COK_FIELD_ICON_BODY);
+        CHECK(cok_field_u8(L, r, COK_FIELD_ICON) == k && body < 0x80);
+        CHECK(icon_is(&game, k, 0, &cbody, body) && icon_is(&game, k, 1, &cbody, body + 0x80));
+    }
+    queen_remove_icons(&game, game.party.members[2]->record);
+    CHECK(icon_empty(&game, 2, 0) && icon_empty(&game, 2, 1));
+    CHECK(icon_is(&game, 3, 0, &cbody, cok_field_u8(L, game.party.members[3]->record,
+                                                    COK_FIELD_ICON_BODY)));
+    free(bytes);
+    remove(path);
+    cok_adventure_close(&game);
+}
+
 int main(void)
 {
     test_wilderness();
@@ -776,6 +887,8 @@ int main(void)
     test_party_again();
     test_added();
     test_loaded_icons();
+    test_join_icons();
+    test_loaded_slots();
     puts("dark queen tests passed");
     return 0;
 }

@@ -378,8 +378,7 @@ def enter_block(box):
     if box.read(freeze, 1) != b"\x55":
         raise cokbox.BoxError("261b:05be is not where it was expected")
     box.write(freeze, b"\xcb")
-    box.keys("plta")
-    box.settled(tolerance=64)
+    dqk_lib.load_saved_game(box)
     variables = box.far(box.ds * 16 + DS_VARS)
     box.write(variables + 0x16, bytes([JUMP]))
     box.keys("b")

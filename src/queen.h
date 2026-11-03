@@ -103,6 +103,11 @@ bool queen_mouse(const cok_adventure *game);
 /* The character written to the save path as <name>.QCH (604b:23a7), asking
  * about a file there. False where the run stopped. */
 bool queen_write_character(cok_adventure *game, const cok_character *character);
+/* Add Character's icons for the member just joined (7368:0af4, 0ba7: 604b:05d7): CBODY into its
+ * slot (+0xc5, set by the join: cok_party_add), with no NPC test. False where the run stopped. */
+bool queen_added_icons(cok_adventure *game, const uint8_t *record);
+/* A member removed (177e:1e31's flag 1, 204c:004d): its slot's icons emptied. */
+void queen_remove_icons(cok_adventure *game, const uint8_t *record);
 /* The combat icon of slot (0-0x25) and image (0 ready, 1 attacking) as the table holds it
  * (dqk 19a4:0881's copy, header included): record and size, NULL and 0 for an empty slot.
  * False for a game that has no such table (not Dark Queen's) or a slot or image past it. For

@@ -125,9 +125,9 @@ def main():
         if box.read(freeze, 1) != b"\x55":
             raise cokbox.BoxError("261b:05be is not where it was expected")
         box.write(freeze, b"\xcb")
-        for typed in ["plta", "b"]:
-            box.keys(typed)
-            box.settled(tolerance=64)
+        dqk_lib.load_saved_game(box)
+        box.keys("b")
+        box.settled(tolerance=64)
         _, _, answer = dqk_lib.protection(box)
         box.keys(answer + "\\r")
         box.settled(tolerance=64)

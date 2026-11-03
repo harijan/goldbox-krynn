@@ -53,7 +53,7 @@ masked; PARTY_GAPS: none) and every combat block (0x18 bytes). `load`: 19 record
 ad6b 11, undead 0; `clear`: 17, c6f1 11, ad6b 10, undead 0; `six`: 22, c6f1 16, ad6b 15,
 undead 2. `load` runs twice, with difficulty 3 and with 1 (var 0x27 set at the entry in the
 original, and by --set after the load in eclplay): the hostile monsters' hit points halve for
-difficulty 1. No transcript of eclplay has an icon error (the icons are not loaded yet).
+difficulty 1. No transcript of eclplay has an icon error (the icons load: part 11a).
 
 Flow `encounter` (step 4, parts 6 and 7): LOAD FILES 4 4, CLEARMONSTERS, a SHARKMAN x2 LOAD MONSTER,
 SETUP MONSTERS (sprite 82, distance wanted 16: 2 squares, 2db1's 2e1c, and the close-up PICA 21, one
@@ -928,8 +928,7 @@ def field_original(work, patched, verbose, square=None, tag="field"):
         box.keys("\\r")
         box.settled(tolerance=64)
         box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
-        handle = L.trap(box, *PLACEMENT, until=lambda: True, seconds=180)
-        L.frozen_at_trap(box)
+        handle = at_placement(box)      # the placement made (placed), not a false stop
         box.settled(tolerance=64)
         held, polls, polls_held = L.held(box, handle)
         listed = L.records(box)
@@ -1159,8 +1158,7 @@ def slots_original(work, patched, tag, verbose):
         box.keys("\\r")
         box.settled(tolerance=64)
         box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
-        handle = L.trap(box, *PLACEMENT, until=lambda: True, seconds=180)
-        L.frozen_at_trap(box)
+        handle = at_placement(box)      # the placement made (placed), not a false stop
         box.settled(tolerance=64)
         held, polls, polls_held = L.held(box, handle)
         screen = box.screenshot(path=str(work / f"{tag}-original.png"))
@@ -1243,6 +1241,8 @@ def slots(v, work, opts):
         v.check(all(b == 0 for b in r["a848"]),
                 f"the head layers DS:a848 are all 0 at {where} (no CHEAD in Dark Queen: "
                 f"204c:00e5)", r["a848"].hex())
+        v.check(len(r["party"]) == PARTY, f"the original's party list holds {PARTY} records at "
+                f"{where}", f"{len(r['party'])}")
         _, last, icons_path, screen_path = slots_port(work, patched, tag)
         v.check(last == BATTLE_STOP, f"eclplay stops at the placement at {where}", last)
         if not icons_path.exists() or not screen_path.exists():
@@ -1295,6 +1295,8 @@ def slots(v, work, opts):
                         continue
                     at = 3 * (y * SLOT_SCREEN[0] + x)
                     pixels[at:at + 3] = bytes(palette.get(value, (255, 0, 255)))
+        v.check(len(drawn) >= PARTY, f"at least {PARTY} combatants are drawn in the view at "
+                f"{where}", f"{len(drawn)}: {drawn}")
         composed = cokbox.RGBScreen(SLOT_SCREEN[0], SLOT_SCREEN[1], bytes(pixels))
         gx, gy, gw, gh = GROUND
         outside = [(0, 0, 320, gy, "outside the ground"),

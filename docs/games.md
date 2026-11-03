@@ -670,7 +670,12 @@ run, citing their handlers (`unported`). It holds:
   Champions'). The slot tables (DS:c7c4, c7ca, c7be) are not cleared, and nothing reads them
   above the next slot. The icon loads are ported (`204c:00df` loads one CPIC record into a slot
   and into slot + 0x26: `29fc:2b0b`, `170e:17d3`; dark_queen.c's `icon_load`, the table
-  `queen_icon`), so each slot holds its monster's icons.
+  `queen_icon`), so each slot holds its monster's icons. The party's icons (`604b:05d7`: CBODY
+  +0xc4 into +0xc5; an NPC's CPIC +0xbd) load in `loaded()` and the import, and Add Character loads
+  CBODY for any joiner (`queen_added_icons`, 7368:0af4, 0ba7, no NPC test). The slot is the join's
+  (`cok_party_add`, 604b:3491). Drop and the other removals free the member's slot (`177e:1e9d`:
+  `queen_remove_icons`, 204c:004d). Creation's editor (66e5) and Alt Icon (7070:1ce2) call 05d7
+  too: not ported. A record missing stops, storing neither image (`19a4:004b`, untraced: Q1).
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
   extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters, the
   branches of `5f07:081b` in their order: the vault (var 0x31, `771f:09a0`) stops, cited; the
@@ -699,10 +704,9 @@ run, citing their handlers (`unported`). It holds:
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
   The load flow's party list after the arena's redraw (`59c7:1e99`, after the placement): 19 records, the monsters'
   bytes equal (pointers masked, whole), and the party's too from the save (`--load`; with `--character`
-  four members' import differed: known spells, saving throws, thief skills, not traced). The icons: `CPIC.TLB` records
-  do not decode with the port's image reader ("unsupported or malformed image layout"),
-  logged by the loader, and Dark Queen's colour tables (the CPIC recolour) are not in its
-  data: the icons load unrecoloured, and nothing draws them yet.
+  four members' import differed: known spells, saving throws, thief skills, not traced). The icons
+  load unrecoloured into the table `queen_icon` (part 11a; `dqk_fight.py`'s flow `slots`); the
+  drawing of the combatants is part 11b.
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
 - its adventure's camp (step 4, part 44; `dark_queen.c`'s `encamp`, `encamp_menu`,

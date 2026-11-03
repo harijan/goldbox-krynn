@@ -46,6 +46,7 @@ DS_ADAPTER = 0xCA41
 DS_SEED = 0xCA0E
 DS_ENTRY, DS_WORD, DS_ANSWER, DS_TYPED = 0xC74C, 0xC74D, 0xC6F9, 0xC723
 DS_ASKED = 0xC722
+DS_VARS = 0xB20F                        # the block variables' far pointer (dqk_ecl.DS_VARS)
 
 
 def need_assets():
@@ -63,6 +64,29 @@ def far(box, off):
     """The far pointer at DS:OFF as (segment, offset), None if nil."""
     o, s = struct.unpack("<HH", box.ds_read(off, 4))
     return None if o == s == 0 else (s, o)
+
+
+def saved_game_loaded(box):
+    """Saved game A is loaded at the start menu: the party's head (DS:c6e5) is set (604b:28f8
+    joined its members) and var 0x20 (the party's size) is above 0."""
+    variables = box.far(box.ds * 16 + DS_VARS)
+    return far(box, DS_PARTY) is not None and box.read(variables + 0x20, 1)[0] > 0
+
+
+def load_saved_game(box):
+    """The start menu's "plta" (saved game A's load), confirmed. Where the keys were lost the
+    party is not joined, and Begin would run the block with no party (59c7:1e99 then reads
+    records 0, c3ef 1, the origin -3,-3): Escape and "plta" once more, then BoxError."""
+    for attempt in range(2):
+        if attempt:
+            box.keys("\\e")
+            box.settled(tolerance=64)
+        box.keys("plta")
+        box.settled(tolerance=64)
+        if saved_game_loaded(box):
+            return
+    raise cokbox.BoxError("saved game A was not loaded at the start menu (DS:c6e5 nil or var "
+                          "0x20 0), plta typed twice")
 
 
 def protection(box):

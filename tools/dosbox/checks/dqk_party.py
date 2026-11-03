@@ -124,7 +124,10 @@ def main():
         steps = [("loaded", "plta", [], 5), ("down", "\\v", [], 6),
                  ("view", "v", [], 7), ("view's escape", "\\e", [], 8)]
         for what, typed, masks, i in steps:
-            box.keys(typed)
+            if typed == "plta":
+                dqk_lib.load_saved_game(box)
+            else:
+                box.keys(typed)
             shot = box.settled(tolerance=64)
             shot.save_png(out / f"{checklib.slug(what)}.png")
             verdict.screen(what, shot, shots[i] if len(shots) > i else None, masks=masks,
