@@ -85,6 +85,36 @@ static void save_records(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --blocks: each party record's combat block (cok_combat_record, read in the game's
+ * layout: the block's 0x18 bytes, the named ones at their offsets and the rest 0), in
+ * list order, as --records lists the records. Only a game with a combat block
+ * (rules.h's cok_combat_block: Dark Queen's, 59c7:0f7b) has one. */
+static void save_blocks(const cok_adventure *game, const char *path)
+{
+    const cok_combat_block *B = cok_game_rules(game)->combat.combat_block;
+    if (B == NULL) {
+        fprintf(stderr, "--blocks: %s has no combat block\n", cok_game_rules(game)->text.name);
+        return;
+    }
+    FILE *f = fopen(path, "wb");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const cok_combat_record *cr = game->party.members[i]->combat;
+        uint8_t block[0x18] = {0};
+        if (cr != NULL) {
+            block[B->spell] = cr->spell;
+            block[B->facing] = cr->facing;
+            block[B->not_party] = cr->not_party;
+            block[B->in_battle] = cr->in_battle;
+        }
+        fwrite(block, 1, sizeof block, f);
+    }
+    fclose(f);
+}
+
 /* --field: the battlefield as the run left it: RandSeed, the view's origin, the
  * header's cursor, cursor size and see-all (the map's +6, +7, +8) and the cells (50 by 25,
  * row by row, in hex). Where the battle stops before its placement, the origin is what
@@ -176,6 +206,8 @@ static void usage(const char *program)
           "                  the monsters after the party), then the monsters' count, the\n"
           "                  next icon slot and the undead count, a byte each, as FILE\n"
           "                  at the end\n"
+          "  --blocks FILE   save each party record's combat block (Dark Queen's 0x18\n"
+          "                  bytes, the named ones at their offsets, the rest 0), in list order\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
           "                  origin and the 50 by 25 cells in hex\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
@@ -807,7 +839,7 @@ static int run(int argc, char **argv)
     bool sound_given = false;
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
-    const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL;
+    const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
     const char *ground = NULL, *ground_set = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -925,6 +957,8 @@ static int run(int argc, char **argv)
             vars = argv[++i];
         } else if (strcmp(option, "--records") == 0 && has_value) {
             records = argv[++i];
+        } else if (strcmp(option, "--blocks") == 0 && has_value) {
+            blocks = argv[++i];
         } else if (strcmp(option, "--field") == 0 && has_value) {
             field = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -1203,6 +1237,7 @@ static int run(int argc, char **argv)
         if (screen != NULL) save(&p, screen);
         if (vars != NULL) save_vars(&game, vars);
         if (records != NULL) save_records(&game, records);
+        if (blocks != NULL) save_blocks(&game, blocks);
         int result = 0;
         if (status != COK_ECL_OK) {
             fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
@@ -1281,6 +1316,7 @@ static int run(int argc, char **argv)
     if (screen != NULL) save(&p, screen);
     if (vars != NULL) save_vars(&game, vars);
     if (records != NULL) save_records(&game, records);
+    if (blocks != NULL) save_blocks(&game, blocks);
     if (field != NULL) save_field(&game, field);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */

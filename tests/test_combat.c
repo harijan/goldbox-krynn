@@ -60,6 +60,17 @@ static void battlefield(cok_adventure *game, void *context)
 static script s;
 static cok_adventure game;
 
+/* cok_combat_records with the party's size, direction and morale set in the variables
+ * (the game reads them there). */
+static bool combat_records(uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
+                           size_t error_size)
+{
+    game.vm.direction = direction;
+    cok_ecl_set_var(&game.vm, COK_VAR_PARTY_SIZE, party_size);
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, morale);
+    return cok_combat_records(&game, error, error_size);
+}
+
 static void reset(const char *keys)
 {
     cok_party_free(&game.party);
@@ -484,8 +495,7 @@ static void test_records(void)
     keeps->record[0xe7] = 0x92;
     b->record[0xe7] = 0x80;
     /* The party is two records; the party faces east. */
-    CHECK(cok_combat_records(&game.party, &cok_rules_champions, &game.item_types, 2, 2, 0x1c5,
-                             error, sizeof error));
+    CHECK(combat_records(2, 2, 0x1c5, error, sizeof error));
     CHECK(a->combat->not_party == 0 && b->combat->not_party == 0 && ally->combat->not_party == 1);
     /* East is combat direction 2; against the party, 6. */
     CHECK(a->combat->facing == 2 && b->combat->facing == 6 && ally->combat->facing == 2);
@@ -494,15 +504,13 @@ static void test_records(void)
     CHECK(ally->record[0xe7] == 0x45 && keeps->record[0xe7] == 0x92 && b->record[0xe7] == 0x80);
     keeps->record[0xe7] = 0xe7;
     ally->record[0xe7] = 0xe6; /* 0x66, kept */
-    CHECK(cok_combat_records(&game.party, &cok_rules_champions, &game.item_types, 2, 6, 1, error,
-                             sizeof error));
+    CHECK(combat_records(2, 6, 1, error, sizeof error));
     CHECK(keeps->record[0xe7] == 0x81 && a->combat->facing == 6 && b->combat->facing == 2);
     CHECK(ally->record[0xe7] == 0xe6);
     /* The stats are recomputed (6346:0d20). */
     CHECK(a->record[0x18d] == 55);
     a->record[0x11] = 30; /* past the strength table */
-    CHECK(!cok_combat_records(&game.party, &cok_rules_champions, &game.item_types, 2, 0, 0, error,
-                              sizeof error));
+    CHECK(!combat_records(2, 0, 0, error, sizeof error));
 }
 
 static void test_placement(void)
@@ -839,8 +847,7 @@ static void test_place(void)
     reset("");
     fixture(2, 0, 0, 0);
     char error[300];
-    CHECK(cok_combat_records(&game.party, &cok_rules_champions, &game.item_types, 2, 0, 0, error,
-                             sizeof error));
+    CHECK(combat_records(2, 0, 0, error, sizeof error));
     memset(c->cells, COK_COMBAT_FLOOR, sizeof c->cells);
     memset(c->occupant, 0, sizeof c->occupant);
     cok_character *a = game.party.members[0], *b = game.party.members[1];

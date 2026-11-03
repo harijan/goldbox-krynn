@@ -648,13 +648,13 @@ ground does). Compared: 24,696 of the 28,224 ground pixels, 0 differing. DUNGCOM
 the same map (on nearly every pixel); the check covers the choice of the set and the palette on set 4 only (the seed's
 draws on set 3 and 6: `tests/test_queen_arena.c`).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
-original allows it after LOAD FILES) reads the party list where COMBAT calls the battle (`5f07:08f0`, trapped
-while the block waits for its PRESS KEY: the battle starts at once after the key), and eclplay, started as setup's
-(`--load --play`), stops at the battle's placement (`--records`: the records and the trailer, c6f1, ad6b and the undead count
-DS:c2ed). The original has 19 records (the six and
+original allows it after LOAD FILES) reads the party list at the battle's placement's entry (`59c7:1864`, trapped
+once the battle's overlay is in and the block's last key is read; the records and blocks are then made, as
+`59c7:0f7b` has run), and eclplay, started as setup's (`--load --play`), stops at the placement (`--records` and
+`--blocks`: the records and the trailer, c6f1, ad6b and the undead count DS:c2ed; each combat block, 0x18 bytes). The original has 19 records (the six and
 13 monsters: the SHARKMEN and the MINOTAUR, then ten GORGONs), c6f1 13, ad6b 11 and no undead; the monsters' records agree
-byte for byte (pointers masked), and so do the party's (`PARTY_GAPS` is empty: the save's import; with
-`--character` four members' records differed). eclplay's variables at the battle's start agree with the
+whole (pointers masked), and so do the party's (`PARTY_GAPS` is empty: the save's import; with
+`--character` four members' records differed), and every combat block agrees (0x18 bytes, the unnamed bytes 0 in both). eclplay's variables at the battle's start agree with the
 original's (`PORT_GAPS`). It runs twice, with the entry's difficulty (3) and with difficulty 1 (`--set 27=1`
 after the load in eclplay, as the original sets it at the entry), which halves the hostile monsters' hit
 points (78 to 39, 107 to 53) and no GORGON's. Flow `clear` (LOAD MONSTER 49 x1, CLEARMONSTERS, LOAD MONSTER
@@ -672,14 +672,14 @@ KEY, COMBAT) waits at each of its five PRESS KEYs ('setup', 'near', 'nearer', 'w
 1 KB of variables and its screen are read, and eclplay's, started from saved game A with that many keys (`--vars`,
 `--screen`), must agree: the variables all (0x37 is the distance, 2, 1 and 0 at the approaches; the open squares at 'wall',
 0 here, a wall at once; 9 at 'raised'), and the screen in RGB, all 320 by 200 pixels, except the mouse cursor (the shield at the corner, 16
-by 18: the front end draws it, not the screen the port's BMP holds). At the battle's call (`5f07:08f0`) var 0x37 is the open
-squares in both (COMBAT's lowering of 9), the party and the monsters' records, c6f1, ad6b and the undead count agree as in
-`load`, and eclplay stops at the battle. The close-up is one frame (PICA 21), so its screen at distance 0 agrees; PIC 14
+by 18: the front end draws it, not the screen the port's BMP holds). At the placement (`59c7:1864`) var 0x37 is the open
+squares in both (COMBAT's lowering of 9), the party and the monsters' records and combat blocks, c6f1, ad6b and the undead count agree as in
+`load`, and eclplay stops at the placement. The close-up is one frame (PICA 21), so its screen at distance 0 agrees; PIC 14
 is not used: it animates during PRESS KEY (`63ae:0269`), so a settled screen catches a later frame than eclplay's.
-Flow `field` (step 4, part 7: the battle's setup and the dungeon builder, `59c7:1dd7` to the placement). For two
+Flow `field` (step 4, parts 7 and 9a: the battle's setup, the dungeon builder, and the combat records, `59c7:1dd7` to the placement). For two
 party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
-eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:0f7b` (the placement's
-entry, after the tiles and the dungeon builder), where the 50 by 25 cells, RandSeed and the mode are read (the original's
+eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:1864` (the placement's
+entry, after the tiles, the dungeon builder and the combat records `59c7:0f7b`), where the 50 by 25 cells, each record's combat block, RandSeed and the mode are read (the original's
 spin holds, and the battle is in 3D: var 0x22 set). Four squares: the fixture's, the west edge (0, 3, 2), (12, 12, 0)
 (049e's door corner and the 17th column) and (4, 14, 0) (the 17th row, 0285's door again); each catches a mutation the
 others do not: 049e's door corner off and its tile 8 -> 9 fail at (12, 12) only, and side_kind on the 16 by 16
@@ -689,8 +689,8 @@ original draws nothing past SEED, as eclplay does, because the box freezes the m
 purge counters (`PURGE_COUNTERS`, DS:d9ba and DS:da8c, read at SEED and at the trap) are still read and recorded: 0, 9,
 9 and 0 at the four squares in the run that froze them (`field1.out`; the west edge 9, 9, 9, 11, 11 in five runs of that square,
 the same inputs; the port has no heap). The party list's records agree at the placement, all 18 (pointers
-masked, the computer flag +0x18c included: 52db:4dd2 sets it after COMBAT's call, so the battle's start, `setup` and
-the others, compares it as 0). The check also reads that eclplay prints "A battle begins..." once.
+masked, the computer flag +0x18c included: 52db:4dd2 sets it before the placement, and the records are compared whole
+in the load flows too). The check also reads that eclplay prints "A battle begins..." once.
 The memory cache's purge, frozen in the box only (`dqk_fight_lib.freeze_purges`, called by `dqk_fight.py`'s
 `enter` after each flow's block entry, so every fight flow has it). 27fa:05f8 calls 27fa:0f14 while the free memory is
 short, and 27fa:025b calls it when its table is full (the 0x30 entries of DS:d9bc); 0f14 adds one to DS:d9ba (argument

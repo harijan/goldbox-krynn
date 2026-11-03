@@ -249,17 +249,18 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_vi
 void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags, bool river,
                            uint32_t *seed);
 
-/* Give every record in party its stats (6346:0d20) and a combat record,
+/* Give every record in the party its stats (6346:0d20) and a combat record,
  * zeroed (3cb2:10d9): +0x13 set past party_size (var 0x7f3e), facing the
  * combat direction of the party's direction (DS:03da), or the other way
  * against the party (+0x18a 1); an ally past the party (+0x18a 0) whose
  * morale (+0xe7 & 0x7f) is 0 or above 0x66 gets var 0x7ec6 + 0x80. A
- * previous combat record is freed. Returns false with error set where
- * the stats cannot be worked out (see cok_character_stats), leaving the
- * records from that one on as they were. */
-bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item_types *types,
-                        uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
-                        size_t error_size);
+ * previous combat record is freed. Dark Queen's (59c7:0f7b, its combat
+ * block, rules.h) faces 2 with effect 0xd5, sets in_battle, and gives
+ * effect 0x95 to a record that is not hostile while var 0x3c is set; its
+ * morale is var 0x20. Returns false with error set where the stats cannot
+ * be worked out (see cok_character_stats), leaving the records from that
+ * one on as they were. */
+bool cok_combat_records(cok_adventure *game, char *error, size_t error_size);
 
 /* Place every record (3cb2:17f7) on the built map; see combat.c. A
  * monster with no place is removed (4def:3b0a); a party member without

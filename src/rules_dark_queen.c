@@ -398,11 +398,25 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_LOCALS] = VARS(0x97, 50), /* 6c70:0001 */
     [COK_VAR_PARTY_SIZE] = VAR(0x20), /* 604b:3491 adds 1 */
     [COK_VAR_FLED] = VAR(0x36),       /* 59c7:1e3e clears it, 52db:2aef sets it */
+    [COK_VAR_RECORD_EFFECT] = VAR(0x3c), /* 59c7:0f7b:10cf reads it (not named elsewhere yet) */
     [COK_VAR_CLOCK] = VARS(0x0005, COK_CLOCK_UNITS), /* 1396:044d */
     [COK_VAR_MOONS] = VARS(0x01fa, 3), /* 1396:000e: the phases */
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
     [COK_VAR_RIVER] = VAR(0x33),      /* 59c7:0860: a river on the open ground */
     [COK_VAR_ABYSS] = VAR(0x1a2),     /* 59c7:0e3b: the open ground's flags index */
+};
+
+/* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
+ * and 0x17 (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95
+ * (148f:19c2) given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
+static const cok_combat_block dark_queen_combat_block = {
+    .spell = 0x00,
+    .facing = 0x0a,
+    .not_party = 0x14,
+    .in_battle = 0x17,
+    .facing_effect = 0xd5,
+    .gate_effect = 0x95,
+    .gate_var = COK_VAR_RECORD_EFFECT,
 };
 
 /* What a block's start sets besides (6c70:0001): 0x2b and 0x2c. */
@@ -593,10 +607,11 @@ const cok_rules cok_rules_dark_queen = {
     /* COMBAT's monsters (monster.c): LOAD MONSTER registers them (dqk 6c70:29a3),
      * COMBAT appends them (6c70:2d82, 170e) and lowers the distance to the open
      * squares; the battle (5045:059d) starts (its setup, cok_combat_setup, builds
-     * the battlefield: 59c7:1dd7's tiles and builders), and stops at the placement
-     * (59c7:0f7b). The branches with no monsters (5f07:081b's vault, temple and
-     * treasure) are not ported. The encounter (SETUP MONSTERS, APPROACH, the
-     * sprite and close-up) is ported. */
+     * the battlefield: 59c7:1dd7's tiles and builders), makes its combat records
+     * (59c7:0f7b, the combat block), and stops at the placement (59c7:1864). The
+     * branches with no monsters (5f07:081b's vault, temple and treasure) are not
+     * ported. The encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is
+     * ported. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -640,9 +655,10 @@ const cok_rules cok_rules_dark_queen = {
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
              * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */
             .wilderness = COK_WILDERNESS_DARK_QUEEN,
-            /* The placement (59c7:0f7b, 1864) and the battle's rounds are not
-             * ported: the battle stops after the battlefield is built. */
-            .placement_unported = "dqk 59c7:0f7b",
+            /* The placement (59c7:1864, after the combat records at 59c7:0f7b) and the
+             * battle's rounds are not ported: the battle stops after its records are made. */
+            .placement_unported = "dqk 59c7:1864",
+            .combat_block = &dark_queen_combat_block,
         },
     .effects =
         {

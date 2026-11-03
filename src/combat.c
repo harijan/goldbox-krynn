@@ -766,17 +766,23 @@ void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t f
     scatter(combat, rules, flags, seed);
 }
 
-/* The combat records (3cb2:10d9). */
+/* The combat records (3cb2:10d9; dqk 59c7:0f7b, with the combat block). */
 
-bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item_types *types,
-                        uint16_t party_size, uint8_t direction, uint16_t morale, char *error,
-                        size_t error_size)
+bool cok_combat_records(cok_adventure *game, char *error, size_t error_size)
 {
+    cok_party *party = &game->party;
+    const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
+    const cok_combat_block *B = rules->combat.combat_block;
+    cok_ecl *vm = &game->vm;
+    uint16_t party_size = cok_ecl_var(vm, COK_VAR_PARTY_SIZE);
+    /* Dark Queen's morale is the party size's byte too (0f7b:10b1 reads var 0x20). */
+    uint16_t morale = B != NULL ? party_size : cok_ecl_var(vm, COK_VAR_MORALE);
+    bool gate = B != NULL && cok_ecl_var(vm, (cok_var)B->gate_var) != 0; /* 0f7b:10cf */
     uint8_t n = 0;
     for (size_t i = 0; i < party->count; ++i) {
         cok_character *c = party->members[i];
-        if (!cok_character_stats(c, rules, types, error, error_size)) return false;
+        if (!cok_character_stats(c, rules, &game->item_types, error, error_size)) return false;
         ++n;
         free(c->combat);
         c->combat = calloc(1, sizeof *c->combat);
@@ -785,15 +791,25 @@ bool cok_combat_records(cok_party *party, const cok_rules *rules, const cok_item
             return false;
         }
         uint8_t *r = c->record;
+        uint8_t hostile = cok_field_u8(L, r, COK_FIELD_HOSTILE);
         if (n > party_size) c->combat->not_party = 1;
+        /* Dark Queen's effect 0xd5 faces 2 (0f7b:0ff6, 103f); else the quadrant's
+         * direction (DS:5d2b by the direction, 0f7b:1019), and +4 for a hostile one. */
+        bool facing_two = B != NULL && cok_character_find_effect(c, B->facing_effect) != NULL;
         c->combat->facing =
-            cok_data_u8_at(rules->data, COK_DATA_QUADRANT_DIRECTIONS, direction >> 1);
-        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1)
-            c->combat->facing = (uint8_t)((c->combat->facing + 4) % 8);
+            cok_data_u8_at(rules->data, COK_DATA_QUADRANT_DIRECTIONS, vm->direction >> 1);
+        if (hostile == 1) c->combat->facing = (uint8_t)((c->combat->facing + 4) % 8);
+        if (facing_two) c->combat->facing = 2;
         uint8_t own = cok_field_u8(L, r, COK_FIELD_NPC) & 0x7f;
-        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0 && c->combat->not_party == 1 &&
-            (own == 0 || own > 0x66))
+        if (hostile == 0 && c->combat->not_party == 1 && (own == 0 || own > 0x66))
             cok_field_set8(L, r, COK_FIELD_NPC, (uint8_t)(morale + 0x80));
+        if (B == NULL) continue;
+        c->combat->in_battle = 1; /* 0f7b:10ca */
+        if (gate && hostile == 0 &&
+            cok_character_add_effect(c, B->gate_effect, 0, 0, false) == NULL) { /* 148f:19c2 */
+            snprintf(error, error_size, "out of memory");
+            return false;
+        }
     }
     return true;
 }
@@ -1205,8 +1221,8 @@ static bool build(cok_adventure *game)
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_drawing *drawing = cok_adventure_drawing(game);
-    /* Open ground's builders (dqk 59c7:0e3b and on) are not ported yet: the
-     * battle stops before the tiles are loaded. */
+    /* A game whose open ground's builder is not ported (wilderness_unported; Dark
+     * Queen's is, dqk 59c7:0e3b) stops before the tiles are loaded. */
     if (!area && R->wilderness_unported != NULL)
         return cok_adventure_not_yet(game, "open ground's battlefield", R->wilderness_unported);
     if (drawing != NULL && drawing->arena_tiles != NULL) {
@@ -1326,18 +1342,16 @@ bool cok_combat_setup(cok_adventure *game)
     cok_ecl_set_var(vm, COK_VAR_FLED, 0); /* dqk 1dd7 clears var 0x36, its FLED */
     bool listed = game->party.count > 0;
     if (!build(game)) return false;
-    if (cok_game_rules(game)->combat.placement_unported != NULL)
-        return cok_adventure_not_yet(game, "battle's placement",
-                                     cok_game_rules(game)->combat.placement_unported);
     drop_key(game);
     char error[300];
-    if (!cok_combat_records(&game->party, cok_game_rules(game), &game->item_types,
-                            cok_ecl_var(vm, COK_VAR_PARTY_SIZE), vm->direction,
-                            cok_ecl_var(vm, COK_VAR_MORALE), error, sizeof error)) {
+    if (!cok_combat_records(game, error, sizeof error)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
-    drop_key(game);
+    drop_key(game); /* dqk 1e50, after the records (1e4d): the placement's entry is 1e56 */
+    if (cok_game_rules(game)->combat.placement_unported != NULL)
+        return cok_adventure_not_yet(game, "battle's placement",
+                                     cok_game_rules(game)->combat.placement_unported);
     if (!cok_combat_place_all(game)) return false;
     drop_key(game);
     /* The view's origin, from the first record, whether or not it is on the

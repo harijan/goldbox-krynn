@@ -1227,10 +1227,10 @@ static void test_dark_queen_monsters(void)
 }
 
 /* Dark Queen's blocks (6c70:29a3's LOAD MONSTER registers, 5f07:081b's
- * COMBAT appends and stops at the battle's placement (59c7:0f7b, after the
- * open ground or the dungeon is built); 5f07:07fe's CLEARMONSTERS (75cc:151b,
- * 63ee:0002) forgets the slots). Each test opens its own adventure from
- * DQKAssets, and skips without it. */
+ * COMBAT appends and stops at the battle's placement (59c7:1864, after the open ground
+ * (59c7:0e3b) or the dungeon is built, 3D or not); 5f07:07fe's CLEARMONSTERS (75cc:151b,
+ * 63ee:0002) forgets the slots). Each test opens its own adventure from DQKAssets, and
+ * skips without it. */
 #define DQK_LOAD_MONSTER 0x0b
 #define DQK_CLEARMONSTERS 0x1c
 #define DQK_COMBAT 0x24
@@ -1297,7 +1297,7 @@ static void test_dark_queen_appends(void)
      * slot 10), then the battle is not ported: the run stops there. */
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
     CHECK(dqk.undead == 0);
     static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
@@ -1366,7 +1366,7 @@ static void test_dark_queen_clear_between(void)
     CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
     char name[16];
     CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
@@ -1389,7 +1389,7 @@ static void test_dark_queen_six_loads(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 14);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.party.count == 16 && dqk.monsters == 16 && dqk.icon_slot == 15);
     CHECK(dqk.undead == 2);
     cok_adventure_close(&dqk);
@@ -1433,9 +1433,9 @@ static void test_dark_queen_open_ground_flags(void)
     if (!dq_open(&a)) return;
     CHECK(dq_open(&b) && dq_open(&c));
     CHECK(open_ground_fight(&a, 0) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(open_ground_fight(&b, 1) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(memcmp(a.combat.cells, b.combat.cells, sizeof a.combat.cells) != 0);
     CHECK(open_ground_fight(&c, 32) == COK_ECL_UNDEFINED);
     CHECK(strstr(cok_adventure_why(&c, c.vm.status), "var 0x1a2 is 32, past its flags") != NULL);
@@ -1499,13 +1499,13 @@ static void test_dark_queen_encounter(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.sprite_shown && dqk.closeup_id == 14);
     CHECK(dqk.error[0] == '\0');
     /* COMBAT lowers the distance to the open squares (2) before its text, and the
-     * battle is still not carried out (dqk 59c7:0f7b). */
+     * battle's records are made (59c7:0f7b), and the battle stops at its placement (1864). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
     cok_ecl_set_var(&dqk.vm, COK_VAR_DISTANCE, 5);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_DISTANCE) == 2);
     cok_adventure_close(&dqk);
 }

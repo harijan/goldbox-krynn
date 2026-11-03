@@ -117,6 +117,53 @@ static void test_fled(void)
     CHECK(cok_ecl_var(&game.vm, COK_VAR_FLED) == 0);
 }
 
+/* The combat records (dqk 59c7:0f7b, its combat block): the party's direction's quadrant
+ * (2 for direction 4), +4 for a hostile one; effect 0xd5 faces 2 whoever it is on; the
+ * records past the party's size are not_party (block +0x14); every record is in_battle
+ * (block +0x17); an NPC past the party gets the party size's byte + 0x80 (0f7b:10b1 reads
+ * var 0x20); and with var 0x3c set, effect 0x95 goes to each record that is not hostile. */
+static void test_combat_records(void)
+{
+    const cok_character_layout *L = R->character;
+    const cok_combat_block *B = R->combat.combat_block;
+    CHECK(B != NULL && B->spell == 0x00 && B->facing == 0x0a && B->not_party == 0x14 &&
+          B->in_battle == 0x17);
+    CHECK(cok_rules_champions.combat.combat_block == NULL &&
+          cok_rules_death_knights.combat.combat_block == NULL);
+    for (int gate = 0; gate < 2; ++gate) {
+        cok_party_free(&game.party);
+        game.vm.status = COK_ECL_OK;
+        game.vm.direction = 4;
+        cok_ecl_set_var(&game.vm, COK_VAR_PARTY_SIZE, 1);
+        cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, (uint16_t)gate);
+        cok_character *a = record('A', 0, 0), *n = record('N', 0, 1), *m = record('M', 1, 0);
+        cok_character *x = record('X', 0, 0);
+        cok_effect *fx = cok_character_add_effect(m, B->facing_effect, 0, 0, false);
+        CHECK(fx != NULL);
+        char error[300] = "";
+        CHECK(cok_combat_records(&game, error, sizeof error));
+        uint8_t quadrant = cok_data_u8_at(R->data, COK_DATA_QUADRANT_DIRECTIONS, 2);
+        CHECK(a->combat->facing == quadrant && a->combat->not_party == 0);
+        CHECK(n->combat->not_party == 1 && n->combat->facing == quadrant);
+        CHECK(m->combat->facing == 2 && m->combat->not_party == 1);
+        CHECK(x->combat->not_party == 1 && x->combat->in_battle == 1);
+        CHECK(a->combat->in_battle == 1 && n->combat->in_battle == 1 && m->combat->in_battle == 1);
+        CHECK(cok_field_u8(L, n->record, COK_FIELD_NPC) == 0x81);
+        CHECK((cok_character_find_effect(a, B->gate_effect) != NULL) == (gate != 0));
+        CHECK((cok_character_find_effect(n, B->gate_effect) != NULL) == (gate != 0));
+        CHECK(cok_character_find_effect(m, B->gate_effect) == NULL);
+    }
+    /* Without the effect a hostile record faces the quadrant plus 4. */
+    cok_party_free(&game.party);
+    game.vm.direction = 4;
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cok_character *h = record('H', 1, 0);
+    char error[300] = "";
+    CHECK(cok_combat_records(&game, error, sizeof error));
+    CHECK(h->combat->facing == (cok_data_u8_at(R->data, COK_DATA_QUADRANT_DIRECTIONS, 2) + 4) % 8);
+    cok_party_free(&game.party);
+}
+
 int main(void)
 {
     struct stat st;
@@ -129,6 +176,7 @@ int main(void)
     CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
     test_leadership();
     test_fled();
+    test_combat_records();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
