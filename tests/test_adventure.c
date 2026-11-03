@@ -2857,6 +2857,37 @@ static void test_dark_queen_party(void)
     cok_adventure_close(&game);
 }
 
+/* A Dark Queen saved game's variable 0x12 (the speed) is the game's speed once it
+ * is loaded (load_saved: the mirror set_speed keeps, which the shared waits read).
+ * Skipped without DQKAssets. */
+static void test_dark_queen_load_speed(void)
+{
+    static uint8_t save[1 << 16];
+    FILE *f = fopen("DQKAssets/SAVE/SAVGAMA.QSV", "rb");
+    if (f == NULL) {
+        puts("adventure: DQKAssets not found; Dark Queen's load speed not checked");
+        return;
+    }
+    size_t size = fread(save, 1, sizeof save, f);
+    fclose(f);
+    save[0x11] = 0; /* variable 0x12: the variables' byte n - 1 is variable n */
+    char dir[512];
+    CHECK(test_temp_dir(dir, sizeof dir, "cok_dq_speed") != NULL);
+    char path[600];
+    snprintf(path, sizeof path, "%s/SAVGAMA.QSV", dir);
+    write_file(path, save, size);
+    static cok_adventure game;
+    script s = {0};
+    cok_keyboard keys = {scripted, &s, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = log_line, .context = &s};
+    CHECK(cok_adventure_open(&game, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
+    game.speed = 4;
+    CHECK(cok_adventure_load_file(&game, path));
+    CHECK(cok_ecl_load_var(&game.vm, 0x12) == 0 && game.speed == 0);
+    cok_adventure_close(&game);
+    CHECK(remove(path) == 0 && rmdir(dir) == 0);
+}
+
 int main(void)
 {
     test_clock();
@@ -2885,6 +2916,7 @@ int main(void)
     test_dark_queen_view_square();
     test_dark_queen_wall_set();
     test_dark_queen_party();
+    test_dark_queen_load_speed();
     puts("adventure tests passed");
     return 0;
 }

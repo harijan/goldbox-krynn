@@ -531,8 +531,11 @@ run, citing their handlers (`unported`). It holds:
   (`7065:0011`) where picture 9 is not shown and variables 0x22 0 and 0x24 1, and the view
   again at the next CALL 1; DS:c2dc, cleared by a new game (`5f07:10d3`), is taken 0:
   nothing in the game sets it (only 5f07:10d3 clears it); with DS:b7a7 set the ECL run
-  ends (`5f07:0fcb`), which the port stops at, not yet; its Load stops (`7368:0758`:
-  `5f07:0004` and DS:b7a7, the camp returning without a load; not ported); 1, the ending;
+  halts (`5f07:0fc4`), and the adventure's loop ends and frees the party (`5f07:1338-1370`,
+  `177e:1e31`); a load asked (its Load, `7368:0758`: DS:acc4 by `5f07:0004`, DS:b7a7 by
+  `7368:0761`) loads there (`604b:2e87`, the Load Saved Game below), then main takes the camp
+  from main (`5ebd:0312-033a`); without one, main makes a new game and shows its menu again
+  (`5ebd:039b`, `64b2:04ec`, not ported: the run stops there, "not yet"); 1, the ending;
   2, the quit
   (`2093:002d`, as Exit ends a game); and 4-255 (`5f07:0c8c`: DS:b7f8, the view
   and status again at the next CALL 1, the port's view_changed), with the
@@ -698,8 +701,9 @@ run, citing their handlers (`unported`). It holds:
   stops at `5e22:067c` (a member picked by a key). Each item by its index: View, the sheet
   (`86b8:0b0c`, then the screen as it was: `86b8:0d97`); Save (`604b:3395`, then "Exit to DOS? "
   (`4776`), Yes quitting); Load asks "Game not saved. Load anyway? " where a member is selected
-  and the game is not saved (`7070:2f07`), then stops at `5f07:0004` and main's load
-  (`5ebd:0312`), not ported. Exit puts the mode back, redraws the status and rows 18-22 and the
+  and the game is not saved (`7070:2f07`): DS:acc4 (`5f07:0004`) and DS:b7a7 (`7070:2f2b`)
+  are set and the run ends, the adventure's loop loads the game (`5f07:1338-137a`, the Load
+  Saved Game below), then main takes the camp from main (`5ebd:0312-033a`). Exit puts the mode back, redraws the status and rows 18-22 and the
   bar, and the view is drawn (`5e22:0000`); then the party's mark is drawn where variable 0x22 is
   0 or 0x24 is 1 (`5f07:0b8f`, `7065:0011`), and the game is no longer saved (`5f07:0ba6`,
   DS:ae5b, read by Load's question and the start menu's camp). Rest and Fix are off where
@@ -1190,7 +1194,9 @@ saved. Load anyway? ", `DS:7e93`; the party emptied): "load from where?
 with those alone (`DS:af15`'s list), "Loading...Please Wait", the saved
 game read (`604b:2ab4`, `28f8`: `cok_adventure_restore`; `DS:b1ed` set,
 so that the first block entered keeps its locals 0x97-0xc8, `6c70:0001`:
-`keep_vars`), the frame's
+`keep_vars`), the game's speed the variable 0x12 (the shared waits' `game->speed`:
+the original's waits read the variable, so the mirror is taken from it after the read;
+`load_saved`), the frame's
 colours where variable 0x3a changed, the map or the overland's big picture
 again; none loaded, a new game's state (`64b2:04ec`). Dkk's (`604b:2bcf`)
 lists the letters of `SAVGAM?.PTY` in Death Knights' save path (`DQK.CFG`'s,

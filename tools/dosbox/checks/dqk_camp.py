@@ -97,7 +97,7 @@ MEMBERS_AFTER_DROP = 5
 # question, Yes: the run ends), then the camp from main: Load (Yes to its question, Tdqk, A) and Begin.
 LOAD_BASE = QUESTION + "\\e" + "".join(keys for _, keys in ALT_STEPS)
 LOAD_CAMP = LOAD_BASE + "Ely"
-LOAD_CAMP_LOADED = LOAD_CAMP + "LyTA"
+LOAD_CAMP_LOADED = LOAD_CAMP + "TA"
 LOAD_BEGIN = LOAD_CAMP_LOADED + "B"
 
 
@@ -321,10 +321,11 @@ def main():
                        load_shot["load-camp"][0], masks=[POINTER], work=work)
         compare_variables("the camp from main after the adventure's Load",
                           load_shot["load-camp"][3])
-        for keys in ("l", "y", "t"):
+        for keys in ("t",):
             box.keys(keys)
             wait_key(box)
         box.keys("a")
+        box.settled(tolerance=64)
         shot = wait_key(box)
         shot.save_png(out / "load-loaded.png")
         verdict.screen("the camp from main after its Load of saved game A", shot,
@@ -332,6 +333,7 @@ def main():
         compare_variables("the camp from main after its Load of saved game A",
                           load_shot["load-loaded"][3])
         box.keys("b")
+        box.settled(tolerance=64)
         shot = wait_key(box)
         shot.save_png(out / "load-begin.png")
         verdict.screen("the game begun after the load (its block's first text)", shot,
