@@ -2874,16 +2874,17 @@ static void test_dark_queen_treasure_take(void)
     CHECK(dqk.vm.status == COK_ECL_OK);
     CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 6) == 1);
 
-    /* The last row taken whole leaves the cursor past the list's end: cited (1bdb:1f25, not
-     * checked: the original draws that list blank). Gems then Steel (Down selects Steel), 1000
-     * all of it. */
+    /* Steel (the last row, Down twice) taken whole leaves the cursor past the list's end:
+     * 1b05:0055 keeps it on the last row (Gems), so Return asks for Gems. */
     dq_clear_pool(&dqk);
     dqk.pool.coins[4] = 1000;
     dqk.pool.coins[5] = 3;
+    dqk.pool.coins[6] = 1;
     dqk.vm.character = a->record;
-    dq_menu(&dqk, "t\x01P\r" "1000\r");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 1bdb:1f25") != NULL);
+    dq_menu(&dqk, "t\x01P\x01P\r" "1000\r" "\r" "3\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 5) == 3);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 6) == 1);
 
     /* Overloaded: nothing is taken and the list comes again (Escape ends it). */
     dq_clear_pool(&dqk);
@@ -2908,6 +2909,19 @@ static void test_dark_queen_treasure_take(void)
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
           strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe (Take's items, part 21)")
               != NULL);
+    /* End in Take's bar picks the next member (75cc:0e15 -> 5e22:067c); with the money gone the
+     * bar is "Items Exit" (0d61-0dd2: DS:7fda, index + 1), logged; its Items stops. */
+    cok_character *b = dqk.party.count > 1 ? dqk.party.members[1] : NULL;
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 10;
+    dq_pool_item(&dqk, 3);
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\x01O" "m\r" "10\r" "i");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe") != NULL);
+    CHECK(b != NULL && dqk.vm.character == b->record);
+    CHECK(cok_field_u16_at(L, b->record, COK_FIELD_COINS, 4) == 10);
+    CHECK(strstr(dq_quiet.log, "menu: ~Money ~Items ~Exit;menu: ~Items ~Exit;") != NULL);
 }
 
 /* Share (part 20b, 74b9:01ee) over six standing members with 200 steel each, the pool 1000 steel,

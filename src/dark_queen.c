@@ -5880,7 +5880,8 @@ static bool treasure_overloaded(cok_adventure *game, const uint8_t *c, uint32_t 
     return true;
 }
 
-/* 58e7:0053: a word of coin j and the weight (+0x56) more, as words. */
+/* The coin add of 74b9:0652-066a and 0324-0332 with 86b8:2799 (the weight add): a word of coin j
+ * and the weight (+0x56) more, as words. Champions' 58e7:0053 is another copy of the shape. */
 static void treasure_give(const cok_character_layout *L, uint8_t *c, size_t j, uint16_t amount)
 {
     cok_field_set16_at(L, c, COK_FIELD_COINS, (int)j,
@@ -5953,7 +5954,7 @@ static bool treasure_share(cok_adventure *game)
     return true;
 }
 
-/* 75cc:0683 with 74b9:05c0: the pool's coins (those with a positive count) as a list, Jewelry,
+/* 74b9:0683 with 74b9:05c0: the pool's coins (those with a positive count) as a list, Jewelry,
  * Gems, Steel (the list is built by prepending), under "select type of coin " with Select and
  * Exit. Select gives the coin of the row (*at kept across passes): "How many Gems will you take? "
  * or "How much ... will you take? ", the amount (queen_amount_input, past the pool's count it is
@@ -5982,13 +5983,9 @@ static bool treasure_take_money(cok_adventure *game)
             which[n++] = j;
         }
         if (n == 0) return true;
-        /* A row taken whole can leave the cursor past the last row. The original draws that list
-         * blank (the check, dqk_treasure's overload flow: its rows gone, cursor 2 of 2); list_menu
-         * resets the cursor instead, so this stops, cited, until the list is checked. */
-        if (at >= n)
-            return cok_adventure_not_yet(game, "Take's list with the cursor past its last row",
-                                         "dqk 1bdb:1f25 (the list's cursor past its last row: "
-                                         "the original draws it blank)");
+        /* A row taken whole can leave the cursor past the last row: 1f25's list (1b05:08b3 ->
+         * 0055) keeps it to the last row, max(0, min(count - 1, at)); list_menu would reset it. */
+        if (at >= n) at = n - 1;
         int picked = queen_list_menu(game, "select type of coin ", bar, 2, shown, n, &at, 2, 2, 8,
                                      0x12);
         if (picked < 0) return false;
@@ -6032,17 +6029,22 @@ static bool treasure_take(cok_adventure *game)
     }
     static const char *const words[] = {"Money", "Items", "Exit"};
     for (;;) {
-        int choice = bar_menu(game, "Take:", words, 3, true, true, 0, 0);
+        /* 0d28: "Money Items Exit"; with the money gone "Items Exit" (DS:7fda), index + 1. */
+        log_menu(game, money ? words : words + 1, money ? 3 : 2);
+        int choice = money ? bar_menu(game, "Take:", words, 3, true, true, 0, 0)
+                           : bar_menu(game, "Take:", words + 1, 2, true, true, 0, 0);
         if (choice < 0) return false;
+        if (!money && choice < 2) ++choice;
         if (choice == 0x1b || choice == 2) return true;
         if (choice == 0) {
             if (!treasure_take_money(game)) return false;
             if (!screen_as_it_was(game)) return false;
+            pool_flags(game, &money, &items); /* 0e50: 092c */
         } else if (choice == 1) {
             return cok_adventure_not_yet(game, "Take's items",
                                          "dqk 75cc:0bbe (Take's items, part 21)");
-        } else if (choice == 0x84 || choice == 0x88) {
-            member_key(game, choice);
+        } else {
+            member_key(game, choice); /* 0e15: every other code, End and Home too */
         }
     }
 }

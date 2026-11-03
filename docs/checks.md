@@ -559,7 +559,7 @@ window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black backgrou
 differs by 121 pixels.
 
 `dqk_treasure.py` (flows `won`, `fled`, `lost`, `pool`, `bonus`, `zero`, `negative`, `rest`, `gentle`,
-`fledmix`, `lost9`, `enemy`, `enemyout`, `enemyhigh`, `take`, `share` and `gather`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
+`fledmix`, `lost9`, `enemy`, `enemyout`, `enemyhigh`, `take`, `share`, `gather`, `overload` and `takeall`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
 (`tools/dqkecl.py`) runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01
 01), SAVE 1 to var 0x2e, the flow's own ops (TREASURE ITEMS for the pool's coins, SAVE 0 to var 0x20),
 and COMBAT, from saved game A (`won`, `pool`), or from copies with every member's status 3 (`fled`),
