@@ -1220,14 +1220,31 @@ typedef struct {
      * none). menu_first: the party's turn is the commands' routine (cok_combat_commands, the
      * command menu, 5045:08cf) and is dispatched before --combat's stubs, so no stub passes a
      * turn over it. The computer's stop is checked before the stubs too.
-     * After each turn (5045:059d's tail, before the sides and ends_in_round's early end),
-     * turn_tail_unported stops at 148f:2ab8, 2c4f, 2d9b and 161b:05be. The round's end
-     * (5045:0f6c, round_end_unported) and the battle's end (5045:0001, end_unported, also
-     * before any round: 5045:059d's done) are Dark Queen's own routines, not the shared ones:
-     * their effects (clouds, 0xb0 and 0xd0, the Continue question) are not ported. */
+     * After each turn (5045:059d's tail, the pending lists and the demonstration's key test;
+     * cok_combat_turn_tail), the sides and ends_in_round's early end. The round's end and the
+     * battle's end are Dark Queen's own routines in the descriptor's hooks below (5045:0f6c,
+     * 5045:0001), not the shared ones. */
     bool menu_first;
     const char *computer_unported, *spell_unported;
-    const char *turn_tail_unported, *round_end_unported, *end_unported;
+    /* Dark Queen's turn tail (5045:059d's, cok_combat_turn_tail): a pending list (cok_combat's
+     * pending counts, filled by handlers 0x9a, 0xbc and 0xbd, not yet ported) stops here, cited;
+     * so does the demonstration's key test (5045:06cf-070e). The colour cycles step after them
+     * (cok_drawing's turn_tail_cycles). */
+    const char *pending_unported, *demo_key_unported;
+    /* Dark Queen's round end (5045:0f6c; the drawing's hooks round_clock, teammate_dying and
+     * continue_battle where set): the clouds stop at round_clouds_unported when one exists, and
+     * the square test (148f:12ab) stops at square_unported for a cloud kind 0x1b or 0x1c, or
+     * acid (0x46: cok_combat_marks). */
+    const char *round_clouds_unported, *square_unported;
+    /* Dark Queen's battle's end (5045:0001, the shared cok_combat_end): each record holding one
+     * of the two effect ids (0 for none) stops at battle_end_unported (148f:017d, part 27b)
+     * before its charm test; the drawing's battle_icons empties the combat icons (204c:004d).
+     * aging_unported stops in rounds() where the aging report (5045:012f) is due
+     * (effects.aging), instead of cok_train_aging. A battle over before any round also runs
+     * the battle's end. */
+    const char *battle_end_unported;
+    uint8_t battle_end_effects[2];
+    const char *aging_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions
@@ -1317,6 +1334,10 @@ typedef struct {
     /* Dark Queen's combat block and the records that differ (59c7:0f7b), or NULL where
      * cok_combat_records is the records (3cb2:10d9, dkk 410b's). */
     const cok_combat_block *combat_block;
+    /* Dark Queen's status and hostile are ints (5045:0001's cmpw, 0f6c's and 51c2's cmpw, 1b66's
+     * movw): the battle's end and the round's end test and write the word at the byte field
+     * (cok_combat_field_word, cok_combat_set_field_word). */
+    bool int_status_hostile;
 } cok_rules_combat;
 
 /* The fight's words that differ (round.c, ai.c, attack.c, arena.c,

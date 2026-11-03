@@ -812,15 +812,42 @@ eclplay's `--screen` at the menu's stop, the mouse pointer (8, 8, 10, 10) masked
 is `Aim Use Guard Quick@Delay View Speed End`, which the flow checks.
 
 Flow `keys` (step 4, part 22a: the command menu's keys). From the same first menu, End, Guard and Delay are each
-typed in their own run (`keys_original`: the menu as `dispatch` reads it, then the key). The original's turn tail
-is trapped at `5045:066a` (the lcall `148f:2ab8` right after 078b returns: `TURN` - 0x121 in the same copies), and
-its state read there: records, blocks, turn list, RandSeed and the whole screen. eclplay runs to the menu (its menu
-screen and state, as `placement`) and to the tail after the key (`tail_run`, stopped by `148f:2ab8`, the cited
-turn tail). Checked: the menu's line; the original's RandSeed past the menu (Guard: one draw, the message's wait;
-End and Delay none) and its DS:bd2d at the tail (End and Guard 1, Delay 0); the RandSeed, records, blocks (the named
-guarding, dying, hits, forced, turns and turning bytes), turn list and whole screen at the tail. Traps: 078b is given
-back before 08cf is spun; 066a is spun only after the key (the keyboard polls held over 0.6 s); the menu is given back
-(`write_paused`) and settled a second before its screenshot.
+typed in their own run (`keys_original`: the menu as `dispatch` reads it, then the key). The original's next
+combatant's command menu is trapped at `5045:08cf` (ROARK, the turn list's next entry, in the same copies), and
+its state read there: records, blocks, turn list, RandSeed, the variables and the selected record (DS:ad67). The
+trap is given back and the menu drawn and settled a second before its screenshot. eclplay runs to the menu (its
+menu screen and state, as `placement`) and to the next combatant's menu after the key (BATTLE_STOP, its last
+turn line ROARK). Checked: the menu's line; the original's RandSeed past the menu (Guard: one draw, the message's
+wait; End and Delay none), its DS:bd2d (End and Guard 2, Delay 1) and DS:ad67 as the turn list's entry for
+DS:bd2d; the RandSeed, records, blocks, turn list, variables and the whole screen with the menu given back.
+Traps: 078b is given back before 08cf is spun; 08cf is spun only after the key (the keyboard polls held over
+0.6 s).
+
+Flow `turns` (step 4, part 27a: dqk-round-end). Five E keys from the first menu (settled between them), then
+SHARKMAN's computer turn, trapped at `5045:0891` (the computer's dispatch, `COMPUTER`: 078b's copies + 0x106; turn
+6). Checked: the records, blocks and turn list, DS:bd2d 6, RandSeed 0x1756582c with no draw past the menu, the sides
+[6, 2], DS:bebd, the pending counts (bd4c, ad6e, ad6f), DS:c2d6 NULL, DS:1cb5 0, the variables, and the screen at
+the stop and after the page flip (`dqk_fight_lib.flip`). eclplay stops at `5bb8:0000` after "turn: SHARKMAN
+(initiative 5)".
+
+Flow `round` (part 27a). Fixture 1: var 0x2e is 2 at the entry (before set_seed; `--set 2e=2` in eclplay); five E
+keys, the state before the sixth, then the sixth key with 0891 and 08cf both armed: round 2's first menu (CINDER,
+DS:bd2d 1, `08cf`'s copies). Checked: the records, blocks, turn list of round 2, RandSeed 0x427245c1, the whole
+variables (var 6 0 -> 1: one minute; DS:ae4c 1), the sides [6, 2], the pending counts and DS:bebd, and the screen
+after the menu is given back.
+
+Flow `won` (part 27a: the battle's end, `dqk-round-end`). Fixture 2: the setup's end is trapped at
+`148f:0512` (the 'loaded' PRESS KEY; a spin that the setup's pass reaches, 59c7:1eb9's event 8). Each SHARKMAN
+is made to have 6 hit points and no action (+0x64, +0x18b), DS:b7f3 is 0 and var 0x2e 1 (so 135c's clear shows).
+Then `2093:0015` (the flags' clear) is trapped, then `75cc:0723` and `0736`, and `75cc:0e93` (the treasure menu,
+after the results' key) with `5f07:0987`. Checked at `2093:0015`: var 0x2e is 0, the sides [6, 0], DS:c6ed is
+1d99:0fd1 (its segment is the map's load in the box: the pointer is only checked to name offset 0fd1, not the
+segment's bytes), DS:c2d6 NULL. The records' effect chains are kept from 2093 to the treasure menu (the party's six;
+none 0xb0, 0xd0 or 0x0b). At the treasure menu: mode 6, the flags 1 0 0 0 0 0, standing 1, fled 0, monsters 1, out 0,
+b7a7 0, share 1336, pool 8 0 0, RandSeed 0x3039 (the won path draws nothing). eclplay's `--combat won` run to the
+results' key wait (its screen, the mouse pointer and the bar masked: RETURN's cell blinks) and to the treasure menu
+(`--state`, `--records`, the variables, the screen) agrees with them.
+
 The tail's screen is the original's after its own page flip: 078b's tail redraw of the cell (`5837:025d`: the
 ground by `172c` through `19a4:0515`, whose begin, `19a4:05ee`, copies the front page to the back, `22b7:0849`, and
 draws to the back, `22b7:0c21(0)`, DS:1cb5 set; then the icon by `204c:030f`) is not shown until the next flip
@@ -831,12 +858,12 @@ draws to the back, `22b7:0c21(0)`, DS:1cb5 set; then the icon by `204c:030f`) is
 
 The same flow runs the command menu's four commands (step 4, part 22b; `command_original`, `command_port`,
 `commands`), each from the same first menu: Quick (Q) trapped at `5045:0a56` (the lcall to the computer's turn),
-Alt-Q (`\@Q`) at the tail `5045:066a` and flipped as above, Alt-M (`\@M`) and Speed (S, F, E) trapped at
+Alt-Q (`\@Q`) at the computer's dispatch `5045:0891` and flipped as above, Alt-M (`\@M`) and Speed (S, F, E) trapped at
 `5045:0cd7` (the menu built again), the menu's wait screen taken once the trap is given back. Eclplay's stops are
-the computer's turn (`5bb8:0000`), the tail (`148f:2ab8`) and the keys running out at the menu or the speed bar.
+the computer's turn (`5bb8:0000`) and the keys running out at the menu or the speed bar.
 Checked against the original: the RandSeed draws past the menu (Quick, Alt-Q and Alt-M one; Speed none), the
 records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too), the combat blocks (record 1's
-initiative 9 after Quick, 0x14 after Alt-Q), the turn list, DS:bd2d (1 after Quick, 0 at Alt-Q's tail), DS:b1cb
+initiative 9 after Quick, 0x13 after Alt-Q), the turn list, DS:bd2d (1 after Quick and after Alt-Q), DS:b1cb
 (0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
 bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
 (`dqk_views.POINTER`), the others with the menu's pointer masked. Yell, Bandage and the mouse areas have no flow

@@ -921,7 +921,8 @@ const cok_data_segment cok_dark_queen_data = {
         [COK_DATA_FOOTPRINTS] = TABLE3(0x62cb, 1, 0, 8, 12, 0, 6, 2, 0, 2),
         /* DS:6313 + k, k 0-3 (dqk 177e:0a19): the footprints' size 6 (62cb + 12 * 6). */
         [COK_DATA_HELPLESS] = LIST(0x6313, 1, 0, 4),
-        [COK_DATA_BATTLE_ONLY] = LIST(0x00a1, 1, 1, 16),
+        /* DS:00a2 + i (148f:1b66's k - 1): the shared loop (round.c) counts from 0. */
+        [COK_DATA_BATTLE_ONLY] = LIST(0x00a2, 1, 0, 16),
         [COK_DATA_CLOUD_CELLS] = LIST(0x6341, 1, 1, 9),
     },
 };

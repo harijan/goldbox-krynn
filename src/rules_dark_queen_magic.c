@@ -592,9 +592,14 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0xe5] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
 };
 
-/* The effect ids the code names (spells.h) are none yet, so the descriptor's
- * effects.ids stays NULL: a named effect's lookup (cok_effect_id,
- * cok_effect_is, cok_character_find_named) asserts, where 0 would read as
- * "the game has none". The effects have no names in the executable; the
- * parts that port a handler name its id here (dqk-effects-a..e). */
+/* The effect ids the code names (spells.h). Each is the id the original's routine tests:
+ * CHARMED and BERSERK by the battle's end (5045:0001 and 1b66's test), INVISIBLE by the attack.
+ * Every other name is 0 (the game has none under it yet, read as false by cok_effect_is and
+ * cok_character_find_named; cok_effect_id asserts), so a routine that finds one of those names
+ * must be ported with its id first (dqk-effects-a..e). */
+const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
+    [COK_EFFECT_CHARMED] = 0x0b,   /* 5045:0001's charm test */
+    [COK_EFFECT_INVISIBLE] = 0x19, /* 148f:1b2a removes every 0x19; the attack's invisible */
+    [COK_EFFECT_BERSERK] = 0x4d,   /* 1b66's test (75cc, the battle's end) */
+};
 

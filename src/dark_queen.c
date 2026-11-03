@@ -5273,6 +5273,11 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_load_icon = arena_load_icon,
     .arena_panel = combat_panel,
     .encounter = encounter,
+    .round_clock = cok_dark_queen_round_clock,
+    .teammate_dying = cok_dark_queen_teammate_dying,
+    .continue_battle = cok_dark_queen_continue_battle,
+    .battle_icons = cok_dark_queen_battle_icons,
+    .turn_tail_cycles = cok_dark_queen_turn_tail_cycles,
 };
 
 /* Heal (dqk 7825:0615): the selected member's name on row 19 and its hit points and maximum
@@ -5809,6 +5814,42 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)
 {
     own(game)->monsters_present = present;
+}
+
+/* 5045:0f6c's clock: 1396:044d(1, 1), a minute and its timers (pass_time). */
+bool cok_dark_queen_round_clock(cok_adventure *game)
+{
+    return pass_time(game, 1, 1);
+}
+
+/* 5045:0f6c's "Your Teammate is Dying" (DS:5902), in the bar (177e:153c). */
+void cok_dark_queen_teammate_dying(cok_adventure *game)
+{
+    queen_bar_message(game, "Your Teammate is Dying");
+}
+
+/* 5045:0f6c's Continue question (DS:4e98 "continue battle? ", 1bdb:0424): Yes is true, No and
+ * an abort are not. */
+bool cok_dark_queen_continue_battle(cok_adventure *game)
+{
+    return queen_yes_no(game, "continue battle? ") == 1;
+}
+
+/* 5045:0001's icons (204c:004d): the slots 0x0f-0x25 emptied, k = 0..0x16 at 00e0-00f9 (the
+ * battle's 23 COMSPR slots, the cursor's 0x1e among them). The slots 0x98-0x9c are not emptied
+ * here: icon_clear keeps no slot past ICON_SLOTS, and 204c:004d's index for them is not traced
+ * (open: part 39). */
+void cok_dark_queen_battle_icons(cok_adventure *game)
+{
+    for (unsigned k = 0; k <= 0x16; ++k) icon_clear(game, 0x0f + k);
+}
+
+/* 261b:05be after a turn (5045:066a): each colour cycle whose time has come steps once, at the
+ * clock's ticks now (no random draw). */
+void cok_dark_queen_turn_tail_cycles(cok_adventure *game)
+{
+    queen *q = own(game);
+    if (q != NULL) cok_vga_cycle_colours(&q->palette, ticks(q));
 }
 
 cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game)
