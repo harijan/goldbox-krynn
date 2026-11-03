@@ -798,8 +798,12 @@ run, citing their handlers (`unported`). It holds:
   every record; its readers not found yet), the morale's NPC flag (var 0x20 + 0x80), and effect 0x95
   for a record that is not hostile while var 0x3c is set (`148f:19c2`; the fixture's var 0x3c is 0, so
   no record gets it there). The other block bytes are unnamed and 0. The view's origin (DS:bedb +2, +4)
-  is written after the placement, so it is not compared. The open ground (`59c7:0e3b`, the wilderness
-  builders) and the placement (`59c7:1864`) stop the battle, cited.
+  is written after the placement, so it is not compared. The open ground (`59c7:0e3b`: the floor 0x45,
+  the river (`0860`, var 0x33), trees (`09e7`) and scatter (`0b79`, its cell `0ce3` with a 0x2c band one
+  roll wider and no 0x2c + d5) as Death Knights' builder does; the flags are `DS:5d7b` at var 0x1a2, the
+  Abyss's encounter state (only blocks 64 and 66 store it: 0, 1, 2, 4), 32 entries) is ported
+  (`COK_WILDERNESS_DARK_QUEEN`; `dqk_fight`'s flow `wild`). The placement (`59c7:1864`) stops the battle,
+  cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

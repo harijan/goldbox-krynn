@@ -692,6 +692,22 @@ static void dkk_scatter_cell(cok_combat *combat, int x, int y, const uint8_t cha
     else if (roll <= c4) *cell = (uint8_t)(0x3d + cok_dice(seed, 1, 6));
 }
 
+/* dqk 59c7:0ce3: dkk 410b:0d82's bands, but its 0x2c band runs up to c0 + c1 + 1: its second
+ * check (59c7:0d61) repeats the first, so 0x2c + d5 never comes and the roll for that cell is
+ * 0x2c. The other bands as dkk's. */
+static void dqk_scatter_cell(cok_combat *combat, int x, int y, const uint8_t chance[5],
+                             uint32_t *seed)
+{
+    unsigned roll = cok_dice(seed, 1, 100);
+    unsigned c0 = chance[0], c1 = c0 + chance[1], c3 = c1 + chance[2] + chance[3],
+             c4 = c3 + chance[4];
+    uint8_t *cell = &combat->cells[y][x];
+    if (roll <= c0) *cell = (uint8_t)(0x31 + cok_dice(seed, 1, 2));
+    else if (roll <= c1 + 1) *cell = 0x2c;
+    else if (roll <= c3) *cell = 0x44;
+    else if (roll <= c4) *cell = (uint8_t)(0x3d + cok_dice(seed, 1, 6));
+}
+
 static void scatter_with(cok_combat *combat, const cok_rules *rules, uint8_t flags,
                          uint8_t floor,
                          void (*cell)(cok_combat *, int, int, const uint8_t[5], uint32_t *),
@@ -730,12 +746,18 @@ static void scatter(cok_combat *combat, const cok_rules *rules, uint8_t flags, u
 void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags, bool river_on,
                            uint32_t *seed)
 {
-    if (rules->combat.wilderness == COK_WILDERNESS_DEATH_KNIGHTS) {
-        /* dkk 410b:107e, its scatter 410b:0f00. */
+    if (rules->combat.wilderness == COK_WILDERNESS_DEATH_KNIGHTS ||
+        rules->combat.wilderness == COK_WILDERNESS_DARK_QUEEN) {
+        /* dkk 410b:107e, its scatter 410b:0f00; Dark Queen's (dqk 59c7:0e3b) the same
+         * but for its scatter's cell (dqk 59c7:0ce3). Its trees (59c7:09e7) are dkk's
+         * 410b:0beb with the flags its 0x02 mask (DS:5d0a) gives: 5 less 3 for it, as
+         * dkk's 2. */
+        bool dark = rules->combat.wilderness == COK_WILDERNESS_DARK_QUEEN;
         memset(combat->cells, DKK_FLOOR, sizeof combat->cells);
         dkk_river(combat, river_on, seed);
         dkk_trees(combat, rules, flags, seed);
-        scatter_with(combat, rules, flags, DKK_FLOOR_TILE, dkk_scatter_cell, seed);
+        scatter_with(combat, rules, flags, DKK_FLOOR_TILE,
+                     dark ? dqk_scatter_cell : dkk_scatter_cell, seed);
         return;
     }
     memset(combat->cells, COK_COMBAT_FLOOR, sizeof combat->cells);
@@ -1199,8 +1221,8 @@ static bool build(cok_adventure *game)
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_drawing *drawing = cok_adventure_drawing(game);
-    /* Open ground's builders (dqk 59c7:0e3b and on) are not ported yet: the
-     * battle stops before the tiles are loaded. */
+    /* A game whose open ground's builder is not ported (wilderness_unported; Dark
+     * Queen's is, dqk 59c7:0e3b) stops before the tiles are loaded. */
     if (!area && R->wilderness_unported != NULL)
         return cok_adventure_not_yet(game, "open ground's battlefield", R->wilderness_unported);
     if (drawing != NULL && drawing->arena_tiles != NULL) {
@@ -1254,8 +1276,22 @@ static bool build(cok_adventure *game)
     } else {
         const cok_rules *rules = cok_game_rules(game);
         bool river = cok_ecl_has_var(rules, COK_VAR_RIVER) && cok_ecl_var(vm, COK_VAR_RIVER) != 0;
+        /* The flags are type 15's (3cb2:0fc8; dkk 410b:107e), or Dark Queen's: var 0x1a2
+         * (the Abyss's state, stored at DS:a960 by 59c7:0e3b) indexes DS:5d7b (0783), 32
+         * of them; a value past them reads the stack, so the battle stops. */
+        uint8_t type = 15;
+        if (R->wilderness == COK_WILDERNESS_DARK_QUEEN) {
+            uint16_t index = cok_ecl_var(vm, COK_VAR_ABYSS);
+            if (index >= cok_data_count(rules->data, COK_DATA_TERRAIN_FLAGS, 0)) {
+                cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                                   "var 0x1a2 is %u, past its flags (dqk 59c7:0783 reads "
+                                   "the stack)", index);
+                return false;
+            }
+            type = (uint8_t)index;
+        }
         cok_combat_wilderness(combat, rules,
-                              cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, 15), river,
+                              cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, type), river,
                               &vm->seed);
         snprintf(text, sizeof text, "open ground facing %s, the enemy %u squares ahead",
                  facing[vm->direction & 7], cok_ecl_var(vm, COK_VAR_DISTANCE));

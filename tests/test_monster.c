@@ -1227,9 +1227,10 @@ static void test_dark_queen_monsters(void)
 }
 
 /* Dark Queen's blocks (6c70:29a3's LOAD MONSTER registers, 5f07:081b's
- * COMBAT appends and stops at the battle (open ground: 59c7:0e3b; a 3D battle, 1864); 5f07:07fe's CLEARMONSTERS
- * (75cc:151b, 63ee:0002) forgets the slots). Each test opens its own
- * adventure from DQKAssets, and skips without it. */
+ * COMBAT appends and stops at the battle's placement (59c7:1864, after the open ground
+ * (59c7:0e3b) or the dungeon is built, 3D or not); 5f07:07fe's CLEARMONSTERS (75cc:151b,
+ * 63ee:0002) forgets the slots). Each test opens its own adventure from DQKAssets, and
+ * skips without it. */
 #define DQK_LOAD_MONSTER 0x0b
 #define DQK_CLEARMONSTERS 0x1c
 #define DQK_COMBAT 0x24
@@ -1296,7 +1297,7 @@ static void test_dark_queen_appends(void)
      * slot 10), then the battle is not ported: the run stops there. */
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
     CHECK(dqk.undead == 0);
     static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
@@ -1365,7 +1366,7 @@ static void test_dark_queen_clear_between(void)
     CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
     char name[16];
     CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
@@ -1388,7 +1389,7 @@ static void test_dark_queen_six_loads(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 14);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(dqk.party.count == 16 && dqk.monsters == 16 && dqk.icon_slot == 15);
     CHECK(dqk.undead == 2);
     cok_adventure_close(&dqk);
@@ -1409,6 +1410,40 @@ static void test_dark_queen_undead_clear(void)
     CHECK(dqk.party.count == 11); /* the ZOMBIE and 170e's ten GORGONs */
     cok_adventure_close(&dqk);
 }
+/* One battle outside 3D from a fresh adventure's block: CLEARMONSTERS, LOAD MONSTER 64, with
+ * var 0x1a2 (the Abyss's state, the open ground's flags index) TERRAIN, then COMBAT. Returns the
+ * status. */
+static cok_ecl_status open_ground_fight(cok_adventure *adv, uint16_t terrain)
+{
+    DQK_RUN(adv, DQK_CLEARMONSTERS);
+    DQK_RUN(adv, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
+    cok_ecl_set_var(&adv->vm, COK_VAR_ABYSS, terrain);
+    DQK_RUN(adv, DQK_COMBAT);
+    return adv->vm.status;
+}
+
+/* The open ground's flags index (combat.c build(): var 0x1a2 indexes DS:5d7b, 32 entries,
+ * 59c7:0783).
+ * Var 0 (flags 0x00) and 1 (0x18, a value blocks 64 and 66 store) give different cells from the
+ * same seed; 32 is past the table, so the battle stops with COK_ECL_UNDEFINED. A build() that used
+ * type 15 for every index would fail the first check (the same cells) and the last (no stop). */
+static void test_dark_queen_open_ground_flags(void)
+{
+    static cok_adventure a, b, c;
+    if (!dq_open(&a)) return;
+    CHECK(dq_open(&b) && dq_open(&c));
+    CHECK(open_ground_fight(&a, 0) == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(open_ground_fight(&b, 1) == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 59c7:1864") != NULL);
+    CHECK(memcmp(a.combat.cells, b.combat.cells, sizeof a.combat.cells) != 0);
+    CHECK(open_ground_fight(&c, 32) == COK_ECL_UNDEFINED);
+    CHECK(strstr(cok_adventure_why(&c, c.vm.status), "var 0x1a2 is 32, past its flags") != NULL);
+    cok_adventure_close(&a);
+    cok_adventure_close(&b);
+    cok_adventure_close(&c);
+}
+
 /* The encounter (dqk_fight.py's flow encounter): SETUP MONSTERS (sprite, distance
  * wanted, close-up, ambush) puts the distance wanted in var 0x38 and the distance in
  * 0x37, the open squares ahead (6c70:01c3) or the wanted, whichever is less; a wanted
@@ -1552,6 +1587,7 @@ int main(void)
     test_dark_queen_clear_between();
     test_dark_queen_six_loads();
     test_dark_queen_undead_clear();
+    test_dark_queen_open_ground_flags();
     test_dark_queen_encounter();
     test_dark_queen_picture_flags();
     cok_adventure_close(&game);
