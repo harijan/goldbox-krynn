@@ -750,8 +750,9 @@ flags 0x71 and 0x06 from seed 12345 under Dark Queen's generator; `test_monster`
 differ; 32 stops with COK_ECL_UNDEFINED).
 
 Flow `slots` (step 4, part 11a: the combatants' icons loaded, `dark_queen.c`'s icon table). The fixture's dungeon and
-`WILD_GROUNDS[0]` (the open ground), each run as `field` runs it to the placement (`5045:078b`, the first turn, the original's screen
-read there). The original's head layers DS:a848 are all 0 (no CHEAD in Dark Queen, `204c:00e5`), its six party
+`WILD_GROUNDS[0]` (the open ground), each run as `field` runs it to the placement, and the original's screen read at the side
+panel's entry (`177e:085f`, after the turn's cursor is drawn: `5045:0846` calls it after `5045:0827`'s `5837:12f5`; the stop
+eclplay makes too, the cursor on). The original's head layers DS:a848 are all 0 (no CHEAD in Dark Queen, `204c:00e5`), its six party
 members' records (+0xc4, +0xc5), each combatant 1 to count - 1 (its record, +0x9b, +0x18b, status +0x64, combat facing
 +0xa, sx and sy at DS:aeac and DS:aee0 + n, size at DS:c3f1 + 6n + 5), the battle's set (DS:ca03, 4) and the GORGON's
 CPIC id (DS:75b8 by var 0x3a). eclplay's run (`--load --play`) writes `--icons` (`slot image hex` a line per slot 0-0x25
@@ -766,11 +767,19 @@ original's screenshot in the view with only the pointer masked (8, 8, 8, 9). The
 Flow `icons` (step 4, part 11b: the combatants' icons drawn). The runs of `slots` (the fixture's dungeon and `WILD_GROUNDS[0]`)
 and the dungeon with the party on the west edge's square (0, 3, 2, `FIELD_SQUARES[1]`, where a SHARKMAN, slot 8, stands in the
 view at (5, 4) in the original: the answer to Q2, read at DS:aeac and DS:aee0 + n; the fixture's SHARKMEN are at 10 and 8, outside),
-each to the first turn (`5045:078b`). eclplay's `--screen` (its icons drawn by the port, the combat frame of 20b2:02fa too) must
+each to the same stop (`177e:085f`: the turn's cursor is on in both, which `5045:078b` is not). eclplay's `--screen` (its icons drawn by the port, the combat frame of 20b2:02fa too) must
 equal the original's screenshot over the whole 320 by 200 screen in RGB, with only the mouse pointer masked (`dqk_views.POINTER`,
 ALWAYS 2 at the corner: 1-16 by 1-16, where the DOSBox pointer's arrow lies at 2-15 by 2-16): 0 pixels. Gated: at least 6
 combatants drawn in the view in every run, no combatant at cell 0, 0 (under the pointer's mask), and a monster (CPIC) drawn in the
 view in the square's run.
+
+Flow `dispatch` (step 4, part 10b: the first turn's dispatch). The original's turn (`5045:078b`, held) is given back,
+and its command menu (`5045:08cf`, the party's dispatch of `cok_combat_act`) is spun in the same copies (EB FE over
+its entry, 0x144 on): the state is read where the dispatch starts. DS:ad67, the selected record, is the turn list's
+first combatant (57fb:019e), and the records, blocks, combatants, battlefield, turn list and RandSeed (0x1756582c)
+are those at the turn. eclplay stops at the side panel (`177e:085f`, parts 11-12), which comes before the
+dispatch, so its stop is compared with that state (`placement`). The dispatch itself is not reached by eclplay, and
+the computer's (`5045:0891`, `5bb8:0000`) is not checked: the party's first turn stops at the panel too.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

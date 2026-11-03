@@ -629,10 +629,11 @@ const cok_rules cok_rules_dark_queen = {
      * (59c7:1dd7), redraws the arena (51c2:0c94: the icons are not drawn yet), and
      * sets each record's effect 8 (1e99's tail). The round's start (5045:059d's loop: the
      * sides, 52db:0004 and the initiative, 5045:0447's order) is made, and the battle
-     * stops before the first turn (5045:078b, the turn's dispatch, not ported yet). With
-     * no monsters, COMBAT's vault (5f07:084b, 771f:09a0) and treasure (75cc:135c) stop,
-     * cited; the temple (7825:0af6) runs (dark_queen.c). The encounter (SETUP MONSTERS,
-     * APPROACH, the sprite and close-up) is ported. */
+     * stops at the first turn's side panel (177e:085f, parts 11-12; the cursor's box, 5837:00f4,
+     * is drawn before it: 5045:0827, 5837:12f5) before the turn's dispatch (5045:078b). With no monsters, COMBAT's
+     * vault (5f07:084b, 771f:09a0) and treasure (75cc:135c) stop, cited; the temple (7825:0af6)
+     * runs (dark_queen.c). The encounter (SETUP MONSTERS, APPROACH, the sprite and close-up) is
+     * ported. */
     .combat =
         {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
@@ -702,10 +703,26 @@ const cok_rules cok_rules_dark_queen = {
             .enemy_health_skip_status_9 = true,
             .sides_skip_status_9 = true,
             .sides_ambush_0x20 = true,
-            /* The first turn (5045:078b): the round's start is made, the turn list is
-             * sorted, and the battle stops before the first turn's dispatch. */
-            .turn_unported = "dqk 5045:078b, the first turn's dispatch",
-            .end_unported = "dqk 5045:0001, the battle's end before any round",
+            /* After each turn (5045:0726): a side gone or the round limit ends the round, the
+             * first time in a battle (ae4c, b45a, the [bp-6] flag), as DKK's ends_in_round. */
+            .ends_in_round = true,
+            /* Each turn (5045:078b): the computer's turn stops at 5bb8:0000, the party's at the
+             * command menu (5045:08cf) for a record that can act, or at 849a:145b for one with a
+             * spell pending (cast; not ported). A record that cannot act is ended at 08cf's
+             * 51c2:0c11, which is cok_combat_end_turn. */
+            .menu_unported = "dqk 5045:08cf, the command menu (part 22)",
+            .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
+            .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
+            /* After each turn (5045:059d's tail): the pending lists (DS:c282, ad70, adc4, through
+             * 148f:2ab8, 2c4f and 2d9b), then the demonstration's key test (161b:05be). */
+            .turn_tail_unported = "dqk 148f:2ab8, 2c4f, 2d9b (the pending lists) and 161b:05be",
+            /* The round's end (5045:0f6c: 1396:044d, the clouds 148f:2817 and 148f:12ab, the
+             * "Your Teammate is Dying" text, the Continue question 1bdb:0424) and the battle's
+             * end (5045:0001: effects 0xb0 and 0xd0, 177e:1734, 104c:0468, 104c:004d, the
+             * clouds). */
+            .round_end_unported = "dqk 5045:0f6c, the round's end (148f:2817, 148f:12ab, 1bdb:0424)",
+            .end_unported =
+                "dqk 5045:0001, the battle's end (148f:017d, 177e:1734, 104c:0468, 104c:004d)",
             .combat_block = &dark_queen_combat_block,
         },
     .commands =
