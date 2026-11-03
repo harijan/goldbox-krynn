@@ -557,13 +557,14 @@ The wounded hit points are drawn by the original's colour byte 0x00 (`7825:0737-
 window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black background the Heal screen
 differs by 121 pixels.
 
-`dqk_treasure.py` (flows `won`, `fled`, `lost`, `pool`, `bonus`, `zero` and `negative`; in `make
-dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
+`dqk_treasure.py` (flows `won`, `fled`, `lost`, `pool`, `bonus`, `zero`, `negative`, `rest`, `gentle`,
+`fledmix` and `lost9`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
 (`tools/dqkecl.py`) runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01
 01), SAVE 1 to var 0x2e, the flow's own ops (TREASURE ITEMS for the pool's coins, SAVE 0 to var 0x20),
 and COMBAT, from saved game A (`won`, `pool`), or from copies with every member's status 3 (`fled`),
-status 2 and inactive (`lost`), or changed records (`bonus`: the classes; `zero` and `negative`:
-members inactive). The original is trapped in two stages: `2093:0015` (the flags' clear, always
+status 2 and inactive (`lost`, `lost9`: var 0x20 set to 9), or changed records (`bonus`: the classes;
+`zero` and `negative`: members inactive; `rest` and `gentle`: the statuses 2-5 and hit points, with
+none fled, `gentle` with var 0x1d; `fledmix`: fled, the survivors matched to the saved game by name). The original is trapped in two stages: `2093:0015` (the flags' clear, always
 resident) spins at the PRESS KEY before COMBAT, then `75cc:11b0` (after 0593 and its rest) is spun while
 it does, and it is given back. Each flow's state where the spin holds is compared with eclplay's stop
 (`--vars`, `--records`, `--state`): the 1 KB of variables (var 0x2e included), the records (pointers

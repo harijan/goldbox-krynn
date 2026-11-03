@@ -1624,6 +1624,7 @@ static void test_dark_queen_after_combat(void)
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
     st = cok_dark_queen_end_state_of(&dqk);
     CHECK(st.standing && !st.fled && st.out == 0 && !st.b7a7 && !st.monsters_present);
+    CHECK(dqk.vm.mode == 6); /* 135c's 1390, before 11b0 (m8) */
 
     /* Fled (status 3): 0736; c7de from loop 1, b7a7 cleared by loop 3 (67d-68f). */
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
@@ -1765,11 +1766,12 @@ static void test_dark_queen_rest(void)
     /* Fled: a status 2 member (c, active) is removed, the count one less (7d8, 1e31 with 0, 1);
      * the status 3 member is revived (7bb). b7a7 stays clear: the status 3 member is not hostile
      * with status 3 (loop 3). */
-    dq_member(&dqk, 2, 1);
+    cok_character *c = dq_member(&dqk, 2, 1);
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 3);
     cok_ecl_store(&dqk.vm, 0x20, 3);
     size_t before = dqk.party.count;
+    dqk.vm.character = c->record; /* the selection on the member removed (7d8) */
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
     CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
@@ -1777,6 +1779,52 @@ static void test_dark_queen_rest(void)
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 2);
     CHECK(cok_field_u8(L, a->record, COK_FIELD_STATUS) == 0);
     CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
+    /* 1f07-1f31: the selection is the one before the removed member, b (not NULL). */
+    CHECK(dqk.vm.character == b->record);
+    cok_party_free(&dqk.party);
+
+    /* m1: a lost party (818-86e) leaves var 0x20 at 0 whatever it was: 9 less two removals
+     * would be 7. Both are out (status 2, inactive) and b7a7 stays set. */
+    a = dq_member(&dqk, 2, 0);
+    b = dq_member(&dqk, 2, 0);
+    cok_ecl_store(&dqk.vm, 0x20, 9);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
+    CHECK(cok_dark_queen_end_state_of(&dqk).b7a7);
+    cok_party_free(&dqk.party);
+
+    /* m2: a standing member (a) clears the fled flag (694-6aa), so the status 3 member (b)
+     * is revived (7bb) and kept, not removed. */
+    a = dq_member(&dqk, 0, 1);
+    b = dq_member(&dqk, 3, 0);
+    cok_ecl_store(&dqk.vm, 0x20, 2);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(!st.fled && !st.b7a7 && dqk.party.count == 2);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_ACTIVE) == 1);
+    cok_party_free(&dqk.party);
+
+    /* m4: loop A stops at a record past the party (804-810): a status 4 member with hit points
+     * past it is not revived. */
+    a = dq_member(&dqk, 0, 1);
+    cok_character *p = dq_past_party(&dqk, 4);
+    cok_field_set8(L, p->record, COK_FIELD_HIT_POINTS, 5);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(cok_field_u8(L, p->record, COK_FIELD_STATUS) == 4);
+    cok_party_free(&dqk.party);
+
+    /* A knight of no order (+0xa6 1, order +0x19a 0): the award's may-train (177e:1fe5) stops
+     * at its row, 177e:1f39, cited (part 19c). */
+    a = dq_member(&dqk, 0, 1);
+    a->record[0xa6] = 1; /* the knight's level (LEVEL(c, 1)) */
+    cok_field_set8(L, a->record, COK_FIELD_KNIGHT_ORDER, 0);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 177e:1f39") != NULL);
     cok_party_free(&dqk.party);
 }
 

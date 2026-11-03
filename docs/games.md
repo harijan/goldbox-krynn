@@ -723,7 +723,9 @@ run, citing their handlers (`unported`). It holds:
   removed: part 19c, cited). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
   that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
-  and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share);
+  and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),
+  and `rest`, `gentle`, `fledmix` and `lost9` (the rest's statuses with and without var 0x1d, a fled
+  party's removals, the lost party's var 0x20 at 0);
   the repo tests cover the magic items, the records past the party and the missile stop. The
   temple's View,
   Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's

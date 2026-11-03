@@ -40,6 +40,12 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
   0xffffffff; member 0 (class 1) gets -1, the others 0 (-1/3 and -1/2 are 0).
 - `negative`: `pool`, SAVE 0 -> var 0x20 and members 3-5 inactive: b1da 3 -> 2, the divisor -2, the
   share -2475; members 0-2 get -2475, -825 and -825 (the third of a negative share is negative).
+- `rest`: the statuses 3, 4 (hit points 0, 5) and 5 and 2 at members 1-5, none fled: 0736's loop A
+  revives 3, 4 with hit points and 5 becomes 4 (no var 0x1d), the 4 with 0 hit points stays.
+- `gentle`: `rest` with var 0x1d set (SAVE 1): 4 with 0 hit points and 5 are revived (777, 78e).
+- `fledmix`: statuses 3, 2, 3, 3, 4 (hit points 0), 3: fled, so 7d8 removes the 2 and the 4 (the
+  survivors are members 0, 2, 3 and 5: four records, matched by name, not by position).
+- `lost9`: `lost` with var 0x20 set to 9 (SAVE 9): 818-86e removes the six and stores 0.
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -74,6 +80,7 @@ SEED = dqk_ecl.SEED
 VARIABLES = dqk_ecl.VARIABLES
 SURPRISE = 0x2e  # var 0x2e: 75cc:135c's start clears it (COK_VAR_SURPRISE in rules_dark_queen.c)
 MEMBERS = 6      # saved game A's party (dqk_modify.record_at)
+NAME = 0x68      # the record's name, 16 bytes (rules_dark_queen.c's COK_FIELD_NAME)
 EFFECTS = bytes([0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35,
                  0x78, 0x76, 0x6f, 0x6a, 0xb2, 0xb1, 0x95, 0x4d])  # DS:631e, 18 bytes
 TREASURE = ("TREASURE_ITEMS", (dqkecl.word(1000), imm(3), imm(1), imm(0)))  # steel, gems, jewelry
@@ -106,6 +113,20 @@ FLOWS = {
                      extra=[TREASURE, SAVE_ZERO], cite="dqk 75cc:11b0",
                      expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=(1000, 3, 1),
                      gained=[-2475, -825, -825, 0, 0, 0], may=ZERO),
+    "rest": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
+                          {0x64: 2}], extra=[], cite="dqk 75cc:11b0",
+                 expect=(True, False, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
+    "gentle": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
+                            {0x64: 2}], extra=[("SAVE", (imm(1), var(0x1d)))], cite="dqk 75cc:11b0",
+                   expect=(True, False, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
+    "fledmix": dict(changes=[{0x64: 3}, {0x64: 2}, {0x64: 3}, {0x64: 3}, {0x64: 4, 0x198: 0},
+                             {0x64: 3}], extra=[], cite="dqk 75cc:11b0",
+                    expect=(False, True, False, 0), share=None, pool=NO_POOL, gained=[0] * 4,
+                    may=[0] * 4, members=4),
+    "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
+                  extra=[("SAVE", (imm(9), var(0x20)))], cite="dqk 75cc:11b0",
+                  expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
+                  may=[], members=0),
 }
 MODE = 6     # DS:ae57 at the stop: 135c's 1390 sets it before 11b0
 EXP = 0x44   # the experience, a dword (rules_dark_queen.c: DWORD(0x44))
@@ -143,6 +164,16 @@ def saved_game(work, name, changes):
     folder.mkdir(parents=True)
     (folder / "SAVGAMA.QSV").write_bytes(bytes(data))
     return bytes(data), [folder]
+
+
+def saved_member(qsv, raw):
+    """The saved game's member whose name is the record's. 0593's removals move the survivors
+    along the party, so a survivor is matched by its record, not by its position."""
+    hits = [m for m in range(MEMBERS)
+            if qsv[dqk_modify.record_at(qsv, m) + NAME:][:16] == raw[NAME:NAME + 16]]
+    if len(hits) != 1:
+        raise cokbox.BoxError(f"the record's name is in the saved game {len(hits)} times")
+    return hits[0]
 
 
 def flags_of(box):
@@ -251,8 +282,8 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["pool"] == spec["pool"], f"the original's pool coins (DS:b1db, b1df, b1e3) are "
             f"as the flow sets them ({name})", f"{orig['pool']}, want {spec['pool']}")
     gained, may = [], []
-    for m, raw in enumerate(orig["records"]):
-        at = dqk_modify.record_at(qsv, m)
+    for raw in orig["records"]:
+        at = dqk_modify.record_at(qsv, saved_member(qsv, raw))
         before = int.from_bytes(qsv[at + EXP:at + EXP + 4], "little")
         after = int.from_bytes(raw[EXP:EXP + 4], "little")
         gained.append((after - before + 2 ** 31) % 2 ** 32 - 2 ** 31)

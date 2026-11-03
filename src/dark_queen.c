@@ -5401,8 +5401,9 @@ static bool award(cok_adventure *game)
         cok_field_set32(L, r, COK_FIELD_EXPERIENCE, experience_now);
         bool may;
         if (!cok_queen_may_train(R, r, &may, game->error, sizeof game->error)) {
-            /* A knight of no order: 177e:1f39 returns its row word unset (a stack word the
-             * original does not model). Knights are made with order 1 (queen_create.c). */
+            /* A knight of no order: 177e:1f39 returns its row word unset, a stack word that the
+             * port does not model (the previous call's word at that depth). Knights are made
+             * with order 1 (queen_create.c). */
             cok_adventure_not_yet(game, "a knight of no order's may-train (177e:1fe5)",
                                   "dqk 177e:1f39 (the row is unset: a stack word, part 19c)");
             return false;
@@ -5412,17 +5413,16 @@ static bool award(cok_adventure *game)
     return true;
 }
 
-/* 177e:1e31 with (0, 1): the member at index i removed. Its icons go (1e9d's flag, 204c:004d),
- * its record is freed (1c87, cok_party_remove), and the party's size (var 0x20) is one less (1f16,
- * the first argument 0). A selection on the removed member is forgotten (the port's pointer). */
+/* 177e:1e31 with (0, 1): the member at index i removed, as 7d8 and 839 do it: the selection is
+ * the member at i first (ad67, 7d8-7df), then 1e31 leaves it on the one before (1f07-1f0e), or
+ * the next where it was the first (1f20-1f31). remove_selected does that: its icons go (1e9d's
+ * flag, 204c:004d), its record is freed (1c87, cok_party_remove), and the party's size (var 0x20)
+ * is one less (1f16, the first argument 0). 11b0, when it is ported, ends with the selection on
+ * the first record (1287), whatever this leaves. */
 static void remove_member(cok_adventure *game, size_t i)
 {
-    cok_ecl *vm = &game->vm;
-    const uint8_t *r = cok_party_record(&game->party, i);
-    queen_remove_icons(game, r);
-    if (vm->character == r) vm->character = NULL;
-    cok_party_remove(&game->party, i);
-    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
+    game->vm.character = cok_party_record(&game->party, i);
+    remove_selected(game);
 }
 
 /* 7bb and 777's revive: status 0 and active (+0x18b); 777 also sets the hit points (+0x198). */
