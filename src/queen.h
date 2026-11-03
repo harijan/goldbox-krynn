@@ -81,6 +81,9 @@ int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *i
 int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split);
 /* The command menu taken off (1bdb:03d7): the bottom bar, then FRAME 6 over the whole window. */
 void queen_combat_menu_close(cok_adventure *game);
+/* The command menu's Speed (dqk 5045:166c): "game speed: (N) " on the bar over Faster, Slower and
+ * Exit, until Exit or Escape. False where the keys ran out. */
+bool queen_speed(cok_adventure *game);
 /* queen_bar_menu with areas of the screen after its buttons (1bdb:1429): a
  * click on one gives QUEEN_AREA + its index. */
 enum { QUEEN_AREA = 0x100 };
