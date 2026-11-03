@@ -1018,9 +1018,12 @@ static void overland_screen(cok_adventure *game)
  * 8, the window's grey: cells 23-38 by 1-21), FRAME 1, 2, 3 and 5, FRAME 4
  * within rows 186-199 (bottom_bar, 151e:06cb and 075c around it), FRAME 6.
  * The view's cells are left as they are: the ground is drawn over them
- * after this (cok_arena_centre). Its begin and flush of the page (19a4:05ee,
- * 1bdb:0d1d) are the one screen's (games.md's Dark Queen section). The
- * panel's text and the party's list are not drawn: part 12. */
+ * after this (cok_arena_centre). Its begin of the page (19a4:05ee) is the one screen's
+ * (games.md's Dark Queen section). 1bdb:0d1d (DS:a6b5, DS:1d13: the bar drawn again by
+ * 1bdb:0d26) is not needed, because the port's bar is always drawn whole. 0c94's next call,
+ * 5837:00e4 (19a4:0630, DS:c5d4: the page's picture again, DS:a2ae and 1cb7 when it changes),
+ * is not ported: it matters only after the later redraws. The panel's text and the party's
+ * list are not drawn: part 12. */
 static void combat_screen(cok_adventure *game)
 {
     clear_cells(game, 23, 1, 38, 21);
@@ -5030,8 +5033,8 @@ static bool arena_load_icon(cok_adventure *game, const char *name, uint8_t id, u
  * pose and the redraw's cells), drawn on the view at x, y: the table's entry slot + 0x26 *
  * image (030f:0359-0366; image 0 ready, 1 attacking). An empty entry draws nothing. The head
  * overlay of 030f:03a2 and 0431 is dead here: DS:a848 is 0 (no CHEAD, 204c:00e5-0157). The
- * redraw's frame (51c2:0c94 -> 20b2:02fa: the panel and the borders) is not drawn by this
- * (the frame hook, which draws the 3D frame there). */
+ * redraw's frame (51c2:0c94 -> 20b2:02fa: the panel and the borders) is drawn by the frame
+ * hook (combat_screen), not by this. */
 static bool arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                        uint8_t slot)
 {
