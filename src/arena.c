@@ -979,6 +979,11 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
     cok_combat *cb = &game->combat;
     if (!cb->panel) return true;
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->arena_panel != NULL) {
+        cb->panel = false;
+        return own->arena_panel(game, c) || own_failed(game);
+    }
     if (own_ground(game) != NULL)
         return fail(game, "the side panel is not drawn on this game's screen yet (parts 11-12)");
     cb->panel = false;

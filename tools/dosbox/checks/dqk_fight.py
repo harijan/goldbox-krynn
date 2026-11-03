@@ -81,7 +81,7 @@ flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, eac
 the original's after its draws past SEED (the open ground's rolls).
 
 Flow `slots` (step 4, part 11a: the combatants' icons loaded): the same two blocks (the fixture's dungeon, and
-WILD_GROUNDS[0]) to the side panel's entry (PANEL, 177e:085f: the turn's cursor drawn); the original's head layers (DS:a848, all 0), its party records' bodies and slots, each
+WILD_GROUNDS[0]) to the side panel's end (PANEL, 5045:084b: the turn's cursor and the panel drawn); the original's head layers (DS:a848, all 0), its party records' bodies and slots, each
 combatant's slot, and the table's images are read, and eclplay's --icons and --screen must agree: the table byte for
 byte against hlib's records (CBODY, CPIC, COMSPR), and the drawn combatants' icons composed over eclplay's screen equal the
 original's view (pointer masked).
@@ -143,13 +143,13 @@ MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 # The first turn's routine (5045:078b, a turn starts) and the keys a new
 # battle's text may wait for (Return).
 TURN = (0x5045, 0x078B)
-# The side panel's entry (177e:085f: 5045:0846 calls it after 5045:0827's 5837:12f5 has drawn the
-# cursor's box, 5837:00f4, and before its clear at 0880): the first turn's stop, where the port's
-# battle stops now (cok_arena_panel's stop, BATTLE_STOP). The icons' screens are compared there, not
-# at TURN: the turn's own drawing comes between the two (the cursor is on at PANEL, off at TURN). The
-# Champions' panel address 6346:0af6 is not the Dark Queen's: traps at it (and at 6825:0af6, the map's
-# stub) never held in 300 s.
-PANEL = (0x177E, 0x085F)
+# The side panel's end (5045:084b, the return of 177e:085f that 5045:0846 calls after 5045:0827's
+# 5837:12f5 has drawn the cursor's box, 5837:00f4): the screen the icons and slots flows compare, with
+# the panel drawn (cok_arena_panel's hook, dark_queen.c's combat_panel). Trapping at the panel's entry
+# (177e:085f) was the screen before the panel; the turn's own drawing comes between TURN and this.
+# The Champions' panel address 6346:0af6 is not the Dark Queen's: traps at it (and at 6825:0af6, the
+# map's stub) never held in 300 s.
+PANEL = (0x5045, 0x084B)
 # The command menu (step 4, part 10b: the party's dispatch, cok_combat_act's 5045:08cf): the
 # same overlay copies as TURN, its offset 0x144 further on.
 MENU = (0x5045, 0x08CF)
@@ -387,12 +387,12 @@ COMBAT_SECONDS = 300
 # blocks, combatants, occupants, the view, the turn list and RandSeed compare. The trap is set after
 # the block's last PRESS KEY, as 59c7 is loaded only once the battle starts.
 # The first turn's stop (step 4, part 10b): 5045:078b's arena turn (5837:12f5, cursor on) draws the
-# cursor's box (5837:00f4, ported: part 11b), then the side panel (177e:085f, cok_arena_panel) comes
-# before the turn's dispatch (5045:08cf, 5bb8:0000: ported, with repo tests, as round.c's
-# cok_combat_act). The panel is parts 11-12's, so the battle stops there, cited, until it lands; the
-# dispatch is not reached by eclplay in these flows (the `dispatch` flow compares the original's
-# state at 08cf with eclplay's stop instead).
-BATTLE_STOP = "error: the side panel is not drawn on this game's screen yet (parts 11-12)"
+# cursor's box (5837:00f4, ported: part 11b), then the side panel (177e:085f, dark_queen.c's
+# combat_panel, ported), then the turn's dispatch (5045:08cf: the first combatant, CINDER, is the
+# party's, so its command menu is next, cited as part 22; the computer's turn 5bb8:0000 is not
+# reached). eclplay stops there: the `dispatch` flow compares the original's state at 08cf with it.
+BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's party's command menu (dqk 5045:08cf, "
+               "the command menu (part 22))")
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -1091,7 +1091,7 @@ def wild_one(v, work, opts, state, river, tag):
 
 def spins_at_placement(v, r):
     v.check(r["traps"] >= 1 and r["held"],
-            "the original spins at the battle's stop (5045:078b, or PANEL, 177e:085f, for the icons)",
+            "the original spins at the battle's stop (5045:078b, or PANEL, 5045:084b, for the icons)",
             f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
     v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
 
@@ -1386,12 +1386,12 @@ def slots(v, work, opts):
 
 
 # The combatants' icons drawn (step 4, part 11b: arena.c's cursor and pose, dark_queen.c's
-# arena_icon, queen_arena.c's blit): the same runs as `slots`, to the side panel's entry (PANEL). The
+# arena_icon, queen_arena.c's blit): the same runs as `slots`, to the side panel's end (PANEL). The
 # port's own screen (eclplay --screen, its icons drawn by the port, the combat frame too) must
 # equal the original's screenshot over the whole screen in RGB, with only the mouse pointer
 # masked (dqk_views.POINTER: the DOSBox pointer's arrow at 2-15 by 2-16). The
-# COMSPR cursor box (the turn's cursor, 5837:00f4) is drawn at PANEL, where the cursor is on, so it is
-# in the compare; the original is trapped at the same point (PANEL), not at TURN, which is before it.
+# COMSPR cursor box (the turn's cursor, 5837:00f4) and the side panel are drawn at PANEL, so both are
+# in the compare; the original is trapped at the same point (PANEL), not at TURN, which is before them.
 ICON_MONSTERS = range(0x08, 0x0F)       # the monsters' slots (DS:ad6b: 8-0x0e, 170e's and 29fc's)
 def icon_runs():
     """(tag, block, where, square): the fixture's dungeon; the open ground WILD_GROUNDS[0]; and
@@ -1485,12 +1485,10 @@ def dispatch_original(work, patched, verbose, tag="dispatch"):
 
 def dispatch(v, work, opts):
     """The first turn's dispatch (step 4, part 10b): the original's state at the command menu
-    (5045:08cf, after 078b is given back) against eclplay's stop. eclplay stops at the side panel,
-    which comes before the dispatch (BATTLE_STOP), so the comparison is the state the dispatch
-    starts from: the same records, blocks, combatants, battlefield, turn list and RandSeed as at
+    (5045:08cf, after 078b is given back) against eclplay's stop, which is the command menu too
+    (BATTLE_STOP): the same records, blocks, combatants, battlefield, turn list and RandSeed as at
     the turn. The selected record (DS:ad67) is the turn list's first combatant. The computer's
-    dispatch (5045:0891, 5bb8:0000) is not reached: the party's first turn stops at the panel
-    too, before its command menu (part 22)."""
+    dispatch (5045:0891, 5bb8:0000) is not reached: the first turn is the party's."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     r = dispatch_original(work, patched, opts.verbose)

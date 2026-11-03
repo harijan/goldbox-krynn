@@ -1325,14 +1325,16 @@ class DarkQueenTests(unittest.TestCase):
         result = self.play("--start-menu", "--keys",
                            r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "the side panel is not drawn on this game's screen yet "
-                         "(parts 11-12)\n")
+        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's party's command "
+                         "menu (dqk 5045:08cf, the command menu (part 22))\n")
         moves = [line for line in result.stdout.splitlines()
                  if line.startswith(("step:", "turn:"))]
-        self.assertEqual(len(moves), 29)
+        self.assertEqual(len(moves), 30)
         self.assertEqual(moves[:3], ["step: 4,2 facing 2", "step: 5,2 facing 2",
                                      "step: 6,2 facing 2"])
-        self.assertEqual(moves[-1], "step: 13,8 facing 2")
+        self.assertEqual(moves[-2], "step: 13,8 facing 2")
+        # The first turn: CINDER (initiative 8) draws the side panel and stops at the command menu.
+        self.assertEqual(moves[-1], "turn: 'CINDER' (initiative 8)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
 
@@ -1370,10 +1372,10 @@ class DarkQueenTests(unittest.TestCase):
                                  ASSETS)):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stderr,
-                             "the side panel is not drawn on this game's screen yet "
-                             "(parts 11-12)\n")
+                             "not yet ported: The Dark Queen of Krynn's party's command menu "
+                             "(dqk 5045:08cf, the command menu (part 22))\n")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
-                                 for line in result.stdout.splitlines()), 29)
+                                 for line in result.stdout.splitlines()), 30)
             # The whole walk from "protection:" on agrees, the turn order and the rounds included.
             outs.append(result.stdout[result.stdout.index("protection:"):].splitlines(True))
         self.assertEqual(outs[0], outs[1])

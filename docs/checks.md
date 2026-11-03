@@ -777,9 +777,9 @@ Flow `dispatch` (step 4, part 10b: the first turn's dispatch). The original's tu
 and its command menu (`5045:08cf`, the party's dispatch of `cok_combat_act`) is spun in the same copies (EB FE over
 its entry, 0x144 on): the state is read where the dispatch starts. DS:ad67, the selected record, is the turn list's
 first combatant (57fb:019e), and the records, blocks, combatants, battlefield, turn list and RandSeed (0x1756582c)
-are those at the turn. eclplay stops at the side panel (`177e:085f`, parts 11-12), which comes before the
-dispatch, so its stop is compared with that state (`placement`). The dispatch itself is not reached by eclplay, and
-the computer's (`5045:0891`, `5bb8:0000`) is not checked: the party's first turn stops at the panel too.
+are those at the turn. eclplay stops at the command menu (`5045:08cf`, cited: part 22), after the side panel
+(`177e:085f`, drawn by `combat_panel`), so its stop is compared with that state (`placement`). The computer's
+(`5045:0891`, `5bb8:0000`) is not checked: the first turn is the party's.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
