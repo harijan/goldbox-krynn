@@ -126,7 +126,8 @@ static void test_combat_records(void)
 {
     const cok_character_layout *L = R->character;
     const cok_combat_block *B = R->combat.combat_block;
-    CHECK(B != NULL && B->facing == 0x0a && B->not_party == 0x14 && B->in_battle == 0x17);
+    CHECK(B != NULL && B->spell == 0x00 && B->facing == 0x0a && B->not_party == 0x14 &&
+          B->in_battle == 0x17);
     CHECK(cok_rules_champions.combat.combat_block == NULL &&
           cok_rules_death_knights.combat.combat_block == NULL);
     for (int gate = 0; gate < 2; ++gate) {

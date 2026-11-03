@@ -404,10 +404,11 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
 };
 
-/* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x0a, 0x14 and 0x17
- * (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95 (148f:19c2)
- * given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
+/* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
+ * and 0x17 (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95
+ * (148f:19c2) given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
 static const cok_combat_block dark_queen_combat_block = {
+    .spell = 0x00,
     .facing = 0x0a,
     .not_party = 0x14,
     .in_battle = 0x17,

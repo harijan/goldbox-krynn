@@ -105,6 +105,7 @@ static void save_blocks(const cok_adventure *game, const char *path)
         const cok_combat_record *cr = game->party.members[i]->combat;
         uint8_t block[0x18] = {0};
         if (cr != NULL) {
+            block[B->spell] = cr->spell;
             block[B->facing] = cr->facing;
             block[B->not_party] = cr->not_party;
             block[B->in_battle] = cr->in_battle;

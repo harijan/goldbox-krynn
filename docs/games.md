@@ -678,8 +678,8 @@ run, citing their handlers (`unported`). It holds:
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
-  The load flow's party list at the battle's call (`5f07:08f0`): 19 records, the monsters'
-  bytes equal (pointers masked), and the party's too from the save (`--load`; with `--character`
+  The load flow's party list at the placement (`59c7:1864`): 19 records, the monsters'
+  bytes equal (pointers masked, whole), and the party's too from the save (`--load`; with `--character`
   four members' import differed: known spells, saving throws, thief skills, not traced). The icons: `CPIC.TLB` records
   do not decode with the port's image reader ("unsupported or malformed image layout"),
   logged by the loader, and Dark Queen's colour tables (the CPIC recolour) are not in its
@@ -792,8 +792,9 @@ run, citing their handlers (`unported`). It holds:
   sets it); and its setup has no prelude (`no_setup_prelude`: `5045:059d` and `1dd7` free no
   picture, clear no row, wait and print nothing, so "A battle begins..." is printed once, by COMBAT).
   The combat records (`59c7:0f7b`) are ported (`cok_combat_records`, the descriptor's `combat_block`):
-  each record's 0x18-byte combat block at +0x40 is made with facing (+0x0a: the quadrant's direction,
-  +4 for a hostile one, 2 with effect 0xd5), not_party (+0x14: past var 0x20), in_battle (+0x17, 1 for
+  each record's 0x18-byte combat block at +0x40 is made with spell (+0x00, 0 here: 177e:09ef shows
+  "(Casting)" above 0), facing (+0x0a: the quadrant's direction,
+  +4 for a hostile one, 2 with effect 0xd5; read by 5045:10b4 and 52db:0b8c), not_party (+0x14: past var 0x20), in_battle (+0x17, 1 for
   every record; its readers not found yet), the morale's NPC flag (var 0x20 + 0x80), and effect 0x95
   for a record that is not hostile while var 0x3c is set (`148f:19c2`; the fixture's var 0x3c is 0, so
   no record gets it there). The other block bytes are unnamed and 0. The view's origin (DS:bedb +2, +4)

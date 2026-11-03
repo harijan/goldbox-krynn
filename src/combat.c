@@ -1312,11 +1312,10 @@ bool cok_combat_setup(cok_adventure *game)
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
         return false;
     }
-    /* The placement follows the records (dqk 59c7:0f7b, then 1864). */
+    drop_key(game); /* dqk 1e50, after the records (1e4d): the placement's entry is 1e56 */
     if (cok_game_rules(game)->combat.placement_unported != NULL)
         return cok_adventure_not_yet(game, "battle's placement",
                                      cok_game_rules(game)->combat.placement_unported);
-    drop_key(game);
     if (!cok_combat_place_all(game)) return false;
     drop_key(game);
     /* The view's origin, from the first record, whether or not it is on the

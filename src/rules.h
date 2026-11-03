@@ -1053,13 +1053,16 @@ typedef enum {
 /* Dark Queen's combat block (59c7:0f7b): the 0x18 bytes a record's far pointer
  * +0x40 keeps, beside the port's cok_combat_record (party.h), which holds the same
  * meanings at its own offsets. Its named bytes, by their offset in the block; the
- * others are unnamed (0x00-0x09, 0x0b-0x13, 0x15, 0x16: read as 0 by eclplay's
+ * others are unnamed (0x01-0x09, 0x0b-0x13, 0x15, 0x16: read as 0 by eclplay's
  * --blocks, and checked as 0 at the placement by dqk_fight). The records' differences
  * from cok_combat_records (59c7:0f7b) are here too: a record with the effect
  * facing_effect faces 2, and a record that is not hostile gets gate_effect when
  * gate_var is set. */
 typedef struct {
-    uint8_t facing;        /* +0x0a: the facing (0f7b:1019, 1031; no reader found yet). */
+    uint8_t spell;         /* +0x00: a spell being cast; 177e:09ef shows "(Casting)" while
+                            * it is above 0 (as Champions' spell). */
+    uint8_t facing;        /* +0x0a: the facing (0f7b:1019, 1031; read by 5045:10b4 and
+                            * 52db:0b8c, among others). */
     uint8_t not_party;     /* +0x14: set past the party's size (0f7b:0fec; read by the
                             * placement's unlinking, 59c7:1d34-1d94). */
     uint8_t in_battle;     /* +0x17: set to 1 for every record (0f7b:10ca); no reader yet. */
