@@ -564,6 +564,31 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
 
+    def test_camp_load_from_adventure(self):
+        # Encamp's Load (7070:2efe) asks "Game not saved. Load anyway? " (Yes); the run
+        # ends (DS:acc4, DS:b7a7) and main takes the camp from main again (5ebd:0331, 1d99:1175
+        # with 1): its Load (Yes to its question, Tdqk, A) loads saved game A, and Begin (B)
+        # takes the game on from its block (10cd), with no copy protection question (only
+        # 5ebd:00ef's Begin asks it).
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        saves = self.folder / "load"
+        shutil.copytree(ASSETS / "SAVE", saves)
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--keys",
+                           start + "Ely" + "TAB", ASSETS)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("not yet", result.stderr)
+        lines = result.stdout.splitlines()
+        camp = ("menu: Create Character Delete Character Modify Character View Character "
+                "Remove Character Load Saved Game Save Current Game Begin Adventuring "
+                "Exit From Game")
+        encamp = "menu: View Magic Rest Alt Fix Load Save Exit"
+        at = lines.index(encamp)
+        self.assertEqual(lines[at:at + 7], [encamp, "choice: 5", "menu: Tdqk Dkk Exit",
+                                            "choice: 0", "menu: A", "choice: 0", camp])
+        self.assertEqual(lines[at + 7], "choice: 10")  # Begin: the block's first text next
+        self.assertTrue(lines[at + 8].startswith("print: YOU ARRIVE IN PALANTHAS"))
+        self.assertEqual(sum(line.startswith("protection:") for line in lines), 1)
+
     def test_camp_alt(self):
         # The adventure's camp at Caergoth's three steps west: Encamp (e), then Alt
         # (7070:1ce2) with Speed (1bab) Slower, Level (1b15) Champion, Order (19a3)
@@ -695,8 +720,9 @@ class DarkQueenTests(unittest.TestCase):
             "choice: 11", "(quit to DOS in block 39)"])
         # Remove the only member (DS:b7a7 set), Add her back (the roster's list
         # is the saves folder's as it was at the start, so the file is there
-        # first) and Begin: the ECL run is left at the camp's end (5f07:0fcb),
-        # which the port does not do yet, so it stops there.
+        # first) and Begin: the ECL run halts at the camp's end (5f07:0fc4), the
+        # adventure's loop frees the party (5f07:1338) and main's new game and
+        # menu (5ebd:039b) is not ported, so it stops there.
         saves = self.folder / "removed"
         saves.mkdir()
         (saves / "BALTHIRN.QCH").write_bytes((ASSETS / "SAVE" / "BALTHIRN.QCH").read_bytes())
@@ -705,8 +731,8 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout)
         self.assertEqual(result.stdout.splitlines()[-2:], [
             "choice: 10",
-            "error: not yet ported: The Dark Queen of Krynn's the ECL run ended by DS:b7a7 "
-            "after the camp (dqk 5f07:0fcb)"])
+            "error: not yet ported: The Dark Queen of Krynn's the party emptied in the "
+            "adventure's camp: main's new game and menu (dqk 5ebd:039b)"])
         self.assertNotIn("(done in block 39)", result.stdout)
 
     def test_items(self):

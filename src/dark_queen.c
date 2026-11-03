@@ -113,10 +113,17 @@ typedef struct {
      * not yet entered (DS:b1ed); a big picture shown outside the
      * overland, which the party's list is not drawn over (DS:b256). */
     bool saved, loaded_game, big_no_party;
-    /* DS:b7a7: set by the camp when the party is emptied, or a load asked,
-     * from the adventure (PROGRAM 0); read by 5f07:0940 and 5f07:0fcb, not
-     * ported. */
+    /* DS:b7a7: the run is left while it is set (the adventure's loop tests
+     * it, 5f07:126c-132e; 5f07:0fc4 halts the ECL run). Set by the camp when
+     * the party is emptied (7368:06dc) and by a load asked (7070:2f2b for
+     * Encamp, 7368:0761 for PROGRAM 0's camp); 6c70:2536 and 74b9:16ce set it
+     * too, not ported. Cleared at the adventure's end (5f07:1338). Read by
+     * 5f07:0940, not ported. */
     bool b7a7;
+    /* DS:acc4: a load asked from the adventure's camp (5f07:0004 sets it to 1;
+     * 5f07:000f reads it at 5f07:1372). The loop loads it (5f07:137a), then
+     * main takes the camp from main again (5ebd:0312). */
+    bool load_asked;
     /* The small picture's id (DS:ae42, 0xff for none: 63ae:02b0); DS:bd92,
      * which turns Train and Knight new Order on in the camp (0 at startup,
      * its stores found keep what it held); the overland's cell under the
@@ -1853,24 +1860,33 @@ static bool screen_as_it_was(cok_adventure *game)
  * (screen_as_it_was) and the party's place on the overland (7065:0011) where
  * picture 9 is not shown and variables 0x22 0, 0x24 1, and the view again
  * (DS:b7f8). Then the ECL run goes on only while DS:b7a7 is clear (5f07:0fc4,
- * the camp's Remove of the last member sets it): where it is set the block is
- * left. DS:c2dc (cleared by a new game, 5f07:10d3) is taken as 0: nothing in
- * the game sets it (only 5f07:10d3 clears it). */
+ * the camp's Remove of the last member sets it): with the party emptied the run
+ * stops (5ebd:039b, not ported); with a load asked it halts (vm->halt) and the
+ * adventure's loop loads it (its tail). DS:c2dc (cleared by a new game, 5f07:10d3)
+ * is taken as 0: nothing in the game sets it (only 5f07:10d3 clears it). */
 static void camp_program(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     bool begin;
     cok_ecl_status status = camp(game, false, &begin);
-    if (status != COK_ECL_OK || !begin || vm->abort) return;
+    if (status != COK_ECL_OK || vm->abort) return;
     queen *q = own(game);
-    if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x22) == 0 &&
-        cok_ecl_load_var(vm, 0x24) == 1) {
-        if (!screen_as_it_was(game)) return;
-        marker(game);
+    if (begin) {
+        if (q->picture_id != 9 && cok_ecl_load_var(vm, 0x22) == 0 &&
+            cok_ecl_load_var(vm, 0x24) == 1) {
+            if (!screen_as_it_was(game)) return;
+            marker(game);
+        }
+        vm->view_changed = true;
     }
-    vm->view_changed = true;
-    if (q->b7a7)
-        cok_adventure_not_yet(game, "the ECL run ended by DS:b7a7 after the camp", "dqk 5f07:0fcb");
+    if (q->b7a7 && !q->load_asked) {
+        /* The party emptied (7368:06dc): the run is left, and main makes a new game and
+         * shows its menu (5ebd:039b), not ported. */
+        cok_adventure_not_yet(game, "the party emptied in the adventure's camp: main's new "
+                                    "game and menu", "dqk 5ebd:039b");
+        return;
+    }
+    if (q->b7a7) vm->halt = true; /* a load asked: the adventure's loop loads it */
 }
 
 static void remove_selected(cok_adventure *game);
@@ -2133,11 +2149,12 @@ static void forget_members(cok_adventure *game)
  * (encamp_screen), its text on row 18; each item in the order of its words, by
  * the bar's buttons, Escape is Exit. View is the sheet (86b8:0b0c, view_character).
  * Load asks "Game not saved. Load anyway? " where a member is selected and the game
- * is not saved, then stops: 5f07:0004 sets DS:acc4 and DS:b7a7 and main (5ebd:0312)
- * loads the game, not ported. Save saves the game (604b:3395) and asks "Exit to DOS? "
- * (DS:4776), Yes quitting. Alt is alt (7070:1ce2). Magic, Rest and Fix stop (7070:1671,
- * 0aac, 2ad0). Exit puts the mode back, clears the spells' marks (02f2), the status line
- * and rows 18-22 and the bar. */
+ * is not saved; then it sets DS:acc4 (5f07:0004) and DS:b7a7 and returns with no
+ * restore (2f89): encamp then views and marks as usual, the run halts, the adventure's
+ * loop loads it, and main takes the camp from main (start). Save saves the game (604b:3395) and asks
+ * "Exit to DOS? " (DS:4776), Yes quitting. Alt is alt (7070:1ce2). Magic, Rest and Fix
+ * stop (7070:1671, 0aac, 2ad0). Exit puts the mode back, clears the spells' marks
+ * (02f2), the status line and rows 18-22 and the bar. */
 static bool encamp_menu(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -2183,8 +2200,11 @@ static bool encamp_menu(cok_adventure *game)
                 if (yes < 0) return false;
                 if (!yes) break;
             }
-            return cok_adventure_not_yet(game, "Load Saved Game from the adventure's camp",
-                                         "dqk 5f07:0004, 5ebd:0312");
+            /* 7070:2f22: 5f07:0004 sets DS:acc4 (1), 7070:2f2b DS:b7a7, and the menu
+             * returns (2f89) with no restore: no forget, no mode, no status. */
+            q->load_asked = q->b7a7 = true;
+            vm->halt = true;
+            return true;
         case ENCAMP_SAVE: {
             if (!save_game(game)) return false;
             int yes = yes_no(game, "Exit to DOS? ", game->picture_shown); /* DS:4776 */
@@ -3606,6 +3626,9 @@ static bool load_saved(cok_adventure *game, const char *path)
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
         return false;
     }
+    /* The game's speed is the mirror of variable 0x12 (set_speed), which the shared
+     * waits read (attack.c's wait_speed, arena.c, cloud.c); the restore does not set it. */
+    game->speed = (uint8_t)cok_ecl_load_var(vm, COK_VAR_SPEED);
     bottom_bar(game);
     vm->mode = 0;
     return true;
@@ -3950,8 +3973,8 @@ static void begin_adventuring(cok_adventure *game)
  * from the adventure DS:b7a7 set instead (7368:06dc); Load (a party not saved
  * first asks "Game not saved. Load anyway? ", DS:7e93), the party emptied,
  * the game loaded, or a new game's where none loads (64b2:04ec); from the
- * adventure it is not ported (7368:0758: 5f07:0004 and DS:b7a7, then the camp
- * returns without loading); Save; Begin Adventuring (with a party) returns,
+ * adventure the load is asked (7368:0758: DS:acc4 by 5f07:0004, DS:b7a7 by 7368:0761;
+ * the run ends and the adventure's loop loads it); Save; Begin Adventuring (with a party) returns,
  * the mode the last (4 for none), the adventure's screen drawn as the mode
  * has it, variable 0x30 0, the game not saved; Exit
  * From Game asks "Exit to DOS? " and, a party not saved, "Game not saved.
@@ -4035,10 +4058,10 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
                 if (!yes) break;
             }
             if (!from_main) {
-                /* 7368:0758: 5f07:0004 sets DS:acc4 (1), DS:b7a7, and the
-                 * camp returns to the ECL without loading. */
-                cok_adventure_not_yet(game, "Load Saved Game from the adventure",
-                                      "dqk 7368:0758, 5f07:0004");
+                /* 7368:0758: 5f07:0004 sets DS:acc4 (1), 7368:0761 DS:b7a7: the
+                 * camp returns to the ECL without loading (the loop loads it). */
+                q->load_asked = q->b7a7 = true;
+                vm->halt = true; /* the run ends (5f07:0fc4) */
                 return vm->status;
             }
             cok_party_free(&game->party); /* 177e:1e31 each */
@@ -4374,6 +4397,13 @@ static int commands(cok_adventure *game)
     return result;
 }
 
+/* The adventure's run is left while DS:b7a7 is set (5f07:126c, 12ab, 12bc, 12da, 131d,
+ * 132e): a load asked from the camp (DS:acc4 with it) or the party emptied. */
+static bool ended(cok_adventure *game)
+{
+    return own(game)->b7a7;
+}
+
 /* Begin Adventuring's start (5ebd:00ef after 7368:046f): the copy
  * protection (65cc:008b: a word from the journal, the game ending where
  * it is wrong; DARK-QUEEN.md's decision: logged and passed over, its
@@ -4390,10 +4420,13 @@ static int commands(cok_adventure *game)
  * entering its block (5f07:0ff4: cok_adventure_reenter). Outside 3D
  * (mode 3) its loop is not ported yet. The block is the variable 0x16's
  * (the start's), or the play's (eclplay's --play). */
-static cok_ecl_status adventure(cok_adventure *game, uint8_t block)
+
+static cok_ecl_status adventure(cok_adventure *game, uint8_t block, bool begun)
 {
     cok_ecl *vm = &game->vm;
-    cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
+    /* The copy protection is asked at Begin Adventuring (5ebd:00ef), not when main takes the
+     * camp again after a load (5ebd:0331-033a). */
+    if (begun) cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
     if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1) {
         overland_screen(game);
     } else {
@@ -4407,19 +4440,20 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block)
     cok_ecl_status status = cok_adventure_enter(game, block != 0 ? block : 4);
     own(game)->loaded_game = false;
     vm->keep_vars = false;
-    while (status == COK_ECL_OK && !vm->abort) {
+    /* DS:b7a7 ends the run and the commands: nothing after it runs here (5f07:126c skips
+     * the next command). */
+    while (status == COK_ECL_OK && !vm->abort && !ended(game)) {
         if (vm->mode != 4) {
             cok_adventure_not_yet(game, "the adventure's commands outside 3D", "dqk 6fea:0605");
             return vm->status;
         }
         int key = commands(game);
         if (key < 0) return vm->status;
-        while (status == COK_ECL_OK && !vm->abort &&
+        while (status == COK_ECL_OK && !vm->abort && !ended(game) &&
                (cok_ecl_load_var(vm, 0x19) > 1 || key == 4)) {
             if (key == 4) {
                 /* Encamp (5f07:122c calls 0b3b), then the next command (127a). */
                 status = encamp(game);
-                if (status != COK_ECL_OK || vm->abort) break;
             } else {
                 uint16_t searching = cok_ecl_load_var(vm, 0x19) & 1;
                 cok_ecl_store(vm, 0x19, 1);
@@ -4428,14 +4462,14 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block)
                 if (status == COK_ECL_OK && !vm->abort && vm->reload)
                     status = cok_adventure_reenter(game);
                 cok_ecl_store(vm, 0x19, searching);
-                if (status != COK_ECL_OK || vm->abort) break;
             }
+            if (status != COK_ECL_OK || vm->abort || ended(game)) break;
             key = commands(game);
             if (key < 0) return vm->status;
         }
-        if (status != COK_ECL_OK || vm->abort) break;
+        if (status != COK_ECL_OK || vm->abort || ended(game)) break;
         status = cok_ecl_run(vm, vm->vectors[0]);
-        if (status != COK_ECL_OK || vm->abort) break;
+        if (status != COK_ECL_OK || vm->abort || ended(game)) break;
         if (vm->reload) {
             status = cok_adventure_reenter(game);
             continue;
@@ -4446,6 +4480,26 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block)
         cok_adventure_view(game);
         status = cok_ecl_run(vm, vm->vectors[1]);
         if (status == COK_ECL_OK && !vm->abort && vm->reload) status = cok_adventure_reenter(game);
+    }
+    /* 5f07:132e-137f: the loop ends with DS:b7a7 set: it is cleared, each member freed
+     * (177e:1e31: var 0x20 is their count, cleared as CAMP_LOAD does), and a load asked
+     * (DS:acc4, 5f07:000f) loads here (604b:2e87), before main takes the camp from main
+     * (5ebd:0312). Without one main goes on at 5ebd:039b: a new game (64b2:04ec) and main's
+     * menu again (5ebd:022f), not ported, so the run stops there rather than go on with
+     * no party. */
+    queen *q = own(game);
+    if (status == COK_ECL_OK && !vm->abort && q->b7a7) {
+        q->b7a7 = false;
+        vm->halt = false;
+        cok_party_free(&game->party);
+        vm->character = NULL;
+        cok_ecl_store(vm, 0x20, 0);
+        if (!q->load_asked) {
+            cok_adventure_not_yet(game, "the party emptied in the adventure's camp: main's new "
+                                        "game and menu", "dqk 5ebd:039b");
+            return vm->status;
+        }
+        if (!load_game(game)) return vm->status;
     }
     return status != COK_ECL_OK ? status : vm->status;
 }
@@ -4461,7 +4515,7 @@ static cok_ecl_status play(cok_adventure *game, uint8_t block)
         return game->vm.status;
     }
     begin_adventuring(game);
-    return adventure(game, block);
+    return adventure(game, block, true);
 }
 
 /* The demonstration (5ebd:0236, 5f07:10cd with DS:ae59): the speed
@@ -4502,8 +4556,18 @@ static cok_ecl_status start(cok_adventure *game)
         if (choice != 1) {
             bool begin;
             cok_ecl_status status = camp(game, true, &begin);
-            if (status != COK_ECL_OK || !begin || vm->abort) return status;
-            return adventure(game, (uint8_t)cok_ecl_load_var(vm, 0x16));
+            for (bool first = true; status == COK_ECL_OK && begin && !vm->abort; first = false) {
+                status = adventure(game, (uint8_t)cok_ecl_load_var(vm, 0x16), first);
+                if (status != COK_ECL_OK || vm->abort || !own(game)->load_asked) return status;
+                /* 5ebd:031e-033a: the mode the last (DS:ae67), the request cleared (DS:acc4
+                 * by 5f07:0004 with 0, DS:b7a7 with it: the run is not halted again), then
+                 * the camp from main (1d99:1175 with 1) and the game from its block (10cd). */
+                vm->mode = vm->last_mode;
+                own(game)->load_asked = own(game)->b7a7 = false;
+                vm->halt = false;
+                status = camp(game, true, &begin);
+            }
+            return status;
         }
         bool stopped;
         cok_ecl_status status = demonstration(game, &stopped);
