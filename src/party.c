@@ -196,7 +196,7 @@ static bool read_items_effects(cok_character *character, const cok_rules *rules,
 /* 60f4:1543: the strength an effect's value gives, 18 with an exceptional
  * strength of value - 1 up to 101 (so 0 gives 18/255), above that value -
  * 100. */
-static void effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t *exceptional)
+void cok_effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t *exceptional)
 {
     *exceptional = 0;
     *strength = effect->value & 0x7f;
@@ -210,8 +210,8 @@ static void effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t
 
 /* 60f4:15db: keep the better of the strength so far and a candidate; an
  * 18 with a higher exceptional strength counts as better even than 19 up. */
-static void better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
-                   uint8_t candidate_exceptional)
+void cok_strength_better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
+                         uint8_t candidate_exceptional)
 {
     if (candidate > *strength || (candidate == 18 && candidate_exceptional > *exceptional)) {
         *strength = candidate;
@@ -249,11 +249,11 @@ void cok_character_strength(cok_character *ch, const cok_rules *rules)
         } else if (power == 0x0d) {
             fixed = 3;
         }
-        better(&score, &exceptional, candidate, candidate_exceptional);
+        cok_strength_better(&score, &exceptional, candidate, candidate_exceptional);
     }
     const cok_effect *effect = cok_character_find_named(ch, rules, COK_EFFECT_STRENGTH);
     if (effect != NULL) {
-        effect_strength(effect, &candidate, &candidate_exceptional);
+        cok_effect_strength(effect, &candidate, &candidate_exceptional);
         if (score < 19 && exceptional < 100) {
             candidate = (uint8_t)(candidate + score);
             if (candidate > 18) {
@@ -275,15 +275,15 @@ void cok_character_strength(cok_character *ch, const cok_rules *rules)
                 candidate = 18;
             }
         }
-        better(&score, &exceptional, candidate, candidate_exceptional);
+        cok_strength_better(&score, &exceptional, candidate, candidate_exceptional);
     }
     const uint8_t others[] = {cok_effect_id(rules, COK_EFFECT_GIANT_STRENGTH),
                              cok_effect_id(rules, COK_EFFECT_ENLARGED)};
     for (size_t k = 0; k < sizeof others; ++k) {
         effect = cok_character_find_effect(ch, others[k]);
         if (effect == NULL) continue;
-        effect_strength(effect, &candidate, &candidate_exceptional);
-        better(&score, &exceptional, candidate, candidate_exceptional);
+        cok_effect_strength(effect, &candidate, &candidate_exceptional);
+        cok_strength_better(&score, &exceptional, candidate, candidate_exceptional);
     }
     if (fixed != 0xff) {
         cok_field_set8_at(L, c, COK_FIELD_SCORE, COK_SCORE_STRENGTH, fixed);

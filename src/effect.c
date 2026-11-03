@@ -2835,12 +2835,179 @@ static void class_hit_points(const cok_rules *rules, const cok_data_segment *D, 
     *hp = (uint8_t)(*hp + level * per);
 }
 
+/* 148f:1d0e: a class's hit points for level at constitution, added to *hp as a byte. The
+ * level is capped below the class's top (DS:640a: level top - 1 at top or more) and raised by
+ * one for classes 1 and 4, whatever their former or changed levels (60f4:1628 does that for 4
+ * only). Classes 1-4 are the fighters: 1-7 a level by constitution 15-25; the others 1 for 15
+ * and 2 above it. */
+static void queen_hit_points(const cok_data_segment *D, unsigned klass, uint8_t level,
+                             uint8_t constitution, uint8_t *hp)
+{
+    uint8_t top = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, klass);
+    if (top <= level) level = (uint8_t)(top - 1);
+    if (klass == 1 || klass == 4) ++level;
+    uint8_t per = 0;
+    if (klass >= 1 && klass <= 4) {
+        if (constitution >= 15 && constitution <= 19) per = (uint8_t)(constitution - 14);
+        else if (constitution == 20) per = 5;
+        else if (constitution >= 21 && constitution <= 23) per = 6;
+        else if (constitution >= 24 && constitution <= 25) per = 7;
+    } else if (constitution > 15) {
+        per = 2;
+    } else if (constitution == 15) {
+        per = 1;
+    }
+    *hp = (uint8_t)(*hp + level * per);
+}
+
+/* 148f:1dfc with stat 0: strength from the base (+0x78) and exceptional strength (+0x85), with
+ * the readied items' 18/xx (power 3 is 18/100, power 5 is 18 + its kind, 18/100 for none) and
+ * the strength effects, each merged as the 18/xx helpers (1ccc) merge them: 0x26 first, its
+ * value added to the base strength (1f0d) and, at 18 and over, the excess as exceptional
+ * strength for a holder with a fighter class (1-4) at a level; then 0x71, then Enlarge (0x0c).
+ * Stored at +0x79 and +0x84. Its effect values are read by 1c47, cok_effect_strength. */
+static bool queen_strength(cok_effects *fx, cok_character *ch)
+{
+    const cok_rules *R = fx->rules;
+    const cok_character_layout *L = R->character;
+    uint8_t *c = ch->record;
+    uint8_t strength = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, 0),
+            exceptional = cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE);
+    uint8_t value = 0, value_exceptional = 0;
+    /* 1e37-1ea2: each readied item of a power above 0x80 (power 3 and 5 count; the rest merge
+     * the value they have, which is no change). */
+    for (size_t i = 0; i < ch->item_count; ++i) {
+        const uint8_t *item = ch->items[i];
+        if (item[R->item_record.readied] == 0 || item[0x38] <= 0x80) continue;
+        uint8_t power = item[0x38] & 0x7f;
+        if (power == 3) {
+            value = 18;
+            value_exceptional = 100;
+        } else if (power == 5) {
+            value = (uint8_t)(item[0x37] + 18);
+            if (value == 18) value_exceptional = 100;
+        }
+        cok_strength_better(&strength, &exceptional, value, value_exceptional);
+    }
+    cok_effect *effect = FIND_EFFECT(ch, STRENGTH);
+    if (effect != NULL) {
+        cok_effect_strength(effect, &value, &value_exceptional);
+        /* 1f0d-1f73: the base and the effect added, with the exceptional for a fighter (any of
+         * classes 1-4 at a level). */
+        if (strength <= 18 && exceptional < 100) {
+            value = (uint8_t)(strength + value);
+            if (value > 18) {
+                bool fighter = false;
+                for (unsigned k = 1; k <= 4; ++k)
+                    if (cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k) != 0) fighter = true;
+                if (fighter) {
+                    value_exceptional = (uint8_t)((value - 18) * 10 +
+                                                  cok_field_u8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL));
+                    if (value_exceptional > 100) value_exceptional = 100;
+                }
+                value = 18;
+            }
+        }
+        cok_strength_better(&strength, &exceptional, value, value_exceptional);
+    }
+    if (R->effects.ability_second_strength_id != 0 &&
+        (effect = cok_character_find_effect(ch, R->effects.ability_second_strength_id)) != NULL) {
+        cok_effect_strength(effect, &value, &value_exceptional);
+        cok_strength_better(&strength, &exceptional, value, value_exceptional);
+    }
+    if ((effect = FIND_EFFECT(ch, ENLARGED)) != NULL) {
+        cok_effect_strength(effect, &value, &value_exceptional);
+        cok_strength_better(&strength, &exceptional, value, value_exceptional);
+    }
+    cok_field_set8_at(L, c, COK_FIELD_SCORE, 0, strength);
+    cok_field_set8(L, c, COK_FIELD_STRENGTH_EXCEPTIONAL, exceptional);
+    return true;
+}
+
+/* 148f:1dfc with constitution (stat 4): the maximum hit points from +0xc0 and each class's
+ * levels, former (+0xac) and current (+0xa5, capped at the top and less the change level +0x92),
+ * divided by the classes with a level (1d0e); the hit points change by as much (a drop takes
+ * them down to 0). The constitution is stored, and at 20 and over the effect 0x3e (60 minutes,
+ * value 0xff, flag 1) is added again each time: 148f:19c2 is not checked for one held.
+ * Otherwise 0x3e is removed. Dark Queen's divide error (no class) fails, cited. */
+static bool queen_constitution(cok_effects *fx, cok_character *ch)
+{
+    const cok_character_layout *L = fx->rules->character;
+    const cok_data_segment *D = fx->rules->data;
+    uint8_t *c = ch->record;
+    uint8_t constitution = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, 4);
+    uint8_t old = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS), hp = 0;
+    unsigned classes = 0;
+    cok_field_set8(L, c, COK_FIELD_MAX_HIT_POINTS, cok_field_u8(L, c, COK_FIELD_BASE_HIT_POINTS));
+    for (unsigned k = 0; k < 7; ++k) {
+        uint8_t former = cok_field_u8_at(L, c, COK_FIELD_FORMER_LEVEL, k);
+        if (former != 0) queen_hit_points(D, k, former, constitution, &hp);
+        uint8_t level = cok_field_u8_at(L, c, COK_FIELD_CLASS_LEVEL, k);
+        if (level != 0) ++classes;
+        uint8_t top = cok_data_u8_at(D, COK_DATA_TOP_LEVELS, k);
+        if (top < level) level = top;
+        uint8_t change = cok_field_u8(L, c, COK_FIELD_CHANGE_LEVEL);
+        if (change < level) queen_hit_points(D, k, (uint8_t)(level - change), constitution, &hp);
+    }
+    if (classes == 0)
+        return fail(fx, "%s's constitution (148f:1dfc) divides by no classes, a divide error",
+                    fx->rules->text.name);
+    cok_field_add8(L, c, COK_FIELD_MAX_HIT_POINTS, (uint8_t)(hp / classes));
+    uint8_t now = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+    if (now > old) {
+        cok_field_add8(L, c, COK_FIELD_HIT_POINTS, (uint8_t)(now - old));
+    } else if (now < old) {
+        uint8_t drop = (uint8_t)(old - now), hit = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+        cok_field_set8(L, c, COK_FIELD_HIT_POINTS, hit <= drop ? 0 : (uint8_t)(hit - drop));
+    }
+    cok_field_set8_at(L, c, COK_FIELD_SCORE, 4, constitution);
+    uint8_t id = fx->rules->effects.constitution_id;
+    if (constitution >= 20) return add(fx, ch, id, 0x3c, 0xff, true);
+    return remove_effect(fx, ch, NULL, id);
+}
+
+/* 148f:1dfc with intelligence or wisdom (1, 2): the base score, or 3 while the holder has 0x44
+ * (148f:21e1), stored (not computed as Champions' 60f4:1743 leaves them). */
+static bool queen_mind(cok_effects *fx, cok_character *ch, unsigned stat)
+{
+    const cok_character_layout *L = fx->rules->character;
+    uint8_t score = cok_field_u8_at(L, ch->record, COK_FIELD_SCORE_BASE, stat);
+    uint8_t low = fx->rules->effects.ability_low_id;
+    if (low != 0 && cok_character_find_effect(ch, low) != NULL) score = 3;
+    cok_field_set8_at(L, ch->record, COK_FIELD_SCORE, stat, score);
+    return true;
+}
+
+/* 148f:1dfc: Dark Queen's stat recompute (stat 0 to 5 as cok_effects_ability gives it).
+ * Dexterity (3) is left as it is. */
+static bool queen_ability(cok_effects *fx, cok_character *ch, unsigned stat)
+{
+    const cok_character_layout *L = fx->rules->character;
+    uint8_t *c = ch->record;
+    switch (stat) {
+    case 0: return queen_strength(fx, ch);
+    case 1:
+    case 2: return queen_mind(fx, ch, stat);
+    case 4: return queen_constitution(fx, ch);
+    case 5: {
+        uint8_t score = cok_field_u8_at(L, c, COK_FIELD_SCORE_BASE, 5);
+        const cok_effect *effect = FIND_EFFECT(ch, FRIENDLY);
+        if (effect != NULL) score = (uint8_t)(score + effect->value);
+        cok_field_set8_at(L, c, COK_FIELD_SCORE, 5, score);
+        return true;
+    }
+    default: return true; /* 3: nothing (the jump table's 2210) */
+    }
+}
+
 /* 60f4:1743: the base score (+0x10 + 2 * stat) changed by the readied
  * items' powers (+0x3e 0x80 + power, +0x3d its kind) and effects, into the
  * current one; strength (0) cok_character_strength's. Intelligence (1)
  * and wisdom (2) are computed and not stored. */
 static bool ability(cok_effects *fx, cok_character *ch, unsigned stat)
 {
+    if (fx->rules->effects.ability_routine == COK_ABILITY_DARK_QUEEN)
+        return queen_ability(fx, ch, stat);
     if (stat == 0) {
         cok_character_strength(ch, fx->rules);
         return true;
@@ -2950,6 +3117,19 @@ bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned sta
     return finish(fx);
 }
 
+bool cok_effects_heal(cok_effects *fx, cok_character *character, uint8_t amount, bool only_hurt,
+                      bool *healed)
+{
+    begin(fx);
+    uint8_t guard = fx->rules->effects.heal_guard_id;
+    *healed = false;
+    /* 148f:25f7: without the flag a holder of the guard (0xd7) is not healed; the rest is
+     * cok_character_heal's (21ea), which the flag's test (only below the maximum) shares. */
+    if (only_hurt || guard == 0 || cok_character_find_effect(character, guard) == NULL)
+        *healed = cok_character_heal(character->record, fx->rules, amount, only_hurt, fx->vm->mode);
+    return finish(fx);
+}
+
 /* 60f4:01e9. The effect is kept in fx->removed until the public call
  * returns. */
 static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect, uint8_t id)
@@ -2997,11 +3177,10 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
     *link = effect->next;
     fx->removed[fx->removed_count++] = (struct cok_removed){effect, cok_effects_made()};
     const cok_rules_effects *E = &fx->rules->effects;
-    if (E->stat_unported != NULL && listed(E->stat_ids, id))
-        return fail(fx, "not yet ported: %s's effect 0x%02x recomputes the stats (%s)",
-                    fx->rules->text.name, id, E->stat_unported);
     if (IS_EFFECT(id, FRIENDLY)) return ability(fx, c, 5);
     if (IS_EFFECT(id, ENLARGED) || IS_EFFECT(id, STRENGTH)) return ability(fx, c, 0);
+    if (E->ability_low_id != 0 && id == E->ability_low_id)
+        return ability(fx, c, 1) && ability(fx, c, 2);
     return true;
 }
 

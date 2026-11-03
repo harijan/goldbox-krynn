@@ -2292,8 +2292,8 @@ static void test_dark_queen_clock(void)
 }
 
 /* The clock's stops (dqk 1396:044d, 0368, 019f): an effect that runs out is removed (017d)
- * and a stat recompute stops at 148f:1dfc (not the crash of the shared clock, nor a stop naming
- * Champions' table), 255 units never end, and a unit past 6 writes the original's locals;
+ * and a stat recompute (148f:1dfc) runs, 255 units never end, and a unit past 6 writes the
+ * original's locals;
  * with no unit passed the clock does nothing. */
 static void test_dark_queen_clock_stops(void)
 {
@@ -2309,14 +2309,14 @@ static void test_dark_queen_clock_stops(void)
     cok_character *c = dqk_member(&game, "ROLANDOF");
     CHECK(cok_party_add(&game.party, &cok_rules_dark_queen, c));
     /* An effect that runs out with no flag is removed (017d, no handler); Enlarge's (0x0c)
-     * recomputes the stats (148f:1dfc, not ported) and stops there. */
+     * is removed too, its strength recomputed by 148f:1dfc. */
     CHECK(cok_character_add_effect(c, 0x20, 5, 0, false) != NULL);
     const uint8_t five[] = {DQK_ECL_CLOCK, 0, 5, 0, 0, DQK_EXIT};
     CHECK(run_code(&game, &s, five, sizeof five, "") == COK_ECL_OK);
     CHECK(cok_character_find_effect(c, 0x20) == NULL);
     CHECK(cok_character_add_effect(c, 0x0c, 5, 0, false) != NULL);
-    CHECK(run_code(&game, &s, five, sizeof five, "") == COK_ECL_EFFECT_FAILED);
-    CHECK(strstr(game.error, "148f:1dfc") != NULL);
+    CHECK(run_code(&game, &s, five, sizeof five, "") == COK_ECL_OK);
+    CHECK(cok_character_find_effect(c, 0x0c) == NULL);
     cok_adventure_close(&game);
 
     /* A year is 518400 minutes, which 019f's word product keeps as 59648: an

@@ -294,14 +294,21 @@ bool cok_effects_pass_time(cok_effects *fx, unsigned unit, unsigned count);
 bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level);
 
 /* Recompute ability stat (0 strength ... 5 charisma) of character from its
- * base score, readied items and effects (60f4:1743): strength and
- * charisma as removing an effect does, dexterity with items of power 2, 8
- * and 10, and constitution with the maximum hit points it gives by level
- * and effect 0x3e at 20 and up. Intelligence and wisdom are computed and
- * not stored, as in the original. Fails where the original divides by
- * zero (a constitution recomputed with no class level) or an effect's
- * handler fails. */
+ * base score, readied items and effects (60f4:1743, or Dark Queen's 148f:1dfc
+ * where the descriptor's ability_routine says so): strength and charisma as
+ * removing an effect does, dexterity with items of power 2, 8 and 10, and
+ * constitution with the maximum hit points it gives by level and effect 0x3e
+ * at 20 and up. Champions' intelligence and wisdom are computed and not
+ * stored, as in the original; Dark Queen's are stored. Fails where the
+ * original divides by zero (a constitution recomputed with no class level)
+ * or an effect's handler fails. */
 bool cok_effects_ability(cok_effects *fx, cok_character *character, unsigned stat);
+
+/* Heal character by amount (60f4:21ea; Dark Queen's 148f:25f7): cok_character_heal, and without
+ * only_hurt, a holder of the descriptor's heal_guard_id is not healed. *healed is whether it
+ * was. Returns false with fx->error set as the other public calls do. */
+bool cok_effects_heal(cok_effects *fx, cok_character *character, uint8_t amount, bool only_hurt,
+                      bool *healed);
 
 /* How many of each clock unit make the next (DS:3874), 0x4bc6 on. */
 extern const uint16_t cok_clock_units[7];

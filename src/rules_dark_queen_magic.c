@@ -653,7 +653,4 @@ const uint8_t *const cok_dark_queen_event_lists[0x19] = {
 const uint8_t cok_dark_queen_shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
 /* 02ed's resisted pending effects (the same as Champions'), 0-ended. */
 const uint8_t cok_dark_queen_resisted_pending[] = {0x5b, 0x52, 0};
-/* 017d's stat ids: Friends (0x0e), Enlarge (0x0c), Strength (0x26) and 0x44 (1dfc for stats 1 and
- * 2), 0-ended. */
-const uint8_t cok_dark_queen_stat_ids[] = {0x0e, 0x0c, 0x26, 0x44, 0};
 

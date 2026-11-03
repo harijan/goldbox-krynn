@@ -622,13 +622,22 @@ def chains_agree(v, original, path, tag):
 
 
 
-# The timer flow (scope fixture 4): saved game A with ROARK's effect nodes 0 and 1 rewritten (0x02
-# for 10 minutes, flag 0; 0x05 for 5 minutes, flag 1) and WALKER's node 0 (0x01 for 15 minutes,
-# flag 0), then the block's ECL_CLOCK 1 2 (ten minutes, 1396:044d) between two PRESS KEYs. The
-# members are saved game A's list: ROARK is 4 and WALKER 5 (0-based).
-TIMER_REWRITE = {4: {0: (0x02, 10, 0xFF, 0), 1: (0x05, 5, 0xFF, 1)}, 5: {0: (0x01, 15, 0xFF, 0)}}
-TIMER_BEFORE = {4: [0x02, 0x05, 0x2F], 5: [0x01, 0x5E]}     # the chains the rewrite leaves
-TIMER_AFTER = {4: [0x2F], 5: [0x01, 0x5E]}                  # after ten minutes
+# The timer flow (scope fixture 4): saved game A with ROARK's effect nodes 0, 1 and 2 rewritten (0x02
+# for 10 minutes, flag 0; 0x05 for 5 minutes, flag 1; 0x26 (strength) for 5 minutes, flag 0, value
+# 0x6a) and WALKER's nodes 0 and 1 (0x01 for 15 minutes, flag 0; 0x44 (the stored stats) for 5
+# minutes, flag 0), ROARK's current exceptional strength 99 -> 100 and WALKER's current intelligence
+# and wisdom (+0x7b, +0x7d) 3, then the block's ECL_CLOCK 1 2 (ten minutes, 1396:044d) between two
+# PRESS KEYs. The members are saved game A's list: ROARK is 4 and WALKER 5 (0-based). Ten minutes
+# remove ROARK's three nodes (0x26's removal runs 017d: 1dfc(0), strength 18/99) and WALKER's 0x44
+# (1dfc(1) and 1dfc(2): intelligence 12, wisdom 16).
+TIMER_REWRITE = {4: {0: (0x02, 10, 0xFF, 0), 1: (0x05, 5, 0xFF, 1), 2: (0x26, 5, 0x6A, 0)},
+                 5: {0: (0x01, 15, 0xFF, 0), 1: (0x44, 5, 0, 0)}}
+TIMER_CHANGES = {4: {0x84: 100}, 5: {0x7B: 3, 0x7D: 3}}
+TIMER_BEFORE = {4: [0x02, 0x05, 0x26], 5: [0x01, 0x44]}     # the chains the rewrite leaves
+TIMER_AFTER = {4: [], 5: [0x01]}                            # after ten minutes
+# The stats after ten minutes (the original's, +0x79 strength, +0x84 its exceptional part; +0x7b
+# intelligence, +0x7d wisdom): saved game A's values, as the removals recompute them.
+TIMER_STATS = {4: {0x79: 18, 0x84: 99}, 5: {0x7B: 12, 0x7D: 16}}
 
 
 def timer_block():
@@ -663,21 +672,23 @@ def ids_of(chains):
 
 
 def timer(v, work, opts):
-    """The timers' flow (scope fixture 4): ECL_CLOCK 1 2 with the nodes TIMER_REWRITE sets. Ten
-    minutes: ROARK's 0x02 and 0x05 run out (0x05's handler, flag 1, is 1 retf), WALKER's 0x01 has 5
-    left. The original's chains before and after, clock variables and RandSeed, and eclplay's
-    (--effects, --vars, --state) at the same stop, the chains compared record for record."""
+    """The timers' flow (scope fixture 4): ECL_CLOCK 1 2 with the nodes and record bytes TIMER_REWRITE
+    and TIMER_CHANGES set. Ten minutes: ROARK's 0x02, 0x05 and 0x26 run out (0x05's handler, flag 1,
+    is 1 retf; 0x26's removal recomputes strength), WALKER's 0x44 runs out (the stored stats, 1dfc(1)
+    and 1dfc(2)) and its 0x01 has 5 left. The original's chains before and after, the records after
+    (members 4 and 5 against eclplay's, pointers masked), clock variables and RandSeed, and eclplay's
+    (--effects, --records, --vars, --state) at the same stop, the chains compared record for record."""
     import dqk_modify  # noqa: E402
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(timer_block()))
-    qsv = dqk_modify.node_patched(TIMER_REWRITE)
+    qsv = dqk_modify.modified(TIMER_REWRITE, TIMER_CHANGES)
     o = timer_original(work, patched, qsv, opts.verbose)
     before, after = ids_of(o["before"]), ids_of(o["chains"])
     v.check(all(before[m] == TIMER_BEFORE[m] for m in TIMER_BEFORE),
-            "the timer's chains before the clock: ROARK 02 05 2f, WALKER 01 5e",
+            "the timer's chains before the clock: ROARK 02 05 26, WALKER 01 44",
             f"original {before}")
     v.check(all(after[m] == TIMER_AFTER[m] for m in TIMER_AFTER),
-            "the original's chains after ten minutes: ROARK 2f, WALKER 01 (5 left) 5e",
+            "the original's chains after ten minutes: ROARK none, WALKER 01 (5 left)",
             f"original {after}")
     base = work / "port-timer"
     variables, last = port(work, patched, name="timer", typed="\\r", entry=saved_entry(work, qsv),
@@ -691,6 +702,20 @@ def timer(v, work, opts):
         if base.with_suffix(".state").exists() else []
     v.check(state[1:2] == [f"seed {o['seed']:08x}"], "RandSeed after the clock is the original's",
             f"original {o['seed']:#x}, eclplay {state[1:2]}")
+    # The records after the clock, members 4 and 5 (pointers masked): the original's and eclplay's
+    # agree, and the original's stats are the ones the removals recompute.
+    data = base.with_suffix(".records").read_bytes() if base.with_suffix(".records").exists() else b""
+    ported = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
+    original = o["records"]
+    for m in (4, 5):
+        v.check(len(ported) == len(original) and masked(ported[m]) == masked(original[m]),
+                f"member {m}'s record after the clock agrees with the original's (pointers masked)",
+                f"{len(ported)} records against {len(original)}")
+    stats = {m: {k: bytes.fromhex(original[m])[k] for k in TIMER_STATS[m]} for m in TIMER_STATS}
+    v.check(all(stats[m][k] == val for m in TIMER_STATS for k, val in TIMER_STATS[m].items()),
+            "the original's stats after ten minutes: ROARK strength 18/99, WALKER intelligence 12 "
+            "and wisdom 16", " ".join(f"{m}: " + " ".join(f"{k:#x} {val:#x}" for k, val in
+                                       stats[m].items()) for m in stats))
 
 
 def load_run(v, work, opts, flow, difficulty):

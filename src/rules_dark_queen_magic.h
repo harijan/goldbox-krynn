@@ -14,7 +14,6 @@ extern const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES];
 extern const uint8_t *const cok_dark_queen_event_lists[0x19];
 extern const uint8_t cok_dark_queen_shared[];
 extern const uint8_t cok_dark_queen_resisted_pending[];
-extern const uint8_t cok_dark_queen_stat_ids[];
 extern const cok_rules_effect cok_dark_queen_effect_handlers[0xe6];
 
 #endif
