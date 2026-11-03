@@ -1161,11 +1161,12 @@ typedef struct {
     bool door_corner_nw, door_corner_ne;
     bool dungeon_no_tables;
     const char *wilderness_unported;
-    /* The placement's routine (above); the setup's redraw of the arena (51c2:0c94, after
-     * 1dd7's view origin), stopped where the port's combatant icons are not drawn yet
-     * (NULL: none; its citation). */
+    /* The placement's routine (above). */
     cok_placement_routine placement;
-    const char *arena_unported;
+    /* The setup's tail after the arena's redraw and the view's origin (dqk 59c7:1e99, after
+     * 51c2:0c94): the shared tail's effects 8 and 0x16, turns and the enemies' health are not
+     * checked for the game yet, so the battle stops there (NULL: none; its citation). */
+    const char *tail_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions
@@ -1187,6 +1188,10 @@ typedef struct {
     /* Whether the side count (6346:268a; dqk 51c2:0920) leaves out a record of status 9
      * (its test at 51c2:094c; dkk and Champions count it). */
     bool sides_skip_status_9;
+    /* Whether the side count takes one from side 1 while the ambush byte (DS:c2e7) is 0x20
+     * (dqk 51c2:0920's 096a-0978, every call: the rounds' counts too; dkk and Champions
+     * do not). */
+    bool sides_ambush_0x20;
     /* The end of combat (351b:1968; dkk 3a37:1318): whether the weapons
      * lost in combat come back first (351b:185f) and the NPCs take their
      * shares (351b:1618; dkk neither); the effects party records lose

@@ -60,6 +60,14 @@ static const cok_drawing *own_ground(const cok_adventure *game)
     return d != NULL && d->arena_cell != NULL ? d : NULL;
 }
 
+/* A game's own ground hook failed: it names its failure in game->error only, so the stop is
+ * made here, with the status (as the set's loader does in combat.c's build). */
+static bool own_failed(cok_adventure *game)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", game->error);
+    return false;
+}
+
 void cok_arena_sound(cok_adventure *game, unsigned n)
 {
     char text[16];
@@ -141,7 +149,7 @@ static bool terrain(cok_adventure *game, int xu, int yc, int x, int y, const cha
      * that draws its own ground draws the cell at its place in the view
      * (dqk 5837:172c, from 04d4, 00f4 and 06e6). */
     const cok_drawing *own = own_ground(game);
-    if (own != NULL) return own->arena_cell(game, x, y);
+    if (own != NULL) return own->arena_cell(game, x, y) || own_failed(game);
     if (value >= cok_data_count(cok_game_rules(game)->data, COK_DATA_TERRAIN, 0))
         return fail(game, "terrain value 0x%02x is past the table (DS:1ee4, %s)", value, where);
     uint8_t tile = cok_combat_terrain(cok_game_rules(game), value).tile;
@@ -344,9 +352,8 @@ bool cok_arena_show(cok_adventure *game)
 bool cok_arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                     uint8_t slot)
 {
-    if (own_ground(game) != NULL)
-        return fail(game, "an icon is not drawn on this game's ground yet (dqk 5837:025d, "
-                          "104c:030f)");
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL) return own->arena_icon(game, x, y, facing, image, slot) || own_failed(game);
     if (slot >= cok_icon_slots(game) || image > 1)
         return fail(game, "icon %u of slot %u is past the icons (DS:%04x, 6d21:04b0)", image, slot,
                     cok_game_rules(game)->startup.icon_table);
@@ -419,7 +426,8 @@ static bool scroll(cok_adventure *game, int8_t x, int8_t y, uint8_t margin, bool
     /* A game that draws its own ground (adventure.h's arena_view) draws the
      * view from the map at its corner, not the 4-bit tiles below. */
     const cok_drawing *drawing = cok_adventure_drawing(game);
-    if (drawing != NULL && drawing->arena_view != NULL) return drawing->arena_view(game);
+    if (drawing != NULL && drawing->arena_view != NULL)
+        return drawing->arena_view(game) || own_failed(game);
     for (int row = 0; row < 7; ++row)
         for (int column = 0; column < 7; ++column)
             if (!terrain(game, column * 3, row * 3, s8(c->view_x + column), s8(c->view_y + row),

@@ -917,12 +917,12 @@ static void test_sides(void)
     record('B', 0, true);
     cok_character *m = record('M', 1, false);
     cok_character *n = record('N', 1, true);
-    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions) && c->sides[0] == 1 &&
+    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions, 0) && c->sides[0] == 1 &&
           c->sides[1] == 1);
     cok_character *third = record('T', 2, false);
-    CHECK(!cok_combat_count_sides(c, &game.party, &cok_rules_champions));
+    CHECK(!cok_combat_count_sides(c, &game.party, &cok_rules_champions, 0));
     third->record[0x189] = 0;
-    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions));
+    CHECK(cok_combat_count_sides(c, &game.party, &cok_rules_champions, 0));
     /* The enemies' health: 20 times their hit points (those that can
      * act) as a word, over all their most, times 5. */
     m->record[0x197] = 10;

@@ -254,7 +254,8 @@ bool cok_combat_scroll(cok_combat *combat, int8_t x, int8_t y, uint8_t margin)
 
 /* The sides (6346:268a) and the enemies' health (432f:2df3). */
 
-bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules)
+bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const cok_rules *rules,
+                            uint8_t ambush)
 {
     const cok_character_layout *L = rules->character;
     combat->sides[0] = combat->sides[1] = 0;
@@ -266,6 +267,10 @@ bool cok_combat_count_sides(cok_combat *combat, const cok_party *party, const co
         if (cok_field_u8(L, r, COK_FIELD_HOSTILE) > 1) return false;
         ++combat->sides[cok_field_u8(L, r, COK_FIELD_HOSTILE)];
     }
+    /* 51c2:0920's 096a-0978 (the rules' sides_ambush_0x20): with the ambush byte at 0x20 side 1
+     * has one less, on every call (the placement's and the rounds'). */
+    if (rules->combat.sides_ambush_0x20 && ambush == 0x20 && combat->sides[1] != 0)
+        --combat->sides[1];
     return true;
 }
 
@@ -1041,7 +1046,8 @@ bool cok_combat_place_all(cok_adventure *game)
     const cok_data_segment *D = cok_game_rules(game)->data;
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
-    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game))) {
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game),
+                                game->ambush)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "a record on a side other than 0 or 1 (+0x18a) counts past DS:6b2d "
                            "(6346:268a)");
@@ -1216,16 +1222,13 @@ static bool place_dark_queen(cok_adventure *game)
     const cok_combat_block *B = rules->combat.combat_block;
     cok_combat *combat = &game->combat;
     cok_ecl *vm = &game->vm;
-    if (!cok_combat_count_sides(combat, &game->party, rules)) {
+    uint8_t ambush = game->ambush; /* DS:c2e7 */
+    if (!cok_combat_count_sides(combat, &game->party, rules, ambush)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "a record on a side other than 0 or 1 (+0x18a) counts past DS:6b2d "
                            "(6346:268a)");
         return false;
     }
-    uint8_t ambush = game->ambush; /* DS:c2e7 */
-    /* 51c2:0920 takes one from side 1 with the ambush byte at 0x20 (its 96a). The rounds'
-     * counts do not (not reached yet: the battle stops at the arena). */
-    if (ambush == 0x20 && combat->sides[1] != 0) --combat->sides[1];
     if (ambush == 0x20) {
         /* 1874-1896: six cells of the map (its +9 cells, row 0 at 0x9), 0x47-0x4c. */
         static const struct {
@@ -1280,7 +1283,6 @@ static bool place_dark_queen(cok_adventure *game)
                 while (((1u << way) & ambush) == 0);
                 vm->direction = (uint8_t)(way << 1);
             }
-            p.laid = 0xff; /* 16b3 always lays out again */
             lay_out(&p, vm->direction, entry);
         }
         uint8_t facing = vm->direction;
@@ -1328,7 +1330,7 @@ static bool place_dark_queen(cok_adventure *game)
             e->size = 0; /* 1d34 */
             if (block->not_party == 1) {
                 /* 1d57-1d94: taken off the list (177e:1e31 with (1, 0): the party size
-                 * kept, no sound), the walk going on at the record after it, and the
+                 * kept, the icon slot kept), the walk going on at the record after it, and the
                  * entry is none (b2f8 cleared, 1d67). */
                 e->character = NULL;
                 combat->entry_held[d] = false;
@@ -1541,10 +1543,10 @@ bool cok_combat_setup(cok_adventure *game)
     char text[80];
     snprintf(text, sizeof text, "the view from %d,%d", combat->view_x, combat->view_y);
     log_text(game, "combat", text);
-    if (cok_game_rules(game)->combat.arena_unported != NULL)
-        return cok_adventure_not_yet(game, "battle's arena",
-                                     cok_game_rules(game)->combat.arena_unported);
     if (!cok_arena_redraw(game)) return false;
+    if (cok_game_rules(game)->combat.tail_unported != NULL)
+        return cok_adventure_not_yet(game, "battle's setup tail",
+                                     cok_game_rules(game)->combat.tail_unported);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         c->combat->turns = 0;

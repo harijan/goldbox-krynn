@@ -898,7 +898,7 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
         if (++cr->dying > 9) cok_field_set8(L, c->record, COK_FIELD_STATUS, 6);
     }
     if (cok_combat_bandage(game, false)) cok_camp_notice(game, F->words.teammate_dying);
-    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     if (!cok_arena_centre(game, s8(combat->view_x + 3), s8(combat->view_y + 3), 0xff, 8))
@@ -1065,7 +1065,7 @@ static bool rounds(cok_adventure *game)
         game->combat_stub == COK_COMBAT_LOST) {
         stub(game);
         /* As the end of the round would count them. */
-        if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+        if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                    "DS:6b2d (6346:268a)");
         done = true;
@@ -1073,7 +1073,7 @@ static bool rounds(cok_adventure *game)
     /* dkk 3e05:00ec's [bp-1]: the round ended early once this battle. */
     bool ended_early = false;
     while (!done && !vm->abort) {
-        if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+        if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
             return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                    "DS:6b2d (6346:268a)");
         for (size_t i = 0; i < game->party.count; ++i)
@@ -1091,7 +1091,7 @@ static bool rounds(cok_adventure *game)
             /* dkk 3e05:00ec: after each turn a side gone or the round
              * limit ends the round, the first time in a battle. */
             if (!R->ends_in_round) continue;
-            if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+            if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
                 return undefined(game, "a record on a side other than 0 or 1 (+0xc9) counts past "
                                        "DS:be69 (65cd:28bb)");
             if ((combat->sides[0] == 0 || combat->sides[1] == 0 ||
