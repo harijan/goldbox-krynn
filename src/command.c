@@ -557,7 +557,8 @@ bool cok_combat_ally(cok_adventure *game, cok_character *c, cok_character *targe
         if (cr == NULL) return false;
         cr->target = NULL;
     }
-    if (!cok_combat_count_sides(&game->combat, &game->party, cok_game_rules(game)))
+    if (!cok_combat_count_sides(&game->combat, &game->party, cok_game_rules(game),
+                                  game->ambush))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     return true;

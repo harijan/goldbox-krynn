@@ -1179,7 +1179,7 @@ bool cok_combat_revive(cok_adventure *game, cok_character *c, uint8_t hp, const 
         if (!ok) return false;
     }
     if (!cok_arena_flash(game, c, 1, text)) return false;
-    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     return true;
@@ -1289,7 +1289,7 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
         cok_arena_clear_text(game);
     }
     if (!any) cok_camp_notice(game, F->words.nothing); /* 6346:1827 */
-    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game)))
+    if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
     cok_combat_end_turn(c);

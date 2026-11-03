@@ -4838,6 +4838,16 @@ static bool arena_cell(cok_adventure *game, int x, int y)
                                 &game->combat, x, y, game->error, sizeof game->error);
 }
 
+/* The combatants' icons (dqk 204c:030f, the icons' blit from 5837:025d) are part 11's: for
+ * now nothing is drawn, and the screen's ground beneath stays as it is. The view's origin and
+ * the screen positions the redraw sets (5837:0846) are the shared scroll's and are kept. */
+static bool arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
+                       uint8_t slot)
+{
+    (void)game, (void)x, (void)y, (void)facing, (void)image, (void)slot;
+    return true;
+}
+
 const cok_drawing cok_dark_queen_drawing = {
     .open = queen_open,
     .close = queen_close,
@@ -4860,6 +4870,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_tiles = arena_tiles,
     .arena_view = arena_view,
     .arena_cell = arena_cell,
+    .arena_icon = arena_icon,
     .encounter = encounter,
 };
 
