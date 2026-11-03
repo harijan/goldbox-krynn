@@ -2144,7 +2144,14 @@ def won_original(work, patched, verbose):
                         b7a7=box.ds_byte(0xB7A7), share=int.from_bytes(box.ds_read(0xAE4F, 4), "little"),
                         pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xB1DB, 0xB1DF, 0xB1E3)),
                         flags=list(box.ds_read(0xB2F5, 6)), chains=sorted_chains(box))
-        out["end_screen"] = box.screenshot(path=str(work / "won-end.png"))
+        # the menu's key wait, after the trap is given back (part 20a: the menu draws past 0e93)
+        L.untrap(box, hold)
+        t0 = time.monotonic()
+        while not box.waiting():
+            if time.monotonic() - t0 > 60:
+                raise cokbox.BoxError("no key wait at the treasure menu after 75cc:0e93")
+        out["end_screen"] = box.settled()
+        out["end_screen"].save_png(str(work / "won-end.png"))
         return out
 
 
@@ -2197,9 +2204,9 @@ def won(v, work, opts):
             "b7a7 0, share 1336, pool 8 0 0, RandSeed 0x3039 (the won path draws nothing)",
             f"mode {e['mode']} share {e['share']} pool {e['pool']} seed {e['seed']:#x}")
     base = work / "port-won"
-    port(work, patched, name="won-wait", typed="\\r\\r\\r\\r", combat="won",
+    port(work, patched, name="won-wait", typed="\\r\\r", combat="won",
          screen=work / "port-won-wait.bmp")
-    end_v, end_last = port(work, patched, name="won", typed="\\r\\r\\r\\r\\r", combat="won",
+    end_v, end_last = port(work, patched, name="won", typed="\\r\\r\\r\\r", combat="won",
                            records=base.with_suffix(".records"), state=base.with_suffix(".state"),
                            screen=base.with_suffix(".bmp"))
     v.check(COMBAT_END.fullmatch(end_last or "") is not None,
