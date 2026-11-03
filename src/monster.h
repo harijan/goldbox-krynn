@@ -54,6 +54,10 @@ void cok_monster_reset(cok_adventure *game);
 /* Empty the treasure pool. */
 void cok_pool_free(cok_pool *pool);
 
+/* The clear CLEARMONSTERS makes, without its log: the undead and monsters counts, the loaded
+ * flag, the next icon slot (8) and the treasure pool (Dark Queen's 75cc:151b, after 135c). */
+void cok_monster_clear(cok_adventure *game);
+
 /* The open squares ahead of x, y facing direction, 0-2 (3775:04a9): a step
  * at a time while the side faced has no wall at all, doors included; 2,
  * also stored in var 0x7ec1, where the area has no 3D view (0x4be6). */

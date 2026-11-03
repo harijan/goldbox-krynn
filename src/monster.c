@@ -507,14 +507,19 @@ static void queen_monsters(cok_adventure *game)
  * Dark Queen's 5f07:07fe calls 75cc:151b, which zeroes DS:c2ed (the undead
  * count), DS:c6f1 and DS:bd4e and sets the next icon slot DS:ad6b to 8, and
  * then 63ee:0002, which zeroes DS:b1db (Dark Queen's three coins) and frees
- * the list at DS:b1e7: the same as the shared clear. */
-static void clear_monsters(cok_adventure *game)
+ * the list at DS:b1e7: the same as the shared clear (cok_monster_clear). */
+void cok_monster_clear(cok_adventure *game)
 {
     game->undead = 0;
     game->monsters = 0;
     game->monsters_loaded = false;
     game->icon_slot = 8;
     cok_pool_free(&game->pool);
+}
+
+static void clear_monsters(cok_adventure *game)
+{
+    cok_monster_clear(game);
     log_text(game, "monster", "cleared");
 }
 

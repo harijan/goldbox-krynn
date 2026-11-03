@@ -740,6 +740,7 @@ const cok_rules cok_rules_dark_queen = {
              * end (5045:0001: effects 0xb0 and 0xd0, 177e:1734, 104c:0468, 104c:004d, the
              * clouds). */
             .round_end_unported = "dqk 5045:0f6c, the round's end (148f:2817, 148f:12ab, 1bdb:0424)",
+            /* The battle's exit sets DS:ae65 (5045:0781): not reached, the stop is here. */
             .end_unported =
                 "dqk 5045:0001, the battle's end (148f:017d, 177e:1734, 104c:0468, 104c:004d)",
             .combat_block = &dark_queen_combat_block,

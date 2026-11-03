@@ -5,6 +5,7 @@
 #include "data_dark_queen.h"
 #include "hlib.h"
 #include "magic.h"
+#include "monster.h"
 #include "queen.h"
 #include "queen_levels.h"
 #include "queen_arena.h"
@@ -15,6 +16,7 @@
 #include "round.h"
 #include "queen_modify.h"
 #include "shop.h"
+#include "treasure.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -135,6 +137,11 @@ typedef struct {
      * too, not ported. Cleared at the adventure's end (5f07:1338). Read by
      * 5f07:0940, not ported. */
     bool b7a7;
+    /* DS:ae65: the text's delay (1a62:0476), which 0311 reads while it is set. It starts set
+     * (6478:0725, and a new game's 6478:0916); PRINT, PRINTCLEAR and JOURNAL set it around their
+     * text (6c70:1d02, 1d84, 32fc, 3323); the battle's setup clears it (59c7:1de2); 14eb sets it
+     * again. The battle's exit sets it (5045:0781), not reached: the battle's end is a cited stop. */
+    bool text_delay;
     /* The end of combat's flags (75cc:135c, 0593): DS:af3f, a member standing (0593 calls 01fb,
      * the experience, when it is set); DS:c7de, a member fled; DS:c7df, monsters present (11b0
      * sets it, 135c clears it); DS:b1da, the members out. */
@@ -734,15 +741,17 @@ static bool delimiter(char c)
 
 /* 1a62:0311: text word by word in the window of cells x1-x2 by y1-y2 from
  * the cursor (DS:ae4d, ae4e), fg on the window's grey, a character at a
- * time with the text speed's delay (3 ms times 0x12) while slow; clear
+ * time with the text speed's delay (3 ms times 0x12) while DS:ae65 (the
+ * text_delay state) is set; clear
  * first clears it and homes the cursor. A word that does not fit goes to
  * the next row (one that fits but for its space is printed first);
  * past the last row "Press [Return] to continue." (its bar left as it is)
  * and the window cleared. False if the keys ran out. */
 static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int x2, int y2,
-                         unsigned fg, bool clear, bool slow)
+                         unsigned fg, bool clear)
 {
     cok_text_cursor *c = &game->vm.cursor;
+    const bool slow = own(game)->text_delay; /* 1a62:0476, 0517, 0561 */
     unsigned attribute = 8u << 4 | (fg & 15);
     if (c->x < x1 || c->x > x2 || c->y < y1 || c->y > y2) *c = (cok_text_cursor){x1, y1};
     if (clear) {
@@ -763,7 +772,7 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
                 for (; di <= si; ++di, ++c->x) {
                     char one[2] = {s[di], '\0'};
                     text(game, 8 * c->y, 8 * c->x, one, attribute);
-                    if (slow) wait_cycles(game, ms);
+                    if (slow) pass(game, ms);
                 }
             }
             c->x = x1;
@@ -779,7 +788,7 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
         for (; di <= si; ++di, ++c->x) {
             char one[2] = {s[di], '\0'};
             text(game, 8 * c->y, 8 * c->x, one, attribute);
-            if (slow) wait_cycles(game, ms);
+            if (slow) pass(game, ms);
         }
     }
     if (c->x > x2) {
@@ -790,10 +799,10 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
 }
 
 /* The adventure's text window hooks (adventure.h's cok_drawing): ADD EP's words
- * (1a62:0311, slow) and WHO's fill (1a62:09a1). */
+ * (1a62:0311, with the text delay state) and WHO's fill (1a62:09a1). */
 static void window_text(cok_adventure *game, const char *text, unsigned fg, bool clear)
 {
-    print_window(game, text, 1, 0x11, 0x26, 0x16, fg, clear, true);
+    print_window(game, text, 1, 0x11, 0x26, 0x16, fg, clear);
 }
 
 static void window_clear(cok_adventure *game)
@@ -805,7 +814,7 @@ static void window_clear(cok_adventure *game)
 static bool print_colour(cok_adventure *game, const char *s, bool clear, unsigned fg)
 {
     cok_adventure_log(game, "print", s);
-    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear, true);
+    return print_window(game, s, 1, 0x11, 0x26, 0x16, fg, clear);
 }
 
 /* PRINT's text: colour 7, or 3 where variable 0x39 is set (6c70:1cd3). */
@@ -851,6 +860,11 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
                           const rect *areas, const uint8_t *area_cursors, size_t area_count,
                           int split, bool space)
 {
+    /* 1e3d-1e5a: the prompt DS:3aee (10d7:2543: equal strings) is no menu: 1bdb:0521 draws
+     * 0495's continue prompt and waits for its Return (141e(2), 1206 with no items and anim),
+     * and 1e29 gives 0x0d with DS:c2f5 clear. */
+    if (strcmp(prompt, "Press button or enter to continue") == 0)
+        return continue_prompt(game, false, anim) ? 0x0d : -1;
     char box[96];
     snprintf(box, sizeof box, "%s", prompt);
     size_t n = strlen(box);
@@ -1120,13 +1134,13 @@ static bool combat_panel(cok_adventure *game, cok_character *c)
     game->vm.cursor.y = 5;
     /* The readied weapon (slot 0, +0xc): its name by 177e:03fc (queen_item_name, as the sheet's),
      * wrapped by 177e:0311 in columns 23-38 over rows 7-9, colour 7. 085f:095e passes clear (1);
-     * the delay between characters is only while DS:ae65 is set (0476), which 59c7:1dd7 clears
-     * for a battle, so the name is printed at once (slow false). */
+     * the delay between characters is only while DS:ae65 is set (0476), which 59c7:1de2 clears
+     * for a battle, so the name is printed at once there. */
     size_t slot = c->slots[0];
     if (slot != 0 && slot <= c->item_count) {
         char weapon[96];
         queen_item_name(&game->party, c->items[slot - 1], false, weapon, sizeof weapon);
-        if (!print_window(game, weapon, 23, 7, 38, 9, 7, true, false)) return false;
+        if (!print_window(game, weapon, 23, 7, 38, 9, 7, true)) return false;
     }
     /* 177e:0981: the cursor row 0311 left, plus two. */
     int row = game->vm.cursor.y + 2;
@@ -1403,11 +1417,12 @@ static bool big_picture(cok_adventure *game, unsigned n);
  * place: the callers that want it draw it); else, in mode 4 or in mode 3
  * with variable 0x24 not 1 (the mode test at 5e22:0032-0049), the 3D view
  * in its box, the rest of the screen as it is; in any other mode nothing.
- * The square's byte is the saved one (DS:c9f4), not recomputed here. */
+ * The square's byte is the saved one (DS:c9f4), not recomputed here. Nothing while DS:b7a7 is
+ * set (5e22:0000-0005: a lost party, a load asked), DS:ae27 (game->redraw) kept. */
 static void view(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
-    if (game->party_killed) return;
+    if (game->party_killed || own(game)->b7a7) return;
     if (cok_ecl_load_var(vm, 0x22) == 0 && cok_ecl_load_var(vm, 0x24) == 1) {
         if (!big_picture(game, cok_ecl_load_var(vm, 0x3e)))
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
@@ -1790,7 +1805,7 @@ static void vertical(cok_adventure *game)
     cok_adventure_log(game, "list", vm->header_string);
     for (size_t i = 0; i < count; ++i) cok_adventure_log(game, "item", vm->string[i]);
     vm->cursor = (cok_text_cursor){1, 0x11};
-    if (!print_window(game, vm->header_string, 1, 0x11, 0x26, 0x16, 7, true, true)) return;
+    if (!print_window(game, vm->header_string, 1, 0x11, 0x26, 0x16, 7, true)) return;
     const char *items[COK_ECL_MAX_STRINGS];
     for (size_t i = 0; i < count; ++i) items[i] = vm->string[i];
     static const char *const select[] = {"Select"}; /* DS:4eea */
@@ -2161,7 +2176,7 @@ static void camp_program(cok_adventure *game)
     if (q->b7a7) vm->halt = true; /* a load asked: the adventure's loop loads it */
 }
 
-static void remove_selected(cok_adventure *game);
+static void remove_selected(cok_adventure *game, bool counted);
 static void bar_message(cok_adventure *game, const char *s);
 
 /* Alt's items (7070:1ce2; DS:5220): "Order Drop Speed Icon Level Exit". */
@@ -2185,7 +2200,7 @@ static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     size_t i = cok_party_index(&game->party, c);
     if (i < game->party.count) queen_name_line(game, game->party.members[i], 1, 0x12, false);
-    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false, true);
+    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false);
 }
 
 /* Set the speed: the variable 0x12 the Speed menu reads and the text's delay reads
@@ -2274,7 +2289,7 @@ static bool alt_drop(cok_adventure *game)
         snprintf(text, sizeof text, active ? "%s bids you farewell." : "You dump %s out back.",
                  name);
         bar_message(game, text);
-        remove_selected(game);
+        remove_selected(game, true);
     }
     party_list(game);
     return !vm->abort;
@@ -2610,7 +2625,9 @@ static bool opcode(cok_adventure *game)
         bool clear = cok_ecl_meaning(vm) == COK_ECL_PRINTCLEAR;
         if (clear) vm->cursor = (cok_text_cursor){1, 0x11};
         game->text_shown = true;
+        own(game)->text_delay = true; /* 6c70:1d02 */
         print_text(game, vm->string[0], clear);
+        own(game)->text_delay = false; /* 6c70:1d84, whatever the keys */
         return true;
     }
     case COK_ECL_PRESS_KEY:
@@ -2622,7 +2639,10 @@ static bool opcode(cok_adventure *game)
         snprintf(line, sizeof line, "This is recorded as journal entry %u.", /* DS:78a1 */
                  (unsigned)(uint8_t)cok_ecl_value(vm, 0));
         vm->cursor = (cok_text_cursor){1, 0x11};
-        if (print_colour(game, line, true, 7)) { /* 6c70:32b2: colour 7 whatever 0x39 */
+        own(game)->text_delay = true; /* 6c70:32fc */
+        bool shown = print_colour(game, line, true, 7); /* 6c70:32b2: colour 7 whatever 0x39 */
+        own(game)->text_delay = false; /* 6c70:3323 */
+        if (shown) {
             cok_adventure_log(game, "menu", "~Press button or enter to continue");
             continue_prompt(game, true, game->picture_shown);
         }
@@ -2808,6 +2828,7 @@ static bool queen_open(cok_adventure *game)
     q->picture_id = 0xff;
     q->state = STATE_VIEW;
     q->cursor_shown = true;
+    q->text_delay = true;
     if (cok_picture_create_vga(&game->screen, 40, 200, 1,
                                (const uint8_t (*)[3])q->palette.rgb) != COK_PICTURE_OK) {
         snprintf(game->error, sizeof game->error, "out of memory");
@@ -3268,9 +3289,9 @@ void queen_bar_message(cok_adventure *game, const char *s)
 }
 
 bool queen_print_window(cok_adventure *game, const char *s, int x1, int y1, int x2, int y2,
-                        unsigned fg, bool clear, bool slow)
+                        unsigned fg, bool clear)
 {
-    return print_window(game, s, x1, y1, x2, y2, fg, clear, slow);
+    return print_window(game, s, x1, y1, x2, y2, fg, clear);
 }
 
 int queen_ask(cok_adventure *game, const char *prompt, bool anim)
@@ -3472,6 +3493,7 @@ static void new_game(cok_adventure *game)
     cok_ecl_store(vm, 0x27, 3);
     cok_ecl_store(vm, 0x22, 1);
     cok_ecl_store(vm, 0x12, 4);
+    own(game)->text_delay = true; /* 6478:0916 */
     vm->map_x = 7;
     vm->map_y = 13;
     vm->direction = 2;
@@ -4059,10 +4081,10 @@ static bool save_game(cok_adventure *game)
     return true;
 }
 
-/* The selected member removed (177e:1e31 with 0, 1): the selection the
- * one before it, or after it where it was the first, or the first; the
- * party's size (variable 0x20) one less. */
-static void remove_selected(cok_adventure *game)
+/* The selected member removed (177e:1e31): the selection the one before it, or after it where
+ * it was the first, or the first; the party's size (variable 0x20) one less when counted (1f12:
+ * 1e31's first argument 0; 11b0 passes 1 for a record past the party). */
+static void remove_selected(cok_adventure *game, bool counted)
 {
     cok_ecl *vm = &game->vm;
     size_t i = cok_party_index(&game->party, vm->character);
@@ -4070,7 +4092,7 @@ static void remove_selected(cok_adventure *game)
     queen_remove_icons(game, vm->character); /* 177e:1e9d's flag 1 (204c:004d) */
     cok_party_remove(&game->party, i);
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
-    cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
+    if (counted) cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
 }
 
 /* 604b:23a7 with no name: the character written to the save path as
@@ -4130,7 +4152,7 @@ static bool remove_character(cok_adventure *game)
         return false;
     }
     if (!write_character(game, game->party.members[i])) return false;
-    remove_selected(game);
+    remove_selected(game, true);
     return true;
 }
 
@@ -4736,6 +4758,15 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block, bool begun)
     cok_ecl_status status = cok_adventure_enter(game, block != 0 ? block : 4);
     own(game)->loaded_game = false;
     vm->keep_vars = false;
+    /* 5f07:1164-11ed: the entry's run is followed by no DS:b7a7 test. After a lost party the
+     * menu (11f3, 1d99:1369) waits with the party empty and b7a7 kept; the run goes on only
+     * after that command (not ported). */
+    if (status == COK_ECL_OK && !vm->abort && own(game)->b7a7) {
+        cok_adventure_not_yet(game, "the adventure's menu with DS:b7a7 set (a lost party, or a "
+                                    "load asked: the party empty, b7a7 kept)",
+                              "dqk 5f07:11f3 (1164-11ed: no b7a7 test after the entry's run)");
+        return vm->status;
+    }
     /* DS:b7a7 ends the run and the commands: nothing after it runs here (5f07:126c skips
      * the next command). */
     while (status == COK_ECL_OK && !vm->abort && !ended(game)) {
@@ -5157,6 +5188,7 @@ static bool arena_tiles(cok_adventure *game, bool wild, unsigned set)
         if (!icon_pair(game, LIB_COMSPR, k - 15, k - 15 + 0x80, k)) return false;
     if (!sub_library(game, wild ? LIB_WILDCOM : LIB_DUNGCOM, set, &q->arena)) return false;
     set_palette(game, &q->arena, 0, 0);
+    q->text_delay = false; /* 59c7:1de2: the battle's setup */
     return true;
 }
 
@@ -5492,7 +5524,7 @@ static bool award(cok_adventure *game)
 static void remove_member(cok_adventure *game, size_t i)
 {
     game->vm.character = cok_party_record(&game->party, i);
-    remove_selected(game);
+    remove_selected(game, true);
 }
 
 /* 7bb and 777's revive: status 0 and active (+0x18b); 777 also sets the hit points (+0x198). */
@@ -5501,6 +5533,37 @@ static void revive(const cok_character_layout *L, uint8_t *r, bool hit_points)
     cok_field_set8(L, r, COK_FIELD_STATUS, 0);
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
     if (hit_points) cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+}
+
+/* 75cc:11b0, after 0593 (135c): each monster (its combat record's not_party 1, or hostile word
+ * 1) sets DS:c7df, counts in variable 0x15 (DROPPED) when it is not active (+0x18b), and is
+ * removed (177e:1e31 with the first argument its not_party test: the party's size is one less
+ * only for a record in the party). Every other record loses its combat block (1df9:03c1 frees
+ * the 0x18 bytes at +0x40; +0x40 and +0x42 are 0). The selection ends on the first record
+ * (1287). Records are walked by index, a removal leaving the next record at the same index. */
+static void enemies_removed(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_ecl_store(vm, 0x15, 0); /* 11ba */
+    for (size_t i = 0; i < game->party.count;) {
+        cok_character *c = game->party.members[i];
+        uint8_t *r = cok_party_record(&game->party, i);
+        bool not_party = cok_character_combat(c)->not_party == 1; /* 11d3 */
+        if (not_party || word_field(L, r, COK_FIELD_HOSTILE) == 1) {
+            q->monsters_present = true; /* 11e4: DS:c7df */
+            if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) /* 11f4: the byte at 0x15 + 1 */
+                cok_ecl_store(vm, 0x15, (uint8_t)(cok_ecl_load_var(vm, 0x15) + 1));
+            vm->character = r;                 /* 1208: DS:ad67 */
+            remove_selected(game, !not_party); /* 1229: 1e31(not_party, 1) */
+            continue;
+        }
+        free(c->combat); /* 123b-126a: the combat block back to its pool */
+        c->combat = NULL;
+        ++i;
+    }
+    vm->character = cok_party_record(&game->party, 0); /* 1287: DS:ad67 = the first record */
 }
 
 /* 75cc:0736 with no load asked (DS:b7a7 clear: a member stands), loop A: each record until one
@@ -5602,11 +5665,125 @@ static bool after_combat(cok_adventure *game)
     return true; /* 091b: the exit */
 }
 
+/* 75cc:091f, the results (485 bytes), after 135c's share (DS:ae4f): the full window (20b2:0030),
+ * then with monsters (DS:c7df), "the party has fled." (DS:c7de: the share 0, the pool's items freed
+ * and its three coins cleared, 2093:0015 at DS:b1db), "you have lost the fight." (no member
+ * standing, var 0x1d: the share 0), else "The party has won.". Then "each character receives N"
+ * and "experience points." at rows 5 and 7 unless var 0x1f is set (N is the share, the buffer of
+ * 2d1b:003a at 9fc is never read and not made), and "the party has found treasure" or "... no
+ * treasure" at row 10 by 74b9:092c's flags (*money: the pool's coins 4-6; *items: its items).
+ * Then the bar's "Press button or enter to continue" wait (1bdb:1e29, no items; the text's delay
+ * is 1a62:0046's, none). False where the keys ran out. */
+static bool results(cok_adventure *game, uint32_t share, bool *money, bool *items)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    full_window(game); /* 925 */
+    if (q->monsters_present) { /* 92a: DS:c7df */
+        if (q->fled) { /* 934: DS:c7de */
+            say(game, 1, 3, "the party has fled.", 7);
+            share = 0;
+            cok_pool_free_items(&game->pool); /* 961-9a4: the items' nodes, already freed */
+            memset(&game->pool.coins[4], 0, 3 * sizeof game->pool.coins[4]);
+        } else if (!q->standing && cok_ecl_load_var(vm, 0x1d) != 0) { /* 9a9: DS:af3f */
+            say(game, 1, 3, "you have lost the fight.", 7);
+            share = 0;
+        } else {
+            say(game, 1, 3, "The party has won.", 7); /* 9e3 */
+        }
+    }
+    char line[96];
+    snprintf(line, sizeof line, "%s%ld", "each character receives ", (long)(int32_t)share);
+    if (cok_ecl_load_var(vm, 0x1f) == 0) { /* a3e */
+        say(game, 1, 5, line, 7);
+        say(game, 1, 7, "experience points.", 7);
+    }
+    /* 74b9:092c: DS:c3e9 and c7e0 cleared, then set from the pool's coins 4-6 and its items. */
+    *money = *items = false;
+    for (size_t k = 4; k < 7; ++k)
+        if (game->pool.coins[k] != 0) *money = true;
+    *items = game->pool.items != NULL;
+    if (*money || *items) say(game, 1, 10, "the party has found treasure", 7); /* a9a */
+    else say(game, 1, 10, "the party has found no treasure", 7);
+    /* ae2: 1bdb:1e29 with the empty list and the prompt; 1 and 0 as its last two arguments. */
+    return bar_menu(game, "Press button or enter to continue", NULL, 0, true, false, 0, 0) >= 0;
+}
+
+/* 75cc:1460-14e8, the lost party (DS:b7a7 set at 13d6): the full window, then "The Dark Queen
+ * sneers with pleasure" / "at your meaningless demise." / "Nothing can stop her now... NOTHING!"
+ * in the window from cell 2 by rows 5-7 (the text's cursor at 2, 6 first), each word slow while
+ * DS:ae65 is set (its delay draws random(1000) per character: 1a62:0311's 052a), then the
+ * continue prompt (1bdb:0511: 1bdb:0495, then 2aa6:1586's wait for Return or the button). False
+ * where the keys ran out. */
+static bool lost_party(cok_adventure *game)
+{
+    full_window(game); /* 1460 */
+    game->vm.cursor = (cok_text_cursor){2, 6}; /* 1465-146a: DS:ae4d, ae4e */
+    if (!print_window(game, "The Dark Queen sneers with pleasure", 2, 5, 0x25, 0x16, 7, true))
+        return false;
+    if (!print_window(game, "at your meaningless demise.", 2, 6, 0x25, 0x16, 7, true))
+        return false;
+    if (!print_window(game, "Nothing can stop her now... NOTHING!", 2, 7, 0x25, 0x16, 7, true))
+        return false;
+    return continue_prompt(game, false, false); /* 093f -> 1bdb:0511 */
+}
+
+/* 75cc:135c after 11b0 (the mode 6 is set): 13ae sets flag 1 (<>), each record's stats are
+ * recomputed (177e:0be2, cok_character_stats) and then: the lost party (DS:b7a7, 1460); else, when
+ * fled (DS:c7de) the pool's items are freed (13e7-1425), otherwise flag 0 (=) is set and flag 1
+ * cleared (1427); then the results (091f), and with the pool's money or items the treasure menu
+ * (75cc:0e93, part 20: cited stop). The pool is emptied (63ee:0002), the vars 0x01, 0x2f, 0x1c,
+ * 0x1e, 0x1d and 0x1f cleared (14eb-150d) and the monsters cleared (75cc:151b, monster.c's shared
+ * clear). False where the run stopped. */
+static bool treasure_end(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    vm->flags[1] = true; /* 13ae: DS:b2f6 */
+    for (size_t i = 0; i < game->party.count; ++i) { /* 13b3-13d4: 177e:0be2 for each record */
+        char error[300];
+        if (!cok_character_stats(game->party.members[i], rules, &game->item_types, error,
+                                 sizeof error)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+            return false;
+        }
+    }
+    if (q->b7a7) { /* 13d6 */
+        if (!lost_party(game)) return false;
+    } else {
+        if (q->fled) { /* 13e0 */
+            cok_pool_free_items(&game->pool);
+        } else {
+            vm->flags[0] = true; /* 1427: DS:b2f5 (=) */
+            vm->flags[1] = false; /* DS:b2f6 (<>) */
+        }
+        bool money, items;
+        if (!results(game, q->share, &money, &items)) return false; /* 1438 */
+        if (money || items) { /* 1446-1455 */
+            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:0e93 (the treasure menu, part "
+                                                       "20)");
+            return false;
+        }
+        cok_pool_free(&game->pool); /* 1458: 63ee:0002 */
+    }
+    q->text_delay = true; /* 14eb: DS:ae65 */
+    cok_ecl_store(vm, 0x01, 0);
+    cok_ecl_store(vm, 0x2f, 0);
+    cok_ecl_store(vm, 0x1c, 0);
+    cok_ecl_store(vm, 0x1e, 0);
+    cok_ecl_store(vm, 0x1d, 0);
+    cok_ecl_store(vm, 0x1f, 0);
+    cok_monster_clear(game); /* 1512: 75cc:151b */
+    return true;           /* 1517: back to COMBAT's ending (monster.c) */
+}
+
 /* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat
  * come back (1297; none here, a list that is not empty stops), var 0x2e is cleared (136a), the
  * flags = <> < > are cleared (2093:0015 with DS:b2f5 and 4: 136f), DS:c7df is cleared (1380),
- * then 0593 unless the demonstration runs (1385; then 1390 on, part 19c, cited). After 0593 the
- * mode is 6 (1390) and the stop is at 11b0 (the enemies removed, part 19c). */
+ * then 0593 unless the demonstration runs (1385; then 1390 on, part 19d, cited). After 0593 the
+ * mode is 6 (1390), 11b0 removes the enemies, and treasure_end (13ae-1517) finishes the branch,
+ * then COMBAT's ending (monster.c) runs. */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -5620,13 +5797,13 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
     own(game)->monsters_present = false; /* 1380: DS:c7df */
     if (game->demo) {
         cok_adventure_not_yet(game, "the treasure", "dqk 75cc:1390 (the demonstration's: mode 6 "
-                                                    "and 11b0, part 19c)");
+                                                    "and 11b0, part 19d)");
         return;
     }
     if (!after_combat(game)) return;
     vm->mode = 6; /* 1390: DS:ae57 */
-    cok_adventure_not_yet(game, "the treasure", "dqk 75cc:11b0 (135c's call after 0593: the "
-                                                "enemies removed, part 19c)");
+    enemies_removed(game);
+    treasure_end(game);
 }
 
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)

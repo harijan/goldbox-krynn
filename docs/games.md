@@ -705,7 +705,7 @@ run, citing their handlers (`unported`). It holds:
   after the call (`5f07:0861-0871`); the treasure with no monsters (`75cc:135c`): the lost weapons'
   walk `1297` (empty with no battle; a list that is not empty stops, cited), var 0x2e cleared, the
   flags `= <> < >` cleared (`2093:0015` with DS:b2f5 and 4; `<=` and `>=` kept), DS:c7df cleared
-  (`1380`), then 0593, the party's after combat (unless the demonstration runs: `1390` on, part 19c,
+  (`1380`), then 0593, the party's after combat (unless the demonstration runs: `1390` on, part 19d,
   cited): b7a7, c7de, af3f and b1da set from the records, and the 18 effects that end with the battle
   (DS:631e) removed from each (a record holding one stops, cited `148f:017d`, part 27); when a member
   stands, 01fb (the experience: the pool's steel x2, gems x250 and jewelry x2200, and the magic items'
@@ -718,13 +718,28 @@ run, citing their handlers (`unported`). It holds:
   until one past the party walks its status (3 revived, 4 revived with hit points or var 0x1d, else
   kept; 5 revived with var 0x1d, else 4), a fled party's members not status 3 are removed (`177e:1e31`:
   icons, the count one less); with the load asked (b7a7 set) every record until one past the party is
-  removed and var 0x20 is 0 (`818-86e`). Then 135c sets the mode 6 (`1390`) and calls 11b0 (the enemies
-  removed: part 19c, cited). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
+  removed and var 0x20 is 0 (`818-86e`). Then 135c sets the mode 6 (`1390`) and calls 11b0: each enemy (a
+  record past the party, or hostile word 1) sets DS:c7df, counts in var 0x15 when inactive, and is removed
+  (`177e:1e31`, the count one less only for a record in the party); the other records lose their combat
+  blocks; the selection ends on the first record. Then 135c (part 19d) sets flag 1 and runs `177e:0be2`
+  over the records; a lost party (b7a7) prints its three words (slow while DS:ae65 is set: each character's
+  delay draws `random(1000)`, `1a62:0311`; DS:ae65 is the text's state: set at the start and a new game,
+  set around each PRINT, PRINTCLEAR and JOURNAL and cleared after it (`6c70:1d02-1d84`, `32fc-3323`),
+  cleared by the battle's setup (`59c7:1de2`), set by 135c (`14eb`), and every text window reads it, so
+  the lines after a PRINT draw none) and waits at the continue prompt (`1460`, `1bdb:0511`, answered by
+  Return or the button); then COMBAT's return (`5f07:0987`) and the adventure's menu, which waits with the
+  party empty and DS:b7a7 kept (`5f07:11f3`, cited: `adventure()` stops there, not ported); else fled frees the pool's items, otherwise flag 0 is set
+  and flag 1 cleared (`1427`); the results (`091f`: "the party has fled." / "you have lost the fight." /
+  "The party has won." with monsters, the share's "each character receives N experience points.", the
+  treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with
+  money or items the treasure menu is cited (`75cc:0e93`, part 20); the pool is emptied (`63ee:0002`),
+  vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
+  clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
   that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),
   and `rest`, `gentle`, `fledmix` and `lost9` (the rest's statuses with and without var 0x1d, a fled
-  party's removals, the lost party's var 0x20 at 0);
+  party's removals, the lost party's var 0x20 at 0), and `enemy` (11b0's removal of a hostile member);
   the repo tests cover the magic items, the records past the party and the missile stop. The
   temple's View,
   Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
