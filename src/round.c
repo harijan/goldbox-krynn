@@ -968,7 +968,9 @@ static void stub(cok_adventure *game)
  * 5340:4acf's loops call nothing else between two calls (4be1), so it is
  * the previous call's *chance; before any call, the stack 4acf's caller
  * left, and after the announcement (4bf8-4c6c) the high byte of SS that
- * its push ss (4c42) left: -1, and the run stops. */
+ * its push ss (4c42) left: -1, and the run stops. Dark Queen's 52db:4d50
+ * keeps its chance in its own frame (leadership_chance_kept false: the
+ * caller sets -1 before each call), so a knight of no order there stops. */
 static bool leads(cok_adventure *game, const uint8_t *leader, int *chance, bool *led)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
@@ -979,23 +981,32 @@ static bool leads(cok_adventure *game, const uint8_t *leader, int *chance, bool 
     else if (*chance < 0)
         return undefined(game, "leadership's chance for a knight of no order is the stack's "
                                "byte (5340:4a25's [bp-3], read at 4a8b: 4acf's caller's before "
-                               "the first call, SS's high byte after the announcement)");
+                               "the first call, SS's high byte after the announcement; "
+                               "52db:4d50's [bp-1], unset in each call)");
     uint8_t charisma = cok_field_u8_at(L, leader, COK_FIELD_SCORE, COK_SCORE_CHARISMA);
     uint8_t bonus = charisma < 14 ? 0 : (uint8_t)((charisma - 13) * 5);
     *led = cok_dice(&game->vm.seed, 1, 100) < (unsigned)*chance + bonus;
     return true;
 }
 
+/* The battle's leadership (dkk 5340:4acf; dqk 52db:4dd2, before its 59c7:1dd7). The
+ * descriptor's differences: the class level the leader needs (leadership_level), the
+ * computer flag an NPC gets (leadership_computer: dqk's +0x18c is 0x80 for an NPC, its
+ * +0x9b bit 7), and no announcement where the text is NULL (dqk shows none).
+ * Dark Queen's leader test is unsigned (177e:2234 > 0) and dkk's signed (<= 0): the same
+ * for a level below 128. */
 bool cok_combat_leadership(cok_adventure *game)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
+    const cok_rules_combat *R = &rules->combat;
     cok_party *party = &game->party;
     for (size_t i = 0; i < party->count; ++i) {
         uint8_t *r = party->members[i]->record;
         bool npc = cok_field_u8(L, r, COK_FIELD_NPC) >= 0x80;
-        cok_field_set8(L, r, COK_FIELD_COMPUTER,
-                       cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 || npc);
+        uint8_t computer = cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 ? 1
+                           : npc ? R->leadership_computer : 0;
+        cok_field_set8(L, r, COK_FIELD_COMPUTER, computer);
     }
     bool shown = false;
     int chance = -1; /* 5340:4a25's [bp-3], none yet */
@@ -1003,7 +1014,7 @@ bool cok_combat_leadership(cok_adventure *game)
         const uint8_t *leader = party->members[i]->record;
         if (cok_field_u8(L, leader, COK_FIELD_HOSTILE) != 0 ||
             cok_field_u8(L, leader, COK_FIELD_NPC) >= 0x80 ||
-            cok_field_s8_at(L, leader, COK_FIELD_CLASS_LEVEL, 7) <= 0 ||
+            cok_field_s8_at(L, leader, COK_FIELD_CLASS_LEVEL, R->leadership_level) <= 0 ||
             cok_field_u8(L, leader, COK_FIELD_STATUS) != 0)
             continue;
         for (size_t k = 0; k < party->count; ++k) {
@@ -1015,14 +1026,14 @@ bool cok_combat_leadership(cok_adventure *game)
                 cok_field_u8_at(L, ally, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 3)
                 continue;
             bool led = false;
+            if (!R->leadership_chance_kept) chance = -1;
             if (!leads(game, leader, &chance, &led)) return false;
             if (!led) continue;
-            if (!shown) {
+            if (R->leadership_text != NULL && !shown) {
                 /* 110f:0000, then the lines (14e4:04ab) in the frame. */
                 shown = true;
                 chance = -1; /* SS's high byte from here (4c42) */
                 cok_adventure_screen(game, COK_SCREEN_FRAME);
-                const cok_rules_combat *R = &rules->combat;
                 cok_adventure_print(game, R->leadership_text, (cok_text_window){1, 1, 0x26, 0x16},
                                     0x0d, true);
                 char a[16], b[16], text[64];

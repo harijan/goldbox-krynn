@@ -1797,6 +1797,9 @@ const cok_rules cok_rules_death_knights = {
             .leadership_text = "  Using leadership ability ", /* 5340:4aa9 */
             .leads = " leads ",                                /* 5340:4ac5 */
             .leads_end = ".",                                  /* 5340:4acd */
+            .leadership_level = 7,      /* 5340:4a25's class level (the knights') */
+            .leadership_computer = 1,   /* 5340:4acf's flag for an NPC */
+            .leadership_chance_kept = true,
             .explode = false,
             .ends_in_round = true,
             /* 410b:1e41, 10d7 */

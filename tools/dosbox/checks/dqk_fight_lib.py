@@ -186,14 +186,15 @@ def combatants(box):
 
 
 def battlefield(box):
-    """The battlefield: the view (+2, +4), the cells (50 by 25 at +9) and the
-    occupants (DS:b7fd, 50 by 25). Cells and occupants as hex text."""
+    """The battlefield: the view (+2, +4), the header's cursor, cursor size and see-all
+    (+6, +7, +8), the cells (50 by 25 at +9) and the occupants (DS:b7fd, 50 by 25). Cells
+    and occupants as hex text."""
     ptr = far(box, DS_MAP)
     if ptr is None:
         return None
     head = read_far(box, ptr, MAP_CELLS + MAP_WIDTH * MAP_HEIGHT)
     return dict(far=f"{ptr[0]:04x}:{ptr[1]:04x}", view=[head[2], head[4]],
-                cells=head[MAP_CELLS:].hex(),
+                header=[head[6], head[7], head[8]], cells=head[MAP_CELLS:].hex(),
                 occupants=box.ds_read(DS_OCCUPANTS, MAP_WIDTH * MAP_HEIGHT).hex())
 
 

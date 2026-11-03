@@ -85,10 +85,10 @@ static void save_records(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
-/* --field: the battlefield as the run left it: RandSeed, the view's origin
- * and the cells (50 by 25, row by row, in hex). Where the battle stops
- * before its placement, the origin is what the setup left (zero until
- * placement sets it). */
+/* --field: the battlefield as the run left it: RandSeed, the view's origin, the
+ * header's cursor, cursor size and see-all (the map's +6, +7, +8) and the cells (50 by 25,
+ * row by row, in hex). Where the battle stops before its placement, the origin is what
+ * the setup left (zero until placement sets it). */
 static void save_field(const cok_adventure *game, const char *path)
 {
     FILE *f = fopen(path, "w");
@@ -98,6 +98,8 @@ static void save_field(const cok_adventure *game, const char *path)
     }
     fprintf(f, "seed %08lx\n", (unsigned long)game->vm.seed);
     fprintf(f, "view %d %d\n", game->combat.view_x, game->combat.view_y);
+    fprintf(f, "header %u %u %u\n", game->combat.cursor, game->combat.cursor_size,
+            game->combat.see_all);
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x) fprintf(f, "%02x", game->combat.cells[y][x]);
         fputc('\n', f);

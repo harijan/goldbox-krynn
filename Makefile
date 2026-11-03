@@ -150,7 +150,7 @@ build/eclplay_sanitize: $(call asan,$(ECLPLAY_SRC)) | build
 
 # The tests of the adventure, each with the whole game: build/test_NAME from
 # tests/test_NAME.c and ADVENTURE_SRC, build/test_NAME_sanitize likewise.
-ADVENTURE_TESTS = test_adventure test_debug test_hooks test_input test_start test_camp test_cast test_monster test_combat test_round test_arena test_ai test_command test_spell test_cloud test_attack test_treasure test_shop test_items test_fight test_band test_queen_train test_queen_arena
+ADVENTURE_TESTS = test_adventure test_debug test_hooks test_input test_start test_camp test_cast test_monster test_combat test_round test_arena test_ai test_command test_spell test_cloud test_attack test_treasure test_shop test_items test_fight test_band test_queen_train test_queen_arena test_queen_fight
 
 $(ADVENTURE_TESTS:%=build/%): build/%: build/obj/tests/%.o $(call obj,$(ADVENTURE_SRC)) | build
 	$(LINK) -o $@
@@ -215,7 +215,7 @@ $(SRC_SANITIZE:%=build/%_sanitize): build/%_sanitize: $$(call asan,$$($$*_SRC)) 
 # others are done (make -j would otherwise run it beside them, and a loaded
 # machine makes the game late), its own tests side by side, each in a
 # process of its own (COK_TEST_JOBS of them at once, 1 for one at a time).
-TEST_PROGRAMS = test_dax test_vga test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_queen_items test_dark_queen test_queen_train test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_songs test_opl2 test_config test_setup test_input test_queen_arena
+TEST_PROGRAMS = test_dax test_vga test_rules test_death_knights test_layout test_data test_magic_rules test_image test_picture test_text test_display test_ecl test_menu test_view test_party test_queen_items test_dark_queen test_queen_train test_effect test_adventure test_camp test_cast test_items test_monster test_combat test_round test_arena test_attack test_fight test_band test_ai test_command test_spell test_cloud test_treasure test_shop test_start test_hooks test_debug test_sound test_songs test_opl2 test_config test_setup test_input test_queen_arena test_queen_fight
 SHARDS = 1 2 3 4
 ECLPLAY_RUNS = $(SHARDS:%=run-test_eclplay-%)
 TEST_RUNS = $(TEST_PROGRAMS:%=run-%) run-ecldump run-test_images_cli run-test_death_knights_py run-test_dark_queen_py $(ECLPLAY_RUNS) run-test_eclplay $(if $(HAVE_SDL),run-test_keymap) run-test_ovrmerge run-test_hlib run-test_rgbscreen run-daxcheck

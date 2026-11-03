@@ -397,6 +397,7 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_REMAINDER] = VAR(0x29),  /* 5f07:02c2 */
     [COK_VAR_LOCALS] = VARS(0x97, 50), /* 6c70:0001 */
     [COK_VAR_PARTY_SIZE] = VAR(0x20), /* 604b:3491 adds 1 */
+    [COK_VAR_FLED] = VAR(0x36),       /* 59c7:1e3e clears it, 52db:2aef sets it */
     [COK_VAR_CLOCK] = VARS(0x0005, COK_CLOCK_UNITS), /* 1396:044d */
     [COK_VAR_MOONS] = VARS(0x01fa, 3), /* 1396:000e: the phases */
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
@@ -599,6 +600,17 @@ const cok_rules cok_rules_dark_queen = {
             .begins = "A battle begins...", /* DS:5ed8 (1a62:0046) */
             .begins_colour = 7,             /* its push in 5f07:081b */
             .monsters_at_combat = true,
+            /* No prelude: 5045:059d and 59c7:1dd7 free no picture, clear no row, wait
+             * and print no "A battle begins..." (queen_monsters printed it). */
+            .no_setup_prelude = true,
+            /* Leadership (dqk 5045:059d -> 52db:4dd2, before 1dd7): no announcement;
+             * the leader's class level 1 (177e:2234(r, 1)); an NPC's flag 0x80 at
+             * +0x18c; the chance is not kept from one knight to the next (4d50's frame). */
+            .leadership = true,
+            .leadership_text = NULL,
+            .leadership_level = 1,
+            .leadership_computer = 0x80,
+            .leadership_chance_kept = false,
             .monster_records_max = 0x28,    /* 29fc's cap (dqk 6c70:2a10) */
             .monster_records_extra = 0x32,  /* 170e's cap (dqk 6c70:1a31) */
             /* The icon loads (204c:00df) are the drawing part's: slots only. */

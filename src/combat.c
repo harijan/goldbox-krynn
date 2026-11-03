@@ -1261,16 +1261,18 @@ bool cok_combat_setup(cok_adventure *game)
         return false;
     }
     /* 6961:0537, the portrait's pieces and the big picture. */
-    cok_adventure_free_picture(game);
-    cok_adventure_forget_portrait(game);
-    cok_picture_free(&game->big);
-    game->big_id = COK_ADVENTURE_NO_PICTURE;
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
-    cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
-    const char *begins = cok_game_rules(game)->combat.begins;
-    log_text(game, "print", begins);
-    cok_text_string(&game->screen, &game->font, begins, 0, 24,
-                    cok_game_rules(game)->combat.begins_colour, 0); /* 1521:0353 */
+    if (!cok_game_rules(game)->combat.no_setup_prelude) {
+        cok_adventure_free_picture(game);
+        cok_adventure_forget_portrait(game);
+        cok_picture_free(&game->big);
+        game->big_id = COK_ADVENTURE_NO_PICTURE;
+        cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+        cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
+        const char *begins = cok_game_rules(game)->combat.begins;
+        log_text(game, "print", begins);
+        cok_text_string(&game->screen, &game->font, begins, 0, 24,
+                        cok_game_rules(game)->combat.begins_colour, 0); /* 1521:0353 */
+    }
     combat->magic_on = false;
     game->effects.rolls.round = 0;
     combat->round_limit = 15;
@@ -1285,10 +1287,7 @@ bool cok_combat_setup(cok_adventure *game)
     free(game->lost_weapons);
     game->lost_weapons = NULL;
     game->lost_weapon_count = 0;
-    /* Dark Queen has no variable named FLED (its 1dd7 clears var 0x36 here, a
-     * variable this port does not name yet): cleared where the game has one. */
-    if (cok_ecl_has_var(cok_game_rules(game), COK_VAR_FLED))
-        cok_ecl_set_var(vm, COK_VAR_FLED, 0);
+    cok_ecl_set_var(vm, COK_VAR_FLED, 0); /* dqk 1dd7 clears var 0x36, its FLED */
     bool listed = game->party.count > 0;
     if (!build(game)) return false;
     if (cok_game_rules(game)->combat.placement_unported != NULL)

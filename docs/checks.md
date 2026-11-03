@@ -661,11 +661,21 @@ Flow `field` (step 4, part 7: the battle's setup and the dungeon builder, `59c7:
 party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
 eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:0f7b` (the placement's
 entry, after the tiles and the dungeon builder), where the 50 by 25 cells, RandSeed and the mode are read (the original's
-spin holds, and the battle is in 3D: var 0x22 set). eclplay's `--field` at its stop (`BATTLE_STOP`: the placement, not
-yet ported) must agree: the cells all 1250, and RandSeed as the seed the battle began with. For the west edge the
-original's RandSeed is 7 draws past it (`FIELD_SEED_GAPS`, an open question); eclplay's is not. The view's origin
-(DS:bedb +2, +4) is not compared: it is written after the placement (`1dd7`'s `4837:0aea`, `0b19`), so the original
-holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
+spin holds, and the battle is in 3D: var 0x22 set). Four squares: the fixture's, the west edge (0, 3, 2), (12, 12, 0)
+(049e's door corner and the 17th column) and (4, 14, 0) (the 17th row, 0285's door again); each catches a mutation the
+others do not: 049e's door corner off and its tile 8 -> 9 fail at (12, 12) only, and side_kind on the 16 by 16
+bound fails at (12, 12) and (4, 14); the fixture and the west edge agree with each. eclplay's `--field` at its stop (`BATTLE_STOP`: the placement, not yet ported) must agree: the cells all 1250,
+the header's +6, +7, +8 (cursor 0, cursor size 1, see-all 0), and RandSeed as the seed the battle began with plus the
+original's purges: the original's draws past SEED equal its memory cache's purges (`PURGE_COUNTERS`, DS:d9ba and
+DS:da8c, read at SEED and at the trap: 27fa:05f8 -> 0f14 -> 2102:0234 at 0f2c), which eclplay does not make (0 to 7 a
+run here, the same inputs; the port has no heap). The party list's records agree at the placement, all 18 (pointers
+masked, the computer flag +0x18c included: 52db:4dd2 sets it after COMBAT's call, so the battle's start, `setup` and
+the others, compares it as 0). The check also reads that eclplay prints "A battle begins..." once.
+Memory settings do not stop the purges: with `memsize=64`, `ems` and `xms` true, or `umb` true (the Box's own
+settings are all off), the west edge's purges were 5 to 7 (2026-11-02, probes; umb moves DS:da80 at the battle's call
+from 20 to 19, not the purges), and DQK_FULL.EXE makes no EMS call (no INT 67h). The view's
+origin (DS:bedb +2, +4) is not compared: it is written after the placement (`1dd7`'s `4837:0aea`, `0b19`), so the
+original holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
@@ -724,7 +734,9 @@ The sound (round 4). The fight runs with the sound off. DQK.CFG's sound word (it
 INSTALL writes it (`dqk_fight_lib.files`, `SOUND_NONE`); the sound driver's setup (1fd3:000b) compares DS:acd8
 (that word) with 6 and skips the driver for it. With the sound on (the shipped 3, the Sound Blaster), the first
 turn had 11 draws in all six runs here (four unloaded, two under CPU load), but round 3 and the review saw 11,
-18 or 20 draws across runs of the same trap, and the cause of that is not traced. With the sound off the count
+18 or 20 draws across runs of the same trap, and the cause of that is not traced. A lead, not confirmed: the
+same counters (DS:d9ba, DS:da8c, the memory cache's purges, which `field` reads) would show whether those extra draws
+are purges too, since the cache's purges depend on the heap's state from run to run. With the sound off the count
 is 11 in five of five runs, and the callers are the same in each: every draw reaches 1df9:044d (random(n), which
 calls 2102:0234 at 1df9:0453) from 148f:1988, which 8 draws reach from 5045:0624 (through 52db:0004 and 52db:013b)
 and 3 from 5045:04d6 (called from 5045:064c). 27fa:05f8, which the scope's name pairing put beside the sound, is not the sound: it is the

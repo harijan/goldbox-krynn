@@ -1083,7 +1083,14 @@ typedef struct {
      * a battle (dkk 3e05:00ec's [bp-1]), rather than only at the end of the
      * round. The aging after it is the levels section's. */
     bool leadership;
-    const char *leadership_text, *leads, *leads_end;
+    const char *leadership_text, *leads, *leads_end; /* NULL text: no announcement (dqk) */
+    /* Leadership's descriptor differences (dkk 5340:4acf; dqk 52db:4dd2, 4d50): the
+     * index of the class level the leader reads (COK_FIELD_CLASS_LEVEL: dkk 7, dqk 1);
+     * the computer flag an NPC gets (dkk 1; dqk 0x80 at +0x18c, from its +0x9b bit 7);
+     * and whether the chance its knights of no order use is kept from one call to the
+     * next (dkk's [bp-3]; dqk's 4d50 has it in its own frame, unset). */
+    uint8_t leadership_level, leadership_computer;
+    bool leadership_chance_kept;
     bool explode, ends_in_round;
     /* The setup (3cb2:1c58; dkk 410b:1e41): its line on row 24 (Champions'
      * in 1521's code, CS:1c45; dkk DS:2a07); the tiles from the 3D area's
@@ -1106,6 +1113,10 @@ typedef struct {
      * that explode (DS:6b45, 6b95; dkk neither). */
     const char *begins;
     uint8_t begins_colour;
+    /* Whether the setup's prelude is skipped (cok_combat_setup: the pictures freed,
+     * row 24 cleared, the wait and "A battle begins..."): dqk 5045:059d and 59c7:1dd7
+     * do none of them; the battle's text is COMBAT's (monster.c). */
+    bool no_setup_prelude;
     uint8_t dungeon_tiles, wilderness_tiles;
     bool tiles_kept;
     uint8_t wilderness;

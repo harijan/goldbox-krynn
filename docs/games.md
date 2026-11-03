@@ -730,11 +730,19 @@ run, citing their handlers (`unported`). It holds:
   north-east (`049e`: a door's corner, tile 7 where the east is open). Dark Queen's loop draws no
   tables and chairs (`dungeon_no_tables`: no dice, so RandSeed is the seed the battle began
   with). Checked by `dqk_fight.py`'s flow `field`: at the placement (`59c7:0f7b`, trapped), the
-  original's 50 by 25 cells agree with eclplay's (`--field`) for the fixture's square and for the
-  west edge (0, 3, 2), and RandSeed agrees for the fixture. For the west edge the original's
-  RandSeed is 7 draws past the seed (`FIELD_SEED_GAPS`, an open question: the dungeon's routines
-  call no dice, and the source is not found). The view's origin (DS:bedb +2, +4) is written after
-  the placement, so it is not compared. The open ground (`59c7:0e3b`, the wilderness builders) and
+  original's 50 by 25 cells, the header (+6, +7, +8) and RandSeed agree with eclplay's (`--field`)
+  for the fixture's square and for the west edge (0, 3, 2), (12, 12) and (4, 14). The original's
+  RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free
+  memory is short, and 0f14 adds one to DS:d9ba (argument 0) or DS:da8c and draws random(3) from
+  the seed (`2102:0234` at `0f2c`) to pick the block to evict. The count varies from run to run
+  with the heap's state (0 to 7 at the placement here), and the port does not model the heap, so
+  eclplay's RandSeed is the seed the battle began with and the check takes the original's draws
+  past it as its purges (`PURGE_COUNTERS`). The memory settings do not stop them (docs/checks.md).
+  The battle's leadership (`52db:4dd2`, before `1dd7`, no announcement: the descriptor's
+  `leadership_*` fields) is ported; Dark Queen's var 0x36 is FLED (`1dd7` clears it, `52db:2aef`
+  sets it); and its setup has no prelude (`no_setup_prelude`: `5045:059d` and `1dd7` free no
+  picture, clear no row, wait and print nothing, so "A battle begins..." is printed once, by COMBAT).
+  The view's origin (DS:bedb +2, +4) is written after the placement, so it is not compared. The open ground (`59c7:0e3b`, the wilderness builders) and
   the placement (`59c7:0f7b`, `1864`, the records) stop the battle, cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
