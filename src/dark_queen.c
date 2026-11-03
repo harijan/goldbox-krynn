@@ -5401,7 +5401,11 @@ static bool award(cok_adventure *game)
         cok_field_set32(L, r, COK_FIELD_EXPERIENCE, experience_now);
         bool may;
         if (!cok_queen_may_train(R, r, &may, game->error, sizeof game->error)) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", game->error);
+            /* A knight of no order: 177e:1f39 returns its row word unset, a stack word that the
+             * port does not model (the previous call's word at that depth). Knights are made
+             * with order 1 (queen_create.c). */
+            cok_adventure_not_yet(game, "a knight of no order's may-train (177e:1fe5)",
+                                  "dqk 177e:1f39 (the row is unset: a stack word, part 19c)");
             return false;
         }
         cok_field_set8(L, r, COK_FIELD_MAY_TRAIN, may); /* 56c-573 */
@@ -5409,13 +5413,76 @@ static bool award(cok_adventure *game)
     return true;
 }
 
+/* 177e:1e31 with (0, 1): the member at index i removed, as 7d8 and 839 do it: the selection is
+ * the member at i first (ad67, 7d8-7df), then 1e31 leaves it on the one before (1f07-1f0e), or
+ * the next where it was the first (1f20-1f31). remove_selected does that: its icons go (1e9d's
+ * flag, 204c:004d), its record is freed (1c87, cok_party_remove), and the party's size (var 0x20)
+ * is one less (1f16, the first argument 0). 11b0, when it is ported, ends with the selection on
+ * the first record (1287), whatever this leaves. */
+static void remove_member(cok_adventure *game, size_t i)
+{
+    game->vm.character = cok_party_record(&game->party, i);
+    remove_selected(game);
+}
+
+/* 7bb and 777's revive: status 0 and active (+0x18b); 777 also sets the hit points (+0x198). */
+static void revive(const cok_character_layout *L, uint8_t *r, bool hit_points)
+{
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    if (hit_points) cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 1);
+}
+
+/* 75cc:0736 with no load asked (DS:b7a7 clear: a member stands), loop A: each record until one
+ * past the party. With the fled flag (DS:c7de) one that is not status 3 is removed (7d8);
+ * otherwise status 3 is revived (7bb), status 4 is revived when its hit points (+0x198) are above
+ * 0, or else when variable 0x1d is set (777 also gives hit points; 0 stays 4), and status 5 is
+ * revived with variable 0x1d, else it becomes 4 (78e). Other statuses stay as they are. */
+static void standing_rest(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    for (size_t i = 0; i < game->party.count && !past_party(game->party.members[i]);) {
+        uint8_t *r = cok_party_record(&game->party, i);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
+        bool gentle = cok_ecl_load_var(vm, 0x1d) != 0;
+        if (q->fled) {
+            if (status != 3) {
+                remove_member(game, i);
+                continue;
+            }
+            revive(L, r, false);
+        } else if (status == 3) {
+            revive(L, r, false);
+        } else if (status == 4) {
+            if (cok_field_u8(L, r, COK_FIELD_HIT_POINTS) > 0) revive(L, r, false);
+            else if (gentle) revive(L, r, true);
+        } else if (status == 5) {
+            if (gentle) revive(L, r, true);
+            else cok_field_set8(L, r, COK_FIELD_STATUS, 4);
+        }
+        ++i;
+    }
+}
+
+/* 75cc:0736 with the load asked (DS:b7a7 set: no member stands), 818-86e: every record until one
+ * past the party is removed (828-854), then the party's size (var 0x20) is 0 (86e). */
+static void destroyed_party(cok_adventure *game)
+{
+    for (size_t i = 0; i < game->party.count && !past_party(game->party.members[i]);)
+        remove_member(game, i);
+    cok_ecl_store(&game->vm, 0x20, 0);
+}
+
 /* 75cc:0593, the party's after combat (135c calls it unless the demonstration runs). It sets
  * b1da, b7a7, c7de and af3f from the records (loops 1 to 3, as the original's), removes the
- * effects that end with the battle (cok_dark_queen_end_effects) from each record, and stops
- * where the experience and the award (01fb, 0427) run when a member stands, then its rest stops
- * at 0736 (cited, part 19b). A record holding one of the effects stops first, cited (148f:017d,
- * part 27). */
-static void after_combat(cok_adventure *game)
+ * effects that end with the battle (cok_dark_queen_end_effects) from each record, runs 01fb and
+ * 0427 (the experience and the award) when a member stands, then its rest (0736: standing_rest
+ * or destroyed_party) and the exit (091b). A record holding one of the effects stops first,
+ * cited (148f:017d, part 27). The demonstration's branch (087a-091b, DS:ae59) is not run: 135c
+ * calls 0593 only when it is clear (1385). False where the run stopped. */
+static bool after_combat(cok_adventure *game)
 {
     queen *q = own(game);
     cok_ecl *vm = &game->vm;
@@ -5454,20 +5521,22 @@ static void after_combat(cok_adventure *game)
             if (cok_character_find_effect(c, cok_dark_queen_end_effects[k]) != NULL) {
                 cok_adventure_not_yet(game, "the treasure",
                                       "dqk 148f:017d (an effect's end, part 27)");
-                return;
+                return false;
             }
     }
     if (q->standing) { /* 0716-0731: 01fb, then 0427 (the award) */
-        if (!experience(game) || !award(game)) return;
+        if (!experience(game) || !award(game)) return false;
     }
-    cok_adventure_not_yet(game, "the treasure",
-                          "dqk 75cc:0736 (0593's rest: the party's and the destroyed, part 19b)");
+    if (q->b7a7) destroyed_party(game); /* 740 */
+    else standing_rest(game);
+    return true; /* 091b: the exit */
 }
 
 /* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat
  * come back (1297; none here, a list that is not empty stops), var 0x2e is cleared (136a), the
  * flags = <> < > are cleared (2093:0015 with DS:b2f5 and 4: 136f), DS:c7df is cleared (1380),
- * then 0593 unless the demonstration runs (1385; then 1390 on, part 19c, cited). */
+ * then 0593 unless the demonstration runs (1385; then 1390 on, part 19c, cited). After 0593 the
+ * mode is 6 (1390) and the stop is at 11b0 (the enemies removed, part 19c). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -5484,7 +5553,10 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
                                                     "and 11b0, part 19c)");
         return;
     }
-    after_combat(game);
+    if (!after_combat(game)) return;
+    vm->mode = 6; /* 1390: DS:ae57 */
+    cok_adventure_not_yet(game, "the treasure", "dqk 75cc:11b0 (135c's call after 0593: the "
+                                                "enemies removed, part 19c)");
 }
 
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)
