@@ -234,6 +234,9 @@ typedef struct {
      * the DAX loader (6d21:01d0). Dark Queen's loads its CPIC (204c:00df). NULL: the DAX
      * loader. */
     bool (*arena_load_icon)(cok_adventure *game, const char *name, uint8_t id, uint8_t slot);
+    /* The side panel for c (cok_arena_panel's place, which clears the due flag first), drawn by
+     * the game (dqk 177e:085f). NULL: arena.c's (Champions', Death Knights'). */
+    bool (*arena_panel)(cok_adventure *game, cok_character *c);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',

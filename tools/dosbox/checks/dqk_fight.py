@@ -81,13 +81,13 @@ flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, eac
 the original's after its draws past SEED (the open ground's rolls).
 
 Flow `slots` (step 4, part 11a: the combatants' icons loaded): the same two blocks (the fixture's dungeon, and
-WILD_GROUNDS[0]) to the first turn (5045:078b); the original's head layers (DS:a848, all 0), its party records' bodies and slots, each
+WILD_GROUNDS[0]) to the side panel's end (PANEL, 5045:084b: the turn's cursor and the panel drawn); the original's head layers (DS:a848, all 0), its party records' bodies and slots, each
 combatant's slot, and the table's images are read, and eclplay's --icons and --screen must agree: the table byte for
 byte against hlib's records (CBODY, CPIC, COMSPR), and the drawn combatants' icons composed over eclplay's screen equal the
 original's view (pointer masked).
 
 Flow `icons` (step 4, part 11b: the combatants' icons drawn): the runs of `slots` and the dungeon with the party on
-FIELD_SQUARES[1] ((0, 3, 2), where a SHARKMAN stands in the view at (5, 4): Q2), to the same stop. eclplay's --screen,
+FIELD_SQUARES[1] ((0, 3, 2), where a SHARKMAN stands in the view at (5, 4): Q2), to the same stop (PANEL). eclplay's --screen,
 its icons drawn by the port, must equal the original's screenshot over the view (8, 8, 168 by 168) in RGB, the combatants'
 cells not masked and only the mouse pointer (dqk_views.POINTER) masked, over the whole screen: 0 pixels differing (the
 combat frame, 20b2:02fa, included). Gated: at least PARTY combatants drawn in the view in every run, no combatant at cell 0, 0,
@@ -143,6 +143,16 @@ MONSTERS_APPENDED, ICON_SLOTS_AT_TURN = 12, 10
 # The first turn's routine (5045:078b, a turn starts) and the keys a new
 # battle's text may wait for (Return).
 TURN = (0x5045, 0x078B)
+# The side panel's end (5045:084b, the return of 177e:085f that 5045:0846 calls after 5045:0827's
+# 5837:12f5 has drawn the cursor's box, 5837:00f4): the screen the icons and slots flows compare, with
+# the panel drawn (cok_arena_panel's hook, dark_queen.c's combat_panel). Trapping at the panel's entry
+# (177e:085f) was the screen before the panel; the turn's own drawing comes between TURN and this.
+# The Champions' panel address 6346:0af6 is not the Dark Queen's: traps at it (and at 6825:0af6, the
+# map's stub) never held in 300 s.
+PANEL = (0x5045, 0x084B)
+# The command menu (step 4, part 10b: the party's dispatch, cok_combat_act's 5045:08cf): the
+# same overlay copies as TURN, its offset 0x144 further on.
+MENU = (0x5045, 0x08CF)
 RETURN = 0x1C0D
 # The variables at the 'monsters' PRESS KEY where eclplay differs from the
 # original: none. Both are the block's variables, read through the far pointer at
@@ -372,12 +382,17 @@ COMBAT_SECONDS = 300
 # The battle's stop (step 4, part 10a): the battle starts, builds its battlefield, makes its combat
 # records (59c7:0f7b), places them (59c7:1864), sets the view's origin and redraws the arena (51c2:0c94),
 # runs 1dd7's tail (59c7:1e99), and then the round's start: 5045:059d's sides, 52db:0004 for each
-# combatant (initiative), 5045:0447's turn list. It stops at the first turn's dispatch, 5045:078b
-# (not ported yet). The original is trapped there too (TURN), so the whole state is final: the records,
+# combatant (initiative), 5045:0447's turn list. It stops at the first turn's cursor (BATTLE_STOP, below;
+# the dispatch 5045:078b comes after it). The original is trapped at 5045:078b too (TURN), so the whole state is final: the records,
 # blocks, combatants, occupants, the view, the turn list and RandSeed compare. The trap is set after
 # the block's last PRESS KEY, as 59c7 is loaded only once the battle starts.
-BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's first turn "
-               "(dqk 5045:078b, the first turn's dispatch)")
+# The first turn's stop (step 4, part 10b): 5045:078b's arena turn (5837:12f5, cursor on) draws the
+# cursor's box (5837:00f4, ported: part 11b), then the side panel (177e:085f, dark_queen.c's
+# combat_panel, ported), then the turn's dispatch (5045:08cf: the first combatant is a party
+# member (TIMASALIN or BALTHIR NOMOON in these flows; CINDER in the repo test's walk), so its
+# command menu is next, cited as part 22; the computer's turn 5bb8:0000 is not reached). eclplay stops there: the `dispatch` flow compares the original's state at 08cf with it.
+BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's party's command menu (dqk 5045:08cf, "
+               "the command menu (part 22))")
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -504,8 +519,8 @@ def placed(box):
     return box.ds_byte(L.DS_COMBATANT_COUNT) >= 2 and L.far(box, L.DS_PARTY) is not None
 
 
-def at_placement(box):
-    """The battle's stop (5045:078b, the first turn) trapped once the
+def at_placement(box, where=TURN):
+    """The battle's stop (5045:078b, the first turn, or where: PANEL) trapped once the
     battle has its code (after the block's last key: the battle's overlay is loaded when it
     starts), and the spin held with the placement done (placed): COMBAT has made the records.
     Returns the trap's handle. Used by the load flows (load, clear, six, ground's and encounter's
@@ -513,7 +528,7 @@ def at_placement(box):
     make test's load (each check settles a second of the game's time, which a loaded host gives
     in less host time, so the count covers less of COMBAT than it did idle). The records and
     blocks read after it are the placement's."""
-    handle = L.trap(box, *TURN, until=lambda: True, seconds=COMBAT_SECONDS)
+    handle = L.trap(box, *where, until=lambda: True, seconds=COMBAT_SECONDS)
     L.frozen_at_trap(box)
     end, checks = time.monotonic() + COMBAT_SECONDS, 0
     while True:
@@ -523,7 +538,8 @@ def at_placement(box):
         if time.monotonic() > end:
             state = dqk_lib.ecl_state(box)
             raise cokbox.BoxError(
-                f"COMBAT did not reach the battle's stop (5045:078b) in {COMBAT_SECONDS} s "
+                f"COMBAT did not reach the battle's stop ({where[0]:04x}:{where[1]:04x}) in "
+                f"{COMBAT_SECONDS} s "
                 f"({checks} checks): ECL pc {state['pc']:#x}, opcode {state['opcode']:#x}, "
                 f"keyboard polls {box.hook('polls')}")
 
@@ -1075,7 +1091,7 @@ def wild_one(v, work, opts, state, river, tag):
 
 def spins_at_placement(v, r):
     v.check(r["traps"] >= 1 and r["held"],
-            "the original spins at the first turn (5045:078b)",
+            "the original spins at the battle's stop (5045:078b, or PANEL, 5045:084b, for the icons)",
             f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
     v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
 
@@ -1203,7 +1219,7 @@ def shown_in_view(e):
     return bool(raw[0x18B] or struct.unpack_from("<H", raw, 0x64)[0] == 10)
 
 
-def slots_original(work, patched, tag, verbose, square=None):
+def slots_original(work, patched, tag, verbose, square=None, where=TURN):
     """The original at the placement (field_original's keys and trap): the screenshot, DS:a848
     (0x26 bytes), the party's records (+0xc4, +0xc5), each combatant 1..count-1 (its record's
     +0x9b, +0xbd, +0xc4, +0xc5, +0x18b, status +0x64 and combat facing; sx, sy at DS:aeac/aee0 +
@@ -1220,7 +1236,7 @@ def slots_original(work, patched, tag, verbose, square=None):
         box.keys("\\r")
         box.settled(tolerance=64)
         box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
-        handle = at_placement(box)      # the placement made (placed), not a false stop
+        handle = at_placement(box, where)   # the placement made (placed), not a false stop
         box.settled(tolerance=64)
         held, polls, polls_held = L.held(box, handle)
         screen = box.screenshot(path=str(work / f"{tag}-original.png"))
@@ -1298,7 +1314,7 @@ def slots(v, work, opts):
             ("slots1", wild_block(*WILD_GROUNDS[0]), f"the open ground {WILD_GROUNDS[0]}"))
     for tag, block, where in runs:
         patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
-        r = slots_original(work, patched, tag, opts.verbose)
+        r = slots_original(work, patched, tag, opts.verbose, where=PANEL)
         spins_at_placement(v, r)
         set_name = "dungcom" if r["three_d"] != 0 else "wildcom"
         v.check(r["wall"] == 4, f"the battle's set at {where} is set 4 (DS:ca03)",
@@ -1370,12 +1386,12 @@ def slots(v, work, opts):
 
 
 # The combatants' icons drawn (step 4, part 11b: arena.c's cursor and pose, dark_queen.c's
-# arena_icon, queen_arena.c's blit): the same runs as `slots`, to the first turn (5045:078b). The
+# arena_icon, queen_arena.c's blit): the same runs as `slots`, to the side panel's end (PANEL). The
 # port's own screen (eclplay --screen, its icons drawn by the port, the combat frame too) must
 # equal the original's screenshot over the whole screen in RGB, with only the mouse pointer
 # masked (dqk_views.POINTER: the DOSBox pointer's arrow at 2-15 by 2-16). The
-# COMSPR cursor box is drawn only with the cursor on, which the battle's stop has not (the header
-# is [0, 1, 0]), so it is not in the compare.
+# COMSPR cursor box (the turn's cursor, 5837:00f4) and the side panel are drawn at PANEL, so both are
+# in the compare; the original is trapped at the same point (PANEL), not at TURN, which is before them.
 ICON_MONSTERS = range(0x08, 0x0F)       # the monsters' slots (DS:ad6b: 8-0x0e, 170e's and 29fc's)
 def icon_runs():
     """(tag, block, where, square): the fixture's dungeon; the open ground WILD_GROUNDS[0]; and
@@ -1392,7 +1408,7 @@ def icons(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     for tag, block, where, square in icon_runs():
         patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
-        r = slots_original(work, patched, tag, opts.verbose, square)
+        r = slots_original(work, patched, tag, opts.verbose, square, where=PANEL)
         spins_at_placement(v, r)
         _, last, _, screen_path = slots_port(work, patched, tag, square)
         v.check(last == BATTLE_STOP, f"eclplay stops at the first turn at {where}", last)
@@ -1418,13 +1434,87 @@ def icons(v, work, opts):
                 f"{count} pixels differ in {box}")
 
 
+def snapshot(box):
+    """The state the placement comparison reads (field_original's keys) and L.state's, at the
+    box's stop: the battlefield, RandSeed, the combatants, the records, blocks and turn list,
+    the mode and the variables."""
+    listed = L.records(box)
+    return dict(field=L.battlefield(box), seed=box.ds_dword(L.DS_SEED),
+                combatants=combatants_at(box), records=[raw.hex() for _, raw in listed],
+                turns=L.turn_order(box, listed),
+                blocks=[None if cb is None else cb[1].hex()
+                        for cb in (L.combat_record(box, raw) for _, raw in listed)],
+                mode=box.ds_word(L.DS_MODE), variables=block_vars(box), state=L.state(box))
+
+
+def dispatch_original(work, patched, verbose, tag="dispatch"):
+    """The original's run to the first turn's dispatch (step 4, part 10b): the turn's trap
+    (5045:078b, held) is given back, and 5045:08cf, the party's dispatch, is spun in the same
+    copies (EB FE over its two bytes at +0x144, the routine's entry). The state is read at the
+    turn (078b) and at the command menu (08cf), and DS:ad67, the selected record, at the menu.
+    The returned keys are snapshot's, at the menu (placement's), with the turn's state as
+    `turn` and the menu spin's `menu_held`, `menu_polls`, `menu_traps`."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        purges_at_seed = purges(box)
+        box.keys("\\r")                 # the 'monsters' PRESS KEY (field_original's keys)
+        box.settled(tolerance=64)
+        box.keys("\\r")                 # the 'loaded' PRESS KEY
+        box.settled(tolerance=64)
+        box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
+        handle = at_placement(box)      # the placement made (placed), the turn's spin held
+        box.settled(tolerance=64)
+        held, polls, polls_held = L.held(box, handle)
+        turn = snapshot(box)
+        menu = [(addr + MENU[1] - TURN[1], None) for addr, _ in handle]
+        menu = [(addr, box.read(addr, 2)) for addr, _ in menu]
+        for addr, _ in menu:
+            box.write(addr, b"\xeb\xfe")
+        L.untrap(box, handle)           # 078b given back: the turn runs on to 08cf
+        menu_held, menu_polls, menu_polls_held = L.held(box, menu, seconds=1.5)
+        at_menu = snapshot(box)
+        selected = "%04x:%04x" % (box.ds_word(0xAD69), box.ds_word(0xAD67))
+        box.write_paused(menu)
+        return dict(traps=len(handle), held=held, polls=(polls, polls_held),
+                    menu_traps=len(menu), menu_held=menu_held,
+                    menu_polls=(menu_polls, menu_polls_held), selected=selected,
+                    purges=purges(box) - purges_at_seed, turn=turn, **at_menu)
+
+
+def dispatch(v, work, opts):
+    """The first turn's dispatch (step 4, part 10b): the original's state at the command menu
+    (5045:08cf, after 078b is given back) against eclplay's stop, which is the command menu too
+    (BATTLE_STOP): the same records, blocks, combatants, battlefield, turn list and RandSeed as at
+    the turn. The selected record (DS:ad67) is the turn list's first combatant. The computer's
+    dispatch (5045:0891, 5bb8:0000) is not reached: the first turn is the party's."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    r = dispatch_original(work, patched, opts.verbose)
+    spins_at_placement(v, r)
+    v.check(r["menu_traps"] >= 1 and r["menu_held"],
+            "the original's dispatch spins at the command menu (5045:08cf) once 078b is given "
+            "back: EB FE in the same copies, the polls hold over 1.5 s",
+            f"{r['menu_traps']} copies, polls {r['menu_polls'][0]} -> {r['menu_polls'][1]}")
+    same = [k for k in r["turn"]["state"] if r["turn"]["state"][k] != r["state"][k]]
+    v.check(not same, "the state at the command menu is the state at the first turn (records, "
+            "blocks, combatants, battlefield, turn list, RandSeed)",
+            f"differ: {', '.join(same) or 'none'}")
+    first = r["state"]["first"]
+    v.check(r["selected"] == first and first is not None,
+            "the selected record (DS:ad67) at the command menu is the turn list's first combatant "
+            "(DS:bd9d)", f"selected {r['selected']}, first {first}")
+    placement(v, work, patched, "dispatch", "the first turn's dispatch (5045:08cf)", None, r)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
-                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons",
+                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons")
+                             "slots, icons, dispatch")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -1451,6 +1541,8 @@ def main():
         slots(v, work, opts)
     if "icons" in flows:
         icons(v, work, opts)
+    if "dispatch" in flows:
+        dispatch(v, work, opts)
     return v.finish()
 
 

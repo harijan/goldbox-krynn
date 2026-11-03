@@ -12,6 +12,7 @@
 #include "queen_items.h"
 #include "queen_view.h"
 #include "queen_train.h"
+#include "round.h"
 #include "queen_modify.h"
 #include "shop.h"
 #include "vga.h"
@@ -1027,9 +1028,12 @@ static void overland_screen(cok_adventure *game)
  * 8, the window's grey: cells 23-38 by 1-21), FRAME 1, 2, 3 and 5, FRAME 4
  * within rows 186-199 (bottom_bar, 151e:06cb and 075c around it), FRAME 6.
  * The view's cells are left as they are: the ground is drawn over them
- * after this (cok_arena_centre). Its begin and flush of the page (19a4:05ee,
- * 1bdb:0d1d) are the one screen's (games.md's Dark Queen section). The
- * panel's text and the party's list are not drawn: part 12. */
+ * after this (cok_arena_centre). Its begin of the page (19a4:05ee) is the one screen's
+ * (games.md's Dark Queen section). 1bdb:0d1d (DS:a6b5, DS:1d13: the bar drawn again by
+ * 1bdb:0d26) is not needed, because the port's bar is always drawn whole. 0c94's next call,
+ * 5837:00e4 (19a4:0630, DS:c5d4: the page's picture again, DS:a2ae and 1cb7 when it changes),
+ * is not ported: it matters only after the later redraws. The panel's text is drawn by
+ * combat_panel (cok_arena_panel) after this. */
 static void combat_screen(cok_adventure *game)
 {
     clear_cells(game, 23, 1, 38, 21);
@@ -1037,6 +1041,81 @@ static void combat_screen(cok_adventure *game)
     draw_frame_record(game, 5, 0, 0, NULL);
     bottom_bar(game);
     draw_frame_record(game, 6, 0, 0, NULL);
+}
+
+/* The colour of a name (177e:1697 without the selection): black where the character cannot act
+ * (+0x18b 0), green where it is hostile in combat (+0x66 1, mode 5), light magenta where it may
+ * train (+0xcd), else grey. */
+static unsigned name_colour(cok_adventure *game, const uint8_t *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (c[0x18b] == 0) return 0x00;
+    if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && game->vm.mode == 5) return 0x02;
+    return c[0xcd] != 0 ? 0x0d : 0x07;
+}
+
+/* The status names by status 0-8 (177e:085f's pointers at DS:3bde: "Okay" ... "Gone"); 9 is
+ * blank. Dark Queen's own table: not the strings at DS:1330 that rules.c gives the other games. */
+static const char *const status_names[10] = {
+    "Okay", "Animated", "tempgone", "Running", "Unconscious", "Dying", "Dead", "Petrified",
+    "Gone", ""};
+
+/* The side panel for c (177e:085f, cok_arena_panel's hook; 5045:0846 draws it at each turn's
+ * start, after the cursor's box): cells 23-38 by 1-21 cleared; the name on row 1 (177e:156e's
+ * say of " ", whose wrap of blanks is not drawn; the name by 177e:1697's colours); "Hitpoints"
+ * (DS:023e) on row 3 and "AC" (DS:0248) on row 5 in grey at column 23; the hit points at column
+ * 33 (177e:07b4: light cyan below the most, else grey) and the armour class at column 26
+ * (177e:0724: 0x3c less +0x18e, a '-' before it above 60, grey; its trailing blank is not drawn).
+ * The cursor's row is 5 (DS:ae4e). The status name in light cyan where the character cannot act,
+ * else "(Helpless)" (DS:024b, 177e:0a19) or "(Casting)" (DS:0256) in light cyan while it casts a
+ * spell (+0x40's byte), two rows below the readied weapon's name's last row (177e:0981 reads the
+ * cursor row 177e:0311 left: row 7 with no weapon). The weapon's name (177e:03fc,
+ * queen_item_name) is wrapped from row 7 by 177e:0311, drawn at once (no delay). */
+static bool combat_panel(cok_adventure *game, cok_character *c)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    const uint8_t *r = c->record;
+    clear_cells(game, 23, 1, 38, 21);
+    char name[17];
+    cok_field_name(L, r, name);
+    text(game, 8, 8 * 23, name, 0x80 | name_colour(game, r));
+    text(game, 8 * 3, 8 * 23, "Hitpoints", 0x87);
+    unsigned hp = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
+    unsigned most = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
+    char line[16];
+    snprintf(line, sizeof line, "%u", hp);
+    text(game, 8 * 3, 8 * 33, line, 0x80 | (hp >= most ? 0x07 : 0x0b));
+    text(game, 8 * 5, 8 * 23, "AC", 0x87);
+    int value = cok_field_u8(L, r, COK_FIELD_AC) - 60;
+    snprintf(line, sizeof line, "%s%u", value > 0 ? "-" : "",
+             (unsigned)(value < 0 ? -value : value));
+    text(game, 8 * 5, 8 * 26, line, 0x87);
+    game->vm.cursor.y = 5;
+    /* The readied weapon (slot 0, +0xc): its name by 177e:03fc (queen_item_name, as the sheet's),
+     * wrapped by 177e:0311 in columns 23-38 over rows 7-9, colour 7. 085f:095e passes clear (1);
+     * the delay between characters is only while DS:ae65 is set (0476), which 59c7:1dd7 clears
+     * for a battle, so the name is printed at once (slow false). */
+    size_t slot = c->slots[0];
+    if (slot != 0 && slot <= c->item_count) {
+        char weapon[96];
+        queen_item_name(&game->party, c->items[slot - 1], false, weapon, sizeof weapon);
+        if (!print_window(game, weapon, 23, 7, 38, 9, 7, true, false)) return false;
+    }
+    /* 177e:0981: the cursor row 0311 left, plus two. */
+    int row = game->vm.cursor.y + 2;
+    if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) { /* 177e:085f's status line */
+        int status = cok_field_s8(L, r, COK_FIELD_STATUS);
+        if (status < 0 || status > 9)
+            return cok_adventure_not_yet(game, "a status the original's table does not hold",
+                                         "dqk 177e:085f (DS:3bde)");
+        text(game, 8 * row, 8 * 23, status_names[status], 0x8b);
+    } else if (cok_combat_helpless(c, R)) { /* 177e:0a19 */
+        text(game, 8 * row, 8 * 23, "(Helpless)", 0x8b);
+    } else if (cok_character_combat(c)->spell > 0) {
+        text(game, 8 * row, 8 * 23, "(Casting)", 0x8b);
+    }
+    return true;
 }
 
 static void frame(cok_adventure *game, int screen)
@@ -2836,11 +2915,7 @@ static void party_list(cok_adventure *game)
         clear_cells(game, x0, y, 0x26, y);
         char name[17];
         cok_field_name(L, c, name);
-        unsigned fg = c == vm->character ? 0x0b
-                      : c[0x18b] == 0 ? 0x00
-                      : (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 1 && vm->mode == 5) ? 0x02
-                      : c[0xcd] != 0 ? 0x0d
-                                     : 0x07;
+        unsigned fg = c == vm->character ? 0x0b : name_colour(game, c);
         text(game, 8 * y, 8 * x0, name, 0x80 | fg);
         uint8_t ac = cok_field_u8(L, c, COK_FIELD_AC);
         int value = ac - 0x3c;
@@ -5039,8 +5114,8 @@ static bool arena_load_icon(cok_adventure *game, const char *name, uint8_t id, u
  * pose and the redraw's cells), drawn on the view at x, y: the table's entry slot + 0x26 *
  * image (030f:0359-0366; image 0 ready, 1 attacking). An empty entry draws nothing. The head
  * overlay of 030f:03a2 and 0431 is dead here: DS:a848 is 0 (no CHEAD, 204c:00e5-0157). The
- * redraw's frame (51c2:0c94 -> 20b2:02fa: the panel and the borders) is not drawn by this
- * (the frame hook, which draws the 3D frame there). */
+ * redraw's frame (51c2:0c94 -> 20b2:02fa: the panel and the borders) is drawn by the frame
+ * hook (combat_screen), not by this. */
 static bool arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                        uint8_t slot)
 {
@@ -5080,6 +5155,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_cell = arena_cell,
     .arena_icon = arena_icon,
     .arena_load_icon = arena_load_icon,
+    .arena_panel = combat_panel,
     .encounter = encounter,
 };
 

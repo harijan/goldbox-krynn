@@ -848,16 +848,33 @@ void cok_combat_turn_order(cok_adventure *game)
  * (scan code 0x2d) first, running the Helm cheat (432f:41e2) in a game
  * started with Helm, and with --combat auto Alt-Q, putting the party on
  * Auto. With COK_COMBAT_UNPORTED (eclplay with neither --combat nor
- * --keys) the player's turns pass, the computer's are played; with --combat melee every turn attacks the
- * nearest enemy it can reach (cok_combat_melee), and with --combat pass
- * every turn passes, the computer's too. */
-static bool act(cok_adventure *game, cok_character *c, bool computer)
+ * --keys) the player's turns pass, the computer's are played; with --combat melee every turn
+ * attacks the nearest enemy it can reach (cok_combat_melee), and with --combat pass every turn
+ * passes, the computer's too. The descriptor's dispatch (Dark Queen's, 5045:078b) comes first,
+ * so no stub passes over its stops. */
+bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer)
 {
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_character_layout *L = cok_game_rules(game)->character;
     char name[16], text[48];
     name_of(L, c->record, name);
     snprintf(text, sizeof text, "%s (initiative %d)", name, c->combat->initiative);
     log_text(game, "turn", text);
+    /* Dark Queen's dispatch (5045:078b): the computer's turn is 5bb8:0000 (part 15); the
+     * party's is 5045:08cf, the command menu (part 22), for a record that can act (+0x18b). A
+     * record that cannot act is ended at once (08cf's 0cc3 -> 51c2:0c11), and one with a spell
+     * pending is cast (849a:145b) before the menu. Each stop cites its routine. */
+    if (computer && R->computer_unported != NULL)
+        return cok_adventure_not_yet(game, "computer's turn", R->computer_unported);
+    if (!computer && R->menu_unported != NULL) {
+        if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) {
+            cok_combat_end_turn(c); /* 08cf -> 0cc3 -> 51c2:0c11 */
+            return true;
+        }
+        if (c->combat->spell > 0 && R->spell_unported != NULL)
+            return cok_adventure_not_yet(game, "pending spell's cast", R->spell_unported);
+        return cok_adventure_not_yet(game, "party's command menu", R->menu_unported);
+    }
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
     if (stub == COK_COMBAT_PASS) {
@@ -904,13 +921,25 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     if (!cok_arena_panel(game, c)) return false;
     if (!event(game, c, 0x0f)) return false;
     if (cr->spell == 0 && !event(game, c, 0x15)) return false;
-    if (cr->initiative > 0 && !act(game, c, cok_field_u8(L, r, COK_FIELD_COMPUTER) != 0))
+    if (cr->initiative > 0 && !cok_combat_act(game, c, cok_field_u8(L, r, COK_FIELD_COMPUTER) != 0))
         return false;
     return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
 
+bool cok_combat_turn_tail(cok_adventure *game)
+{
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    if (R->turn_tail_unported != NULL)
+        return cok_adventure_not_yet(game, "a turn's tail", R->turn_tail_unported);
+    return true;
+}
+
 bool cok_combat_end_round(cok_adventure *game, bool *done)
 {
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
+    /* Dark Queen's round end (5045:0f6c) is its own routines: a cited stop. */
+    if (R->round_end_unported != NULL)
+        return cok_adventure_not_yet(game, "round's end", R->round_end_unported);
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     if (!cok_adventure_pass_time(game, 1, 1)) return false; /* 57e4:0549 */
@@ -1117,11 +1146,11 @@ static bool rounds(cok_adventure *game)
         log_order(game);
         cok_character *c = combat->turn[1];
         combat->turn_index = 1;
-        if (c != NULL && R->turn_unported != NULL)
-            return cok_adventure_not_yet(game, "battle's first turn", R->turn_unported);
         while (c != NULL && !done && !vm->abort) {
             if (!cok_combat_turn(game, c) || (R->explode && !cok_combat_explode(game)))
                 return false;
+            /* 5045:059d's tail, before the sides: the pending lists (148f:2ab8, 2c4f, 2d9b). */
+            if (!cok_combat_turn_tail(game)) return false;
             ++combat->turn_index;
             c = combat->turn_index > COK_COMBATANTS ? NULL : combat->turn[combat->turn_index];
             /* dkk 3e05:00ec: after each turn a side gone or the round
