@@ -461,10 +461,55 @@ static void test_combat(void)
     }
 }
 
+/* 2796:000c: the picture flipped left to right (pixels and mask, the header kept) for the
+ * formats 0x10, 0x11 and 0x15; another format is refused, and left as it is. */
+static void test_mirror(void)
+{
+    /* 8 by 2 0x15: pixel x of row j is at (x % 4) * 4 + j * 2 + x / 4, holding 0x10 + that;
+     * row 1, column 0 (plane-row index 2) is 0xff, clear. */
+    uint8_t record[COK_VGA_HEADER + 16];
+    size_t n = header(record, 8, 2, 3, 4, COK_VGA_CLEAR);
+    for (unsigned i = 0; i < 16; ++i) record[n + i] = (uint8_t)(0x10 + i);
+    record[n + 2] = 0xff;
+    cok_vga_image image = {0};
+    CHECK(cok_vga_decode(record, n + 16, NULL, &image) == COK_VGA_OK);
+    uint8_t pixels[16], mask[16];
+    memcpy(pixels, image.pixels, sizeof pixels);
+    memcpy(mask, image.mask, sizeof mask);
+    CHECK(mask[8] && !mask[0]);
+    CHECK(cok_vga_mirror(&image));
+    CHECK(image.width == 8 && image.height == 2 && image.x == 3 && image.y == 4 &&
+          image.format == COK_VGA_CLEAR);
+    for (unsigned j = 0; j < 2; ++j)
+        for (unsigned x = 0; x < 8; ++x) {
+            CHECK(image.pixels[j * 8 + x] == pixels[j * 8 + 7 - x]);
+            CHECK(image.mask[j * 8 + x] == mask[j * 8 + 7 - x]);
+        }
+    CHECK(image.mask[15] && !image.mask[8]);
+    cok_vga_free(&image);
+    /* 4 by 1 0x11: its AND mask {0, 0xff, 0, 0xff} and pixels {1, 2, 3, 4} flip alike. */
+    n = header(record, 4, 1, 0, 0, COK_VGA_MASKED);
+    const uint8_t masked[] = {0, 0xff, 0, 0xff, 1, 2, 3, 4};
+    memcpy(record + n, masked, sizeof masked);
+    CHECK(cok_vga_decode(record, n + sizeof masked, NULL, &image) == COK_VGA_OK);
+    CHECK(cok_vga_mirror(&image) && image.and_xor);
+    CHECK(image.pixels[0] == 4 && image.mask[0] == 0xff && image.pixels[3] == 1 &&
+          image.mask[3] == 0);
+    CHECK(image.pixels[1] == 3 && image.mask[1] == 0 && image.pixels[2] == 2 &&
+          image.mask[2] == 0xff);
+    cok_vga_free(&image);
+    /* 0x12 (packed) is refused, and its pixels are kept. */
+    uint8_t packed[4] = {1, 2, 3, 4};
+    cok_vga_image refused = {.width = 4, .height = 1, .format = COK_VGA_PACKED, .pixels = packed};
+    CHECK(!cok_vga_mirror(&refused));
+    CHECK(packed[0] == 1 && packed[3] == 4);
+}
+
 int main(void)
 {
     test_library();
     test_pictures();
+    test_mirror();
     test_composed();
     test_palette();
     test_cycles();

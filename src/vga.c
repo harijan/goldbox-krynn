@@ -28,6 +28,27 @@ void cok_vga_free(cok_vga_image *image)
     *image = (cok_vga_image){0};
 }
 
+/* Reverse each row of w bytes in a rows-row array (the mirror of a plane-row). */
+static void flip(uint8_t *a, size_t w, size_t rows)
+{
+    for (size_t j = 0; j < rows; ++j)
+        for (size_t i = 0, k = w; i < k / 2; ++i) {
+            uint8_t t = a[j * w + i];
+            a[j * w + i] = a[j * w + (w - 1 - i)];
+            a[j * w + (w - 1 - i)] = t;
+        }
+}
+
+bool cok_vga_mirror(cok_vga_image *image)
+{
+    uint8_t f = image->format & 0xf;
+    if (f != 0 && f != 1 && f != 5) return false;
+    size_t w = image->width, rows = image->height;
+    flip(image->pixels, w, rows);
+    if (image->mask != NULL) flip(image->mask, w, rows);
+    return true;
+}
+
 /* Pixel (c, j) of a picture stored plane by plane: plane c % 4's rows in
  * turn, a quarter row each. */
 static size_t planar(size_t c, size_t j, size_t width, size_t height)

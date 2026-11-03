@@ -649,9 +649,14 @@ run, citing their handlers (`unported`). It holds:
   (204c:0007 -> 19a4:0b8c), whose colour cycles draw random(8) from the seed (261b:00b1), one
   for DUNGCOM 3 and 6 (`tests/test_queen_arena.c`). The clouds and the bodies (values 0x1b-0x1f
   and 0x46: 172c:17ac, 137a's lists DS:c2d6 and DS:c526, COMSPR's overlay) stop the drawing
-  with their cite, and so do the combatants' icons (5837:025d, 104c:030f), the cursor's box
-  (5837:00f4), a body's skull (`cok_arena_kill`, 025d), missiles and the side panel and text
-  (parts 11-12); each is a stop (`cok_arena_icon`, `cursor`, `say`), never a picture left out.
+  with their cite. The combatants' icons are drawn (part 11b: `cok_arena_icon` through the game's
+  `arena_icon`, the blit of 204c:030f as `queen_arena.c`'s `cok_queen_arena_icon`: the table's
+  entry, a facing above 3 mirrored (2796:000c, `cok_vga_mirror`), at 24 x + 8 and 24 y + 8 less the
+  hotspot, clipped to the view), and so are the cursor's box (slot 0x1e, COMSPR 15, 5837:00f4) and a
+  pose with effect 0xd5, which faces 2 (5837:09ab). Not yet: a body's skull (`cok_arena_kill`,
+  025d, part 12), and the missiles and the side panel and text (parts 11-12), each a stop
+  (`cok_arena_kill`, `say`), never a picture left out. The redraw's frame (20b2:02fa) is not drawn
+  by the icons.
   Arena.c's one cell draw (`terrain`) goes to the game's `arena_cell` (5837:04d4, 00f4, 172c)
   and its show does not blit the 4-bit buffer. `eclplay --ground FILE --ground-set dungcom4`
   draws a map file's ground and saves `--screen`.
@@ -702,11 +707,11 @@ run, citing their handlers (`unported`). It holds:
   original, APPROACH waits in its disk prompt and COMBAT in "LBIBase: Invalid Library File";
   with it the battle's first turn is reached (`5045:078b`), with the seed's 11 draws, and
   the fight checks run with the sound off (DQK.CFG's sound word 6, read by `1fd3:000b`).
-  The load flow's party list after the arena's redraw (`59c7:1e99`, after the placement): 19 records, the monsters'
+  The load flow's party list at the first turn (`5045:078b`, after the placement): 19 records, the monsters'
   bytes equal (pointers masked, whole), and the party's too from the save (`--load`; with `--character`
   four members' import differed: known spells, saving throws, thief skills, not traced). The icons
   load unrecoloured into the table `queen_icon` (part 11a; `dqk_fight.py`'s flow `slots`); the
-  drawing of the combatants is part 11b.
+  combatants are drawn over the view (part 11b; `dqk_fight.py`'s flow `icons`).
   The sound's own draws are not traced: the fight's are the same with the sound off in every
   run, and the sound's effect on them is step 5's question (see [checks](checks.md)).
 - its adventure's camp (step 4, part 44; `dark_queen.c`'s `encamp`, `encamp_menu`,
@@ -800,7 +805,7 @@ run, citing their handlers (`unported`). It holds:
   (`014e`), the north edge (`01fb`), the north-west corner (`0285`: no door as a corner) and the
   north-east (`049e`: a door's corner, tile 7 where the east is open). Dark Queen's loop draws no
   tables and chairs (`dungeon_no_tables`: no dice, so RandSeed is the seed the battle began
-  with). Checked by `dqk_fight.py`'s flow `field`: after the arena's redraw (`59c7:1e99`, trapped, after the placement `59c7:1864`), the
+  with). Checked by `dqk_fight.py`'s flow `field`: at the first turn (`5045:078b`, trapped, after the arena's redraw `59c7:1e99` and the placement `59c7:1864`), the
   original's 50 by 25 cells, the header (+6, +7, +8) and RandSeed agree with eclplay's (`--field`)
   for the fixture's square and for the west edge (0, 3, 2), (12, 12) and (4, 14). The original's
   RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free

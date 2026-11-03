@@ -86,6 +86,13 @@ combatant's slot, and the table's images are read, and eclplay's --icons and --s
 byte against hlib's records (CBODY, CPIC, COMSPR), and the drawn combatants' icons composed over eclplay's screen equal the
 original's view (pointer masked).
 
+Flow `icons` (step 4, part 11b: the combatants' icons drawn): the runs of `slots` and the dungeon with the party on
+FIELD_SQUARES[1] ((0, 3, 2), where a SHARKMAN stands in the view at (5, 4): Q2), to the same stop. eclplay's --screen,
+its icons drawn by the port, must equal the original's screenshot over the view (8, 8, 168 by 168) in RGB, the combatants'
+cells not masked and only the mouse pointer (8, 8, 8, 9) masked: 0 pixels differing. The pixels outside the view (the
+frame, 20b2:02fa, not ported) is reported, not gated. Gated: at least PARTY combatants drawn in the view in every run, and a
+monster (CPIC) drawn in the view in the square's run.
+
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
 the field flow (below) checks it at each square and records the purges.
@@ -95,7 +102,7 @@ masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load,clear,six,ground,encounter,field,wild,slots]
+        [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -350,8 +357,8 @@ def setup(v, work, opts):
 # GORGONs). Each block runs LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled
 # 'monsters', its steps (a LOAD MONSTER (id, count), or CLEARMONSTERS), then COMBAT
 # with no SETUP MONSTERS or APPROACH (the original allows it after LOAD FILES). The
-# party list and the combat blocks are read where the port stops (59c7:1e99, after the
-# placement), the appends, the combat records and the placement done. A flow's monsters are
+# party list and the combat blocks are read where the port stops (5045:078b, the first turn,
+# after the placement), the appends, the combat records and the placement done. A flow's monsters are
 # those its steps leave after the last CLEARMONSTERS; the expected c6f1, ad6b, undead count
 # and records follow from them.
 CLEAR = "CLEAR"
@@ -754,7 +761,7 @@ def ground(v, work, opts):
 # 9 in var 0x37 (above the open squares), the 'raised' wait; then COMBAT lowers it to the open
 # squares before the battle's text (5f07:088f-08ba). The original waits at each PRESS KEY; there
 # the variables (the whole 1 KB) and the screen are read, and eclplay must agree with both. At
-# COMBAT the placement is trapped (59c7:1e99) and the monsters and party read, as the load
+# COMBAT the placement is trapped (5045:078b) and the monsters and party read, as the load
 # flows do, with var 0x37.
 ENC_SPRITE, ENC_DISTANCE, ENC_CLOSEUP = 82, 16, 21
 ENC_SPRITE2, ENC_WALL_DISTANCE, ENC_RAISED = 2, 3, 9  # the open squares are 0 here: a wall at once
@@ -800,7 +807,7 @@ def encounter_block():
 def encounter_original(work, patched, verbose):
     """The original's run of the encounter block: at each of its five waits, the wait's
     pc and opcode, the block's variables and the screen (in colours); after COMBAT, the
-    placement is trapped (59c7:1e99, where COMBAT spins) and the party's records, their
+    placement is trapped (5045:078b, the first turn, where COMBAT spins) and the party's records, their
     combat blocks and the monsters' count, icon slot and undead count are read there."""
     waits = []
     with cokbox.Box(workdir=work / "box-encounter", game="dark-queen", verbose=verbose,
@@ -915,12 +922,14 @@ def encounter(v, work, opts):
 # The battlefield (step 4, parts 7 and 9a): the battle's setup builds the battlefield (59c7:1dd7:
 # the tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b), makes the
 # combat records (59c7:0f7b: each record's combat block, checked at every offset) and stops at
-# the placement, 59c7:1864, and the view's origin (1dd7's 5837:0aea, 0b19), then stops before
-# after the arena's redraw (59c7:1e99). The original is trapped there: the view's origin (far DS:bedb
-# +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9), the occupants (DS:b7fd), the
-# combatants (DS:c3f1 + 6n: x, y, size), each record's combat block (0x18 bytes at +0x40) and
+# the placement, 59c7:1864, and the view's origin (1dd7's 5837:0aea, 0b19), then after the arena's
+# redraw (59c7:1e99) stops before the first turn (5045:078b). The original is trapped there: the
+# view's origin (far DS:bedb +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9), the
+# occupants (DS:b7fd), the combatants (DS:c3f1 + 6n: x, y, size), each record's combat block
+# (0x18 bytes at +0x40) and
 # RandSeed; eclplay --field and --blocks, at its stop, must hold the same. The trap moved from
-# 0f7b (9a), to 1864's entry (9b-9c), to 1e99 once 1864 was ported (9c).
+# 0f7b (9a), to 1864's entry (9b-9c), to 1e99 once 1864 was ported (9c), and to 078b once the
+# round's start was ported (part 10a: the battle's stop before the first turn).
 # The dungeon draws no dice, and the memory cache's purges draw none in the box
 # (dqk_fight_lib.freeze_purges), so RandSeed is the seed the battle began with, as in eclplay. The fixture's battle is in 3D (var 0x22 set), asserted; the
 # origin is written after the placement (1dd7's 5837:0aea), so it is what the battle before left,
@@ -1176,15 +1185,34 @@ COMBAT_BLOCK_FACING = 0xA             # the combat record's facing (+0xa)
 SLOT_SCREEN = (320, 200)
 
 
-def slots_original(work, patched, tag, verbose):
+# The screen outside the view (the ground's rectangle, GROUND), which no icon is drawn over.
+GX, GY, GW, GH = GROUND
+OUTSIDE = [(0, 0, 320, GY, "outside the ground"),
+           (0, GY + GH, 320, 200 - GY - GH, "outside the ground"),
+           (0, GY, GX, GH, "outside the ground"),
+           (GX + GW, GY, 320 - GX - GW, GH, "outside the ground")]
+
+
+def shown_in_view(e):
+    """Whether combatant e is drawn in the view (5837:0846's test, as the redraw makes it: size
+    above 0, on the view, active (+0x18b) or status 10)."""
+    raw = e["raw"]
+    if raw is None or e["size"] == 0 or not (0 <= e["sx"] < 7 and 0 <= e["sy"] < 7):
+        return False
+    return bool(raw[0x18B] or struct.unpack_from("<H", raw, 0x64)[0] == 10)
+
+
+def slots_original(work, patched, tag, verbose, square=None):
     """The original at the placement (field_original's keys and trap): the screenshot, DS:a848
     (0x26 bytes), the party's records (+0xc4, +0xc5), each combatant 1..count-1 (its record's
     +0x9b, +0xbd, +0xc4, +0xc5, +0x18b, status +0x64 and combat facing; sx, sy at DS:aeac/aee0 +
     n; size at DS:c3f1 + 6n + 5), the set the battle drew (DS:ca03, var 0x22) and the GORGON's
-    CPIC id (DS:75b8 by var 0x3a)."""
+    CPIC id (DS:75b8 by var 0x3a). SQUARE, if given, is the party's (x, y, facing) at DS:c9f0."""
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
         enter(box)
+        if square is not None:
+            box.ds_write(SQUARE, bytes(square))
         box.set_seed(SEED)
         box.keys("\\r")
         box.settled(tolerance=64)
@@ -1245,11 +1273,14 @@ def slots_palette(set_name):
     return table
 
 
-def slots_port(work, patched, tag):
-    """eclplay's run to the placement as `placement` runs it, with --icons and --screen."""
+def slots_port(work, patched, tag, square=None):
+    """eclplay's run to the placement as `placement` runs it, with --icons and --screen (and
+    --at, the party's square, if given)."""
     icons, screen = work / f"port-{tag}.icons", work / f"port-{tag}.bmp"
     extra = ["--load", str(saved_entry(work)), "--play", "--icons", str(icons),
              "--screen", str(screen)]
+    if square is not None:
+        extra += ["--at", "%d,%d,%d" % square]
     variables, last, _ = dqk_ecl.port(work, f"port-{tag}", patched, typed="\\r\\r", extra=extra,
                                       block=None)
     return variables, last, icons, screen
@@ -1309,9 +1340,7 @@ def slots(v, work, opts):
         drawn = []
         for e in r["combatants"]:
             raw = e["raw"]
-            if raw is None or e["size"] == 0 or not (0 <= e["sx"] < 7 and 0 <= e["sy"] < 7):
-                continue
-            if not (raw[0x18B] or struct.unpack_from("<H", raw, 0x64)[0] == 10):
+            if not shown_in_view(e):
                 continue
             drawn.append(e["n"])
             record = icons.get((raw[0xC5], 0))
@@ -1331,12 +1360,7 @@ def slots(v, work, opts):
         v.check(len(drawn) >= PARTY, f"at least {PARTY} combatants are drawn in the view at "
                 f"{where}", f"{len(drawn)}: {drawn}")
         composed = cokbox.RGBScreen(SLOT_SCREEN[0], SLOT_SCREEN[1], bytes(pixels))
-        gx, gy, gw, gh = GROUND
-        outside = [(0, 0, 320, gy, "outside the ground"),
-                   (0, gy + gh, 320, 200 - gy - gh, "outside the ground"),
-                   (0, gy, gx, gh, "outside the ground"),
-                   (gx + gw, gy, 320 - gx - gw, gh, "outside the ground")]
-        count, box = checklib.masked_diff(r["screen"], composed, outside + [GROUND_POINTER])
+        count, box = checklib.masked_diff(r["screen"], composed, OUTSIDE + [GROUND_POINTER])
         v.check(count == 0,
                 f"the view agrees with the original's, the combatants' icons composed over "
                 f"eclplay's screen (the pointer masked) at {where} ({len(drawn)} combatants drawn: "
@@ -1344,12 +1368,61 @@ def slots(v, work, opts):
                 f"{count} pixels differ in {box}")
 
 
+# The combatants' icons drawn (step 4, part 11b: arena.c's cursor and pose, dark_queen.c's
+# arena_icon, queen_arena.c's blit): the same runs as `slots`, to the first turn (5045:078b). The
+# port's own screen (eclplay --screen, its icons drawn by the port) must equal the original's
+# screenshot over the view (8, 8, 168 by 168) in RGB, with only the mouse pointer masked. The
+# COMSPR cursor box is drawn only with the cursor on, which the battle's stop has not (the header
+# is [0, 1, 0]), so it is not in the compare.
+ICON_MONSTERS = range(0x08, 0x0F)       # the monsters' slots (DS:ad6b: 8-0x0e, 170e's and 29fc's)
+def icon_runs():
+    """(tag, block, where, square): the fixture's dungeon; the open ground WILD_GROUNDS[0]; and
+    the dungeon with the party on FIELD_SQUARES[1], where a SHARKMAN (slot 8, CPIC 64) stands in
+    the view at (5, 4) (the original, read at DS:aeac/aee0 + n: Q2), so that a CPIC icon is drawn."""
+    return (("icons0", fight_block(), "the fixture's dungeon", None),
+            ("icons1", wild_block(*WILD_GROUNDS[0]), f"the open ground {WILD_GROUNDS[0]}", None),
+            ("icons2", fight_block(), f"the square {FIELD_SQUARES[1]}", FIELD_SQUARES[1]))
+
+
+def icons(v, work, opts):
+    """The combatants' icons drawn (part 11b) at the battle's placement, for the fixture's dungeon
+    and WILD_GROUNDS[0]: the original's screenshot against eclplay's --screen over the view."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    for tag, block, where, square in icon_runs():
+        patched = hlib.replace(glb, JUMP, dqkecl.assemble(block))
+        r = slots_original(work, patched, tag, opts.verbose, square)
+        spins_at_placement(v, r)
+        _, last, _, screen_path = slots_port(work, patched, tag, square)
+        v.check(last == BATTLE_STOP, f"eclplay stops at the first turn at {where}", last)
+        if not screen_path.exists():
+            v.check(False, f"eclplay writes its screen at {where}", last)
+            continue
+        port = cokbox.RGBScreen.load(screen_path, SLOT_SCREEN)
+        drawn = [e for e in r["combatants"] if shown_in_view(e)]
+        monsters = [e["n"] for e in drawn if e["raw"][0xC5] in ICON_MONSTERS]
+        v.check(len(drawn) >= PARTY, f"at least {PARTY} combatants are drawn in the view at "
+                f"{where}", f"{len(drawn)}: {[e['n'] for e in drawn]}")
+        if square is not None:
+            v.check(len(monsters) >= 1, f"a monster (CPIC) is drawn in the view at {where}",
+                    f"{len(monsters)}")
+        count, box = checklib.masked_diff(r["screen"], port, [GROUND_POINTER] + OUTSIDE)
+        outside, _ = checklib.masked_diff(r["screen"], port, [(*GROUND, "the view")])
+        print(f"  reported, not gated: {outside} pixels differ outside the view at {where} "
+              f"(the frame, 20b2:02fa: not ported)", flush=True)
+        v.check(count == 0,
+                f"the view agrees with the original's, the combatants' cells not masked (the "
+                f"pointer only) at {where} ({len(drawn)} combatants drawn, {len(monsters)} "
+                f"monsters: {monsters})",
+                f"{count} pixels differ in {box}")
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field,wild,slots",
+    parser.add_argument("--flows",
+                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots")
+                             "slots, icons")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -1374,6 +1447,8 @@ def main():
         wild(v, work, opts)
     if "slots" in flows:
         slots(v, work, opts)
+    if "icons" in flows:
+        icons(v, work, opts)
     return v.finish()
 
 

@@ -5007,14 +5007,25 @@ static bool arena_load_icon(cok_adventure *game, const char *name, uint8_t id, u
     return icon_load(game, LIB_CPIC, id, slot);
 }
 
-/* The combatants' icons (dqk 204c:030f, the icons' blit from 5837:025d) are part 11's: for
- * now nothing is drawn, and the screen's ground beneath stays as it is. The view's origin and
- * the screen positions the redraw sets (5837:0846) are the shared scroll's and are kept. */
+/* A combatant's icon (dqk 204c:030f, from 5837's callers: the cursor's box, the occupant, the
+ * pose and the redraw's cells), drawn on the view at x, y: the table's entry slot + 0x26 *
+ * image (030f:0359-0366; image 0 ready, 1 attacking). An empty entry draws nothing. The head
+ * overlay of 030f:03a2 and 0431 is dead here: DS:a848 is 0 (no CHEAD, 204c:00e5-0157). The
+ * redraw's frame (51c2:0c94 -> 20b2:02fa: the panel and the borders) is not drawn by this
+ * (the frame hook, which draws the 3D frame there). */
 static bool arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                        uint8_t slot)
 {
-    (void)game, (void)x, (void)y, (void)facing, (void)image, (void)slot;
-    return true;
+    const uint8_t *record;
+    size_t size;
+    if (image > 1 || slot >= ICON_SLOTS) {
+        snprintf(game->error, sizeof game->error,
+                 "icon %u of slot %u is past the icons (DS:b17d, 030f:0359)", image, slot);
+        return false;
+    }
+    if (!queen_icon(game, slot, image, &record, &size)) return false;
+    return cok_queen_arena_icon(&game->screen, record, size, x, y, facing, game->error,
+                                sizeof game->error);
 }
 
 const cok_drawing cok_dark_queen_drawing = {
