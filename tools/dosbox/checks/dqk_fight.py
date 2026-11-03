@@ -188,6 +188,7 @@ def original(work, patched, verbose):
         box.keys("\\r")                      # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
         handle = L.trap(box, *TURN, until=lambda: box.ds_byte(L.DS_TURN) == 1 and
                         box.ds_word(L.DS_MODE) == 5, seconds=180)
+        L.frozen_at_trap(box)
         box.settled(tolerance=64)            # the turn routine spins: the state holds
         held, polls, polls_held = L.held(box, handle)
         turn = L.state(box)
@@ -439,6 +440,7 @@ def load_original(work, patched, flow, difficulty, verbose):
         # KEY with the game waiting for a key there (a settled screen may come before it).
         dqk_ecl.wait_press_key(box, pc=load_block(flow.steps).address("monsters") + 1)
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
+        L.frozen_at_trap(box)
         box.keys("\\r")                 # the LOAD MONSTERs, COMBAT: the appends, the call
         # The spin holds once COMBAT reaches it. Waited for by a time limit, not a
         # count of checks: a count of 180 ran out once under make test's load (each
@@ -592,6 +594,7 @@ def ground_original(work, patched, verbose):
         box.keys("\\r")
         handle = L.trap(box, *TURN, until=lambda: box.ds_byte(L.DS_TURN) == 1 and
                         box.ds_word(L.DS_MODE) == 5, seconds=180)
+        L.frozen_at_trap(box)
         box.settled(tolerance=64)
         screen = box.screenshot(path=str(work / "ground-original.png"))
         battlefield = L.battlefield(box)
@@ -725,6 +728,7 @@ def encounter_original(work, patched, verbose):
             waits.append(dict(name=name, pc=state["pc"], opcode=state["opcode"],
                               vars=block_vars(box), screen=screen))
         handle = L.trap(box, *CALL_BATTLE, until=lambda: True, seconds=60)
+        L.frozen_at_trap(box)
         box.keys("\\r")                   # COMBAT: the lowering, the appends, the call
         for _ in range(180):
             if L.held(box, handle)[0]:
@@ -842,7 +846,7 @@ FIELD_SQUARES = (None, (0, 3, 2), (12, 12, 0), (4, 14, 0))
 # The memory cache's purge counters (27fa:0f14 adds one to DS:d9ba for an argument of 0, to
 # DS:da8c otherwise). They are read and recorded, not subtracted: the purges still happen and
 # evict a block, each drawing nothing (the freeze). The count varies from run to run with the
-# heap's state (0 to 7 past the entry here, the same inputs), so the verdict only records it.
+# heap's state (0 to 11 past the entry here, the same inputs), so the verdict only records it.
 PURGE_COUNTERS = (0xD9BA, 0xDA8C)
 
 
@@ -868,6 +872,7 @@ def field_original(work, patched, verbose, square=None, tag="field"):
         box.settled(tolerance=64)
         box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
         handle = L.trap(box, *PLACEMENT, until=lambda: True, seconds=180)
+        L.frozen_at_trap(box)
         box.settled(tolerance=64)
         held, polls, polls_held = L.held(box, handle)
         result = dict(traps=len(handle), held=held, polls=(polls, polls_held),

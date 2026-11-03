@@ -667,8 +667,8 @@ others do not: 049e's door corner off and its tile 8 -> 9 fail at (12, 12) only,
 bound fails at (12, 12) and (4, 14); the fixture and the west edge agree with each. eclplay's `--field` at its stop (`BATTLE_STOP`: the placement, not yet ported) must agree: the cells all 1250,
 the header's +6, +7, +8 (cursor 0, cursor size 1, see-all 0), and RandSeed as the seed the battle began with: the
 original draws nothing past SEED, as eclplay does, because the box freezes the memory cache's purge draw (below). The
-purge counters (`PURGE_COUNTERS`, DS:d9ba and DS:da8c, read at SEED and at the trap) are still read and recorded: 0, 11,
-11 and 0 at the four squares in the run that froze them (the west edge 9, 9, 9, 11, 11 in five runs of that square,
+purge counters (`PURGE_COUNTERS`, DS:d9ba and DS:da8c, read at SEED and at the trap) are still read and recorded: 0, 9,
+9 and 0 at the four squares in the run that froze them (`field1.out`; the west edge 9, 9, 9, 11, 11 in five runs of that square,
 the same inputs; the port has no heap). The party list's records agree at the placement, all 18 (pointers
 masked, the computer flag +0x18c included: 52db:4dd2 sets it after COMBAT's call, so the battle's start, `setup` and
 the others, compares it as 0). The check also reads that eclplay prints "A battle begins..." once.
@@ -676,18 +676,21 @@ The memory cache's purge, frozen in the box only (`dqk_fight_lib.freeze_purges`,
 `enter` after each flow's block entry, so every fight flow has it). 27fa:05f8 calls 27fa:0f14 while the free memory is
 short, and 27fa:025b calls it when its table is full (the 0x30 entries of DS:d9bc); 0f14 adds one to DS:d9ba (argument
 0) or DS:da8c, then draws random(3) at 0f2c (lcall 2102:0234, `9a 34 02 02 11` in the file, its segment relocated in the
-box), and AX picks the victim table at 0f32-0f34 (0: DS:d6ba's order; else DS:d98a's). The box replaces the lcall with
+box), and the `or ax,ax` at 0f32 picks the walk (0: the LRU order, DS:d6ba from its end; else the block numbers from the
+top, da80-1 down to 0; both take the first block no handle in DS:d98a refers to). The box replaces the lcall with
 `xor ax,ax` and three nops (`31 c0 90 90 90`): AX is 0, the same stack (the argument pushed at 0f2b is popped at 0f31's
 `pop cx`), the purge still counts and evicts, and nothing is drawn. The bytes are checked first (push bp at 0f14, the
 lcall with its relocated segment, push bp at 2102:0234; BoxError otherwise). Why it is safe: AX is the draw's only
-result, read only at 0f32-0f34 (0f36 and 0f63 write AX before any read); the callers read AL only (025b's 0329, 05f8's
-062e, each `pop cx; or al,al`), or read BX, CX and DX only after writing them (05f8's 0a46, 0652's 03f7 and 087b), and
+result, read only at 0f32 (later writes of AX come first at 0f3e, 0f6e (cbtw) and 0f70; 0f9a's `mov al,0` is the no-victim
+return), and AH is 0 in the draw too (random(3) gives 0..2); the callers read AL only (025b's 0329, 05f8's
+062e, each `pop cx; or al,al`), or read BX, CX and DX only after writing them (05f8's 0a46 and 0baf, 0652's 03f7 and 087b), and
 2102:0234 clobbers exactly BX, CX and DX (it keeps SI and BP). So the change is a legal outcome of the original's own
 draw (0 is one of its three values) and only the victim differs: the victim is a block of the file-read cache (27fa:000d
 reads a file into it, through 10d7:26ef with 3Fh; no `mov` of AH 40h, a write, appears in 27fa), which the cache reads
 from its file again when it is next used (the reload is 27fa:000d's; the lookup that finds a block missing is not traced). Which block is cached when is the heap's state, which the port does not model, and nothing the check compares
 (the cells, the records, the variables, RandSeed) depends on it: the field's 1250 cells and the records agree at all four
-squares with the freeze, and the purge counts still vary (0 to 11).
+squares with the freeze, and the purge counts still vary (0 to 11). Every fight flow checks the draw's five bytes at its
+trap (`dqk_fight_lib.frozen_at_trap`: `31 c0 90 90 90`), so a flow with no purge still proves the patch is in place.
 Memory settings do not stop the purges: with `memsize=64`, `ems` and `xms` true, or `umb` true (the Box's own
 settings are all off), the west edge's purges were 5 to 7 (2026-11-02, probes; umb moves DS:da80 at the battle's call
 from 20 to 19, not the purges), and DQK_FULL.EXE makes no EMS call (no INT 67h). The view's

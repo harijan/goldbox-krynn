@@ -141,12 +141,16 @@ def draws(start, end, limit=100000):
 # The memory cache's purge, frozen in the box only (freeze_purges). 27fa:0f14 (a far routine, its
 # argument 0 or 1 the table to evict from) adds one to its counter, then draws random(3) at 0f2c:
 # lcall 2102:0234 (9a 34 02 02 11 in the file; the box relocates the segment), its argument pushed
-# at 0f28-0f2b and popped at 0f31. AX is the draw's only result read: 0f32-0f34 pick DS:d6ba's
-# order for 0 and DS:d98a's otherwise, and 0f36 and 0f63 write AX before any read of it. The
-# callers read AL only (025b's 0329, 05f8's 062e, both as `pop cx; or al,al`), and 05f8's and 0652's
-# callers (0a46, 03f7, 087b) do the same before any read of BX, CX or DX (their next uses of DX follow
-# the lcall 27fa:0d7d they make themselves). 2102:0234 clobbers BX, CX and DX and keeps SI and BP, so
-# AX = 0 with the same stack is the whole change.
+# at 0f28-0f2b and popped at 0f31. AX is the draw's only result read: the `or ax,ax` at 0f32 picks
+# the walk. 0: the LRU order (DS:d6ba from its end, 0f63-0f98); else the block numbers from the top
+# (da80-1 down to 0, 0f36-0f61). Both take the first block no handle in DS:d98a refers to
+# (27dc at 0f47 and 0f79). Every later write of AX overwrites the draw: 0f3e (mov ax,0x30), 0f6e
+# (cbtw, after 0f6a loads AL), 0f70 (mov ax,0x30), and 0f9a (mov al,0) for the no victim. The draw's
+# AH is 0 too (random(3) gives 0..2). The callers read AL only (025b's 0329, 05f8's 062e, both as
+# `pop cx; or al,al`), and 05f8's and 0652's callers (05f8: 0a46, 0baf and 065c inside 0652; 0652:
+# 03f7 and 087b) do the same before any read of BX, CX or DX (their next uses of DX follow the lcall
+# 27fa:0d7d they make themselves). 2102:0234 clobbers BX, CX and DX and keeps SI and BP, so AX = 0 with the
+# same stack is the whole change.
 PURGE_ENTRY = (0x27FA, 0x0F14)
 PURGE_DRAW = (0x27FA, 0x0F2C)
 RANDOM = (0x2102, 0x0234)                       # 2102:0234, random(n): push bp; mov bp, sp
@@ -160,7 +164,7 @@ def code(box, seg, off):
 
 def freeze_purges(box):
     """The memory cache's purge draws nothing, in the box only: the draw at 27fa:0f2c is replaced
-    by AX = 0 (the victim table DS:d6ba's order), so the purge still evicts a block (the counters
+    by AX = 0 (the walk of DS:d6ba from its end, the LRU order), so the purge still evicts a block (the counters
     DS:d9ba and DS:da8c still count it) but RandSeed is not drawn. Checked by the bytes first, as
     they are in the box (the lcall's segment is relocated there, to the paragraph of 2102): BoxError
     if the entry's push bp, the draw's lcall or 2102:0234's push bp differ. Call it after the
@@ -171,6 +175,15 @@ def freeze_purges(box):
             box.read(code(box, *RANDOM), 1) != b"\x55":
         raise cokbox.BoxError("27fa:0f14 is not where it was expected")
     box.write(code(box, *PURGE_DRAW), PURGE_FROZEN)
+
+
+def frozen_at_trap(box):
+    """At a fight flow's trap: the draw's five bytes are still PURGE_FROZEN, so the patch is in
+    place even where no purge happened (the counters would show nothing). BoxError otherwise."""
+    got = box.read(code(box, *PURGE_DRAW), len(PURGE_FROZEN))
+    if got != PURGE_FROZEN:
+        raise cokbox.BoxError(f"27fa:0f2c is not frozen at the trap: {got.hex()}")
+    return got
 
 
 def read_far(box, ptr, size):
