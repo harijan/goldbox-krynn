@@ -260,9 +260,10 @@ static void test_round_start_queen(void)
     cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 1);
     CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && !has && ammo == 0);
     cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 0);
-    /* Effect 0xb2 leaves no movement (last: no effect is removed here). */
+    /* Effect 0xb2 (event 0x12's list) runs its handler at the round's start, not ported (dqk
+     * 7e76:0dc6): the round's start stops there. */
     CHECK(cok_character_add_effect(c, 0xb2, 0, 0x10, false) != NULL);
-    CHECK(cok_combat_round_start(&game, c) && c->combat->movement == 0);
+    CHECK(!cok_combat_round_start(&game, c) && strstr(game.error, "0dc6") != NULL);
     cok_adventure_close(&game);
 }
 
@@ -375,6 +376,73 @@ static void end_log(cok_adventure *game, const char *kind, const char *text, voi
  * the colour cycles), the round's end (5045:0f6c: the clouds, the teammate's text, the Continue
  * question) and the battle's end (5045:0001: effect 0xb0, the charm test, the icons), on the
  * first turn's one party member (CINDER). Each stop is one the port cites; the rest runs. */
+/* 1396:019f's walk past a removal (dark_queen.c's pass_time): the chain is P (0x13, 5 minutes,
+ * kept), E (0x72, one minute, flag 1: the handler is death throes, COK_FX_DEATH_THROES, which on
+ * its removal removes the effects its names give, then adds 0x70 and 0x71), N (0x60, 5 minutes)
+ * and Z (0x05, 3 minutes). The test's names make 0x72's removal take BOLTS as N's id (case
+ * "next") or as P's (case "kept"). The walk must not follow N once the removal freed it; after
+ * "next" it goes on from P to Z, after "kept" it stops, cited. */
+static void timer_walk(bool kept_removed)
+{
+    static cok_rules rules;
+    static uint8_t ids[COK_EFFECT_NAMES];
+    static cok_rules_effect handlers[0xe6];
+    rules = *R;
+    memcpy(ids, cok_dark_queen_effect_ids, sizeof ids);
+    ids[COK_EFFECT_BOLTS] = kept_removed ? 0x13 : 0x60;
+    ids[COK_EFFECT_MAD] = 0x6e;
+    ids[COK_EFFECT_IMMOLATE] = 0x6d;
+    ids[COK_EFFECT_PLUS_TWO] = 0x6c;
+    ids[COK_EFFECT_IMMUNE] = 0x70;
+    ids[COK_EFFECT_BURST] = 0x71;
+    memcpy(handlers, R->effects.handlers, sizeof handlers);
+    handlers[0x72].handler = COK_FX_DEATH_THROES;
+    handlers[0x72].unported = NULL;
+    rules.effects.ids = ids;
+    rules.effects.handlers = handlers;
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    CHECK(cok_adventure_open(&game, &rules, "DQKAssets", &keys, &hooks));
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_party_add(&game.party, &rules, c));
+    cok_character_add_effect(c, 0x13, 5, 0, false);
+    cok_character_add_effect(c, 0x72, 1, 0, true);
+    cok_character_add_effect(c, 0x60, 5, 0, false);
+    cok_character_add_effect(c, 0x05, 3, 0, false);
+    game.vm.mode = 4;
+    bool ok = cok_dark_queen_round_clock(&game);
+    if (kept_removed) {
+        /* The kept node is gone: the walk stops, cited (1396:019f's kept next, 031c). */
+        CHECK(!ok && game.vm.status == COK_ECL_UNPORTED);
+        CHECK(strstr(game.error, "dqk 1396:019f") != NULL);
+    } else {
+        /* N is removed by the handler; the walk goes on from P to Z (3 minutes less one) and
+         * on to the 0x70 and 0x71 death throes added: 0x71 counts down too. */
+        CHECK(ok && game.vm.status == COK_ECL_OK);
+        const cok_effect *p = c->effects;
+        CHECK(p != NULL && p->id == 0x13 && p->duration == 4);
+        CHECK(p->next != NULL && p->next->id == 0x05 && p->next->duration == 2);
+        CHECK(p->next->next != NULL && p->next->next->id == 0x70 && p->next->next->duration == 0);
+        CHECK(p->next->next->next != NULL && p->next->next->next->id == 0x71 &&
+              p->next->next->next->duration == 2);
+        CHECK(p->next->next->next->next == NULL);
+    }
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    cok_adventure_close(&game);
+}
+
+static void test_timer_walk(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the timers' walk not checked");
+        return;
+    }
+    timer_walk(false);
+    timer_walk(true);
+}
+
 static void test_round_end(void)
 {
     if (!have_assets()) {
@@ -917,16 +985,23 @@ static void test_magic_ids(void)
         } else {
             char cite[32];
             snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, so);
-            CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
+            if (id == 0x64 || id == 0xc3) /* ported: 78e4:14d1 and 4949 */
+                CHECK(h->handler != COK_FX_MISSING && h->unported == NULL &&
+                      sg == 0x78e4 && so == (id == 0x64 ? 0x14d1 : 0x4949));
+            else
+                CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
-    /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE and BERSERK
-     * have their ids, every other name is 0 (none). */
+    /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
+     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, every other name is 0 (none). */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
+    CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
+    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
-        if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE)
+        if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
+            n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
@@ -1878,6 +1953,7 @@ int main(void)
     test_round_start_queen();
     test_turn_dispatch();
     test_round_end();
+    test_timer_walk();
     test_command_menu_items();
     test_command_menu_text();
     test_command_menu_keys();

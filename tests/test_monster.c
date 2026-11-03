@@ -1751,8 +1751,8 @@ static void test_dark_queen_after_combat(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the continue prompt's key */
     CHECK(!st.standing && st.b7a7 && st.out == 1); /* b is inactive: out; a is not */
 
-    /* An effect that ends with the battle (0x03, the first of DS:631e) on a record stops at
-     * 148f:017d (part 27); one that does not (0x01) runs on to 0593's stop. */
+    /* An effect that ends with the battle (0x03, the first of DS:631e) on a record is removed
+     * (017d, no flag: no handler); one that does not (0x01) stays. */
     cok_party_free(&dqk.party);
     a = dq_member(&dqk, 0, 1);
     b = dq_member(&dqk, 0, 1);
@@ -1764,8 +1764,8 @@ static void test_dark_queen_after_combat(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the results' key, no more */
     CHECK(cok_character_add_effect(a, 0x03, 0, 0, false) != NULL);
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 148f:017d") != NULL);
+    CHECK(dqk.vm.status == COK_ECL_OK && cok_character_find_effect(a, 0x03) == NULL);
+    CHECK(cok_character_find_effect(b, 0x01) != NULL);
 
     /* The demonstration skips 0593: the stop is at 1390 (19c), and 0593's state stays. */
     st = cok_dark_queen_end_state_of(&dqk);
@@ -2206,7 +2206,8 @@ static void test_dark_queen_appends(void)
           dqk.monster_slots[8].icon == 64);
     CHECK(dqk.monster_slots[9].id == 49 && dqk.monster_slots[9].count == 1);
 
-    /* COMBAT appends them, the battle's end runs, and the run goes on to its end. */
+    /* COMBAT appends them (the setup's event 8 runs the SHARKMEN's 0x64 and the GORGONS' 0xc3,
+     * 78e4:14d1 and 4949), the battle's end runs, and the run goes on to its end. */
     memset(&at_setup, 0, sizeof at_setup);
     dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);

@@ -11,6 +11,10 @@ extern const char *const cok_dark_queen_spell_levels[10];
 extern const cok_rules_cast cok_dark_queen_spell_cast[0x8d];
 extern const uint8_t cok_dark_queen_spell_ids[COK_SPELL_NAMES];
 extern const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES];
+extern const uint8_t *const cok_dark_queen_event_lists[0x19];
+extern const uint8_t cok_dark_queen_shared[];
+extern const uint8_t cok_dark_queen_resisted_pending[];
+extern const uint8_t cok_dark_queen_stat_ids[];
 extern const cok_rules_effect cok_dark_queen_effect_handlers[0xe6];
 
 #endif

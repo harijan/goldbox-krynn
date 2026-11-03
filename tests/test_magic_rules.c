@@ -302,6 +302,8 @@ static void test_champions(void)
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
         for (unsigned id = 1; id < d->effects.count; ++id)
             used |= d->effects.handlers[id].handler == k;
+        for (unsigned id = 1; id < cok_rules_dark_queen.effects.count; ++id)
+            used |= cok_rules_dark_queen.effects.handlers[id].handler == k;
         CHECK(used);
     }
     consistent(r);

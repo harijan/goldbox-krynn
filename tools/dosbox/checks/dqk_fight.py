@@ -243,7 +243,7 @@ def enter(box):
     L.freeze_purges(box)
 
 
-def saved_entry(work):
+def saved_entry(work, data=None):
     """Saved game A as the original's Begin Adventuring enters it: a copy in work
     (the SAVE folder's files beside it, so its characters are read as the
     original's are), with variable 0x16 (the block entered) set to block 1: the
@@ -256,14 +256,17 @@ def saved_entry(work):
     for entry in (dqk_lib.ASSETS / "SAVE").iterdir():
         if entry.name != "SAVGAMA.QSV":
             (folder / entry.name).symlink_to(entry)
-    data = bytearray((dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
+    if data is None:
+        data = (dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()
+    data = bytearray(data)
     data[0x16 - 1] = dqk_ecl.JUMP
     (folder / "SAVGAMA.QSV").write_bytes(bytes(data))
     return folder / "SAVGAMA.QSV"
 
 
 def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
-         field=None, at=None, blocks=None, turns=None, combat=None, state=None, sets=()):
+         field=None, at=None, blocks=None, turns=None, combat=None, state=None, sets=(),
+         effects=None, entry=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -271,13 +274,15 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
     DIFFICULTY, if not None, is var 0x27 set after the load. TYPED are the keys after
     the entry's; with RECORDS, the party list written there (--records). Returns its
     variables where it stops (--vars) and its last output line."""
-    extra = ["--load", str(saved_entry(work)), "--play"]
+    extra = ["--load", str(saved_entry(work) if entry is None else entry), "--play"]
     if records is not None:
         extra += ["--records", str(records)]
     if blocks is not None:
         extra += ["--blocks", str(blocks)]
     if turns is not None:
         extra += ["--turns", str(turns)]
+    if effects is not None:
+        extra += ["--effects", str(effects)]
     if difficulty is not None:
         extra += ["--set", f"27={difficulty:x}"]
     for assign in sets:
@@ -514,6 +519,7 @@ def load_original(work, patched, flow, difficulty, verbose):
         return dict(variables=block_vars(box),
                     turns=L.turn_order(box, records),
                     records=[raw.hex() for _, raw in records],
+                    chains=L.effect_chains(box),
                     blocks=combat_blocks(box, records),
                     count=box.ds_byte(L.DS_MONSTER_COUNT),
                     icon_slot=box.ds_byte(L.DS_ICON_SLOT),
@@ -596,6 +602,97 @@ def masked(raw_hex):
     return bytes(raw)
 
 
+def chains_file(path):
+    """eclplay's --effects file: per record (list order), its nodes as [id, minutes, value, flag]."""
+    out = []
+    for line in path.read_text().splitlines():
+        fields = line.split()
+        out.append([[int(x, 16) for x in node.split(",")] for node in fields[1:]])
+    return out
+
+
+def chains_agree(v, original, path, tag):
+    """eclplay's effect chains (--effects) agree with the original's, record for record and node
+    for node (id, minutes, value, flag): the GORGONs' 0xcb among them."""
+    ported = chains_file(path) if path.exists() else None
+    v.check(ported is not None and ported == original,
+            f"eclplay's effect chains agree with the original's (id, minutes, value, flag, in "
+            f"order){tag}", "no file" if ported is None else
+            f"original {original} eclplay {ported}")
+
+
+
+# The timer flow (scope fixture 4): saved game A with ROARK's effect nodes 0 and 1 rewritten (0x02
+# for 10 minutes, flag 0; 0x05 for 5 minutes, flag 1) and WALKER's node 0 (0x01 for 15 minutes,
+# flag 0), then the block's ECL_CLOCK 1 2 (ten minutes, 1396:044d) between two PRESS KEYs. The
+# members are saved game A's list: ROARK is 4 and WALKER 5 (0-based).
+TIMER_REWRITE = {4: {0: (0x02, 10, 0xFF, 0), 1: (0x05, 5, 0xFF, 1)}, 5: {0: (0x01, 15, 0xFF, 0)}}
+TIMER_BEFORE = {4: [0x02, 0x05, 0x2F], 5: [0x01, 0x5E]}     # the chains the rewrite leaves
+TIMER_AFTER = {4: [0x2F], 5: [0x01, 0x5E]}                  # after ten minutes
+
+
+def timer_block():
+    """Block 1: the entry PRESS KEY, ECL_CLOCK 1 2, then the PRESS KEY labelled 'clocked', EXIT."""
+    b = Block()
+    b.op("PRESS_KEY")
+    b.op("ECL_CLOCK", imm(1), imm(2))
+    b.label("clocked")
+    b.op("PRESS_KEY")
+    b.op("EXIT")
+    return b
+
+
+def timer_original(work, glb, qsv, verbose):
+    """The original's run of the timer block: its chains before ECL_CLOCK (at the entry's PRESS KEY)
+    and after it (at 'clocked'), the variables, RandSeed and the records there."""
+    with cokbox.Box(workdir=work / "box-timer", game="dark-queen", verbose=verbose, timeout=900,
+                    files={**L.files(glb), "SAVE/SAVGAMA.QSV": qsv}) as box:
+        dqk_ecl.enter_block(box)
+        L.freeze_purges(box)
+        before = L.effect_chains(box)
+        box.set_seed(SEED)
+        box.keys("\\r")               # the entry's PRESS KEY: ECL_CLOCK runs
+        dqk_ecl.wait_press_key(box, pc=timer_block().address("clocked") + 1)
+        listed = L.records(box)
+        return dict(before=before, chains=L.effect_chains(box), variables=block_vars(box),
+                    seed=box.ds_dword(L.DS_SEED), records=[raw.hex() for _, raw in listed])
+
+
+def ids_of(chains):
+    return {member: [node[0] for node in chains[member]] for member in TIMER_BEFORE}
+
+
+def timer(v, work, opts):
+    """The timers' flow (scope fixture 4): ECL_CLOCK 1 2 with the nodes TIMER_REWRITE sets. Ten
+    minutes: ROARK's 0x02 and 0x05 run out (0x05's handler, flag 1, is 1 retf), WALKER's 0x01 has 5
+    left. The original's chains before and after, clock variables and RandSeed, and eclplay's
+    (--effects, --vars, --state) at the same stop, the chains compared record for record."""
+    import dqk_modify  # noqa: E402
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(timer_block()))
+    qsv = dqk_modify.node_patched(TIMER_REWRITE)
+    o = timer_original(work, patched, qsv, opts.verbose)
+    before, after = ids_of(o["before"]), ids_of(o["chains"])
+    v.check(all(before[m] == TIMER_BEFORE[m] for m in TIMER_BEFORE),
+            "the timer's chains before the clock: ROARK 02 05 2f, WALKER 01 5e",
+            f"original {before}")
+    v.check(all(after[m] == TIMER_AFTER[m] for m in TIMER_AFTER),
+            "the original's chains after ten minutes: ROARK 2f, WALKER 01 (5 left) 5e",
+            f"original {after}")
+    base = work / "port-timer"
+    variables, last = port(work, patched, name="timer", typed="\\r", entry=saved_entry(work, qsv),
+                           records=base.with_suffix(".records"), state=base.with_suffix(".state"),
+                           effects=base.with_suffix(".effects"))
+    chains_agree(v, o["chains"], base.with_suffix(".effects"), " (timer)")
+    v.check(len(variables) == dqk_ecl.VARIABLES and variables[4:11] == o["variables"][4:11],
+            "the clock's variables (5-11) agree after ECL_CLOCK 1 2",
+            f"eclplay {list(variables[4:11])} the original {list(o['variables'][4:11])}")
+    state = base.with_suffix(".state").read_text().splitlines() \
+        if base.with_suffix(".state").exists() else []
+    v.check(state[1:2] == [f"seed {o['seed']:08x}"], "RandSeed after the clock is the original's",
+            f"original {o['seed']:#x}, eclplay {state[1:2]}")
+
+
 def load_run(v, work, opts, flow, difficulty):
     """One run of a load block: the original's (load_original), eclplay's from the
     same start (port, --records, --blocks), and the checks against it. Returns the original's
@@ -620,9 +717,10 @@ def load_run(v, work, opts, flow, difficulty):
     records = work / f"port-{name}.records"
     blocks = work / f"port-{name}.blocks"
     turns = work / f"port-{name}.turns"
+    effects = work / f"port-{name}.effects"
     port_vars, port_last = port(work, patched, name=name, typed="\\r",
                                 records=records, blocks=blocks, difficulty=difficulty,
-                                turns=turns)
+                                turns=turns, effects=effects)
     diff = [a for a in range(1, dqk_ecl.VARIABLES + 1)
             if port_vars[a - 1] != r["variables"][a - 1]] \
         if len(port_vars) == dqk_ecl.VARIABLES else []
@@ -663,6 +761,7 @@ def load_run(v, work, opts, flow, difficulty):
                                           for k in ks) for i, ks in sorted(where.items())))
     blocks_agree(v, r["blocks"], blocks, tag)
     turns_agree(v, r["turns"], turns, tag)
+    chains_agree(v, r["chains"], effects, tag)
     return r, ported
 
 
@@ -856,6 +955,7 @@ def encounter_original(work, patched, verbose):
         handle = at_placement(box)
         records = L.records(box)
         battle = dict(records=[raw.hex() for _, raw in records],
+                      chains=L.effect_chains(box),
                       blocks=combat_blocks(box, records),
                       turns=L.turn_order(box, records),
                       count=box.ds_byte(L.DS_MONSTER_COUNT),
@@ -920,9 +1020,10 @@ def encounter(v, work, opts):
     records = work / "port-encounter.records"
     blocks = work / "port-encounter.blocks"
     turns = work / "port-encounter.turns"
+    effects = work / "port-encounter.effects"
     port_vars, port_last = port(work, patched, name="encounter",
                                 typed="\\r" * len(ENC_WAITS), records=records, blocks=blocks,
-                                turns=turns)
+                                turns=turns, effects=effects)
     v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
             "eclplay ends at the battle's command menu (out of keys)", port_last)
     ported37 = port_vars[0x37 - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
@@ -943,6 +1044,7 @@ def encounter(v, work, opts):
             " ".join(str(i) for i in where))
     blocks_agree(v, battle["blocks"], blocks, "")
     turns_agree(v, battle["turns"], turns, " (encounter)")
+    chains_agree(v, battle["chains"], effects, " (encounter)")
     v.check(battle["count"] == ENCOUNTER.appended and battle["icon_slot"] == ENCOUNTER.icon_slot
             and battle["undead"] == 0 and len(battle["records"]) == PARTY + ENCOUNTER.placed,
             f"the arena's redraw has the party and {ENCOUNTER.placed} monsters (the SHARKMEN; "
@@ -1017,6 +1119,7 @@ def field_original(work, patched, verbose, square=None, tag="field"):
                       combatants=combatants_at(box),
                       purges=purges(box) - purges_at_seed,
                       records=[raw.hex() for _, raw in listed],
+                      chains=L.effect_chains(box),
                       turns=L.turn_order(box, listed),
                       blocks=[None if cb is None else cb[1].hex()
                               for cb in (L.combat_record(box, raw) for _, raw in listed)],
@@ -1134,10 +1237,12 @@ def placement(v, work, patched, tag, where, square, r):
     records = work / f"port-{tag}.records"
     blocks = work / f"port-{tag}.blocks"
     turns = work / f"port-{tag}.turns"
+    effects = work / f"port-{tag}.effects"
     menu = r.get("menu_screen")
     screen = work / f"port-{tag}.bmp" if menu is not None else None
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
-                                records=records, blocks=blocks, turns=turns, screen=screen)
+                                records=records, blocks=blocks, turns=turns, screen=screen,
+                                effects=effects)
     v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
             "eclplay ends at the battle's command menu (out of keys)", port_last)
     if not path.exists():
@@ -1171,6 +1276,7 @@ def placement(v, work, patched, tag, where, square, r):
             "every record agrees at the placement (pointers masked; the computer flag set by "
             "the leadership)", f"{len(ported_records)} against {len(r['records'])}; differ: "
             f"{' '.join(map(str, where_records))}")
+    chains_agree(v, r["chains"], effects, f" at {where}")
     # Each record's combat block (0x18 bytes at +0x40, 59c7:0f7b), in the layout's named bytes
     # (facing +0x0a, not_party +0x14, +0x17) and the rest, which the port reads as 0: the
     # original's must be 0 there too (eclplay --blocks dumps what the port holds).
@@ -1476,7 +1582,7 @@ def snapshot(box):
     listed = L.records(box)
     return dict(field=L.battlefield(box), seed=box.ds_dword(L.DS_SEED),
                 combatants=combatants_at(box), records=[raw.hex() for _, raw in listed],
-                turns=L.turn_order(box, listed),
+                chains=L.effect_chains(box), turns=L.turn_order(box, listed),
                 blocks=[None if cb is None else cb[1].hex()
                         for cb in (L.combat_record(box, raw) for _, raw in listed)],
                 mode=box.ds_word(L.DS_MODE), variables=block_vars(box), state=L.state(box))
@@ -1986,7 +2092,8 @@ def turns(v, work, opts):
     variables, last = port(work, patched, name="turns", typed="\\r\\r" + "E" * TURNS_KEYS,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
-                           screen=base.with_suffix(".bmp"))
+                           screen=base.with_suffix(".bmp"), effects=base.with_suffix(".effects"))
+    chains_agree(v, s["chains"], base.with_suffix(".effects"), " (turns)")
     v.check(COMPUTER_STOP.fullmatch(last or "") is not None,
             "eclplay stops at the computer's turn (5bb8:0000) after five E", last)
     lines = (work / "port-turns.txt").read_text().splitlines()
@@ -2055,7 +2162,9 @@ def round_flow(v, work, opts):
     variables, last = port(work, patched, name="round", typed="\\r\\r" + "E" * 6,
                            sets=["2e=2"], field=base.with_suffix(".field"),
                            records=base.with_suffix(".records"), blocks=base.with_suffix(".blocks"),
-                           turns=base.with_suffix(".turns"), screen=base.with_suffix(".bmp"))
+                           turns=base.with_suffix(".turns"), screen=base.with_suffix(".bmp"),
+                           effects=base.with_suffix(".effects"))
+    chains_agree(v, s["chains"], base.with_suffix(".effects"), " (round 2)")
     v.check(BATTLE_STOP.fullmatch(last or "") is not None,
             "eclplay stops at round 2's first menu after six E", last)
     draws = command_state(v, "round", s, dict(base=base, last=last), o["menu"]["seed"])
@@ -2239,9 +2348,9 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,turns,round,won",
+                                "keys,turns,round,won,timer",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, turns, round, won")
+                             "slots, icons, dispatch, keys, turns, round, won, timer")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -2268,6 +2377,8 @@ def main():
         slots(v, work, opts)
     if "icons" in flows:
         icons(v, work, opts)
+    if "timer" in flows:
+        timer(v, work, opts)
     if "dispatch" in flows:
         dispatch(v, work, opts)
     if "keys" in flows:
