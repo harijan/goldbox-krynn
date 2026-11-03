@@ -1361,7 +1361,11 @@ class DarkQueenTests(unittest.TestCase):
                          menu.with_suffix(".bmp").read_bytes())
         walk = r"\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r"
         outs = []
-        for result in (self.play("--load", saves / "SAVGAMA.QSV", "--play", "--keys", walk, ASSETS),
+        # The start menu's title draws seven random(8) (its palette cycles, 261b:00b1 -> 261b:03db
+        # -> 2102:0234) that --load skips: 0x3e6298eb, the seed they leave from 0, is the
+        # --start-menu route's RandSeed at the battle.
+        for result in (self.play("--load", saves / "SAVGAMA.QSV", "--play", "--seed", "1046649067",
+                                 "--keys", walk, ASSETS),
                        self.play("--start-menu", "--saves", saves, "--keys", r"\k\ePLTAB" + walk,
                                  ASSETS)):
             self.assertEqual(result.returncode, 1)
@@ -1370,11 +1374,8 @@ class DarkQueenTests(unittest.TestCase):
                              "turn (dqk 5045:078b, the first turn's dispatch)\n")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
                                  for line in result.stdout.splitlines()), 29)
-            # The first turn's turn log (the round's order, "1: NAME 8 ...") depends on RandSeed at
-            # the battle's start, which the start menu's own draws leave different (open: the
-            # records and their order agree); the rest of the walk must agree.
-            outs.append([line for line in result.stdout[result.stdout.index("protection:"):]
-                         .splitlines(True) if not line.startswith("round: ")])
+            # The whole walk from "protection:" on agrees, the turn order and the rounds included.
+            outs.append(result.stdout[result.stdout.index("protection:"):].splitlines(True))
         self.assertEqual(outs[0], outs[1])
 
     def test_view_clicks(self):

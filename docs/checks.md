@@ -636,6 +636,7 @@ monsters appended are exactly the two SHARKMEN, every record has its combat reco
 combatants on the map, the readings agree (`dqk_fight_lib.consistent`), and the RandSeed is 0x1756582c (11
 draws from the seed). The states go to build/dqk-fight/setup.json with the heap pointers masked
 (`dqk_fight_lib.portable`: a pointer becomes the index of its record in the list).
+The round's start (step 4, part 10a): the flows that stop at the first turn (`load`, `encounter` and `field`'s placements, with `--turns`) compare the turn list with the original's (`turns_agree`: each entry's place in the party list and its initiative, in order, after 5045:0447), and every combat block (0x18 bytes: the initiative, the attacks, the movement, may use and may cast) agrees. `setup` checks the first turn is combatant 1 in mode 5 with both sides able to act.
 Flow `ground` (step 4, part 4): the same block to the first turn, where the original's screenshot and its battlefield
 (`dqk_fight_lib.battlefield`: the view at +2 and +4, the 50 by 25 cells at +9) are read, and the set the battle drew:
 DS:ca03 (the wall set, LOAD FILES' second operand) with var 0x22 (`dqk_fight.py`'s `block_vars`), which 59c7:0e70 turns

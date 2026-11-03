@@ -132,75 +132,22 @@ uint8_t cok_combat_opposite(const cok_character *c, const cok_rules *rules)
     return cok_field_u8(L, c->record, COK_FIELD_HOSTILE) == 0 ? 1 : 0;
 }
 
-/* Dark Queen's movement (dqk 52db:0004 -> 177e:0a5f, 01ef and 1734): the record's base movement
- * (+0x90) is its movement (+0x199); each readied item (+0x32) of armour (its type's byte 0 is 2) sets it
- * by the item's weight (01ef: 6 over 0x18f, 9 over 0x96, else the base; then +3 if the item has a
- * bonus and the movement is 9 or less); the effects 0x27 doubles, 0x2a halves and 0x4a doubles it.
- * A party member's (not hostile) movement adds var 0x1c, at least 1; the rate is twice that; with
- * var 0x3c set a third of it, unless effect 0x96; effect 0xb2 leaves none. */
-static bool dark_queen_movement(cok_adventure *game, cok_character *c, uint8_t *movement)
-{
-    const cok_rules *rules = cok_game_rules(game);
-    const cok_character_layout *L = rules->character;
-    const cok_rules_item_record *I = &rules->item_record;
-    uint8_t *r = c->record;
-    cok_field_set8(L, r, COK_FIELD_MOVEMENT, cok_field_u8(L, r, COK_FIELD_BASE_MOVEMENT));
-    for (size_t i = 0; i < c->item_count; ++i) {
-        const uint8_t *item = c->items[i];
-        if (item[I->readied] == 0) continue;
-        uint8_t t = item[I->type];
-        if (t >= COK_ITEM_TYPES) {
-            cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                               "an item type past ITEMS reads past the table (DS:ae3e)");
-            return false;
-        }
-        if (game->item_types.type[t][0] != 2) continue; /* the slot: armour (dqk 01ef's cmpb $2) */
-        uint16_t weight = (uint16_t)(item[I->weight] | item[I->weight + 1] << 8);
-        if (weight > 0x18f) cok_field_set8(L, r, COK_FIELD_MOVEMENT, 6);
-        else if (weight > 0x96) cok_field_set8(L, r, COK_FIELD_MOVEMENT, 9);
-        else cok_field_set8(L, r, COK_FIELD_MOVEMENT, cok_field_u8(L, r, COK_FIELD_BASE_MOVEMENT));
-        if (item[I->bonus] != 0 && cok_field_u8(L, r, COK_FIELD_MOVEMENT) <= 9)
-            cok_field_set8(L, r, COK_FIELD_MOVEMENT,
-                           (uint8_t)(cok_field_u8(L, r, COK_FIELD_MOVEMENT) + 3));
-    }
-    if (cok_character_find_effect(c, 0x27) != NULL)
-        cok_field_set8(L, r, COK_FIELD_MOVEMENT,
-                       (uint8_t)(cok_field_u8(L, r, COK_FIELD_MOVEMENT) << 1));
-    if (cok_character_find_effect(c, 0x2a) != NULL)
-        cok_field_set8(L, r, COK_FIELD_MOVEMENT, cok_field_u8(L, r, COK_FIELD_MOVEMENT) / 2);
-    if (cok_character_find_effect(c, 0x4a) != NULL)
-        cok_field_set8(L, r, COK_FIELD_MOVEMENT,
-                       (uint8_t)(cok_field_u8(L, r, COK_FIELD_MOVEMENT) << 1));
-    uint8_t m = cok_field_u8(L, r, COK_FIELD_MOVEMENT);
-    if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0) {
-        int bonus = (int8_t)(uint8_t)cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS);
-        m = bonus + m >= 1 ? (uint8_t)(bonus + m) : 1;
-    }
-    m = (uint8_t)(m << 1);
-    if (cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0 &&
-        cok_character_find_effect(c, 0x96) == NULL)
-        m = (uint8_t)(m / 3);
-    if (cok_character_find_effect(c, 0xb2) != NULL) m = 0;
-    *movement = m;
-    return true;
-}
-
+/* Dark Queen's movement (dqk 52db:0004 -> 177e:0a5f, 01ef and 038c: the base movement, the armour
+ * and the load, the effects, then the party's var 0x1c, doubled, and var 0x3c's third) is
+ * party.c's, which the stats share; the round's variables are its bonus and gate. */
 bool cok_combat_movement(cok_adventure *game, cok_character *c, uint8_t *movement)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
-    if (cok_game_rules(game)->combat.movement_from_base) return dark_queen_movement(game, c, movement);
     if (cok_game_rules(game)->combat.movement_from_base) {
-        /* dqk 177e:0a5f: the base movement (+0x90) into the record's (+0x199), then the effects'
-         * changes (its walk over the record's effects, 1ef and 1734 per id). Not ported: a record
-         * with an effect stops here, with its citation. */
-        if (c->effects != NULL)
-            return cok_adventure_not_yet(game, "a combatant's movement with effects",
-                                         "dqk 177e:0a5f");
-        uint8_t base = cok_field_u8(L, r, COK_FIELD_BASE_MOVEMENT);
-        cok_field_set8(L, c->record, COK_FIELD_MOVEMENT, base);
-        *movement = base;
-        return true;
+        char error[300];
+        uint8_t bonus = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS);
+        bool gate = cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
+        if (cok_character_queen_round_movement(c, cok_game_rules(game), &game->item_types, bonus,
+                                               gate, movement, error, sizeof error))
+            return true;
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
     }
     if (cok_stats_count_movement_effects(cok_game_rules(game))) {
         /* dkk 65cd:1241: haste and slow are in the movement, no event. */
@@ -244,7 +191,8 @@ static bool weapon_type(const cok_item_types *types, const cok_character *c, con
     *type = NULL;
     size_t weapon = c->slots[0];
     if (weapon == 0 || weapon > c->item_count) return true;
-    uint8_t t = c->items[weapon - 1][types->record_type_at];
+    size_t at = types->record_type_at != 0 ? types->record_type_at : 0x2e;
+    uint8_t t = c->items[weapon - 1][at];
     if (t >= COK_ITEM_TYPES) return false;
     *type = types->type[t];
     return true;
@@ -260,13 +208,15 @@ bool cok_combat_missile_weapon(const cok_item_types *types, const cok_character 
     return true;
 }
 
-bool cok_combat_ammunition(const cok_item_types *types, const cok_character *c, size_t *item,
-                           bool *has)
+bool cok_combat_ammunition(cok_adventure *game, const cok_character *c, size_t *item, bool *has)
 {
     const uint8_t *type;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     *item = 0;
     *has = false;
-    if (!weapon_type(types, c, &type)) return false;
+    /* dqk 51c2:10cd: none at once while var 0x3c is set. */
+    if (R->ammunition_gated && cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0) return true;
+    if (!weapon_type(&game->item_types, c, &type)) return false;
     uint8_t flags = type != NULL ? type[14] : 0;
     if (type != NULL) {
         if ((flags & 0x10) != 0) *item = c->slots[0];
@@ -276,7 +226,8 @@ bool cok_combat_ammunition(const cok_item_types *types, const cok_character *c, 
         }
     }
     if (*item > c->item_count) *item = 0;
-    *has = *item != 0 || flags == 0x0a;
+    *has = *item != 0 || flags == 0x0a ||
+           (R->ammunition_also != 0 && flags == R->ammunition_also);
     return true;
 }
 
@@ -298,7 +249,7 @@ bool cok_combat_weapon_attacks(cok_adventure *game, cok_character *c)
     bool missile, has = false;
     size_t item = 0;
     if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return item_type_past(game);
-    if (missile && !cok_combat_ammunition(&game->item_types, c, &item, &has))
+    if (missile && !cok_combat_ammunition(game, c, &item, &has))
         return item_type_past(game);
     if (has) {
         const uint8_t *type;
@@ -836,7 +787,8 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
     cr->may_cast = !cloud && (!cok_game_rules(game)->combat.may_cast_needs_spell ||
                               memorised_spell(L, r));
-    cr->may_use = 1;
+    /* dqk 52db:0004's +2: not in a cloud. */
+    cr->may_use = cok_game_rules(game)->combat.may_use_needs_no_cloud ? !cloud : 1;
     cr->attacked = 0;
     cr->attack_slot = 2;
     if (!cok_combat_weapon_attacks(game, c)) return false;

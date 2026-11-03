@@ -1172,7 +1172,11 @@ typedef struct {
      * DKK's is cok_combat_setup's). Dark Queen's gives each record effect 8 only (1ea5-1ed3, no
      * 0x16) and clears its block's turning byte (+0x12), not turns (+0x11); and 1dd7 clears Move
      * mode (DS:af3d) and leaves the cursors (DS:71a5, 71a6) as they are: setup_effect_8_only,
-     * setup_clears_turning and setup_keeps_aim. */
+     * setup_clears_turning and setup_keeps_aim.
+     * The tail also clears combatant 0's x (DS:c3f1, its first byte) and DS:b2ea (the caster's
+     * level, read by the magic resistance 148f:02ed). The port does not model either yet: nothing
+     * before the first turn reads them, and a part that writes combatant 0 or casts (10b on) must
+     * clear them here. */
     bool setup_effect_8_only, setup_clears_turning, setup_keeps_aim;
     /* The movement is Dark Queen's (dqk 177e:0a5f and 01ef: the base movement at +0x90, the readied
      * items' weights, the effects 0x27, 0x2a, 0x4a, 0x96 and 0xb2, and the party's var 0x1c; no
@@ -1181,6 +1185,14 @@ typedef struct {
     /* Dark Queen's may cast (dqk 52db:0004's +1): a record may cast only with a memorised spell,
      * a byte of 1 to 0x7f in its 0x89 bytes from the memorized field (+0xce), and not in a cloud. */
     bool may_cast_needs_spell;
+    /* Dark Queen's may use (52db:0004's +2, the probe's cloud): a record may use items only out
+     * of a cloud. */
+    bool may_use_needs_no_cloud;
+    /* Dark Queen's ammunition (51c2:10c3): none while var 0x3c (COK_VAR_RECORD_EFFECT) is set,
+     * and a weapon whose type's flags byte 14 is ammunition_also (0x0c; 0 for none) has some as
+     * well as 0x0a. */
+    bool ammunition_gated;
+    uint8_t ammunition_also;
     /* The enemy health (52db:29f1, the side count's own test at 51c2:094c): a record of status 9
      * is left out of it (dqk; Champions and DKK count it). */
     bool enemy_health_skip_status_9;

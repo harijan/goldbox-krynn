@@ -888,7 +888,6 @@ bool cok_item_types_read_at(const char *path, size_t at, cok_item_types *types, 
      * into DS:5886; ITEMS holds 128, so the 129th stays zero (dqk
      * 64b2:0006 reads 0x800 from the start of ITEMS.DAT). */
     memset(types, 0, sizeof *types);
-    types->record_type_at = 0x2e;
     if (size > at) {
         size_t length = size - at < sizeof types->type ? size - at : sizeof types->type;
         memcpy(types->type, data + at, length);
@@ -1210,13 +1209,14 @@ static uint8_t death_knights_movement(lookup *l, const cok_character_layout *L,
  * armour (177e:01ef) and the load (177e:038c), doubled by effect 0x27,
  * halved by 0x2a and doubled by 0x4a (as bytes), left in the record; then
  * for a character on the party's side (+0x66 0) the party's variable 0x1c
- * (a signed byte; 1 where the sum is below 1), doubled, a third where
- * variable 0x3c is set and effect 0x96 is not, 0 with effect 0xb2:
- * returned (DS:b1c6). The port's stats have no ECL variables: they count
- * as 0, as Death Knights' 0x7f72 does (step 4 gives them). 177e:0be2 keeps
- * half of it: the movement & 0x7f. */
+ * (bonus, a signed byte; 1 where the sum is below 1), doubled, a third
+ * where variable 0x3c (gate) is set and effect 0x96 is not, 0 with effect
+ * 0xb2: returned (DS:b1c6). The stats pass 0 and no gate: the port's
+ * stats have no ECL variables (as Death Knights' 0x7f72 counts as 0, step 4
+ * gives them), and 177e:0be2 keeps half of it: the movement & 0x7f. */
 static uint8_t dark_queen_movement(lookup *l, const cok_character_layout *L,
-                                   cok_character *character, const cok_item_types *types)
+                                   cok_character *character, const cok_item_types *types,
+                                   int8_t bonus, bool gate)
 {
     const cok_rules_item_record *I = &l->rules->item_record;
     uint8_t *c = character->record;
@@ -1234,10 +1234,23 @@ static uint8_t dark_queen_movement(lookup *l, const cok_character_layout *L,
     if (cok_character_find_effect(character, 0x2a) != NULL) m = (uint8_t)(m >> 1);
     if (cok_character_find_effect(character, 0x4a) != NULL) m = (uint8_t)(m << 1);
     cok_field_set8(L, c, COK_FIELD_MOVEMENT, m);
-    if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 0 && m == 0) m = 1;
+    if (cok_field_u8(L, c, COK_FIELD_HOSTILE) == 0) {
+        int sum = bonus + m;
+        m = sum >= 1 ? (uint8_t)sum : 1;
+    }
     m = (uint8_t)(m << 1);
+    if (gate && cok_character_find_effect(character, 0x96) == NULL) m = (uint8_t)(m / 3);
     if (cok_character_find_effect(character, 0xb2) != NULL) m = 0;
     return m;
+}
+
+bool cok_character_queen_round_movement(cok_character *character, const cok_rules *rules,
+                                        const cok_item_types *types, uint8_t bonus, bool gate,
+                                        uint8_t *movement, char *error, size_t error_size)
+{
+    lookup l = new_lookup(rules, error, error_size);
+    *movement = dark_queen_movement(&l, rules->character, character, types, (int8_t)bonus, gate);
+    return !l.failed;
 }
 
 bool cok_character_round_movement(cok_character *character, const cok_rules *rules,
@@ -1254,7 +1267,7 @@ bool cok_character_movement_now(cok_character *character, const cok_rules *rules
 {
     lookup l = new_lookup(rules, error, error_size);
     if (rules->characters.stats != COK_STATS_DARK_QUEEN) return true;
-    (void)dark_queen_movement(&l, rules->character, character, types);
+    (void)dark_queen_movement(&l, rules->character, character, types, 0, false);
     return !l.failed;
 }
 
@@ -1352,7 +1365,7 @@ bool cok_character_stats(cok_character *character, const cok_rules *rules,
                        (uint8_t)(death_knights_movement(&l, L, character, types, 0) >> 1));
     else if (queen)
         cok_field_set8(L, c, COK_FIELD_MOVEMENT,
-                       (uint8_t)(dark_queen_movement(&l, L, character, types) / 2));
+                       (uint8_t)(dark_queen_movement(&l, L, character, types, 0, false) / 2));
     else
         encumbrance(&l, L, c);
     size_t best = queen ? 5 : 4;

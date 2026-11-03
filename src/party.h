@@ -51,8 +51,8 @@ enum {
 typedef struct {
     uint8_t type[COK_ITEM_TYPES][16];
     /* Where an item record keeps its type (the rules' item_record.type): 0x2e for Champions and
-     * DKK, 0x28 for Dark Queen (177e:0be2). Set by cok_item_types_read_at to 0x2e, and by the
-     * game's ITEMS read to its own. */
+     * DKK, 0x28 for Dark Queen (177e:0be2), set by the game's ITEMS read. 0, as a table that was
+     * never read holds it, means 0x2e. */
     uint8_t record_type_at;
 } cok_item_types;
 
@@ -298,6 +298,15 @@ static inline int8_t cok_character_change_level(const cok_rules *rules, const ui
  * the current one (60f4:1743 with 0; dkk 638c:16d8): an item of power 0x0d
  * makes it 3. */
 void cok_character_strength(cok_character *character, const cok_rules *rules);
+
+/* Dark Queen's movement a round in combat (dqk 177e:0a5f with the battle's variables, the
+ * stats' own being 0 and no gate): the record's movement recomputed from its base, armour and
+ * load, then for one on the party's side plus bonus (var 0x1c), doubled, a third where gate
+ * (var 0x3c) is set and effect 0x96 is not, 0 with effect 0xb2; in *movement, as a byte. Returns
+ * false with error set where an item's type is past the table. */
+bool cok_character_queen_round_movement(cok_character *character, const cok_rules *rules,
+                                        const cok_item_types *types, uint8_t bonus, bool gate,
+                                        uint8_t *movement, char *error, size_t error_size);
 
 /* The sheet's own call (dqk 86b8:065e after the recompute): Dark Queen's
  * movement again (177e:0a5f), left in the record as it comes (not halved
