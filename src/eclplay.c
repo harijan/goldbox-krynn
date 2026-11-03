@@ -85,6 +85,28 @@ static void save_records(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --field: the battlefield as the run left it: RandSeed, the view's origin, the
+ * header's cursor, cursor size and see-all (the map's +6, +7, +8) and the cells (50 by 25,
+ * row by row, in hex). Where the battle stops before its placement, the origin is what
+ * the setup left (zero until placement sets it). */
+static void save_field(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    fprintf(f, "seed %08lx\n", (unsigned long)game->vm.seed);
+    fprintf(f, "view %d %d\n", game->combat.view_x, game->combat.view_y);
+    fprintf(f, "header %u %u %u\n", game->combat.cursor, game->combat.cursor_size,
+            game->combat.see_all);
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y) {
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) fprintf(f, "%02x", game->combat.cells[y][x]);
+        fputc('\n', f);
+    }
+    fclose(f);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
@@ -154,6 +176,8 @@ static void usage(const char *program)
           "                  the monsters after the party), then the monsters' count, the\n"
           "                  next icon slot and the undead count, a byte each, as FILE\n"
           "                  at the end\n"
+          "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
+          "                  origin and the 50 by 25 cells in hex\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
           "  --start ADDR    run only from code address ADDR (hex)\n"
           "  --at X,Y,DIR    party position and facing (0, 2, 4 or 6)\n"
@@ -783,7 +807,7 @@ static int run(int argc, char **argv)
     bool sound_given = false;
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
-    const char *screen = NULL, *vars = NULL, *records = NULL;
+    const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL;
     const char *ground = NULL, *ground_set = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -901,6 +925,8 @@ static int run(int argc, char **argv)
             vars = argv[++i];
         } else if (strcmp(option, "--records") == 0 && has_value) {
             records = argv[++i];
+        } else if (strcmp(option, "--field") == 0 && has_value) {
+            field = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
                    number(argv[i + 1], 10, 3, &file) && file >= 1) {
             ++i;
@@ -1255,6 +1281,7 @@ static int run(int argc, char **argv)
     if (screen != NULL) save(&p, screen);
     if (vars != NULL) save_vars(&game, vars);
     if (records != NULL) save_records(&game, records);
+    if (field != NULL) save_field(&game, field);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */
     if (status == COK_ECL_OK && (!cok_key_script_done(&p.keys) || p.buffered > 0))

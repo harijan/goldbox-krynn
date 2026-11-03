@@ -316,7 +316,9 @@ static void set_cell(dungeon *d, uint8_t dx, uint8_t dy, uint8_t tile)
  * door. */
 static uint8_t side_kind(const dungeon *d, int8_t x, int8_t y, uint8_t dir)
 {
-    if (x < 0 || x > 15 || y < 0 || y > 15)
+    /* The map's own size (Dark Queen's GEO record: dqk 59c7:0072 reads the
+     * view's width and height), 16 by 16 otherwise. */
+    if (!cok_view_inside(d->view, x, y))
         return y == d->party_y && (dir == 2 || dir == 6) ? 0 : 1;
     if (cok_view_passage(d->view, dir, x, y) == 0) return 1;
     return cok_view_wall(d->view, dir, x, y) == 0 ? 0 : 3;
@@ -366,7 +368,7 @@ static void north_west(dungeon *d)
 {
     bool open = edge(d, d->x, s8(d->y - 1), 6) == 0 && edge(d, s8(d->x - 1), d->y, 0) == 0;
     uint8_t top_left = 0, top_right = 0, bottom_left = 0, bottom_right = 0;
-    bool corners = d->rules->combat.door_corners; /* dkk 410b:04d8 */
+    bool corners = d->rules->combat.door_corner_nw; /* dkk 410b:04d8, dqk 59c7:0285 */
     if (d->north == 0) {
         if (d->west == 0) top_left = 0x16;
         else if (d->west == 3 && !corners) top_left = 0x0d;
@@ -415,7 +417,7 @@ static void north_east(dungeon *d)
         if (beyond == 0) top_right = 0x16;
         else if (beyond == 3)
             top_right = d->east == 0 && next != 0                          ? 0x18
-                        : d->east == 0 && d->rules->combat.door_corners ? 7 /* dkk 410b:06ae */
+                        : d->east == 0 && d->rules->combat.door_corner_ne ? 7 /* dkk 410b:06ae */
                                                                          : 1;
         else if (beyond == 1) top_right = d->east != 0 ? 3 : next != 0 ? 0x0b : 7;
     } else if (d->east != 0) {
@@ -510,6 +512,8 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_vi
             north_edge(&d);
             north_west(&d);
             north_east(&d);
+            /* Dark Queen's loop (dqk 59c7:06a7) places no tables or chairs. */
+            if (rules->combat.dungeon_no_tables) continue;
             d.room = (cok_view_square(view, d.x, d.y) & 0x40) != 0;
             furniture(&d, seed);
         }
@@ -1179,12 +1183,20 @@ static bool build(cok_adventure *game)
     const cok_rules_archives *a = &cok_game_rules(game)->archives;
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     const cok_drawing *drawing = cok_adventure_drawing(game);
+    /* Open ground's builders (dqk 59c7:0e3b and on) are not ported yet: the
+     * battle stops before the tiles are loaded. */
+    if (!area && R->wilderness_unported != NULL)
+        return cok_adventure_not_yet(game, "open ground's battlefield", R->wilderness_unported);
     if (drawing != NULL && drawing->arena_tiles != NULL) {
         /* The game's set and its palette (dqk 59c7:1dd7 -> 0e70: the set
          * DS:ca03 of DungCom1 where var 0x22 is not 0, else of WildCom1, its
          * palette applied as it loads, 204c:0007 -> 19a4:0b8c, before the
          * builders below draw from the seed). */
-        if (!drawing->arena_tiles(game, !area, (unsigned)game->wall_ids[0])) return false;
+        if (!drawing->arena_tiles(game, !area, (unsigned)game->wall_ids[0])) {
+            /* The set's loader names its failure in game->error only. */
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+            return false;
+        }
     } else if (!(area && R->tiles_kept && combat->dungeon_tiles) &&
                !load_tiles(game, area ? a->dungeon : a->wilderness, 0,
                            area ? R->dungeon_tiles : R->wilderness_tiles)) {
@@ -1249,16 +1261,18 @@ bool cok_combat_setup(cok_adventure *game)
         return false;
     }
     /* 6961:0537, the portrait's pieces and the big picture. */
-    cok_adventure_free_picture(game);
-    cok_adventure_forget_portrait(game);
-    cok_picture_free(&game->big);
-    game->big_id = COK_ADVENTURE_NO_PICTURE;
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
-    cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
-    const char *begins = cok_game_rules(game)->combat.begins;
-    log_text(game, "print", begins);
-    cok_text_string(&game->screen, &game->font, begins, 0, 24,
-                    cok_game_rules(game)->combat.begins_colour, 0); /* 1521:0353 */
+    if (!cok_game_rules(game)->combat.no_setup_prelude) {
+        cok_adventure_free_picture(game);
+        cok_adventure_forget_portrait(game);
+        cok_picture_free(&game->big);
+        game->big_id = COK_ADVENTURE_NO_PICTURE;
+        cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+        cok_adventure_wait(game, game->speed * 100u);              /* 1521:0b4b */
+        const char *begins = cok_game_rules(game)->combat.begins;
+        log_text(game, "print", begins);
+        cok_text_string(&game->screen, &game->font, begins, 0, 24,
+                        cok_game_rules(game)->combat.begins_colour, 0); /* 1521:0353 */
+    }
     combat->magic_on = false;
     game->effects.rolls.round = 0;
     combat->round_limit = 15;
@@ -1273,9 +1287,12 @@ bool cok_combat_setup(cok_adventure *game)
     free(game->lost_weapons);
     game->lost_weapons = NULL;
     game->lost_weapon_count = 0;
-    cok_ecl_set_var(vm, COK_VAR_FLED, 0);
+    cok_ecl_set_var(vm, COK_VAR_FLED, 0); /* dqk 1dd7 clears var 0x36, its FLED */
     bool listed = game->party.count > 0;
     if (!build(game)) return false;
+    if (cok_game_rules(game)->combat.placement_unported != NULL)
+        return cok_adventure_not_yet(game, "battle's placement",
+                                     cok_game_rules(game)->combat.placement_unported);
     drop_key(game);
     char error[300];
     if (!cok_combat_records(&game->party, cok_game_rules(game), &game->item_types,

@@ -1704,7 +1704,8 @@ const cok_rules cok_rules_champions = {
             .tiles_kept = false,
             .wilderness = COK_WILDERNESS_CHAMPIONS,
             .dungeon_fill = false,
-            .door_corners = false,
+            .door_corner_nw = false,
+            .door_corner_ne = false,
             /* 3cb2:17f7 */
             .placement_clears = 255,
             .ambush = false,

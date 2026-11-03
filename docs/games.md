@@ -669,7 +669,7 @@ run, citing their handlers (`unported`). It holds:
   into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
   (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
-  extras take 14. COMBAT stops at the battle (`5045:059d`, cited) and with no monsters at the
+  extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters at the
   vault (`771f:09a0`), the temple (`7825:0af6`) and the treasure (`75cc:135c`), the branches
   of `5f07:081b`, cited. Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
   `5f07:088f`-`08ba`, between the overlay's loads and the text) run now, as the encounter's
@@ -765,6 +765,31 @@ run, citing their handlers (`unported`). It holds:
   and the second SETUP draw the second sprite as the original does. The battle's start is the
   load flow's. Not checked against the original: 1 or 2 open squares (the count is the same
   routine; the repo test has a synthetic flat map for them).
+- its battlefield (step 4, part 7; `dqk_fight.py`'s flow `field`; `combat.c`'s `build`,
+  `cok_combat_dungeon` and `cok_combat_setup`, with the descriptor's `dungeon_*`, `door_corner_*`,
+  `wilderness_unported` and `placement_unported` fields). The battle (`5045:059d`) starts with its
+  setup (`59c7:1dd7`, mode 5, the setup's clears), then the tiles and 3D map (`59c7:0e70`, part 4's
+  set), then the dungeon builder (`59c7:06a7`) for a battle in 3D (var 0x22 set). The builder fills
+  the 50 by 25 map with floor (0x16, every cell built), then for each of its 13 by 5 squares the
+  four edges (`59c7:00ef`, `side_kind` on the map's own size, `59c7:0072`), the west edge
+  (`014e`), the north edge (`01fb`), the north-west corner (`0285`: no door as a corner) and the
+  north-east (`049e`: a door's corner, tile 7 where the east is open). Dark Queen's loop draws no
+  tables and chairs (`dungeon_no_tables`: no dice, so RandSeed is the seed the battle began
+  with). Checked by `dqk_fight.py`'s flow `field`: at the placement (`59c7:0f7b`, trapped), the
+  original's 50 by 25 cells, the header (+6, +7, +8) and RandSeed agree with eclplay's (`--field`)
+  for the fixture's square and for the west edge (0, 3, 2), (12, 12) and (4, 14). The original's
+  RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free
+  memory is short, and 0f14 adds one to DS:d9ba (argument 0) or DS:da8c and draws random(3) from
+  the seed (`2102:0234` at `0f2c`) to pick the block to evict. The count varies from run to run
+  with the heap's state (0 to 7 at the placement here), and the port does not model the heap, so
+  eclplay's RandSeed is the seed the battle began with and the check takes the original's draws
+  past it as its purges (`PURGE_COUNTERS`). The memory settings do not stop them (docs/checks.md).
+  The battle's leadership (`52db:4dd2`, before `1dd7`, no announcement: the descriptor's
+  `leadership_*` fields) is ported; Dark Queen's var 0x36 is FLED (`1dd7` clears it, `52db:2aef`
+  sets it); and its setup has no prelude (`no_setup_prelude`: `5045:059d` and `1dd7` free no
+  picture, clear no row, wait and print nothing, so "A battle begins..." is printed once, by COMBAT).
+  The view's origin (DS:bedb +2, +4) is written after the placement, so it is not compared. The open ground (`59c7:0e3b`, the wilderness builders) and
+  the placement (`59c7:0f7b`, `1864`, the records) stop the battle, cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

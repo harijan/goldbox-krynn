@@ -1028,7 +1028,8 @@ static void test_combat(void)
     CHECK(HOLDS(0x410b, 0x10d7, 0x70, 0xb0, C->wilderness_tiles) &&
           HOLDS(0x410b, 0x10d7, 0x70, 0xb0, C->dungeon_tiles));
     CHECK(C->dungeon_fill && HOLDS(0x410b, 0x0892, 0x20, 0xb0, C->dungeon_floor));
-    CHECK(C->wilderness == COK_WILDERNESS_DEATH_KNIGHTS && C->tiles_kept && C->door_corners);
+    CHECK(C->wilderness == COK_WILDERNESS_DEATH_KNIGHTS && C->tiles_kept && C->door_corner_nw &&
+          C->door_corner_ne);
     CHECK(R->archives.random == NULL);
     /* The river's variable: 410b:0a4c's cmp byte [es:di+0xf3], 0 on the
      * 0x4b00 block. */

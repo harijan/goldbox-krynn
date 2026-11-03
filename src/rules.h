@@ -1083,7 +1083,14 @@ typedef struct {
      * a battle (dkk 3e05:00ec's [bp-1]), rather than only at the end of the
      * round. The aging after it is the levels section's. */
     bool leadership;
-    const char *leadership_text, *leads, *leads_end;
+    const char *leadership_text, *leads, *leads_end; /* NULL text: no announcement (dqk) */
+    /* Leadership's descriptor differences (dkk 5340:4acf; dqk 52db:4dd2, 4d50): the
+     * index of the class level the leader reads (COK_FIELD_CLASS_LEVEL: dkk 7, dqk 1);
+     * the computer flag an NPC gets (dkk 1; dqk 0x80 at +0x18c, from its +0x9b bit 7);
+     * and whether the chance its knights of no order use is kept from one call to the
+     * next (dkk's [bp-3]; dqk's 4d50 has it in its own frame, unset). */
+    uint8_t leadership_level, leadership_computer;
+    bool leadership_chance_kept;
     bool explode, ends_in_round;
     /* The setup (3cb2:1c58; dkk 410b:1e41): its line on row 24 (Champions'
      * in 1521's code, CS:1c45; dkk DS:2a07); the tiles from the 3D area's
@@ -1094,19 +1101,30 @@ typedef struct {
      * builder (a cok_wilderness_routine); the dungeon's map before it is
      * built: the random tiles' record 1 as the heap left it (3cb2:1029's
      * GetMem), or, where dungeon_fill is set, cleared and filled with
-     * dungeon_floor (dkk 410b:10d7 and 0892: 0x16); whether a door on the
-     * north-west corner's west edge, and beyond the north-east one's north,
-     * is drawn as a wall's corner is (dkk 410b:04d8, 06ae); whether the
-     * setup clears Magic On (DS:7198) and the dead that explode (DS:6b45,
-     * 6b95; dkk neither). */
+     * dungeon_floor (dkk 410b:10d7 and 0892: 0x16; dqk 59c7:06a7, 0x16 too);
+     * whether a door on the north-west corner's west edge (door_corner_nw:
+     * dkk 410b:04d8; dqk 59c7:0285 says no) and beyond the north-east
+     * one's north (door_corner_ne: dkk 410b:06ae; dqk 59c7:049e says yes)
+     * is drawn as a wall's corner is; whether the dungeon has tables and
+     * chairs in its rooms (dungeon_no_tables: dqk 59c7:06a7 places none,
+     * and draws no dice there); the wilderness and placement the port does
+     * not carry out yet (dqk 59c7:0e3b, 0f7b: the stops' citations; NULL
+     * for none); whether the setup clears Magic On (DS:7198) and the dead
+     * that explode (DS:6b45, 6b95; dkk neither). */
     const char *begins;
     uint8_t begins_colour;
+    /* Whether the setup's prelude is skipped (cok_combat_setup: the pictures freed,
+     * row 24 cleared, the wait and "A battle begins..."): dqk 5045:059d and 59c7:1dd7
+     * do none of them; the battle's text is COMBAT's (monster.c). */
+    bool no_setup_prelude;
     uint8_t dungeon_tiles, wilderness_tiles;
     bool tiles_kept;
     uint8_t wilderness;
     bool dungeon_fill;
     uint8_t dungeon_floor;
-    bool door_corners;
+    bool door_corner_nw, door_corner_ne;
+    bool dungeon_no_tables;
+    const char *wilderness_unported, *placement_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions

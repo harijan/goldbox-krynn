@@ -1797,6 +1797,9 @@ const cok_rules cok_rules_death_knights = {
             .leadership_text = "  Using leadership ability ", /* 5340:4aa9 */
             .leads = " leads ",                                /* 5340:4ac5 */
             .leads_end = ".",                                  /* 5340:4acd */
+            .leadership_level = 7,      /* 5340:4a25's class level (the knights') */
+            .leadership_computer = 1,   /* 5340:4acf's flag for an NPC */
+            .leadership_chance_kept = true,
             .explode = false,
             .ends_in_round = true,
             /* 410b:1e41, 10d7 */
@@ -1808,7 +1811,8 @@ const cok_rules cok_rules_death_knights = {
             .wilderness = COK_WILDERNESS_DEATH_KNIGHTS, /* 410b:107e */
             .dungeon_fill = true, /* 410b:10d7, 0892 */
             .dungeon_floor = 0x16,
-            .door_corners = true, /* 410b:04d8, 06ae */
+            .door_corner_nw = true,  /* 410b:04d8 */
+            .door_corner_ne = true,  /* 410b:06ae */
             /* 410b:1aa4, 18c2 */
             .placement_clears = 0x48,
             .ambush = true,
