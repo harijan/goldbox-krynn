@@ -13,18 +13,18 @@ answered), with the seed set after the block's entry PRESS KEY:
 COMBAT with no monsters, no vault and no temple wanted runs 75cc:135c: its treasure start walks the
 lost weapons (1297, none here), clears var 0x2e, the flags = <> < > (2093:0015), and DS:c7df, then
 0593 (the party's after combat) sets the party's flags and removes the effects that end with the
-battle. It stops at 0593's call of the experience (75cc:01fb, when a member stands: flow `won`) or
-at its rest (75cc:0736: flows `fled` and `lost`), both cited for part 19b.
+battle. When a member stands, 0593 runs 01fb (the experience: the pool's coins over the party) and
+0427 (the award), then its rest from 75cc:0736 (all flows). The stop is at 0736, cited for part 19b.
 
 The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
 so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, overlay 8's
-75cc:0723 and 75cc:0736 are spun too, then 2093:0015 is given back. Its state is read where the spin
+75cc:0736 is spun too (after 01fb and 0427 in `won`), then 2093:0015 is given back. Its state is read where the spin
 holds: the 1 KB of variables, the records (pointers masked), the flags, DS:af3f, c7de, c7df, b1da,
 b7a7, the mode (DS:ae57), RandSeed, and the 18 effect ids at DS:631e. Stage 1 also shows that
 135c's start ran: var 0x2e is 0 at the 2093:0015 spin.
 
 Flows (each its own saved game as the original starts it):
-- `won`: saved game A as it is (its members standing, status 0): 0723.
+- `won`: saved game A as it is (its members standing, status 0): 01fb and 0427 run, then 0736.
 - `fled`: every member's status word 3 (the others' records as A): 0736, fled set, b7a7 clear.
 - `lost`: every member's status word 2 and inactive: 0736, nobody standing or fled, b7a7 set, the
   six members out.
@@ -67,7 +67,7 @@ EFFECTS = bytes([0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35,
 FLOWS = {
     # flow: (the saved game's changes to every member, the stop's cite,
     #        the expected state: standing, fled, b7a7, out)
-    "won": dict(changes=None, cite="dqk 75cc:01fb", expect=(True, False, False, 0)),
+    "won": dict(changes=None, cite="dqk 75cc:0736", expect=(True, False, False, 0)),
     "fled": dict(changes={0x64: 3, 0x65: 0}, cite="dqk 75cc:0736", expect=(False, True, False, 0)),
     "lost": dict(changes={0x64: 2, 0x65: 0, 0x18b: 0}, cite="dqk 75cc:0736",
                  expect=(False, False, True, MEMBERS)),
@@ -124,7 +124,7 @@ def read_state(box):
 
 def original(work, name, changes, patched, verbose):
     """The original's state at the spin for one flow: stage 1 at 2093:0015, then the traps at
-    75cc:0723 and 75cc:0736 while stage 1 spins, then stage 1 given back. Returns (state, the
+    75cc:0736 while stage 1 spins, then stage 1 given back. Returns (state, the
     trap's stop address, whether the game waited at the PRESS KEY before COMBAT)."""
     qsv, saves = saved_game(work, name, changes)
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose, timeout=900,
@@ -147,14 +147,13 @@ def original(work, name, changes, patched, verbose):
             if time.monotonic() - t0 > 60:
                 raise cokbox.BoxError("stage 1 did not hold at 2093:0015 (135c's start)")
         stage1_surprise = box.byte(v + SURPRISE)  # 135c's start cleared it before the flags
-        h2 = L.trap(box, 0x75CC, 0x0723, seconds=10)
         h3 = L.trap(box, 0x75CC, 0x0736, seconds=10)
         L.untrap(box, h1)
-        hold = L.Trap(list(h2) + list(h3), 0x75CC, 0x0723)
+        hold = L.Trap(list(h3), 0x75CC, 0x0736)
         t0 = time.monotonic()
         while not L.held(box, hold)[0]:
             if time.monotonic() - t0 > 60:
-                raise cokbox.BoxError("stage 2 did not hold at 0593's 0723 or 0736")
+                raise cokbox.BoxError("stage 2 did not hold at 0593's 0736")
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting

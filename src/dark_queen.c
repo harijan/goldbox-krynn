@@ -6,6 +6,7 @@
 #include "hlib.h"
 #include "magic.h"
 #include "queen.h"
+#include "queen_levels.h"
 #include "queen_arena.h"
 #include "queen_create.h"
 #include "queen_items.h"
@@ -136,6 +137,8 @@ typedef struct {
      * sets it, 135c clears it); DS:b1da, the members out. */
     bool standing, fled, monsters_present;
     uint8_t out;
+    /* DS:ae4f: the share of the experience (01fb's, 414-41c), which 0427 gives out. */
+    uint32_t share;
     /* DS:acc4: a load asked from the adventure's camp (5f07:0004 sets it to 1;
      * 5f07:000f reads it at 5f07:1372). The loop loads it (5f07:137a), then
      * main takes the camp from main again (5ebd:0312). */
@@ -5203,11 +5206,117 @@ static uint16_t word_field(const cok_character_layout *L, const uint8_t *r, cok_
     return (uint16_t)(r[at] | r[at + 1] << 8);
 }
 
+/* 75cc:01fb, the experience (after 0593 when a member stands): every monster in the list
+ * (hostile word 1, status word neither 0, 3 nor 9) sets DS:c7df, and one past the party (its
+ * combat record's not_party 1) puts its coins (three words, steel, gems, jewelry) in the pool
+ * and its experience (+0x54) in the sum. The pool's steel counts 2, its gems 250 and its
+ * jewelry 2200, and each magic item with a bonus above 0 adds 400 times it (as a signed word,
+ * 0x30; the last missile recovered, DS:c2e3, stops the walk). The sum, a LongInt, is divided by
+ * the party's variable 0x20 less those out (DS:b1da, decremented first where the variable is no
+ * more: 01fb 3a2-3ac); a divisor of 0 is runtime error 200. The share is DS:ae4f.
+ * A monster's items go to the pool through 000b (part 19b): cited, the
+ * first time one would move. The party with no monsters past it adds nothing here. */
+static bool experience(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    const cok_rules_item_record *ir = &R->item_record;
+    uint32_t total = 0;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        cok_character *c = game->party.members[i];
+        uint8_t *r = cok_party_record(&game->party, i);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
+        if (word_field(L, r, COK_FIELD_HOSTILE) != 1 || status == 0 || status == 3 ||
+            status == 9)
+            continue;
+        q->monsters_present = true; /* 254: DS:c7df */
+        if (!past_party(c)) continue; /* 25d: the combat record's not_party 1 */
+        size_t first = cok_field_first(L, COK_FIELD_COINS);
+        for (size_t k = first; k < first + cok_field_count(L, COK_FIELD_COINS); ++k)
+            game->pool.coins[k] += cok_field_u16_at(L, r, COK_FIELD_COINS, k);
+        total += cok_field_u16(L, r, COK_FIELD_MONSTER_EXPERIENCE);
+        if (cok_ecl_load_var(vm, 0x1e) == 1) continue; /* KEEP_ITEMS: the items stay (2a5) */
+        if (c->item_count != 0 && c->items[0][ir->type] != 0x69) {
+            /* 2b3-2be: the first item (+0x28) is not 'i'; the items move to the pool (2cb-338)
+             * and 000b (the item loop, 309-312) runs for each: part 19b. */
+            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:000b (a monster's items to the "
+                                                       "pool: 01fb's item loop, part 19b)");
+            return false;
+        }
+    }
+    const uint32_t *coins = game->pool.coins;
+    total += coins[4] * 2u + coins[5] * 250u + coins[6] * 2200u; /* 35b-397 */
+    for (size_t i = 0; i < game->pool.item_count && i + 1 != game->pool.missile; ++i) {
+        int8_t bonus = (int8_t)game->pool.items[i][ir->bonus];
+        if (bonus > 0) { /* 3a6-3c1: the product is a signed word (cwtd after mul) */
+            int16_t product = (int16_t)(uint16_t)(bonus * 400);
+            total = (uint32_t)((int32_t)total + (int32_t)product);
+        }
+    }
+    uint8_t var = (uint8_t)cok_ecl_load_var(vm, 0x20);
+    if (var <= q->out) --q->out; /* 3e7-3f5: DS:b1da */
+    int32_t divisor = (int32_t)(int16_t)((int)var - (int)q->out); /* 3f9-40c */
+    if (divisor == 0) {
+        cok_adventure_fail(game, COK_ECL_DIVIDE_BY_ZERO,
+                           "the experience is divided by the party less those out, 0 "
+                           "(dqk 75cc:01fb's division, 2a72)");
+        return false;
+    }
+    q->share = (uint32_t)((int32_t)total / divisor); /* 414-41c: DS:ae4f */
+    return true;
+}
+
+/* 75cc:0427, the award (after 01fb, when a member stands): unless the bank pays out (var 0x1f),
+ * every party record active (+0x18b) and not animated (status word 1) gets the share, by its
+ * class (+0x5a word): 10% more for a cleric of wisdom above 14, or a fighter (2), paladin (3),
+ * ranger (4), mage (5) or thief (6) whose prime requisites are above 15 (the same as Champions'
+ * award); half for classes 8, 10-14 and 16; a third for 9 and 15 (the switch at 0427's 481).
+ * Its experience (+0x44) grows by that, then the record's may-train (177e:1fe5) is set (+0xcd). */
+static bool award(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    if (cok_ecl_load_var(&game->vm, 0x1f) != 0) return true; /* 42d */
+    uint32_t share = own(game)->share;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        uint8_t *r = cok_party_record(&game->party, i);
+        if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || word_field(L, r, COK_FIELD_STATUS) == 1)
+            continue;
+        unsigned klass = word_field(L, r, COK_FIELD_CLASS);
+        uint8_t str = cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH),
+                intel = cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE),
+                wis = cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_WISDOM),
+                dex = cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_DEXTERITY);
+        bool bonus = (klass == 0 && wis > 14) || (klass == 2 && str > 15) ||
+                     (klass == 3 && str > 15 && wis > 15) ||
+                     (klass == 4 && str > 15 && intel > 15 && wis > 15) ||
+                     (klass == 5 && intel > 15) || (klass == 6 && dex > 15);
+        uint32_t gain = share;
+        if (bonus)
+            gain = (uint32_t)((int32_t)share / 10) + share; /* 4b0 */
+        else if (klass == 8 || (klass >= 10 && klass <= 14) || klass == 16)
+            gain = (uint32_t)((int32_t)share / 2); /* 522 */
+        else if (klass == 9 || klass == 15)
+            gain = (uint32_t)((int32_t)share / 3); /* 53c */
+        uint32_t experience_now = cok_field_u32(L, r, COK_FIELD_EXPERIENCE) + gain; /* 557-561 */
+        cok_field_set32(L, r, COK_FIELD_EXPERIENCE, experience_now);
+        bool may;
+        if (!cok_queen_may_train(R, r, &may, game->error, sizeof game->error)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", game->error);
+            return false;
+        }
+        cok_field_set8(L, r, COK_FIELD_MAY_TRAIN, may); /* 56c-573 */
+    }
+    return true;
+}
+
 /* 75cc:0593, the party's after combat (135c calls it unless the demonstration runs). It sets
  * b1da, b7a7, c7de and af3f from the records (loops 1 to 3, as the original's), removes the
  * effects that end with the battle (cok_dark_queen_end_effects) from each record, and stops
- * where the experience (01fb, part 19b) runs, cited: at 0723 when a member stands, else at
- * 0736 (the rest, part 19b). A record holding one of the effects stops first, cited (148f:017d,
+ * where the experience and the award (01fb, 0427) run when a member stands, then its rest stops
+ * at 0736 (cited, part 19b). A record holding one of the effects stops first, cited (148f:017d,
  * part 27). */
 static void after_combat(cok_adventure *game)
 {
@@ -5251,12 +5360,11 @@ static void after_combat(cok_adventure *game)
                 return;
             }
     }
-    if (q->standing)
-        cok_adventure_not_yet(game, "the treasure",
-                              "dqk 75cc:01fb (0593's call at 0723: the experience, part 19b)");
-    else
-        cok_adventure_not_yet(game, "the treasure",
-                              "dqk 75cc:0736 (0593's rest: the party's, part 19b)");
+    if (q->standing) { /* 0716-0731: 01fb, then 0427 (the award) */
+        if (!experience(game) || !award(game)) return;
+    }
+    cok_adventure_not_yet(game, "the treasure",
+                          "dqk 75cc:0736 (0593's rest: the party's and the destroyed, part 19b)");
 }
 
 /* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat

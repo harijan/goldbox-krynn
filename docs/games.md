@@ -702,9 +702,14 @@ run, citing their handlers (`unported`). It holds:
   flags `= <> < >` cleared (`2093:0015` with DS:b2f5 and 4; `<=` and `>=` kept), DS:c7df cleared
   (`1380`), then 0593, the party's after combat (unless the demonstration runs: `1390` on, part 19c,
   cited): b7a7, c7de, af3f and b1da set from the records, and the 18 effects that end with the battle
-  (DS:631e) removed from each (a record holding one stops, cited `148f:017d`, part 27); it stops at
-  0593's call of the experience (`75cc:01fb`, a member standing) or its rest (`75cc:0736`), cited for
-  part 19b. `dqk_treasure.py` checks the state at those stops (flows `won`, `fled` and `lost`). The
+  (DS:631e) removed from each (a record holding one stops, cited `148f:017d`, part 27); when a member
+  stands, 01fb (the experience: the pool's steel x2, gems x250 and jewelry x2200, and the magic items'
+  bonuses x400, over var 0x20 less those out, DS:b1da, which 01fb decrements where var 0x20 is no more;
+  a divisor of 0 is runtime error 200; the monsters past the party add their coins, experience and
+  items, the items cited at `000b`, part 19b) and 0427 (the award by class, as Champions') run; then
+  its rest from `75cc:0736` (the party's and the destroyed, cited, part 19b). `dqk_treasure.py` checks
+  the state at that stop (flows `won`, `fled` and `lost`); saved game A's pool is empty, so `won`
+  awards nothing there: 01fb's arithmetic and 0427 are covered by repo tests. The
   temple's View,
   Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
   hit points in the colour the original draws: byte 0x00 on the window's grey; Stone to Flesh on a

@@ -567,8 +567,8 @@ spun while it does, and it is given back. Each flow's state where the spin holds
 eclplay's stop (`--vars`, `--records`, `--state`): the 1 KB of variables (var 0x2e included), the
 records (pointers masked), the flags, DS:af3f, c7de, c7df, b1da and b7a7, the mode, RandSeed, and the
 18 effect ids at DS:631e (checked against the table). The expected values of each flow are checked
-against the original too. eclplay stops at `dqk 75cc:01fb` (`won`) or `dqk 75cc:0736` (`fled`,
-`lost`), cited for part 19b.
+against the original too. eclplay stops at `dqk 75cc:0736` in every flow (`won` after 01fb and 0427), cited
+for part 19b.
 
 `dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's
