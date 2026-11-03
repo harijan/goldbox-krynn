@@ -1,6 +1,7 @@
 """Exercise the DOSBox-X harness's RGB screens (cokbox.RGBScreen, Dark Queen's
-256-colour screenshots) and checklib.masked_diff on them, without DOSBox-X
-(stdlib only)."""
+256-colour screenshots) and checklib.masked_diff on them, and the Dark Queen
+fight checks' page flip at a trap (dqk_fight_lib.call_then_spin), without
+DOSBox-X (stdlib only)."""
 import pathlib
 import sys
 import tempfile
@@ -11,6 +12,7 @@ sys.path.insert(0, str(ROOT / "tools/dosbox"))
 sys.path.insert(0, str(ROOT / "tools/dosbox/checks"))
 import checklib  # noqa: E402
 import cokbox  # noqa: E402
+import dqk_fight_lib  # noqa: E402
 
 
 def screen(width, height, colour=(10, 20, 30), changes=()):
@@ -67,6 +69,17 @@ class RGBScreenTests(unittest.TestCase):
         s = cokbox.RGBScreen.from_rows(32, 8, rows, size=(16, 4))
         self.assertEqual((s.width, s.height), (16, 4))
         self.assertEqual(s.at(5, 3), (3, 5, 7))
+
+
+class FlipTests(unittest.TestCase):
+    def test_call_then_spin(self):
+        # The keys flow's tail spins at 5045:066a's lcall 148f:2ab8 (5 bytes): each copy
+        # gets lcall 19a4:06d3 (the real segment, little-endian) and the spin after it.
+        writes = dqk_fight_lib.call_then_spin([0x51000, 0x62010], 0x09F4, 0x06D3)
+        call = bytes([0x9A, 0xD3, 0x06, 0xF4, 0x09, 0xEB, 0xFE])
+        self.assertEqual(writes, [(0x51000, call), (0x62010, call)])
+        self.assertEqual(dqk_fight_lib.FLIP, (0x19A4, 0x06D3))
+        self.assertEqual(dqk_fight_lib.DS_BEGUN, 0x1CB5)
 
 
 if __name__ == "__main__":
