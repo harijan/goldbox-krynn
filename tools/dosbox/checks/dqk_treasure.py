@@ -19,9 +19,12 @@ removals), the load asked (DS:b7a7) removes the party (818-86e). Then 135c sets 
 calls 11b0 (the enemies removed, part 19d), and finishes (part 19d, ported): the stats (177e:0be2)
 of each record, the lost party's words (b7a7, 1460) or the results (091f: the texts, the share's
 line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75cc:151b), and back
-to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93, part
-20) is the stop; a lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu
-after it (5f07:11f3, no b7a7 test) is the stop.
+to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93) runs:
+its waits are read one at a time (POOL_STEPS and the others: the screen, the variables, the records,
+the pool's coins, and the selected record by name), and its last keys lead to COMBAT's return
+(5f07:0987), the end. Take, Pool, Share and Detect are not typed (cited stops, part 20b and 28). A
+lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
+b7a7 test) is the stop.
 
 The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
 so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, the flow's end
@@ -44,13 +47,18 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
 - `lost`: every member's status word 2 and inactive: 0736 removes the six (818-86e: the count to 0),
   nobody standing or fled, b7a7 set, b1da 6.
 - `pool`: TREASURE ITEMS 1000 3 1 0 first (the pool's coins 1000, 3, 1; no items): the share is
-  4950 / 6 = 825, and each member gets its share by class (the bonus, the half and the third).
+  4950 / 6 = 825, and each member gets its share by class (the bonus, the half and the third). The
+  menu's steps (POOL_STEPS): View's sheet (v) and Escape back to the menu (the mode-6 screen), Down
+  (the next member selected: by name), Exit's question (e), Yes (y: the menu, window cleared), the
+  question again (e) and No (n): the end.
 - `bonus`: `pool` with the classes changed so that each rule shows (+0x5a: 2, 0 at members 0 and 3,
-  5 and 6 at 4 and 5): the 10% bonus, the mage with int 15 (none), the thief's dexterity.
+  5 and 6 at 4 and 5): the 10% bonus, the mage with int 15 (none), the thief's dexterity. The menu:
+  Escape (the question), No.
 - `zero`: SAVE 0 -> var 0x20 and member 5 inactive: 01fb's divisor is 0 (b1da 1 -> 0), so LDIV@ gives
   0xffffffff; member 0 (class 1) gets -1, the others 0 (-1/3 and -1/2 are 0).
 - `negative`: `pool`, SAVE 0 -> var 0x20 and members 3-5 inactive: b1da 3 -> 2, the divisor -2, the
   share -2475; members 0-2 get -2475, -825 and -825 (the third of a negative share is negative).
+  The menu: Exit (e), No (n).
 - `rest`: the statuses 3, 4 (hit points 0, 5) and 5 and 2 at members 1-5, none fled: 0736's loop A
   revives 3, 4 with hit points and 5 becomes 4 (no var 0x1d), the 4 with 0 hit points stays.
 - `gentle`: `rest` with var 0x1d set (SAVE 1): 4 with 0 hit points and 5 are revived (777, 78e).
@@ -104,6 +112,18 @@ TREASURE = ("TREASURE_ITEMS", (dqkecl.word(1000), imm(3), imm(1), imm(0)))  # st
 SAVE_ZERO = ("SAVE", (imm(0), var(0x20)))  # var 0x20 (the shares' divisor) is 0
 ZERO = [0] * MEMBERS
 NO_POOL = (0, 0, 0)
+# The treasure menu's steps (75cc:0e93, dark_queen.c's treasure_menu): (what, the keys typed at
+# it). The first step is the menu after the results' key; each later step's keys are typed at
+# its key wait; the last step's keys lead to COMBAT's return (5f07:0987), which is the end.
+POOL_STEPS = [("the treasure menu after the results", ""), ("View's sheet", "v"),
+              ("the menu after the sheet (mode 6's screen)", "\\e"),
+              ("Down: the next member selected", "\\v"), ("Exit's question", "e"),
+              ("the menu after Yes (the window cleared)", "y"), ("Exit's question again", "e"),
+              ("the adventure after No", "n")]
+BONUS_STEPS = [("the treasure menu after the results", ""), ("Escape is Exit: the question", "\\e"),
+               ("the adventure after No", "n")]
+NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
+                  ("the adventure after No", "n")]
 FLOWS = {
     # flow: the saved game's changes (per member, or None), the block's ops before COMBAT (extra),
     # the stop's cite, the expected state (standing, fled, b7a7, out), DS:ae4f (the share; None
@@ -116,19 +136,19 @@ FLOWS = {
     "lost": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS, extra=[],
                  end="lost", expect=(False, False, True, MEMBERS), share=None,
                  pool=NO_POOL, gained=[], may=[], members=0),
-    "pool": dict(changes=None, extra=[TREASURE], end="treasure",
-                 expect=(True, False, False, 0), share=825, pool=(1000, 3, 1),
+    "pool": dict(changes=None, extra=[TREASURE], end="end", steps=POOL_STEPS, selects=(3, 1),
+                 expect=(True, False, False, 0), share=825, pool=NO_POOL,
                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
     "bonus": dict(changes=[{0x5a: 2}, {}, {}, {0x5a: 0}, {0x5a: 5}, {0x5a: 6}],
-                  extra=[TREASURE], end="treasure", expect=(True, False, False, 0),
-                  share=825, pool=(1000, 3, 1), gained=[907, 275, 275, 907, 825, 907],
+                  extra=[TREASURE], end="end", steps=BONUS_STEPS, expect=(True, False, False, 0),
+                  share=825, pool=NO_POOL, gained=[907, 275, 275, 907, 825, 907],
                   may=[0, 0, 0, 0, 1, 0]),
     "zero": dict(changes=[{}, {}, {}, {}, {}, {0x18b: 0}], extra=[SAVE_ZERO],
                  end="end", expect=(True, False, False, 0), share=0xffffffff,
                  pool=NO_POOL, gained=[-1, 0, 0, 0, 0, 0], may=ZERO),
     "negative": dict(changes=[{}, {}, {}, {0x18b: 0}, {0x18b: 0}, {0x18b: 0}],
-                     extra=[TREASURE, SAVE_ZERO], end="treasure",
-                     expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=(1000, 3, 1),
+                     extra=[TREASURE, SAVE_ZERO], end="end", steps=NEGATIVE_STEPS,
+                     expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=NO_POOL,
                      gained=[-2475, -825, -825, 0, 0, 0], may=ZERO),
     "rest": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
                           {0x64: 2}], extra=[], end="end",
@@ -207,6 +227,30 @@ def flags_of(box):
     return list(box.ds_read(0xb2f5, 6))
 
 
+def pool_of(box):
+    """The pool's coins 4-6 (DS:b1db, b1df, b1e3)."""
+    return tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3))
+
+
+def selected_name(box):
+    """The name of the selected record (DS:ad67, a far pointer; NAME bytes), or b"" for none."""
+    sel = box.far(box.ds * 16 + 0xAD67)
+    return box.read(sel + NAME, 16) if sel is not None else b""
+
+
+def step_state(box, what):
+    """The treasure menu's wait (a key wait, its screen settled): the screen, the variables, the
+    records, the pool, the selected record's name, and whether the game waits for a key."""
+    t0 = time.monotonic()
+    while not box.waiting():
+        if time.monotonic() - t0 > 60:
+            raise cokbox.BoxError(f"the game waits for no key at {what}")
+    shot = box.settled(tolerance=64)
+    return dict(what=what, shot=shot, vars=dqk_fight.block_vars(box),
+                records=[raw for _, raw in L.records(box)], pool=pool_of(box),
+                selected=selected_name(box), waiting=box.waiting())
+
+
 def read_state(box):
     """The original's state where it spins: the variables, the records, the flags and the
     end-of-combat bytes, the mode, RandSeed and the effect table."""
@@ -219,16 +263,17 @@ def read_state(box):
         b7a7=box.ds_read(0xb7a7, 1)[0] != 0, demo=box.ds_read(0xae59, 1)[0],
         mode=box.ds_word(0xae57), seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
         effects=box.ds_read(0x631e, 18), share=int.from_bytes(box.ds_read(0xae4f, 4), "little"),
-        pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3)))
+        pool=pool_of(box))
 
 
 # lost: 5f07:0987 is COMBAT's return after the lost party (the continue prompt answered first)
-END_STOPS = {"treasure": (0x75CC, 0x0E93), "lost": (0x5F07, 0x0987), "end": (0x5F07, 0x0987)}
+END_STOPS = {"lost": (0x5F07, 0x0987), "end": (0x5F07, 0x0987)}
 TYPED_TO_WAIT = "\\r"            # the PRESS KEY before COMBAT (eclplay's entry key comes first)
 TYPED_TO_END = "\\r\\r\\r"       # that, the results' key (or the continue prompt's) and one more
+TYPED_TO_RESULTS = "\\r\\r"      # the PRESS KEY and the results' key: the treasure menu's wait
 
 
-def original(work, name, changes, patched, verbose, end):
+def original(work, name, changes, patched, verbose, end, steps=None):
     """The original's run of the block from its entry to the end's stop (END_STOPS): stage 1 at
     2093:0015 (the flags' clear), the end's trap set while it spins, then the game waits at its
     first key (the results' bar, or the continue prompt): its screen there is read, the key is
@@ -264,6 +309,13 @@ def original(work, name, changes, patched, verbose, end):
                 raise cokbox.BoxError("the game waits for no key before the end of the treasure")
         wait_shot = box.settled(tolerance=64)
         box.keys("\\r")  # the results' bar, or the continue prompt
+        found = []
+        if steps:  # the treasure menu: each step's keys at its wait, the last step's lead to the end
+            for i, (what, keys) in enumerate(steps[:-1]):
+                if i > 0:
+                    box.keys(keys)
+                found.append(step_state(box, what))
+            box.keys(steps[-1][1])
         hold = L.Trap(list(h_end), seg, off)
         t0 = time.monotonic()
         while not L.held(box, hold)[0]:
@@ -272,6 +324,7 @@ def original(work, name, changes, patched, verbose, end):
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
+        state["steps"] = found
         if end == "end":  # 5f07:0987 is before the adventure loop draws its bar: its next wait
             L.untrap(box, hold)
             box.wait_input()
@@ -315,12 +368,53 @@ def port(work, name, patched, qsv, typed, shots=False):
 
 
 MASKS = [dqk_ecl_text.POINTER_WIDE]  # the mouse's pointer at the corner (DOSBox-X's own)
+# The treasure picture (63ae:0078, 0x81 at 3, 3) animates while the treasure menu waits, and each
+# shot catches a frame of it: its box is not compared at the menu's waits (the rest of the screen is).
+TREASURE_PICTURE = (24, 24, 104, 96, "the treasure picture (animated at the menu's waits)")
+
+
+def check_steps(v, work, patched, name, steps, selects, qsv, found):
+    """Each treasure menu wait but the last (the end): eclplay's run typed up to that step, its
+    last shot compared with the original's screen, and its variables, records and pool compared
+    with the original's there. SELECTS (step, member): the selected record is that member, by
+    name, at that step (the original's DS:ad67; eclplay's screen shows the highlight)."""
+    for i, ((what, _), o) in enumerate(zip(steps[:-1], found)):
+        typed = TYPED_TO_RESULTS + "".join(keys for _, keys in steps[:i + 1])
+        variables, ported, lines, transcript, shot = port(work, f"{name}-{i}", patched, qsv,
+                                                          typed=typed, shots=True)
+        v.check(o["waiting"], f"the original waits for a key at {what} ({name})")
+        v.check(len(variables) == VARIABLES and "error:" not in transcript,
+                f"eclplay runs to {what} with no error ({name})", transcript.strip()[-200:])
+        if shot is not None:
+            v.screen(f"the screen at {what} ({name})", o["shot"], shot,
+                     masks=MASKS + [TREASURE_PICTURE], work=work)
+        else:
+            v.check(False, f"eclplay saves the screen at {what} ({name})")
+        differing = [a for a in range(1, VARIABLES + 1) if o["vars"][a - 1] != variables[a - 1]]
+        v.check(not differing, f"the variables at {what} agree ({name})",
+                ", ".join(f"{a:x}: original {o['vars'][a - 1]:02x}, port {variables[a - 1]:02x}"
+                          for a in differing[:8]))
+        want = [dqk_shops.masked(raw) for raw in o["records"]]
+        have = [dqk_shops.masked(raw) for raw in ported]
+        v.check(len(want) == len(have) and want == have,
+                f"the party's records at {what} agree (pointers masked, {name})",
+                f"{len(have)} records, the original {len(want)}")
+        port_pool = tuple(int(x) for x in lines.get("pool", "").split())
+        v.check(port_pool == o["pool"], f"the pool's coins 4-6 at {what} agree ({name})",
+                f"original {o['pool']}, port {port_pool}")
+        if selects is not None and selects[0] == i:
+            member = selects[1]
+            want_name = qsv[dqk_modify.record_at(qsv, member) + NAME:][:16]
+            v.check(o["selected"] == want_name, f"the selected record at {what} is member "
+                    f"{member} by name ({name})", f"{o['selected']!r}, want {want_name!r}")
 
 
 def run_flow(v, work, patched, name, verbose):
     spec = FLOWS[name]
     end = spec["end"]
-    orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end)
+    steps = spec.get("steps")
+    orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end,
+                                              steps)
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
     v.check(orig["stage1_surprise"] == 0, f"var 0x2e is 0 at 2093:0015's spin: 135c's start ran "
             f"({name})", f"{orig['stage1_surprise']}")
@@ -335,12 +429,8 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["demo"] == 0, f"the original is not the demonstration ({name})")
     # The mode: 6 where the flow stops in 135c (the treasure menu), else COMBAT's ending has set
     # it (3 or 4: monster.c's overland, at 5f07:0987 for the lost party too).
-    if end in ("end", "lost"):
-        v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
-                f"mode {orig['mode']}")
-    else:
-        v.check(orig["mode"] == MODE, f"the mode is 6 at the stop, as 135c sets it at 1390 "
-                f"({name})", f"mode {orig['mode']}")
+    v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
+            f"mode {orig['mode']}")
     v.check(orig["monsters"] == spec.get("monsters", 0), f"DS:c7df is as 11b0 sets it ({name})",
             f"{orig['monsters']}, want {spec.get('monsters', 0)}")
     # The flow's own expectations on the original's side: the share, the pool's coins, each
@@ -367,9 +457,14 @@ def run_flow(v, work, patched, name, verbose):
     v.screen(f"the screen at the first key wait ({name})", wait_shot, first, masks=MASKS,
              work=work)
 
+    if steps:
+        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"])
+    # The menu's last keys (the end's) are the last of the typed keys, then the adventure's wait.
+    typed_end = TYPED_TO_RESULTS + "".join(keys for _, keys in steps) + "\\r" if steps \
+        else TYPED_TO_END
     variables, ported, lines, transcript, end_screen = port(work, name, patched, qsv,
-                                                           typed=TYPED_TO_END)
-    stop = {"treasure": "dqk 75cc:0e93", "lost": "dqk 5f07:11f3", "end": None}[end]
+                                                           typed=typed_end)
+    stop = {"lost": "dqk 5f07:11f3", "end": None}[end]
     if stop is not None:
         v.check(stop in transcript and "error:" in transcript,
                 f"eclplay stops at {stop}, cited ({name})", transcript.strip()[-200:])

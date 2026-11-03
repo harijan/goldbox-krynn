@@ -567,8 +567,8 @@ status 2 and inactive (`lost`, `lost9`: var 0x20 set to 9), or changed records (
 none fled, `gentle` with var 0x1d; `fledmix`: fled, the survivors matched to the saved game by name;
 `enemy`: member 5 hostile; `enemyout`: member 5 hostile and inactive, var 0x15 set first; `enemyhigh`: its
 hostile word 0x0101). The original is trapped in two stages: `2093:0015` (the flags' clear, always
-resident) spins at the PRESS KEY before COMBAT; the flow's end is trapped too (`75cc:0e93` where the
-treasure menu is the stop, else `5f07:0987`, COMBAT's return, which a lost party reaches after its continue prompt), and the
+resident) spins at the PRESS KEY before COMBAT; the flow's end is trapped too (`5f07:0987`, COMBAT's
+return, which a lost party reaches after its continue prompt), and the
 game waits at its first key (the results' bar, or the continue prompt): its screen is compared with
 eclplay's last shot there (the keys ran out), the key typed, then the end's trap holds. Each flow's
 state where it holds is compared with eclplay's end (`--vars`, `--records`, `--state`, `--screen`): the 1 KB of variables (var 0x2e included), the records (pointers
@@ -577,8 +577,11 @@ share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect 
 (checked against the table). The expected values of each flow (the share, the pool, each member's
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
 too, so a mistake in a flow shows. eclplay runs `won`, `fled`, `rest`, `gentle`, `fledmix`, `zero`,
-`enemy*` to COMBAT's end; `pool`, `bonus` and `negative` run the treasure menu (`75cc:0e93`) and stop
-at its Take, Pool or Share; `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
+`enemy*` to COMBAT's end; `pool`, `bonus` and `negative` run the treasure menu (`75cc:0e93`) to COMBAT's
+end, each wait of the menu compared in turn (the original's screen, variables, records, pool and the
+selected record by name; the treasure picture's box is not compared at them, as it animates; `pool`'s
+steps: the sheet, Escape, Down, Exit's question, Yes, the question again, No); Take, Pool, Share and
+Detect are not typed (cited stops, parts 20b and 28); `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
 `lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
 hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);
