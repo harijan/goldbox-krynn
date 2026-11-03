@@ -708,6 +708,13 @@ const cok_rules cok_rules_dark_queen = {
             .end_unported = "dqk 5045:0001, the battle's end before any round",
             .combat_block = &dark_queen_combat_block,
         },
+    .commands =
+        {
+            /* The cursor's box (5837:00f4:018b-01ae: COMSPR 15, slot 0x1e, loaded by arena_tiles).
+             * The missiles' read of it (command.c, 6346:1a26) is reached only in a round's turn,
+             * which stops before the first turn (round.c). */
+            .cursor_slot = 0x1e,
+        },
     .effects =
         {
             .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */

@@ -472,6 +472,34 @@ static void test_pose(void)
     CHECK(strstr(game.error, "6beb:0c43") != NULL);
 }
 
+/* 5837:09ab:0a4b-0a75: a record with the battle's facing effect faces 2, and the pose drawn is
+ * 2. Dark Queen's descriptor is the one named (0xd5, combat_block's facing_effect); the game
+ * here is Champions, so its rules are swapped for a copy of Champions' with the block set, and
+ * the record gets the effect (cok_character_add_effect, as 177e:1734 finds it). */
+static void test_pose_effect(void)
+{
+    battle();
+    cok_character *a = game.party.members[0];
+    game.combat.show_actions = false;
+    CHECK(cok_arena_pose(&game, a, 6, 0, false) && a->combat->facing == 6);
+    CHECK(cok_character_add_effect(a, 0xd5, 10, 0, false) != NULL);
+    static const cok_combat_block block = {.facing_effect = 0xd5};
+    static cok_rules rules;
+    const cok_rules *saved = game.rules;
+    rules = *saved;
+    rules.combat.combat_block = &block;
+    game.rules = &rules;
+    CHECK(cok_arena_pose(&game, a, 6, 0, false) && a->combat->facing == 2);
+    /* Shown, and hidden: the effect holds for either (the drawn pose is 2, unmirrored). */
+    game.combat.show_actions = true;
+    CHECK(cok_arena_pose(&game, a, 6, 0, false) && a->combat->facing == 2);
+    CHECK(cok_arena_pose(&game, a, 6, 0, true) && a->combat->facing == 2);
+    game.rules = saved;
+    /* Without the descriptor's effect (Champions' block is NULL) a pose stays as given. */
+    CHECK(cok_arena_pose(&game, a, 6, 0, false) && a->combat->facing == 6);
+    game.combat.show_actions = false;
+}
+
 /* 6beb:12ef: the cursor on in the combatant's footprint while centring,
  * then off with a footprint of 1. */
 static void test_turn(void)
@@ -1191,6 +1219,7 @@ int main(void)
     test_centre();
     test_erase();
     test_pose();
+    test_pose_effect();
     test_turn();
     test_kill();
     test_panel();

@@ -665,7 +665,7 @@ ground does). Compared: 24,696 of the 28,224 ground pixels, 0 differing. DUNGCOM
 the same map (on nearly every pixel); the check covers the choice of the set and the palette on set 4 only (the seed's
 draws on set 3 and 6: `tests/test_queen_arena.c`).
 Flow `load` (`LOADS`: two SHARKMEN and one MINOTAUR, then COMBAT with no SETUP MONSTERS or APPROACH; the
-original allows it after LOAD FILES) reads the party list after the arena's redraw (`59c7:1e99`, after the placement; trapped
+original allows it after LOAD FILES) reads the party list at the first turn (`5045:078b`, after the placement; trapped
 once the battle's overlay is in and the block's last key is read; the records and blocks are then made, as
 `59c7:0f7b` has run), and eclplay, started as setup's (`--load --play`), stops at the arena's redraw (`--records` and
 `--blocks`: the records and the trailer, c6f1, ad6b and the undead count DS:c2ed; each combat block, 0x18 bytes). The original has 19 records (the six and
@@ -695,7 +695,7 @@ squares in both (COMBAT's lowering of 9), the party and the monsters' records an
 is not used: it animates during PRESS KEY (`63ae:0269`), so a settled screen catches a later frame than eclplay's.
 Flow `field` (step 4, parts 7 and 9a: the battle's setup, the dungeon builder, and the combat records, `59c7:1dd7` to the placement). For two
 party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
-eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:1e99` (after the arena's redraw, which follows the placement; the placement's
+eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `5045:078b` (the first turn, after the arena's redraw, which follows the placement; the placement's
 entry, after the tiles, the dungeon builder and the combat records `59c7:0f7b`), where the 50 by 25 cells, each record's combat block, RandSeed and the mode are read (the original's
 spin holds, and the battle is in 3D: var 0x22 set). Four squares: the fixture's, the west edge (0, 3, 2), (12, 12, 0)
 (049e's door corner and the 17th column) and (4, 14, 0) (the 17th row, 0285's door again); each catches a mutation the
@@ -750,7 +750,7 @@ flags 0x71 and 0x06 from seed 12345 under Dark Queen's generator; `test_monster`
 differ; 32 stops with COK_ECL_UNDEFINED).
 
 Flow `slots` (step 4, part 11a: the combatants' icons loaded, `dark_queen.c`'s icon table). The fixture's dungeon and
-`WILD_GROUNDS[0]` (the open ground), each run as `field` runs it to the placement (`59c7:1e99`, the original's screen
+`WILD_GROUNDS[0]` (the open ground), each run as `field` runs it to the placement (`5045:078b`, the first turn, the original's screen
 read there). The original's head layers DS:a848 are all 0 (no CHEAD in Dark Queen, `204c:00e5`), its six party
 members' records (+0xc4, +0xc5), each combatant 1 to count - 1 (its record, +0x9b, +0x18b, status +0x64, combat facing
 +0xa, sx and sy at DS:aeac and DS:aee0 + n, size at DS:c3f1 + 6n + 5), the battle's set (DS:ca03, 4) and the GORGON's
@@ -762,6 +762,13 @@ k - 15 and +0x80 (each byte for byte against hlib's records). Then the view (168
 24x + 8, 24y + 8 over eclplay's screen in the set's and ALWAYS's RGB (scope.md's note), and the result equals the
 original's screenshot in the view with only the pointer masked (8, 8, 8, 9). The unit tests (`test_queen_arena`,
 `test_monster`, `test_dark_queen`) pin the loader; this flow pins the table against the original's.
+
+Flow `icons` (step 4, part 11b: the combatants' icons drawn). The runs of `slots` (the fixture's dungeon and `WILD_GROUNDS[0]`)
+and the dungeon with the party on the west edge's square (0, 3, 2, `FIELD_SQUARES[1]`, where a SHARKMAN, slot 8, stands in the
+view at (5, 4) in the original: the answer to Q2, read at DS:aeac and DS:aee0 + n; the fixture's SHARKMEN are at 10 and 8, outside),
+each to the first turn (`5045:078b`). eclplay's `--screen` (its icons drawn by the port) must equal the original's screenshot over
+the view (8, 8, 168 by 168) in RGB, with only the mouse pointer (8, 8, 8, 9) masked: 0 pixels. Reported, not gated: the pixels
+outside the view (the frame of the redraw, 20b2:02fa, not ported) and the combatants and monsters drawn in the view.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
