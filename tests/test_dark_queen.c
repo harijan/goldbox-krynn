@@ -5,6 +5,7 @@
  * bytes in build/DQK_FULL.EXE (make dqk-merged) and the party of its shipped
  * saved game in DQKAssets/ (the checks needing either are skipped, with a
  * line saying so, where it is not there). */
+#include "combat.h"
 #include "data_dark_queen.h"
 #include "party.h"
 #include "queen_levels.h"
@@ -581,8 +582,53 @@ static void test_magic_ids(void)
     }
 }
 
+/* The cells' hash (test_combat.c's). */
+static uint32_t cells_hash(const cok_combat *c)
+{
+    uint32_t h = 0x811c9dc5u;
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) h = (h ^ c->cells[y][x]) * 0x01000193u;
+    return h;
+}
+
+/* Dark Queen's open ground (dqk 59c7:0e3b): Death Knights' floor, river, trees and scatter, the
+ * scatter's cell as 59c7:0ce3's, the flags of the terrain value (DS:5d7b). Two grounds from one
+ * seed: terrain 12 (flags 0x71: scatter's density 110, tree chance 7, no river) and terrain 14
+ * (flags 0x06: density 20, tree chance 1, and a river from var 0x33). The hashes and seeds after
+ * the call are the port's for these calls (the game starts its builder from another seed: the
+ * wild flow of tools/dosbox/checks/dqk_fight.py checks the game's own grounds against the
+ * original's cells and RandSeed). */
+static void test_wilderness(void)
+{
+    static cok_combat c;
+    uint8_t flags = cok_data_u8_at(R->data, COK_DATA_TERRAIN_FLAGS, 12);
+    CHECK(flags == 0x71 && cok_data_u8_at(R->data, COK_DATA_TERRAIN_FLAGS, 14) == 0x06);
+    uint32_t seed = 12345;
+    CHECK(cok_ecl_var_address(R, COK_VAR_RIVER, 0) == 0x33 &&
+          cok_ecl_var_address(R, COK_VAR_TERRAIN, 0) == 0x1a2);
+    cok_combat_wilderness(&c, R, flags, false, &seed);
+    CHECK(cells_hash(&c) == 0xe68638f3u && seed == 94928693u);
+    for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
+        for (int x = 0; x < COK_COMBAT_WIDTH; ++x) CHECK(c.cells[y][x] != 0x34);
+    seed = 12345;
+    cok_combat_wilderness(&c, R, 0x06, true, &seed);
+    CHECK(cells_hash(&c) == 0x1d513c20u && seed == 2614685811u);
+    /* The river: from a column 34 less 5d4, moved left to a multiple of 7 less 2 (on row 0), its
+     * bank 0x34 and water or a ford 0x34-0x3d, the far bank 0x34 five on, a column right a row. */
+    int x = -1;
+    for (int k = 0; k < COK_COMBAT_WIDTH && x < 0; ++k)
+        if (c.cells[0][k] == 0x34) x = k;
+    CHECK(x >= 0 && (x + 2) % 7 == 0 && x >= 0x22 - 20 && x <= 0x22 - 5);
+    for (int y = 0; y < COK_COMBAT_HEIGHT && x + 5 + y < COK_COMBAT_WIDTH - 1; ++y) {
+        CHECK(c.cells[y][x + y] == 0x34 && c.cells[y][x + y + 5] == 0x34);
+        for (int k = 1; k <= 4; ++k)
+            CHECK(c.cells[y][x + y + k] >= 0x34 && c.cells[y][x + y + k] <= 0x3d);
+    }
+}
+
 int main(void)
 {
+    test_wilderness();
     test_tables();
     test_combat_tables();
     test_magic_ids();

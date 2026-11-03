@@ -715,6 +715,18 @@ settings are all off), the west edge's purges were 5 to 7 (2026-11-02, probes; u
 from 20 to 19, not the purges), and DQK_FULL.EXE makes no EMS call (no INT 67h). The view's
 origin (DS:bedb +2, +4) is not compared: it is written after the placement (`1dd7`'s `4837:0aea`, `0b19`), so the
 original holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
+
+Flow `wild` (step 4, part 8: the open ground's builders, `59c7:0e3b`, to the placement). The block is the fight
+block with the battle outside 3D: after LOAD FILES it stores var 0x22 0, var 0x1a2 the terrain value and var 0x33 the
+river (`dqkecl.fight`'s `ground`), the variables 59c7:1dd7 and 0e3b read; the rest is the game's own COMBAT (its
+distance from the open squares, `6c70:01c3`). A saved square on the overland would need the overland's map and its
+terrain, which the saved game does not give; the store is the same state for the builders. Two grounds from the same
+seed: terrain 12 (flags 0x71, no river) and terrain 14 (flags 0x06, the river). Each is checked as `field` checks the
+dungeon: the original trapped at `59c7:0f7b`, the cells (1250), the header and the records agree with eclplay's
+`--field` at the stop, and RandSeed is the original's after its draws past SEED (2629 and 2327: the trees, river and
+scatter roll one for one), not SEED as the dungeon's is. The flags are read at the terrain value (32 of them,
+`DS:5d7b`).
+
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):

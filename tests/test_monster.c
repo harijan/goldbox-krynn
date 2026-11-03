@@ -1227,9 +1227,10 @@ static void test_dark_queen_monsters(void)
 }
 
 /* Dark Queen's blocks (6c70:29a3's LOAD MONSTER registers, 5f07:081b's
- * COMBAT appends and stops at the battle (open ground: 59c7:0e3b; a 3D battle, 0f7b); 5f07:07fe's CLEARMONSTERS
- * (75cc:151b, 63ee:0002) forgets the slots). Each test opens its own
- * adventure from DQKAssets, and skips without it. */
+ * COMBAT appends and stops at the battle's placement (59c7:0f7b, after the
+ * open ground or the dungeon is built); 5f07:07fe's CLEARMONSTERS (75cc:151b,
+ * 63ee:0002) forgets the slots). Each test opens its own adventure from
+ * DQKAssets, and skips without it. */
 #define DQK_LOAD_MONSTER 0x0b
 #define DQK_CLEARMONSTERS 0x1c
 #define DQK_COMBAT 0x24
@@ -1296,7 +1297,7 @@ static void test_dark_queen_appends(void)
      * slot 10), then the battle is not ported: the run stops there. */
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
     CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
     CHECK(dqk.undead == 0);
     static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
@@ -1365,7 +1366,7 @@ static void test_dark_queen_clear_between(void)
     CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
     CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
     char name[16];
     CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
@@ -1388,7 +1389,7 @@ static void test_dark_queen_six_loads(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 14);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0e3b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
     CHECK(dqk.party.count == 16 && dqk.monsters == 16 && dqk.icon_slot == 15);
     CHECK(dqk.undead == 2);
     cok_adventure_close(&dqk);

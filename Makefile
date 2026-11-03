@@ -150,7 +150,7 @@ build/eclplay_sanitize: $(call asan,$(ECLPLAY_SRC)) | build
 
 # The tests of the adventure, each with the whole game: build/test_NAME from
 # tests/test_NAME.c and ADVENTURE_SRC, build/test_NAME_sanitize likewise.
-ADVENTURE_TESTS = test_adventure test_debug test_hooks test_input test_start test_camp test_cast test_monster test_combat test_round test_arena test_ai test_command test_spell test_cloud test_attack test_treasure test_shop test_items test_fight test_band test_queen_train test_queen_arena test_queen_fight
+ADVENTURE_TESTS = test_adventure test_debug test_hooks test_input test_start test_camp test_cast test_monster test_combat test_round test_arena test_ai test_command test_spell test_cloud test_attack test_treasure test_shop test_items test_fight test_band test_queen_train test_queen_arena test_queen_fight test_dark_queen
 
 $(ADVENTURE_TESTS:%=build/%): build/%: build/obj/tests/%.o $(call obj,$(ADVENTURE_SRC)) | build
 	$(LINK) -o $@
@@ -169,7 +169,6 @@ test_view_SRC = tests/test_view.c src/view.c src/picture.c src/image.c $(RULES_S
 PARTY_SRC = src/party.c src/queen_levels.c src/ecl.c src/text.c src/picture.c src/image.c src/dax.c $(RULES_SRC)
 test_party_SRC = tests/test_party.c $(PARTY_SRC)
 test_queen_items_SRC = tests/test_queen_items.c src/queen_items.c src/data_dark_queen_items.c $(PARTY_SRC)
-test_dark_queen_SRC = tests/test_dark_queen.c $(PARTY_SRC)
 EFFECT_SRC = src/effect.c $(PARTY_SRC)
 test_effect_SRC = tests/test_effect.c $(EFFECT_SRC)
 test_dax_SRC = tests/test_dax.c src/dax.c
@@ -195,8 +194,8 @@ test_opl2_LIBS = -lm
 
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
-SRC_PROGRAMS = test_vga daxcheck ecldump test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_dark_queen test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_vga test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_dark_queen test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
+SRC_PROGRAMS = test_vga daxcheck ecldump test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
+SRC_SANITIZE = test_vga test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@

@@ -145,8 +145,12 @@ typedef enum {
     COK_VAR_MOVE_BONUS,    /* 0x7f72: the party's movement in combat */
     COK_VAR_LOCALS_GAME,   /* 0x7f79-0x7f82: cleared by a block's start */
     COK_VAR_VAULT,         /* dkk 0x4d00: COMBAT opens the vault's menu (3632:16ec); Champions none */
-    COK_VAR_RIVER,         /* dkk 0x4bf3: a river crosses the open ground (410b:0a4c); Champions none */
+    COK_VAR_RIVER,         /* dkk 0x4bf3: a river crosses the open ground (410b:0a4c); dqk 0x33
+                            * (59c7:0860); Champions none */
     COK_VAR_TURNING,       /* dkk 0x4cff: turning undead's level less (5340:119b); Champions none */
+    COK_VAR_TERRAIN,       /* dqk 0x1a2: the open ground's terrain value, its flags' index
+                            * (59c7:0e3b stores it at DS:a960, 0783 reads the flags there);
+                            * the others none */
     COK_VARS
 } cok_var;
 

@@ -1048,6 +1048,12 @@ typedef enum {
     /* dkk 410b:107e: plain floor 0x45; a river where var COK_VAR_RIVER is
      * set (410b:0a4c), trees (0beb) and scatter (0f00) of its own tiles. */
     COK_WILDERNESS_DEATH_KNIGHTS,
+    /* dqk 59c7:0e3b: Death Knights' floor, river (0860, var COK_VAR_RIVER 0x33),
+     * trees (09e7, 0beb's code) and scatter (0b79, 0f00's bands), except the
+     * scatter's cell (0ce3): its 0x2c band is one roll wider and its 0x2c + d5
+     * band never comes (the second check repeats the first). The flags are the
+     * terrain's at COK_VAR_TERRAIN (DS:a960, set by 0e3b). */
+    COK_WILDERNESS_DARK_QUEEN,
 } cok_wilderness_routine;
 
 /* The encounter and the battle's frame where the games differ (monster.c,
@@ -1107,9 +1113,10 @@ typedef struct {
      * one's north (door_corner_ne: dkk 410b:06ae; dqk 59c7:049e says yes)
      * is drawn as a wall's corner is; whether the dungeon has tables and
      * chairs in its rooms (dungeon_no_tables: dqk 59c7:06a7 places none,
-     * and draws no dice there); the wilderness and placement the port does
-     * not carry out yet (dqk 59c7:0e3b, 0f7b: the stops' citations; NULL
-     * for none); whether the setup clears Magic On (DS:7198) and the dead
+     * and draws no dice there); the placement the port does not carry out
+     * yet (dqk 59c7:0f7b: the stop's citation; NULL for none) and the
+     * wilderness it does not carry out (NULL where it does, as Dark Queen's
+     * does now); whether the setup clears Magic On (DS:7198) and the dead
      * that explode (DS:6b45, 6b95; dkk neither). */
     const char *begins;
     uint8_t begins_colour;
