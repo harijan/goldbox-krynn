@@ -735,9 +735,11 @@ run, citing their handlers (`unported`). It holds:
   RandSeed also advances by its memory cache's purges: 27fa:05f8 calls 27fa:0f14 while the free
   memory is short, and 0f14 adds one to DS:d9ba (argument 0) or DS:da8c and draws random(3) from
   the seed (`2102:0234` at `0f2c`) to pick the block to evict. The count varies from run to run
-  with the heap's state (0 to 7 at the placement here), and the port does not model the heap, so
-  eclplay's RandSeed is the seed the battle began with and the check takes the original's draws
-  past it as its purges (`PURGE_COUNTERS`). The memory settings do not stop them (docs/checks.md).
+  with the heap's state (0 to 11 at the placement here), and the port does not model the heap. The
+  checks freeze that draw in the box only (`dqk_fight_lib.freeze_purges`: AX = 0, so the victim is
+  always DS:d6ba's order), so the original's RandSeed at the placement is the seed the battle began
+  with, as eclplay's is; the purge counters are still read and recorded (`PURGE_COUNTERS`). The
+  memory settings do not stop the purges (docs/checks.md).
   The battle's leadership (`52db:4dd2`, before `1dd7`, no announcement: the descriptor's
   `leadership_*` fields) is ported; Dark Queen's var 0x36 is FLED (`1dd7` clears it, `52db:2aef`
   sets it); and its setup has no prelude (`no_setup_prelude`: `5045:059d` and `1dd7` free no

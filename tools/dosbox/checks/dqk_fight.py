@@ -75,12 +75,16 @@ pixel for pixel in RGB, masked: the cells the combatants stand on (their icons: 
 11-12, each 24 by 24 exactly) and the mouse pointer at the corner (8 by 9, not the
 ground). The set is asserted to be DUNGCOM 4 (LOAD FILES 4 4).
 
+Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
+change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
+the field flow (below) checks it at each square and records the purges.
+
 The original's states go to build/dqk-fight/setup.json, with the heap pointers
 masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load,clear,six,ground,encounter]
+        [--flows setup,load,clear,six,ground,encounter,field]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -165,7 +169,7 @@ def original(work, patched, verbose):
     (resumed), and the polls around it."""
     with cokbox.Box(workdir=work / "box-setup", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
-        dqk_ecl.enter_block(box)
+        enter(box)
         entry = dqk_lib.ecl_state(box)
         square = box.ds_read(SQUARE, 3).hex()
         entry_vars = block_vars(box)
@@ -197,6 +201,13 @@ def original(work, patched, verbose):
                     held=held, polls=(polls, polls_held), resumed=resumed, square=square,
                     entry_vars=entry_vars, monsters_vars=monsters_vars,
                     before=before, after=after, turn=turn)
+
+
+def enter(box):
+    """The block's entry as dqk_ecl.enter_block gives it, then the memory cache's purges frozen
+    (dqk_fight_lib.freeze_purges): every fight flow enters through here."""
+    dqk_ecl.enter_block(box)
+    L.freeze_purges(box)
 
 
 def saved_entry(work):
@@ -419,7 +430,7 @@ def load_original(work, patched, flow, difficulty, verbose):
     tag = f"{flow.name}-{difficulty}"
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen",
                     verbose=verbose, timeout=900, files=L.files(patched)) as box:
-        dqk_ecl.enter_block(box)
+        enter(box)
         if difficulty is not None:
             box.write(box.far(box.ds * 16 + dqk_ecl.DS_VARS) + 0x27, bytes([difficulty]))
         box.set_seed(SEED)
@@ -572,7 +583,7 @@ def ground_original(work, patched, verbose):
     the battle drew (59c7:0e70's choice, as eclplay's --ground-set names it)."""
     with cokbox.Box(workdir=work / "box-ground", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
-        dqk_ecl.enter_block(box)
+        enter(box)
         box.set_seed(SEED)
         box.keys("\\r")
         box.settled(tolerance=64)
@@ -704,7 +715,7 @@ def encounter_original(work, patched, verbose):
     waits = []
     with cokbox.Box(workdir=work / "box-encounter", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
-        dqk_ecl.enter_block(box)
+        enter(box)
         box.set_seed(SEED)
         for index, name in enumerate(ENC_WAITS):
             box.keys("\\r")               # the entry's key, then each wait's
@@ -814,10 +825,11 @@ def encounter(v, work, opts):
 # tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b) and stops at the
 # placement, 59c7:0f7b. The original is trapped at its entry, after the builders: the view's
 # origin (far DS:bedb +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9) and RandSeed, and
-# eclplay --field, at its stop, must hold the same. The dungeon draws no dice: RandSeed differs
-# from the seed the battle began with only by the memory cache's purges (PURGE_COUNTERS). The
-# fixture's battle is in 3D (var 0x22 set), asserted; the origin is written after the placement
-# (1dd7's 4837:0aea), so it is what the battle before left, and is compared as read.
+# eclplay --field, at its stop, must hold the same. The dungeon draws no dice, and the memory
+# cache's purges draw none in the box (dqk_fight_lib.freeze_purges), so RandSeed is the seed the
+# battle began with, as in eclplay. The fixture's battle is in 3D (var 0x22 set), asserted; the
+# origin is written after the placement (1dd7's 4837:0aea), so it is what the battle before left,
+# and is compared as read.
 FIELD_CELLS = 50 * 25
 # The party's squares: the fixture's (saved game A's, 7, 13, facing 0), one on the map's west
 # edge (0, 3, facing 2), where the squares off the map are walls but for the party's row (the
@@ -828,11 +840,9 @@ FIELD_CELLS = 50 * 25
 # block enters the battle, and eclplay --at the same.
 FIELD_SQUARES = (None, (0, 3, 2), (12, 12, 0), (4, 14, 0))
 # The memory cache's purge counters (27fa:0f14 adds one to DS:d9ba for an argument of 0, to
-# DS:da8c otherwise, then draws random(3) from RandSeed to pick the block to evict). The
-# cache's purges run as the heap fills, a run-dependent number of them (the same inputs gave
-# 0, 5, 6 and 7 past the entry), and each is a draw the port does not make: so the original's
-# draws past SEED are its purges, and eclplay's none. A box setting (memsize, ems, xms, umb)
-# does not stop them (docs/checks.md).
+# DS:da8c otherwise). They are read and recorded, not subtracted: the purges still happen and
+# evict a block, each drawing nothing (the freeze). The count varies from run to run with the
+# heap's state (0 to 7 past the entry here, the same inputs), so the verdict only records it.
 PURGE_COUNTERS = (0xD9BA, 0xDA8C)
 
 
@@ -847,7 +857,7 @@ def field_original(work, patched, verbose, square=None, tag="field"):
     (x, y, facing) written at DS:c9f0."""
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
-        dqk_ecl.enter_block(box)
+        enter(box)
         if square is not None:
             box.ds_write(SQUARE, bytes(square))
         box.set_seed(SEED)
@@ -910,9 +920,10 @@ def field_one(v, work, opts, square, tag):
         return
     seed, view, header, ported = parse_field(path)
     draws = L.draws(SEED, r["seed"], 1000)
-    v.check(seed == SEED and draws == r["purges"],
-            f"RandSeed at the placement: the original's draws past SEED are its memory cache's "
-            f"purges (27fa:0f14: {r['purges']}), none in eclplay, at {where}",
+    v.check(seed == SEED and draws == 0,
+            f"RandSeed at the placement: the original draws nothing past SEED, as eclplay does, "
+            f"at {where} (its memory cache purged {r['purges']} times, each drawing nothing: "
+            f"dqk_fight_lib.freeze_purges)",
             f"original {r['seed']:#x} ({draws} draws past SEED, {r['purges']} purges), "
             f"eclplay {seed:#x}")
     text = (work / f"port-{tag}.txt").read_text().splitlines()
