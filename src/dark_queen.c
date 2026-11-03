@@ -1535,6 +1535,14 @@ static void small_picture(cok_adventure *game, uint8_t n)
     queen *q = own(game);
     unsigned which = n < 0x80 ? LIB_PIC_A : n < 0x97 ? LIB_PIC_B : LIB_PIC_C;
     enter_state(game, STATE_PICTURE);
+    if (q->picture_loaded && q->picture_id == n) {
+        /* 63ae:00c4-00d9: the same library and n (DS:bd34, DS:ae42) skip the load, the
+         * palette and the reset of DS:b20e (63ae:0299); 02ac draws record 1 only, and the
+         * frame stays (177e:1b9b's 000c at frame 0 draws the same). */
+        draw(game, &q->picture, 1, VIEW_AT, VIEW_AT, NULL, NULL);
+        game->picture_shown = true;
+        return;
+    }
     q->picture_loaded = false;
     if (!sub_library(game, which, n, &q->picture)) {
         cok_adventure_log(game, "error", game->error);
@@ -2136,11 +2144,14 @@ static bool screen_as_it_was(cok_adventure *game)
         party_list(game);
         status_line(game);
         return true;
-    case 6:
+    case 6: {
+        bool shown = game->picture_shown;
         adventure_screen(game);
         small_picture(game, 0x81);
+        game->picture_shown = shown; /* 63ae:0078 never writes DS:ae64 */
         party_list(game);
         return true;
+    }
     case 1: case 10:
         return cok_adventure_not_yet(game, "the screen as it was in modes 1 and 10 "
                                            "(a small picture, DS:bee9)", "dqk 177e:1ad1");
@@ -5786,8 +5797,8 @@ static const char *const treasure_words[TM_ITEMS] = {"View", "Take", "Pool", "Sh
  * jump table at 75cc:109b). View shows the sheet and the screen again. Exit with money or
  * items says "there is still treasure left." and asks whether to go back and claim it: Yes
  * clears the window and the menu comes again, No (or Escape) leaves. Take, Pool, Share and
- * Detect stop, cited (part 20b; Detect's cast is part 28). Escape is Exit; Up, Down, End
- * and Home pick a member (member_key); other codes do nothing. DS:c6e4 (the saved item),
+ * Detect stop, cited (part 20b; Detect's cast is part 28). Escape is Exit; Up and Down pick a
+ * member (member_key, 5e22:067c); End and Home do nothing (75cc:103e); other codes do nothing. DS:c6e4 (the saved item),
  * DS:ae5a (the pool's flag: no reader found) and the party list's mouse area (1bdb:0c00,
  * 0a33, DS:1d0f) are not modelled; with the mouse on a click outside the buttons beeps. The
  * ECL's song call (2023:0006) at the end is not played (as at PROGRAM's songs). False where
@@ -5816,8 +5827,8 @@ static bool treasure_menu(cok_adventure *game)
         int code;
         if (choice == 0x1b) {
             code = TM_EXIT;
-        } else if (list_key(choice)) {
-            member_key(game, choice);
+        } else if (choice == 0x84 || choice == 0x88) {
+            member_key(game, choice); /* 75cc:1034, 1039: End and Home (0x85, 0x87) do nothing */
             continue;
         } else if (choice < (int)n) {
             code = shown[choice];
@@ -5855,7 +5866,7 @@ static bool treasure_menu(cok_adventure *game)
             if (!print_window(game, "do you want to go back and claim it?", 1, 0x11, 0x26, 0x16,
                               0x0b, false))
                 return false;
-            int yes = yes_no(game, "", false);
+            int yes = yes_no(game, "", game->picture_shown); /* 1bdb:0424 animates by DS:ae64 */
             if (yes < 0) return false;
             if (yes == 0) return true;
             clear_cells(game, 1, 0x11, 0x26, 0x16); /* 1a62:09a1 */
@@ -5948,6 +5959,20 @@ void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool pres
     own(game)->monsters_present = present;
 }
 
+/* The small picture's frame (DS:b20e) and whether the menu that waits now animates it (the
+ * picture is loaded and its menu_picture set by menu_wait_begin): the checks read them. */
+unsigned cok_dark_queen_picture_frame(const cok_adventure *game)
+{
+    const queen *q = game->own;
+    return q == NULL ? 0 : q->frame;
+}
+
+bool cok_dark_queen_picture_animating(const cok_adventure *game)
+{
+    const queen *q = game->own;
+    return q != NULL && q->menu_picture;
+}
+
 /* 5045:0f6c's clock: 1396:044d(1, 1), a minute and its timers (pass_time). */
 bool cok_dark_queen_round_clock(cok_adventure *game)
 {
@@ -6016,7 +6041,7 @@ void cok_dark_queen_temple(cok_adventure *game)
     memset(game->pool.coins, 0, sizeof game->pool.coins);
     for (;;) {
         log_menu(game, words, 4);
-        int choice = bar_menu(game, "", words, 4, true, true, 0, 0);
+        int choice = bar_menu(game, "", words, 4, true, false, 0, 0); /* 7825:0b43: anim 0 */
         if (choice < 0) return;
         int key = -1; /* a key that picks nothing */
         if (choice == 0x1b) {

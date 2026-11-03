@@ -734,7 +734,7 @@ run, citing their handlers (`unported`). It holds:
   "The party has won." with monsters, the share's "each character receives N experience points.", the
   treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with
   money or items the treasure menu runs (`75cc:0e93`: View, the sheet and the screen again; Exit's claim
-  question, Yes or No; Escape is Exit; Up, Down, End and Home pick a member (`5e22:067c`); Take, Pool, Share
+  question, Yes or No; Escape is Exit; Up and Down pick a member (`5e22:067c`), End and Home do nothing (`75cc:103e`); Take, Pool, Share
   and Detect are cited stops, parts 20b and 28); the pool is emptied (`63ee:0002`),
   vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
   clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,

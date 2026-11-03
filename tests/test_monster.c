@@ -1257,10 +1257,28 @@ static void dq_keys(const char *keys)
 static uint8_t dq_shown[320 * 200];
 static const cok_adventure *dq_watch;
 
+/* The picture checks' keys: \x02 lets the front end's idle work run (the small picture's next
+ * frame, when the menu waiting animates it: dq_frames), \x03 records whether the menu waiting
+ * now animates the picture (dq_animating). Neither is a key the menu reads. */
+static cok_adventure *dq_frames;
+static bool dq_animating;
+
 static int dq_read(void *context)
 {
     if (dq_watch != NULL) memcpy(dq_shown, dq_watch->screen.pixels, sizeof dq_shown);
-    return scripted(context);
+    int key = scripted(context);
+    while (key == 2 || key == 3) {
+        if (key == 3 && dq_frames != NULL) {
+            dq_animating = cok_dark_queen_picture_animating(dq_frames);
+        } else if (key == 2 && dq_frames != NULL) {
+            unsigned before = cok_dark_queen_picture_frame(dq_frames);
+            uint32_t ms;
+            for (int i = 0; i < 10 && cok_dark_queen_picture_frame(dq_frames) == before; ++i)
+                if (cok_adventure_menu_animates(dq_frames, &ms)) cok_adventure_menu_frame(dq_frames);
+        }
+        key = scripted(context);
+    }
+    return key;
 }
 
 static bool dq_open(cok_adventure *adv)
@@ -2822,6 +2840,63 @@ static void test_dark_queen_treasure_menu(void)
     dqk.pool.coins[4] = 1000;
     dq_menu(&dqk, "\x01P\x01P" "en"); /* COMBAT leaves the first member selected: Down, Down wraps */
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 2 && dqk.vm.character == first->record);
+
+    /* End and Home do nothing (75cc:1034-103c): the first member stays selected. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.vm.character = first->record;
+    dq_menu(&dqk, "\x01O" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.character == first->record);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.vm.character = first->record;
+    dq_menu(&dqk, "\x01G" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.character == first->record);
+}
+
+/* The claim question's Yes/No bar animates the small picture by DS:ae64 (1bdb:0424 passes it):
+ * with a picture shown before COMBAT the question's wait animates it, with none it does not. */
+static void test_dark_queen_claim_animation(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's claim animation not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    dq_member(&dqk, 0, 1);
+    dq_member(&dqk, 0, 1);
+    dq_frames = &dqk;
+    for (int flag = 0; flag < 2; ++flag) {
+        dq_clear_pool(&dqk);
+        dqk.pool.coins[4] = 1000;
+        dqk.picture_shown = flag;
+        dq_animating = true;
+        dq_menu(&dqk, "e\x03n"); /* Exit, the question's wait, No */
+        CHECK(dqk.vm.status == COK_ECL_OK && dq_animating == (bool)flag);
+    }
+    dq_frames = NULL;
+}
+
+/* The mode-6 redraw keeps the small picture's frame (63ae:00c4-00d9 skips the load and the
+ * reset of DS:b20e): the menu's wait advances to frame 1, View and Escape show the menu again,
+ * and it still has frame 1. */
+static void test_dark_queen_picture_frame_kept(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's picture frame not checked");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    dq_member(&dqk, 0, 1);
+    dq_member(&dqk, 0, 1);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_frames = &dqk;
+    dq_menu(&dqk, "\x02v\x1b");
+    CHECK(cok_dark_queen_picture_frame(&dqk) == 1);
+    dq_frames = NULL;
 }
 
 /* The temple's Down picks the next member (7825:0af6 calls 5e22:067c): the Dark Queen temple's
@@ -2840,6 +2915,27 @@ static void test_dark_queen_temple_member_keys(void)
     dq_keys("\x01P" "e");
     cok_dark_queen_temple(&dqk);
     CHECK(dqk.vm.character == b->record);
+}
+
+/* The temple's bar does not animate the small picture (7825:0b43 pushes 0 for the anim): with
+ * picture 0x81 loaded, the temple's wait is not animating. */
+static void test_dark_queen_temple_no_animation(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's temple animation not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    dq_member(&dqk, 0, 1);
+    DQK_RUN(&dqk, DQK_PICTURE, 0, 0x81);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    dq_frames = &dqk;
+    dq_animating = true;
+    dq_keys("\x03" "e");
+    cok_dark_queen_temple(&dqk);
+    CHECK(!dq_animating);
+    dq_frames = NULL;
 }
 
 #undef DQK_PICTURE
@@ -2881,7 +2977,10 @@ int main(void)
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();
     test_dark_queen_treasure_menu();
+    test_dark_queen_claim_animation();
+    test_dark_queen_picture_frame_kept();
     test_dark_queen_temple_member_keys();
+    test_dark_queen_temple_no_animation();
     test_dark_queen_treasure_items();
     test_dark_queen_heal();
     test_dark_queen_jump_table();
