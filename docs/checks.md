@@ -553,8 +553,13 @@ original's slots are its readied items', `dqk_create.original_slots` and `model_
 Encamp and Load: after Save and Exit the game is not saved (`5f07:0ba6`), so Load asks "Game not
 saved. Load anyway? ", whose screen is compared. The camping picture is left out of the menus'
 screens and the question: the original animates it while the menu waits (DS:c2ef above 0, checked
-at each menu), so its frame at a shot is the animation's. Magic, Rest, Alt, Fix and Load's yes
-are not run (they stop eclplay). All agree (2026-11-02).
+at each menu), so its frame at a shot is the animation's. Then the flow `alt` after Load's
+question's No: the Alt menu, Speed (Slower, Exit), Level (Veteran), Order (Select, Down, Place,
+Exit), Drop (Yes, Yes) with Exit, and Save to slot D (`s`, `d`, `n`, Escape), each with its screen
+and the variables; the saved game D is compared as C is. Magic, Rest, Fix, Icon and Load's yes are
+not run (they stop eclplay). All agree (2026-11-02) but the saved game D after the Drop, which
+differs in the item table's entries 250-252 (the removal's `177e:1c87` is not ported; not traced,
+2026-11-03).
 
 `dqk_ecl_text.py` (about a minute and a half for its seven blocks; in `make dqk-checks`)
 runs the text, picture and wait opcodes the same way, with `dqk_views.py`'s screens:

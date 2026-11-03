@@ -564,6 +564,45 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(digest(shots / "007.bmp"), "d0577b581dae6c184f892c088927a6a7")
         self.assertEqual(digest(shots / "009.bmp"), "3b674649f17f2d0b8e5eaa1fe11117ca")
 
+    def test_camp_alt(self):
+        # The adventure's camp at Caergoth's three steps west: Encamp (e), then Alt
+        # (7070:1ce2) with Speed (1bab) Slower, Level (1b15) Veteran, Order (19a3)
+        # Select, Down (the member moved down), Place, Exit, Drop (7368:0ee9) of the
+        # selected member (ROLAND, Yes and Yes: "bids you farewell"), Exit, and the
+        # camp's Exit. The menus and choices in the log; the variables after: the speed
+        # (0x12, from 4), the party's size (0x20, from 6) and the difficulty (0x27).
+        start = r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r\^\^\^"
+        keys = start + r"Eas" + r"se" + r"lv" + r"os\vped" + r"yye\e"
+        saves = self.folder / "saves"
+        shutil.copytree(ASSETS / "SAVE", saves)
+        varfile = self.folder / "alt.vars"
+        result = self.play("--start-menu", "--mouse", "--saves", saves, "--vars", varfile,
+                           "--keys", keys, ASSETS)
+        self.assertNotIn("not yet", result.stderr)
+        lines = result.stdout.splitlines()
+        camp = "menu: View Magic Rest Alt Fix Load Save Exit"
+        alt = "menu: ~Order ~Drop ~Speed ~Icon ~Level ~Exit"
+        self.assertIn(camp, lines)
+        at = lines.index(camp)
+        self.assertEqual(lines[at:at + 29], [
+            camp, "choice: 3",
+            alt, "choice: 2",
+            "menu: ~Faster ~Slower ~Exit", "choice: 1",
+            "menu: ~Faster ~Slower ~Exit", "choice: 2",
+            alt, "choice: 4",
+            "menu: ~Novice ~Squire ~Veteran ~Adept ~Champion", "choice: 2",
+            alt, "choice: 0",
+            "menu: ~Select ~Exit", "choice: 0",
+            "menu: ~Place ~Exit", "choice: 132",
+            "menu: ~Place ~Exit", "choice: 0",
+            "menu: ~Select ~Exit", "choice: 1",
+            alt, "choice: 1",
+            "message: ROLAND OF DUST bids you farewell.",
+            alt, "choice: 5",
+            camp, "choice: 7"])
+        variables = varfile.read_bytes()
+        self.assertEqual((variables[0x11], variables[0x1F], variables[0x26]), (5, 5, 3))
+
     def test_program_0(self):
         # PROGRAM 0 (5f07:0c15) in block 39, the training hall (92f2), with
         # BALTHIRN alone, from the adventure (7368:046f with 0): View and
