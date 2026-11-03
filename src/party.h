@@ -297,6 +297,13 @@ static inline int8_t cok_character_change_level(const cok_rules *rules, const ui
  * its kind) and the effects STRENGTH, GIANT_STRENGTH and ENLARGED, into
  * the current one (60f4:1743 with 0; dkk 638c:16d8): an item of power 0x0d
  * makes it 3. */
+/* The 18/xx strength helpers (60f4:1543, 60f4:15db), shared with Dark Queen's 1dfc (148f:1c47,
+ * 148f:1ccc): an effect's value as a strength (18 with the exceptional one, or the strength
+ * + 100 above 18), and the candidate kept when it beats the strength and exceptional strength. */
+void cok_effect_strength(const cok_effect *effect, uint8_t *strength, uint8_t *exceptional);
+void cok_strength_better(uint8_t *strength, uint8_t *exceptional, uint8_t candidate,
+                         uint8_t candidate_exceptional);
+
 void cok_character_strength(cok_character *character, const cok_rules *rules);
 
 /* Dark Queen's movement a round in combat (dqk 177e:0a5f with the battle's variables, the
