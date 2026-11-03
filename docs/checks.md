@@ -546,7 +546,8 @@ runs the temple: a test block (`tools/dqkecl.py`) runs LOAD FILES 2 1 (the jumpe
 `dqk_ecl_text.py`'s start), sets var 0x14 and calls COMBAT with no monsters, from a saved game (the
 original's entry as `dqk_fight.py`'s). `temple` is saved game A: the menu, View's sheet, the menu
 after it, Heal's list (`h`), its Stone to Flesh question (Down nine times and Enter, then No), the
-list after No, the menu after Heal (Escape) and Exit. `wounded` is a copy of saved game A with
+list after No, the menu after Heal (Escape), Down and Up at the menu (the selected member by name:
+member 1, then member 0, `5e22:067c`) and Exit. `wounded` is a copy of saved game A with
 Roland at 100 of 134 hit points (`+0x198`): Heal's list, the menu after it, Exit. `stoned` is a copy
 with Roland's status `+0x64` 7: Heal, Stone to Flesh by keys (Down nine, Enter: no question; cured
 to status 0, active, 1 hit point), the list again, the menu, Exit. Each step is compared in RGB (the
@@ -578,9 +579,15 @@ share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect 
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
 too, so a mistake in a flow shows. eclplay runs `won`, `fled`, `rest`, `gentle`, `fledmix`, `zero`,
 `enemy*` to COMBAT's end; `pool`, `bonus` and `negative` run the treasure menu (`75cc:0e93`) to COMBAT's
-end, each wait of the menu compared in turn (the original's screen, variables, records, pool and the
-selected record by name; the treasure picture's box is not compared at them, as it animates; `pool`'s
-steps: the sheet, Escape, Down, Exit's question, Yes, the question again, No); Take, Pool, Share and
+end, each wait of the menu compared in turn (the original's screen, variables, records, pool, RandSeed
+and the selected record by name). The menu's animation is frozen in the original only: the frame
+advance `1bdb:1168` (`incb DS:b20e`) is four nops (`freeze_frame`, checked by its bytes and at each
+wait), as eclplay never advances a frame, so the screens are compared exactly, the treasure picture
+included, and each wait settles at tolerance 0. `pool`'s steps: the sheet, Escape, Down, Exit's
+question, Yes, the question again, No. Its frame check (bug 3): DS:b20e is poked to 2 at the sheet,
+Escape redraws the menu, and the menu's entry (`1bdb:1073`) and first pass (`1bdb:113f`) read and draw
+frame 2, the first pass's screen settling to the same screen; the frame is then 0 again. eclplay's side
+is the repo test (`test_dark_queen_picture_frame_kept`), since it cannot be poked. Take, Pool, Share and
 Detect are not typed (cited stops, parts 20b and 28); `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
 `lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
 hostile member).
