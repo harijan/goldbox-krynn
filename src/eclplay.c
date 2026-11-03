@@ -109,8 +109,36 @@ static void save_blocks(const cok_adventure *game, const char *path)
             block[B->facing] = cr->facing;
             block[B->not_party] = cr->not_party;
             block[B->in_battle] = cr->in_battle;
+            block[B->may_cast] = cr->may_cast;
+            block[B->may_use] = cr->may_use;
+            block[B->initiative] = (uint8_t)cr->initiative;
+            block[B->initiative_high] = cr->initiative < 0 ? 0xff : 0;
+            block[B->attack_slot] = cr->attack_slot;
+            block[B->movement] = cr->movement;
+            block[B->attacked] = cr->attacked;
         }
         fwrite(block, 1, sizeof block, f);
+    }
+    fclose(f);
+}
+
+/* --turns: the turn list as the round's start left it (Dark Queen's DS:bd99 + 4n, 5045:0447):
+ * a line "n index initiative" for each entry n (1 to 0x48) that is not empty, index the
+ * record's place in the party list (--records' order) and initiative the combat record's
+ * (cok_combat_record, signed); the port's turn array, whichever game's battle ran. */
+static void save_turns(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    for (unsigned n = 1; n <= COK_COMBATANTS; ++n) {
+        const cok_character *c = game->combat.turn[n];
+        if (c == NULL) continue;
+        size_t index = 0;
+        while (index < game->party.count && game->party.members[index] != c) ++index;
+        fprintf(f, "%u %zu %d\n", n, index, (int)c->combat->initiative);
     }
     fclose(f);
 }
@@ -221,6 +249,8 @@ static void usage(const char *program)
           "                  at the end\n"
           "  --blocks FILE   save each party record's combat block (Dark Queen's 0x18\n"
           "                  bytes, the named ones at their offsets, the rest 0), in list order\n"
+          "  --turns FILE    save the turn list (Dark Queen's: n, the record's place in the\n"
+          "                  list, its initiative) as the round's start left it\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
           "                  origin, the 50 by 25 cells and occupants in hex, the combatants\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
@@ -853,6 +883,7 @@ static int run(int argc, char **argv)
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
     const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
+    const char *turns = NULL;
     const char *ground = NULL, *ground_set = NULL;
     unsigned long file = 0, vector = 5, start = 0, fixture = 0, seed = 0;
     bool seeded = false;
@@ -972,6 +1003,8 @@ static int run(int argc, char **argv)
             records = argv[++i];
         } else if (strcmp(option, "--blocks") == 0 && has_value) {
             blocks = argv[++i];
+        } else if (strcmp(option, "--turns") == 0 && has_value) {
+            turns = argv[++i];
         } else if (strcmp(option, "--field") == 0 && has_value) {
             field = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -1251,6 +1284,7 @@ static int run(int argc, char **argv)
         if (vars != NULL) save_vars(&game, vars);
         if (records != NULL) save_records(&game, records);
         if (blocks != NULL) save_blocks(&game, blocks);
+        if (turns != NULL) save_turns(&game, turns);
         int result = 0;
         if (status != COK_ECL_OK) {
             fprintf(stderr, "%s\n", cok_adventure_why(&game, status));
@@ -1331,6 +1365,7 @@ static int run(int argc, char **argv)
     if (records != NULL) save_records(&game, records);
     if (blocks != NULL) save_blocks(&game, blocks);
     if (field != NULL) save_field(&game, field);
+    if (turns != NULL) save_turns(&game, turns);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */
     if (status == COK_ECL_OK && (!cok_key_script_done(&p.keys) || p.buffered > 0))

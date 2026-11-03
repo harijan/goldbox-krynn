@@ -12,6 +12,7 @@
 #include "field.h"
 #include "party.h"
 #include "queen_levels.h"
+#include "round.h"
 #include "rules.h"
 #include "test_temp.h"
 
@@ -135,6 +136,127 @@ static void test_party_again(void)
         at += used;
         cok_character_free(&c);
     }
+}
+
+static bool have_assets(void)
+{
+    FILE *f = fopen("DQKAssets/DISK3/ECL.GLB", "rb");
+    if (f == NULL) return false;
+    fclose(f);
+    return true;
+}
+
+static int no_keys(void *context)
+{
+    (void)context;
+    return -1;
+}
+
+/* A Dark Queen character as its .QCH holds it (test_adventure's dqk_member). */
+static cok_character *dqk_member(const cok_adventure *game, const char *base)
+{
+    char error[300];
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    CHECK(cok_character_read_file(c, R, "DQKAssets/SAVE", base, "QCH", &game->item_types, error,
+                                  sizeof error));
+    return c;
+}
+
+/* A record of the shared game as a combatant at x, y (test_round's record(), for Dark Queen). */
+static void place(cok_adventure *game, cok_character *c, int8_t x, int8_t y)
+{
+    cok_combat *k = &game->combat;
+    cok_combatant *e = &k->combatant[k->count];
+    e->x = x;
+    e->y = y;
+    e->size = 1;
+    e->character = c;
+    ++k->count;
+    k->combatant[k->count].size = 0;
+    k->combatant[k->count].character = NULL;
+    CHECK(cok_combat_occupy(k, R));
+}
+
+/* The round's start (dqk 5045:059d's loop, 52db:0004) in Dark Queen's game. CINDER (strength 12,
+ * base movement 12) carries 640, over her allowance of 100 by more than 0x200: the load caps her
+ * movement at 9 (177e:038c, 6346:03e6's), which her round's start doubles to 0x12. Var 0x3c (the
+ * gate) takes a third of that unless effect 0x96 is on her; a cloud under her stops her items and
+ * her casting (52db:0004's +1 and +2); with var 0x3c set, her ammunition is none (51c2:10cd). */
+static void test_round_start_queen(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the round's start not checked");
+        return;
+    }
+    /* Dark Queen's descriptor has no fight block yet, so its battlefield's cloud tile is 0 (the
+     * probe's cloud is inert): this copy gives it Champions' 0x1e (6beb:0c9d). */
+    static cok_rules rules;
+    rules = *R;
+    rules.fight.cloud_tile = 0x1e;
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    CHECK(cok_adventure_open(&game, &rules, "DQKAssets", &keys, &hooks));
+    const cok_character_layout *L = R->character;
+    cok_character *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, R, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    uint8_t *r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 12);
+    cok_field_set8(L, r, COK_FIELD_STRENGTH_EXCEPTIONAL, 0);
+    cok_field_set8(L, r, COK_FIELD_BASE_MOVEMENT, 12);
+    cok_field_set16(L, r, COK_FIELD_WEIGHT, 640);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_combat *k = &game.combat;
+    memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
+    k->count = 1; /* combatant 0 is no one's (test_round's reset) */
+    place(&game, c, 5, 5);
+    cok_ecl *vm = &game.vm;
+    vm->seed = 1;
+    CHECK(cok_combat_round_start(&game, c));
+    CHECK(cok_field_u8(L, r, COK_FIELD_MOVEMENT) == 9 && c->combat->movement == 0x12);
+    CHECK(c->combat->may_use == 1);
+    /* Var 0x3c takes a third of the doubled movement (6); effect 0x96 leaves it whole (and no
+     * effect is removed here: remove_effect asserts for an id that is no named effect). */
+    cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(cok_combat_round_start(&game, c) && c->combat->movement == 6);
+    CHECK(cok_character_add_effect(c, 0x96, 0, 0x10, false) != NULL);
+    CHECK(cok_combat_round_start(&game, c) && c->combat->movement == 0x12);
+    /* A cloud under her: no items and no casting. */
+    cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 0);
+    k->cells[5][5] = (uint8_t)rules.fight.cloud_tile;
+    CHECK(cok_combat_round_start(&game, c));
+    CHECK(c->combat->may_use == 0 && c->combat->may_cast == 0);
+    k->cells[5][5] = COK_COMBAT_FLOOR;
+    CHECK(cok_combat_round_start(&game, c) && c->combat->may_use == 1);
+    /* Ammunition: a weapon's type (the item's type at the rules' record offset) with flags 0x0a
+     * or 0x0c has some; with var 0x3c set it has none. */
+    CHECK(game.item_types.record_type_at == R->item_record.type);
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    item[R->item_record.type] = 5;
+    size_t at = c->item_count;
+    CHECK(cok_character_insert_item(c, at, item));
+    c->slots[0] = at + 1;
+    size_t ammo = 9;
+    bool has = true;
+    game.item_types.type[5][14] = 0x0c;
+    CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && has && ammo == 0);
+    game.item_types.type[5][14] = 0x0a;
+    CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && has && ammo == 0);
+    game.item_types.type[5][14] = 0x04;
+    CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && !has && ammo == 0);
+    game.item_types.type[5][14] = 0x0c;
+    cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && !has && ammo == 0);
+    cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 0);
+    /* Effect 0xb2 leaves no movement (last: no effect is removed here). */
+    CHECK(cok_character_add_effect(c, 0xb2, 0, 0x10, false) != NULL);
+    CHECK(cok_combat_round_start(&game, c) && c->combat->movement == 0);
+    cok_adventure_close(&game);
 }
 
 /* A copy of path as dir/name with the byte at offset made value (0 of
@@ -728,6 +850,7 @@ int main(void)
     test_experience();
     test_party_again();
     test_added();
+    test_round_start_queen();
     puts("dark queen tests passed");
     return 0;
 }

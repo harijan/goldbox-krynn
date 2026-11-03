@@ -144,8 +144,10 @@ bool cok_combat_missile_weapon(const cok_item_types *types, const cok_character 
  * 14): the weapon itself if thrown (0x10); for 8, its readied arrows (1,
  * slot 11) or quarrels (0x80, slot 12), the later winning. *item is 1 +
  * its index, 0 for none; *has whether it has any, or the flags are
- * exactly 0x0a. Returns false as cok_combat_missile_weapon does. */
-bool cok_combat_ammunition(const cok_item_types *types, const cok_character *c, size_t *item,
+ * exactly 0x0a (and, for Dark Queen, 0x0c: combat.ammunition_also). Dark
+ * Queen's has none while var 0x3c is set (combat.ammunition_gated). Returns
+ * false as cok_combat_missile_weapon does. */
+bool cok_combat_ammunition(cok_adventure *game, const cok_character *c, size_t *item,
                            bool *has);
 
 /* 432f:2e82: the most the enemies of c that can act (on the side

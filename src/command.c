@@ -85,7 +85,7 @@ static bool thrown(cok_adventure *game, const cok_character *c, bool *yes)
 /* 6346:3111: whether c has ammunition for its weapon, and which. */
 static bool ammunition(cok_adventure *game, const cok_character *c, size_t *item, bool *has)
 {
-    if (cok_combat_ammunition(&game->item_types, c, item, has)) return true;
+    if (cok_combat_ammunition(game, c, item, has)) return true;
     return type_past(game);
 }
 

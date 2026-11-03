@@ -132,10 +132,23 @@ uint8_t cok_combat_opposite(const cok_character *c, const cok_rules *rules)
     return cok_field_u8(L, c->record, COK_FIELD_HOSTILE) == 0 ? 1 : 0;
 }
 
+/* Dark Queen's movement (dqk 52db:0004 -> 177e:0a5f, 01ef and 038c: the base movement, the armour
+ * and the load, the effects, then the party's var 0x1c, doubled, and var 0x3c's third) is
+ * party.c's, which the stats share; the round's variables are its bonus and gate. */
 bool cok_combat_movement(cok_adventure *game, cok_character *c, uint8_t *movement)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
+    if (cok_game_rules(game)->combat.movement_from_base) {
+        char error[300];
+        uint8_t bonus = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_MOVE_BONUS);
+        bool gate = cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
+        if (cok_character_queen_round_movement(c, cok_game_rules(game), &game->item_types, bonus,
+                                               gate, movement, error, sizeof error))
+            return true;
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
     if (cok_stats_count_movement_effects(cok_game_rules(game))) {
         /* dkk 65cd:1241: haste and slow are in the movement, no event. */
         char error[300];
@@ -162,13 +175,24 @@ uint8_t cok_combat_half_attacks(uint8_t round, uint8_t n)
     return (uint8_t)(n >> 1);
 }
 
+/* Whether a record has a memorised spell (dqk 52db:0004's scan of +0xce to +0x156: a byte from 1 to
+ * 0x7f). */
+static bool memorised_spell(const cok_character_layout *L, const uint8_t *r)
+{
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED);
+    for (size_t i = 0; i < 0x89; ++i)
+        if (r[at + i] != 0 && r[at + i] < 0x80) return true;
+    return false;
+}
+
 /* The readied weapon's item type, or false for one past ITEMS. */
 static bool weapon_type(const cok_item_types *types, const cok_character *c, const uint8_t **type)
 {
     *type = NULL;
     size_t weapon = c->slots[0];
     if (weapon == 0 || weapon > c->item_count) return true;
-    uint8_t t = c->items[weapon - 1][0x2e];
+    size_t at = types->record_type_at != 0 ? types->record_type_at : 0x2e;
+    uint8_t t = c->items[weapon - 1][at];
     if (t >= COK_ITEM_TYPES) return false;
     *type = types->type[t];
     return true;
@@ -184,13 +208,15 @@ bool cok_combat_missile_weapon(const cok_item_types *types, const cok_character 
     return true;
 }
 
-bool cok_combat_ammunition(const cok_item_types *types, const cok_character *c, size_t *item,
-                           bool *has)
+bool cok_combat_ammunition(cok_adventure *game, const cok_character *c, size_t *item, bool *has)
 {
     const uint8_t *type;
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     *item = 0;
     *has = false;
-    if (!weapon_type(types, c, &type)) return false;
+    /* dqk 51c2:10cd: none at once while var 0x3c is set. */
+    if (R->ammunition_gated && cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0) return true;
+    if (!weapon_type(&game->item_types, c, &type)) return false;
     uint8_t flags = type != NULL ? type[14] : 0;
     if (type != NULL) {
         if ((flags & 0x10) != 0) *item = c->slots[0];
@@ -200,7 +226,8 @@ bool cok_combat_ammunition(const cok_item_types *types, const cok_character *c, 
         }
     }
     if (*item > c->item_count) *item = 0;
-    *has = *item != 0 || flags == 0x0a;
+    *has = *item != 0 || flags == 0x0a ||
+           (R->ammunition_also != 0 && flags == R->ammunition_also);
     return true;
 }
 
@@ -222,7 +249,7 @@ bool cok_combat_weapon_attacks(cok_adventure *game, cok_character *c)
     bool missile, has = false;
     size_t item = 0;
     if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return item_type_past(game);
-    if (missile && !cok_combat_ammunition(&game->item_types, c, &item, &has))
+    if (missile && !cok_combat_ammunition(game, c, &item, &has))
         return item_type_past(game);
     if (has) {
         const uint8_t *type;
@@ -234,7 +261,8 @@ bool cok_combat_weapon_attacks(cok_adventure *game, cok_character *c)
     if (!event(game, c, 0x12)) return false;
     uint8_t n = cok_combat_half_attacks(rolls->round, rolls->rate);
     if (has && item != 0) {
-        uint8_t count = c->items[item - 1][0x39], most = count > 1 ? count : 1;
+        uint8_t count = c->items[item - 1][cok_game_rules(game)->item_record.count],
+                most = count > 1 ? count : 1;
         if (most < n && count > 0) n = most;
     }
     cok_field_set8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1, cr->attacked == 0 || n < old ? n : old);
@@ -757,8 +785,10 @@ bool cok_combat_round_start(cok_adventure *game, cok_character *c)
     bool cloud, puddle;
     if (!cok_combat_probe(combat, cok_game_rules(game), r, 8, &occupant, &terrain, &cloud, &puddle))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    cr->may_cast = !cloud;
-    cr->may_use = 1;
+    cr->may_cast = !cloud && (!cok_game_rules(game)->combat.may_cast_needs_spell ||
+                              memorised_spell(L, r));
+    /* dqk 52db:0004's +2: not in a cloud. */
+    cr->may_use = cok_game_rules(game)->combat.may_use_needs_no_cloud ? !cloud : 1;
     cr->attacked = 0;
     cr->attack_slot = 2;
     if (!cok_combat_weapon_attacks(game, c)) return false;
@@ -1070,6 +1100,10 @@ static bool rounds(cok_adventure *game)
                                    "DS:6b2d (6346:268a)");
         done = true;
     }
+    /* A battle over before any round (no side can act at the start) goes to its end, with no
+     * round's start (5045:059d's done); the end's effects are not ported (end_unported). */
+    if (done && R->end_unported != NULL)
+        return cok_adventure_not_yet(game, "battle's end before any round", R->end_unported);
     /* dkk 3e05:00ec's [bp-1]: the round ended early once this battle. */
     bool ended_early = false;
     while (!done && !vm->abort) {
@@ -1083,6 +1117,8 @@ static bool rounds(cok_adventure *game)
         log_order(game);
         cok_character *c = combat->turn[1];
         combat->turn_index = 1;
+        if (c != NULL && R->turn_unported != NULL)
+            return cok_adventure_not_yet(game, "battle's first turn", R->turn_unported);
         while (c != NULL && !done && !vm->abort) {
             if (!cok_combat_turn(game, c) || (R->explode && !cok_combat_explode(game)))
                 return false;
