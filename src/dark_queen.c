@@ -2508,9 +2508,9 @@ static bool opcode(cok_adventure *game)
         return true;
     }
     case COK_ECL_YES_NO: {
-        /* 5f07:13c4: 1bdb:0424, the flags cleared first (2093:0015). */
+        /* 5f07:13c4: 1bdb:0424, the flags cleared first (2093:0015 with 4: 13c8). */
         static const char *const items[] = {"Yes", "No"};
-        memset(vm->flags, 0, sizeof vm->flags);
+        for (int k = 0; k < 4; ++k) vm->flags[k] = false;
         log_menu(game, items, 2);
         int yes = yes_no(game, "", game->picture_shown);
         if (yes < 0) return true;
@@ -5195,6 +5195,14 @@ static bool past_party(const cok_character *c)
     return cok_character_combat(c)->not_party == 1;
 }
 
+/* The word at a one-byte field and the next byte: the status and hostile that 0593's cmpw tests
+ * (5b7-6ba, 680), not the byte alone. */
+static uint16_t word_field(const cok_character_layout *L, const uint8_t *r, cok_field f)
+{
+    size_t at = cok_field_offset(L, f);
+    return (uint16_t)(r[at] | r[at + 1] << 8);
+}
+
 /* 75cc:0593, the party's after combat (135c calls it unless the demonstration runs). It sets
  * b1da, b7a7, c7de and af3f from the records (loops 1 to 3, as the original's), removes the
  * effects that end with the battle (cok_dark_queen_end_effects) from each record, and stops
@@ -5212,12 +5220,12 @@ static void after_combat(cok_adventure *game)
     q->fled = false;           /* 5a3 */
     for (size_t i = 0; i < n && !past_party(game->party.members[i]); ++i) { /* loop 1, 5a8 */
         uint8_t *r = cok_party_record(&game->party, i);
-        if (cok_field_s8(L, r, COK_FIELD_STATUS) == 3) q->fled = true;
+        if (word_field(L, r, COK_FIELD_STATUS) == 3) q->fled = true;
     }
     bool found = false; /* loop 2, 5e5: the first member out, to the first found */
     for (size_t i = 0; i < n && !found; ++i) {
         uint8_t *r = cok_party_record(&game->party, i);
-        int status = cok_field_s8(L, r, COK_FIELD_STATUS);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
         found = cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0 || status == 3 || status == 4 ||
                 status == 5;
     }
@@ -5226,10 +5234,10 @@ static void after_combat(cok_adventure *game)
     for (size_t i = 0; i < n && !past_party(game->party.members[i]); ++i) { /* loop 3, 665 */
         cok_character *c = game->party.members[i];
         uint8_t *r = cok_party_record(&game->party, i);
-        int status = cok_field_s8(L, r, COK_FIELD_STATUS);
+        unsigned status = word_field(L, r, COK_FIELD_STATUS);
         bool npc = (cok_field_u8(L, r, COK_FIELD_NPC) & 0x80) != 0;
         if ((status == 3 || status == 1 || status == 0) &&
-            cok_field_u8(L, r, COK_FIELD_HOSTILE) == 0 && !npc)
+            word_field(L, r, COK_FIELD_HOSTILE) == 0 && !npc)
             q->b7a7 = false; /* 67d-68f */
         if (status == 1 || status == 0) { /* 694-6aa */
             q->standing = true;
@@ -5272,6 +5280,11 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
         return;
     }
     after_combat(game);
+}
+
+void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)
+{
+    own(game)->monsters_present = present;
 }
 
 cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game)

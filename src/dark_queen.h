@@ -32,5 +32,7 @@ typedef struct {
     uint8_t out;
 } cok_dark_queen_end_state;
 cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game);
+/* Sets DS:c7df, which 11b0 (part 19c) will set; the tests need it set before the end of combat. */
+void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present);
 
 #endif

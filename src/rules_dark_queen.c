@@ -566,6 +566,7 @@ const cok_rules cok_rules_dark_queen = {
             .name_address = 0x401, /* 6c70:0c18 */
             .special_stores_kept = true,
             .compare_and_unequal_strings = true, /* 5f07:05be */
+            .flags_cleared = 4,                  /* 5f07:05c4, 6c70:003b */
             .variable_bytes = 1, /* 6c70:0897, 06d2 */
             .vars = dark_queen_vars,
             .start_stores = dark_queen_start,

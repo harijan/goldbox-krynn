@@ -65,12 +65,11 @@ MEMBERS = 6      # saved game A's party (dqk_modify.record_at)
 EFFECTS = bytes([0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35,
                  0x78, 0x76, 0x6f, 0x6a, 0xb2, 0xb1, 0x95, 0x4d])  # DS:631e, 18 bytes
 FLOWS = {
-    # flow: (the saved game's changes to every member, the trap's stop, the stop's cite,
+    # flow: (the saved game's changes to every member, the stop's cite,
     #        the expected state: standing, fled, b7a7, out)
-    "won": dict(changes=None, trap="0723", cite="dqk 75cc:01fb", expect=(True, False, False, 0)),
-    "fled": dict(changes={0x64: 3, 0x65: 0}, trap="0736", cite="dqk 75cc:0736",
-                 expect=(False, True, False, 0)),
-    "lost": dict(changes={0x64: 2, 0x65: 0, 0x18b: 0}, trap="0736", cite="dqk 75cc:0736",
+    "won": dict(changes=None, cite="dqk 75cc:01fb", expect=(True, False, False, 0)),
+    "fled": dict(changes={0x64: 3, 0x65: 0}, cite="dqk 75cc:0736", expect=(False, True, False, 0)),
+    "lost": dict(changes={0x64: 2, 0x65: 0, 0x18b: 0}, cite="dqk 75cc:0736",
                  expect=(False, False, True, MEMBERS)),
 }
 

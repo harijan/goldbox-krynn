@@ -407,6 +407,9 @@ typedef struct {
      * always (dqk 5f07:05be compares the slots' addresses, not their
      * strings, testing the first's type alone). */
     bool compare_and_unequal_strings;
+    /* How many of the flags COMPARE AND and a block's start clear, from flags[0] (dqk 5f07:05c4
+     * and 6c70:003b clear 4; Champions' and Death Knights' 6, as their fillchars do). */
+    uint8_t flags_cleared;
     /* The bytes a variable address holds: 2 where each holds a word
      * (Champions, 3775:0e06), 1 where each holds a byte and an operand of
      * type 2 and up reads and writes a little-endian word over two

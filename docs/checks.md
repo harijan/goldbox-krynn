@@ -557,7 +557,7 @@ The wounded hit points are drawn by the original's colour byte 0x00 (`7825:0737-
 window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black background the Heal screen
 differs by 121 pixels.
 
-`dqk_treasure.py` (flows `won`, `fled` and `lost`, a few minutes each; in `make dqk-checks`) runs
+`dqk_treasure.py` (flows `won`, `fled` and `lost`, about 0.5 min for all three; in `make dqk-checks`) runs
 the end of combat with no monsters from the treasure's start: a test block (`tools/dqkecl.py`)
 runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01 01), SAVE 1 to
 var 0x2e, and COMBAT, from saved game A (`won`), or from copies with every member's status 3 (`fled`)
@@ -570,7 +570,7 @@ records (pointers masked), the flags, DS:af3f, c7de, c7df, b1da and b7a7, the mo
 against the original too. eclplay stops at `dqk 75cc:01fb` (`won`) or `dqk 75cc:0736` (`fled`,
 `lost`), cited for part 19b.
 
-`dqk_camp.py` (about a minute; in `make dqk-checks`)  (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
+`dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's
 party on both sides: the camp's menu, View's sheet (`v`) and the menu again (Escape), the adventure
 after Exit (Escape), each with the screen in RGB (the mouse's pointer left out) and the variables

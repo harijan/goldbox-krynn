@@ -1204,13 +1204,36 @@ static void test_dark_queen(void)
     CHECK(cok_ecl_load(&vm, record, sizeof record - 1) == COK_ECL_OK);
     CHECK(vm.code[0] == COK_ECL_GOTO && vm.size == 0x2ee3);
     vm.mem4b00[0x2a] = vm.mem4b00[0x2b] = vm.mem4b00[0x96] = 9;
+    memset(vm.flags, 1, sizeof vm.flags);
     CHECK(cok_ecl_start(&vm, true) == COK_ECL_OK);
     CHECK(vm.vectors[0] == 0x8014 && vm.vectors[4] == 0x8018);
+    /* A block's start clears flags 0 to 3 (6c70:003b, 4), keeping <= and >= (4 and 5). */
+    CHECK(!vm.flags[0] && !vm.flags[3] && vm.flags[4] && vm.flags[5]);
     CHECK(vm.mem4b00[0x2a] == 0 && vm.mem4b00[0x2b] == 0 && vm.mem4b00[0x96] == 0);
     cok_ecl_store(&vm, 0xaee2, 0x55);
     cok_ecl_store(&vm, 0xaee3, 0x66);
     CHECK(vm.code[0x2ee2] == 0x55 && cok_ecl_load_var(&vm, 0xaee3) == 0);
     CHECK(cok_ecl_load_var(&vm, 0xaee2) == 0x55);
+}
+
+/* COMPARE AND clears the flags it can before it tests: Dark Queen's 4 (dqk 5f07:05c4), Champions'
+ * 6 (2fd3:0bc5). So COMPARE's <= and >= (flags 4 and 5) survive a Dark Queen COMPARE AND only. */
+static void test_flags_cleared(void)
+{
+    cok_ecl_init(&vm, &cok_rules_dark_queen, NULL);
+    at = 0;
+    op(COK_ECL_COMPARE); imm(1); imm(1);
+    op(COK_ECL_COMPARE_AND); imm(1); imm(2); imm(1); imm(1);
+    op(COK_ECL_EXIT);
+    CHECK(cok_ecl_run(&vm, COK_ECL_BASE) == COK_ECL_OK);
+    CHECK(!vm.flags[0] && vm.flags[1] && vm.flags[4] && vm.flags[5]);
+
+    log_t log = start();
+    op(COK_ECL_COMPARE); imm(1); imm(1);
+    op(COK_ECL_COMPARE_AND); imm(1); imm(2); imm(1); imm(1);
+    op(COK_ECL_EXIT);
+    CHECK(run(&log) == COK_ECL_OK);
+    CHECK(!vm.flags[0] && vm.flags[1] && !vm.flags[4] && !vm.flags[5]);
 }
 
 /* Dark Queen's ECL CLOCK, DUMP, FIND SPECIAL, PROGRAM, FIND ITEM, DESTROY
@@ -1343,6 +1366,7 @@ int main(void)
 {
     test_dark_queen();
     test_dark_queen_handlers();
+    test_flags_cleared();
     test_names_and_counts();
     test_death_knights_table();
     test_byte_variables();

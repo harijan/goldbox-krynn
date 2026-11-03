@@ -1507,6 +1507,7 @@ const cok_rules cok_rules_champions = {
             .character_count = sizeof champions_character_vars / sizeof *champions_character_vars,
             .class_bits = {0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff},
             .compare_and_strings = false, /* 2fd3:0bbf */
+            .flags_cleared = 6,           /* 2fd3:0bc5 */
             .delay_ms = 0,                /* 2fd3:2c33: speed * 100 */
             .menu_single_item = true,     /* 2fd3:116d */
         },
