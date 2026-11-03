@@ -1274,7 +1274,8 @@ static cok_ecl_status dq_run(cok_adventure *adv, const uint8_t *code, size_t siz
 /* COMBAT with no monsters (dqk 5f07:081b's branches, in its order): the vault (var 0x31 1)
  * stops, cited (771f:09a0); the temple (var 0x14 1) runs its menu, with no key the run goes on
  * (the variable cleared, the mode 4 with no 3D area and variable 0x24 not 1, 3 where it is 1);
- * with none wanted the treasure stops (75cc:135c). */
+ * with none wanted the treasure's start runs (75cc:135c's 1297, var 0x2e) and stops at its
+ * overlay call (75cc:1093:0015). */
 static void test_dark_queen_no_monsters(void)
 {
     static cok_adventure dqk;
@@ -1306,10 +1307,22 @@ static void test_dark_queen_no_monsters(void)
     cok_ecl_store(&dqk.vm, 0x22, 0);
     cok_ecl_store(&dqk.vm, 0x24, 0);
 
-    /* The treasure: nothing wanted, cited (75cc:135c). */
+    /* The treasure: nothing wanted. 75cc:135c's start clears the surprise byte (var 0x2e),
+     * then the overlay call at 1093:0015 stops, cited. A weapon lost in combat stops at 1297
+     * first (no battle runs here, so the list is empty unless the test adds one). */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1093:0015") != NULL);
+    dqk.lost_weapons = calloc(1, sizeof *dqk.lost_weapons);
+    dqk.lost_weapon_count = 1;
+    cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 1);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1297") != NULL);
+    free(dqk.lost_weapons);
+    dqk.lost_weapons = NULL;
+    dqk.lost_weapon_count = 0;
 }
 
 /* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the
@@ -1361,13 +1374,13 @@ static void test_dark_queen_appends(void)
     /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the
      * next icon slot back to 8 (the block's start, 6c70:0001, does the same). The
      * records stay in the list. The next COMBAT with none loaded and no vault or
-     * temple wanted: the treasure stops, cited (5f07:081b's last branch, 75cc:135c). */
+     * temple wanted: the treasure stops, cited (5f07:081b's last branch, 75cc:1093:0015). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
     CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1093:0015") != NULL);
 
     /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
      * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by

@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py`, `dqk_camp.py` and `dqk_shops.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py`, `dqk_camp.py`, `dqk_shops.py` and `dqk_treasure.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -542,6 +542,7 @@ not checked. The variables the original changed agree (0x30 and the marker; in t
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_shops.py` (flows `temple`, `wounded` and `stoned`, about a minute each; in `make dqk-checks`)
+`dqk_treasure.py` (flow `start`: the variables and records before COMBAT with no monsters agree with the stop at the treasure's overlay call, var 0x2e left out; in `make dqk-checks`)
 runs the temple: a test block (`tools/dqkecl.py`) runs LOAD FILES 2 1 (the jumper's, as
 `dqk_ecl_text.py`'s start), sets var 0x14 and calls COMBAT with no monsters, from a saved game (the
 original's entry as `dqk_fight.py`'s). `temple` is saved game A: the menu, View's sheet, the menu

@@ -697,7 +697,9 @@ run, citing their handlers (`unported`). It holds:
   spells `849a` and `7fd8`, not ported); Repair (`7825:08fa`, which ends the party's effects through
   `148f:017d` and casts `849a:21b5`) stops, cited; the mode after it is 3
   only on the overland (var 0x22 0 and 0x24 1, `5f07:0917`), else 4, the variable 0x14 cleared
-  after the call (`5f07:0861-0871`); the treasure (`75cc:135c`) stops, cited. The temple's View,
+  after the call (`5f07:0861-0871`); the treasure's start (`75cc:135c`: the lost weapons' walk `1297`, empty with no battle, and var
+  0x2e cleared) stops at its overlay call `1093:0015` (not identified yet), cited; `dqk_treasure.py`
+  checks the state before COMBAT against that stop. The temple's View,
   Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
   hit points in the colour the original draws: byte 0x00 on the window's grey; Stone to Flesh on a
   stoned member, by keys); the other cures are checked to stop at their routines.

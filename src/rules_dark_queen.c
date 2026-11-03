@@ -678,7 +678,8 @@ const cok_rules cok_rules_dark_queen = {
              * then the treasure; there is no shop branch (its shops open from STOCK). */
             .vault = true,
             .vault_unported = "dqk 771f:09a0 (the vault)",
-            .no_monsters_treasure_unported = "dqk 75cc:135c (the treasure)",
+            /* 75cc:135c's start runs (1297, var 0x2e); the overlay call at 1093:0015 stops it. */
+            .no_monsters_treasure_unported = "dqk 75cc:1093:0015, the treasure's overlay call",
             /* The mode after COMBAT (5f07:0917) and the overland's mark (5f07:0964). */
             .overland_var = 0x24,
             .overland_mark_unported = "dqk 7065:0011 (the party's place on the overland)",

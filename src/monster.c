@@ -1191,7 +1191,7 @@ static void combat(cok_adventure *game)
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else if (R->no_monsters_treasure_unported != NULL) {
-        cok_adventure_not_yet(game, "the treasure", R->no_monsters_treasure_unported);
+        cok_treasure_no_monsters_start(game, R->no_monsters_treasure_unported);
     } else {
         cok_adventure_overlay(game); /* 351b */
         cok_treasure_end_of_combat(game);
