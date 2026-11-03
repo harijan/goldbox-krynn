@@ -25,11 +25,12 @@ bool cok_dark_queen_load_asked(cok_adventure *game);
 /* The treasure branch of COMBAT with no monsters (75cc:135c; rules.h's no_monsters_treasure). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game);
 
-/* The end-of-combat flags the checks read (eclplay --state): DS:af3f, c7de, c7df, b1da and
- * b7a7; all zero for a game with none. */
+/* The end-of-combat flags the checks read (eclplay --state): DS:af3f, c7de, c7df, b1da, b7a7 and
+ * the experience's share (DS:ae4f); all zero for a game with none. */
 typedef struct {
     bool standing, fled, monsters_present, b7a7;
     uint8_t out;
+    uint32_t share;
 } cok_dark_queen_end_state;
 cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game);
 /* Sets DS:c7df, which 11b0 (part 19c) will set; the tests need it set before the end of combat. */

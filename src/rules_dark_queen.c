@@ -76,7 +76,7 @@ static const cok_rules_opcode dark_queen_opcodes[COK_ECL_OPCODES] = {
     LISTED(COK_ECL_ON_GOTO, 2),      /* 5f07:0991 */
     LISTED(COK_ECL_ON_GOSUB, 2),
     [0x27] = {.meaning = COK_ECL_TREASURE_ITEMS, .operands = COK_ECL_LIST, .header = 4,
-              .skip_list = true, .unported = "dqk 6c70:2127"},
+              .skip_list = true}, /* 6c70:2127: the coins (dark_queen.c's treasure_items) */
     OP(0x28, COK_ECL_ROB, 3),        /* 6c70:28f8 */
     OP(0x29, COK_ECL_NOTHING, 0),    /* 5f07:1449 */
     SAME(COK_ECL_GETTABLE, 3),

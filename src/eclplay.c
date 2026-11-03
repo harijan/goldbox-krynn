@@ -208,7 +208,8 @@ static void save_field(const cok_adventure *game, const char *path)
 }
 
 /* --state: the end of combat's flags the Dark Queen's checks read (DS:af3f, c7de, c7df, b1da,
- * b7a7), the mode (DS:ae57), the flags of the last COMPARE (vm->flags: =, <>, <, >, <=, >=) and
+ * b7a7), the experience's share (DS:ae4f), the pool's coins 4-6, the mode (DS:ae57), the flags
+ * of the last COMPARE (vm->flags: =, <>, <, >, <=, >=) and
  * RandSeed. One "name value" line each. */
 static void save_state(cok_adventure *game, const char *path)
 {
@@ -220,8 +221,11 @@ static void save_state(cok_adventure *game, const char *path)
     cok_dark_queen_end_state s = cok_dark_queen_end_state_of(game);
     fprintf(f, "mode %u\nseed %08lx\nflags", game->vm.mode, (unsigned long)game->vm.seed);
     for (int k = 0; k < 6; ++k) fprintf(f, " %d", game->vm.flags[k] ? 1 : 0);
-    fprintf(f, "\nstanding %d\nfled %d\nmonsters %d\nout %u\nb7a7 %d\n", s.standing,
-            s.fled, s.monsters_present, s.out, s.b7a7);
+    fprintf(f, "\nstanding %d\nfled %d\nmonsters %d\nout %u\nb7a7 %d\nshare %lu\n",
+            s.standing, s.fled, s.monsters_present, s.out, s.b7a7, (unsigned long)s.share);
+    /* The pool's steel, gems and jewelry (DS:b1db, b1df, b1e3: the coins 4-6). */
+    fprintf(f, "pool %lu %lu %lu\n", (unsigned long)game->pool.coins[4],
+            (unsigned long)game->pool.coins[5], (unsigned long)game->pool.coins[6]);
     fclose(f);
 }
 
@@ -301,7 +305,8 @@ static void usage(const char *program)
           "  --turns FILE    save the turn list (Dark Queen's: n, the record's place in the\n"
           "                  list, its initiative) as the round's start left it\n"
           "  --state FILE    save the end of combat's flags (Dark Queen's DS:af3f, c7de, c7df,\n"
-          "                  b1da, b7a7), the mode, the COMPARE flags and RandSeed\n"
+          "                  b1da, b7a7, the share DS:ae4f), the pool's coins 4-6, the mode,\n"
+          "                  the COMPARE flags and RandSeed\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
           "                  origin, the 50 by 25 cells and occupants in hex, the combatants\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
