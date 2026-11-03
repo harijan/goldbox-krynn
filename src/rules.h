@@ -9,6 +9,11 @@
 #include <stdbool.h>
 #include <stdint.h>
 
+typedef struct cok_adventure cok_adventure;
+
+/* Which routine says whether a load is asked (cok_adventure_load_asked), or none. */
+typedef enum { COK_LOAD_ASKED_NONE, COK_LOAD_ASKED_DARK_QUEEN } cok_load_asked;
+
 /* What differs between the games the port plays: one descriptor a game,
  * chosen once at startup (--game) and reached through cok_game_rules (and,
  * in the tools without a game, passed in). Shared code reads what it needs
@@ -1231,6 +1236,9 @@ typedef struct {
      * 5f07:0964-0982, 7065:0011) is not ported: its text, or NULL. */
     uint8_t overland_var;
     const char *overland_mark_unported;
+    /* Whether a load is asked (Dark Queen's DS:b7a7, 5f07:0974): the mark is not made while it is
+     * set (adventure.c's cok_adventure_load_asked); the mark is also not made after an abort. */
+    cok_load_asked load_asked;
     /* Whether the temple's variable COK_VAR_TEMPLE is cleared after the temple runs (dqk
      * 5f07:0861-0871: it reads 1 meanwhile); Champions' and Death Knights' clear it first. */
     bool temple_var_after;

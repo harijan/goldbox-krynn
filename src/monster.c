@@ -1215,9 +1215,11 @@ static void combat(cok_adventure *game)
     if (fought) {
         cok_adventure_redraw(game);
         if (R->overland_var != 0) {
-            /* Dark Queen's mark on the overland (5f07:0982) comes only after a fought
-             * end (vault, treasure) that stops here: cited, not ported. */
-            if (overland)
+            /* Dark Queen's mark on the overland (5f07:0974-0982) comes after a fought
+             * end (vault, treasure) that did not abort and with no load asked (DS:b7a7):
+             * cited, not ported. */
+            bool asked = R->load_asked != COK_LOAD_ASKED_NONE && cok_adventure_load_asked(game);
+            if (overland && !vm->abort && !asked)
                 cok_adventure_not_yet(game, "the mark on the overland", R->overland_mark_unported);
         } else if (!area && !vm->abort && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
             cok_adventure_mark(game);

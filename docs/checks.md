@@ -542,14 +542,15 @@ not checked. The variables the original changed agree (0x30 and the marker; in t
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_shops.py` (flow `temple`, under a minute; in `make dqk-checks`) runs the temple: a test block
-(`tools/dqkecl.py`) sets var 0x14 and calls COMBAT with no monsters, from saved game A (the
-original's entry as `dqk_fight.py`'s). The menu, View's sheet, the menu after it and Exit are
-compared at each step in RGB (the mouse's shield masked), the 1 KB of variables (at the menu
-steps but var 0x14, which eclplay's run has returned from by then) and the party's records. The
-adventure after Exit compares its frame, the variables and the records only: the original's box
-shows DISK READ ERROR in the bar and its redraw stops before the party's list after any COMBAT
-with no monsters that returns (the treasure's branch too), so those pixels are masked. Heal and
-Repair are not compared: eclplay stops at each, citing its routine.
+(`tools/dqkecl.py`) runs LOAD FILES 2 1 (the jumper's, as `dqk_ecl_text.py`'s start), sets var 0x14
+and calls COMBAT with no monsters, from saved game A (the original's entry as `dqk_fight.py`'s).
+The menu, View's sheet, the menu after it, Heal's list (`h`), its Stone to Flesh question (Down
+nine times and Enter, then No), the list after No, the menu after Heal (Escape) and Exit are
+compared at each step in RGB (the mouse's shield masked, the pointer's wider arrow at Exit), the 1
+KB of variables (at the menu steps but var 0x14, which eclplay's run has returned from by then) and
+the party's records. The other Heal cures are not compared: eclplay stops at each, citing its
+routine, and Repair likewise. Stone to Flesh on a stoned member is a repo test only (its save is not
+changed here).
 
 `dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's

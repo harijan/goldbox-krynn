@@ -18,4 +18,8 @@
  * as the game's time passes. */
 extern const cok_drawing cok_dark_queen_drawing;
 
+/* Whether a load is asked (DS:b7a7): the overland's mark after a fight is not made then
+ * (dqk 5f07:0974; rules.h's combat load_asked). */
+bool cok_dark_queen_load_asked(cok_adventure *game);
+
 #endif

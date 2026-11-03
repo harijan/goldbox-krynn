@@ -616,9 +616,8 @@ const cok_rules cok_rules_dark_queen = {
      * squares; the battle (5045:059d) starts (its setup, cok_combat_setup, builds
      * the battlefield: 59c7:1dd7's tiles and builders), makes its combat records
      * (59c7:0f7b, the combat block), and stops at the placement (59c7:1864). The
-     * branches with no monsters (5f07:081b's vault, temple and treasure) are not
-     * ported. The branches with no monsters: the vault (771f:09a0) and the treasure
-     * (75cc:135c) stop, cited; the temple (7825:0af6) runs (dark_queen.c). The encounter
+     * branches with no monsters: the vault (771f:09a0) and the treasure (75cc:135c)
+     * stop, cited; the temple (7825:0af6) runs (dark_queen.c). The encounter
      * (SETUP MONSTERS, APPROACH, the sprite and close-up) is ported. */
     .combat =
         {
@@ -671,6 +670,7 @@ const cok_rules cok_rules_dark_queen = {
             /* The mode after COMBAT (5f07:0917) and the overland's mark (5f07:0964). */
             .overland_var = 0x24,
             .overland_mark_unported = "dqk 7065:0011 (the party's place on the overland)",
+            .load_asked = COK_LOAD_ASKED_DARK_QUEEN,
             .temple_var_after = true, /* 5f07:0861-0871 clears var 0x14 after the temple's call */
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
              * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */

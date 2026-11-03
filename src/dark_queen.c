@@ -3,6 +3,7 @@
 
 #include "adventure.h"
 #include "hlib.h"
+#include "magic.h"
 #include "queen.h"
 #include "queen_arena.h"
 #include "queen_create.h"
@@ -4862,13 +4863,114 @@ const cok_drawing cok_dark_queen_drawing = {
     .encounter = encounter,
 };
 
+/* Heal (dqk 7825:0615): the selected member's name on row 19 and its hit points and maximum
+ * (the name in light cyan on row 1 with ", how can we help you?"), then the list of eleven cures
+ * (list_menu: 1bdb:1f25, cells 2-38 by 3-15) with "Heal" (the current cure) and "Exit" (or
+ * Escape), redrawn after each cure until Exit (177e:1ad1). The cures are DS:82a4's spell ids in
+ * order. Stone to Flesh (0524) is ported; every other cure stops, cited with its routine and
+ * what it needs: its effects go through 148f (part 27), its spell through 849a or 7fd8. */
+enum { HEAL_CURES = 11 };
+static bool stone_to_flesh(cok_adventure *game, cok_character *who);
+
+static bool heal(cok_adventure *game)
+{
+    static const char *const bar[] = {"Heal", "Exit"};
+    static const uint8_t ids[HEAL_CURES] = {0x25, 0x27, 0x03, 0x3a, 0x47, 0x24, 0x43, 0x4b, 0x2b,
+                                            0x71, 0x66};
+    static const char *const stops[HEAL_CURES] = {
+        "dqk 7825:0045 (177e:1734, 148f:017d)",
+        "dqk 7825:00b8 (148f:017d, 148f:1dfc)",
+        "dqk 7825:0193 (148f:1968, 148f:25f7, 148f:017d, 148f:1dfc)",
+        "dqk 7825:0193 (148f:1968, 148f:25f7, 148f:017d, 148f:1dfc)",
+        "dqk 7825:0193 (148f:1968, 148f:25f7, 148f:017d, 148f:1dfc)",
+        "dqk 7825:0193 (148f:1968, 148f:25f7, 148f:017d, 148f:1dfc)",
+        "dqk 7825:0394 (148f:017d)",
+        "dqk 7825:02c0 (849a:21b5)",
+        "dqk 7825:0479 (7fd8:13ef)",
+        NULL, /* Stone to Flesh (0524): stone_to_flesh */
+        "dqk 7825:059e (849a:21b5)",
+    };
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    const char *items[HEAL_CURES];
+    for (size_t i = 0; i < HEAL_CURES; ++i) {
+        items[i] = cok_spell_name(R, ids[i]);
+        if (items[i] == NULL) return cok_adventure_not_yet(game, "a cure", "dqk 7825:0615");
+    }
+    bottom_bar(game);      /* 7825:0615: 1bdb:036c, then the overland's frame (10b2:02d3) */
+    overland_screen(game); /* once, before the loop: the list and the member's lines on it */
+    size_t at = 0;
+    for (;;) {
+        size_t i = cok_party_index(&game->party, game->vm.character);
+        if (i >= game->party.count) return cok_adventure_not_yet(game, "Heal with no member", "dqk 7825:0615");
+        cok_character *who = game->party.members[i];
+        uint8_t *c = who->record;
+        char name[16], now[8], most[8], line[48];
+        clear_cells(game, 1, 0x13, 0x26, 0x13);
+        cok_field_name(L, c, name);
+        text(game, 8 * 0x13, 8 * 1, name, 0x8b);
+        unsigned hp = cok_field_u8(L, c, COK_FIELD_HIT_POINTS);
+        unsigned max = cok_field_u8(L, c, COK_FIELD_MAX_HIT_POINTS);
+        int n = snprintf(now, sizeof now, "%u", hp);
+        text(game, 8 * 0x13, 8 * 0x12, now, hp == max ? 0x8b : 0x80); /* 7825:0615: 737-74f */
+        snprintf(most, sizeof most, "/%u", max);
+        text(game, 8 * 0x13, 8 * (0x12 + n), most, 0x8b);
+        snprintf(line, sizeof line, "%s, how can we help you?", name);
+        text(game, 8, 8, line, 0x8b);
+        int result = list_menu(game, "", bar, 2, items, HEAL_CURES, &at, 2, 3, 0x0f, 0x26);
+        if (result < 0) return false;
+        if (result == 1 || result == 0x1b) break;
+        if (stops[at] == NULL) {
+            if (!stone_to_flesh(game, who)) return false;
+        } else {
+            return cok_adventure_not_yet(game, items[at], stops[at]);
+        }
+    }
+    cok_adventure_redraw(game); /* 7825:0615's end: 177e:1ad1, then the party's list */
+    return true;
+}
+
+/* Stone to Flesh (dqk 7825:0524): a member not stoned (status not 7) is asked "cast cure anyway? "
+ * after "is not stoned." (0001: 177e:156e, 1bdb:0424), and nothing changes whatever the answer.
+ * A stoned member with a readied item of type 0x8c (+0x37, 0x32 set; 177e:1389) is told "spell
+ * dosn't work!" (no name line) and stays stoned. Otherwise its status is 0, it is active and has
+ * 1 hit point. No money is taken. False where the keys ran out. */
+static bool stone_to_flesh(cok_adventure *game, cok_character *who)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *c = who->record;
+    if (cok_field_u8(L, c, COK_FIELD_STATUS) != 7) {
+        member_say(game, c, "is not stoned.");
+        int answer = yes_no(game, "cast cure anyway? ", false);
+        clear_cells(game, 1, 0x12, 0x26, 0x16); /* 0001's 177e:1665 (mode 1): rows 18-22 */
+        return answer >= 0;
+    }
+    for (size_t i = 0; i < who->item_count; ++i) {
+        const uint8_t *item = who->items[i];
+        if (item[0x37] == 0x8c && item[0x32] != 0) {
+            member_say(game, NULL, "spell dosn't work!");
+            return true;
+        }
+    }
+    cok_field_set8(L, c, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, c, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c, COK_FIELD_HIT_POINTS, 1);
+    return true;
+}
+
+/* Whether a load is asked (DS:b7a7): the overland's mark after a fight is not made then
+ * (5f07:0974), which combat's descriptor reads through this. */
+bool cok_dark_queen_load_asked(cok_adventure *game)
+{
+    return own(game)->b7a7;
+}
+
 /* The temple (dqk 7825:0af6): "Heal View Repair Exit" by the bar's buttons, the party's list
- * drawn after each choice (5e22:023b). The mode is 1, the shop's frame off while the screen is
- * drawn, and the pool's coins cleared. View is the sheet (86b8:0b0c, view_character). Heal (7825:
- * 0615, its menu of cures and the Heal whom? picker) and Repair (7825:08fa, the cures by
- * 7825:00b8, 0193, 0394, 02c0, 0479, 0524, 059e) stop: their options cure and raise through the
- * effects engine (148f, part 27) and the spells (849a, 7fd8). Exit leaves; no money is asked for.
- * Escape is Exit; Up and Down pick a member (cok_adventure_special). Keys that run out end it. */
+ * drawn after each choice, Exit's too (5e22:023b). The mode is 1, the shop's frame off while the
+ * screen is drawn, and the pool's coins cleared. Heal (heal) and View (86b8:0b0c, view_character)
+ * run; Repair (7825:08fa) stops, cited: it ends the party's effects (148f:017d) and casts 849a's
+ * spell. Exit leaves; no money is asked for. Escape is Exit; Up and Down pick a member
+ * (cok_adventure_special). Keys that run out end it. */
 void cok_dark_queen_temple(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -4895,8 +4997,8 @@ void cok_dark_queen_temple(cok_adventure *game)
         if (key >= 0) log_choice(game, key);
         switch (key) {
         case TEMPLE_HEAL:
-            cok_adventure_not_yet(game, "Heal in the temple", "dqk 7825:0615");
-            return;
+            if (!heal(game)) return;
+            break;
         case TEMPLE_VIEW:
             /* The sheet leaves the screen as it was (the original's: the adventure's
              * screen by the mode, 177e:1ad1, as the adventure's View does after 2d99:0fef). */
@@ -4904,9 +5006,10 @@ void cok_dark_queen_temple(cok_adventure *game)
             cok_adventure_redraw(game);
             break;
         case TEMPLE_REPAIR:
-            cok_adventure_not_yet(game, "Repair in the temple", "dqk 7825:08fa");
+            cok_adventure_not_yet(game, "Repair in the temple", "dqk 7825:08fa (148f:017d)");
             return;
         case TEMPLE_EXIT:
+            party_list(game); /* 7825:0bcd: after every choice, Exit's too */
             return;
         default: break;
         }

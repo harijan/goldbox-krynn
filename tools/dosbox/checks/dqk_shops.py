@@ -7,17 +7,23 @@ A test block (tools/dqkecl.py) replaces block 1 of a copy of DISK3\\ECL.GLB, and
 runs it from saved game A (dqk_fight's enter: plta, Begin Adventuring, the copy protection
 answered), with the seed set after the block's entry PRESS KEY:
 
-    PRESS KEY; SAVE 1 -> var 0x14 (the temple: 5f07:0861); COMBAT; EXIT
+    PRESS KEY; LOAD FILES 2 1 (the jumper's, as dqk_ecl_text.start: the 3D view's files and
+    the wall set DS:ca03); SAVE 1 -> var 0x14 (the temple: 5f07:0861); COMBAT; EXIT
 
 COMBAT with no monsters opens the temple (7825:0af6): "Heal View Repair Exit". Then, by keys,
-View (v: the sheet, then its menu), the sheet's Escape back to the temple's menu, and Exit (e):
-the block's EXIT returns to the adventure. Each step is compared with eclplay (--load of a copy
-of saved game A, --play, the same keys typed; dqk_fight.port): the screen in RGB, the block's
-1 KB of variables (DS:b20f, 1 to 0x400) and the party's records (pointers masked).
+View (v: the sheet, then its menu), the sheet's Escape back to the temple's menu; Heal (h,
+7825:0615): its list of cures (Down 9 times to Stone to Flesh, Enter: "is not stoned.
+cast cure anyway?", n for No, which changes nothing), then Escape back to the temple's menu;
+and Exit (e): the block's EXIT returns to the adventure. Each step is compared with eclplay
+(--load of a copy of saved game A, --play, the same keys typed; dqk_fight.port): the screen in
+RGB, the block's 1 KB of variables (DS:b20f, 1 to 0x400) and the party's records (pointers
+masked). The mouse's shield is masked at each step; the pointer after Exit is the view's wider
+arrow (dqk_ecl_text.POINTER_WIDE).
 
-Heal (h, 7825:0615) and Repair (r, 7825:08fa) are not compared: their options cure through the
-effects engine (148f) and the spells, not ported, so eclplay stops there citing them; the flow
-checks that it does (the transcript names 7825:0615 and 7825:08fa, each in its own run).
+The other Heal options are not compared: each cures through the effects engine (148f) or a
+spell (849a, 7fd8), not ported, so eclplay stops there citing its routine (STOPS below). Stone
+to Flesh on a stoned member is not compared here (the save is not changed): its readied-item and
+cure paths are repo tests (tests/test_monster.c).
 
     python3 tools/dosbox/checks/dqk_shops.py [--workdir DIR] [--verbose]
 
@@ -32,6 +38,7 @@ import shutil  # noqa: E402
 
 import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
+import dqk_ecl_text  # noqa: E402
 import dqk_fight  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
@@ -46,28 +53,34 @@ VARIABLES = dqk_ecl.VARIABLES
 TEMPLE = 0x14  # the variable COMBAT reads for the temple (5f07:0861)
 
 # The steps: the keys typed after the block's entry PRESS KEY, one at a time for the original
-# (STEP_KEYS: each step's new keys) and in full for eclplay's run that ends at each step.
+# (each step's new keys) and in full for eclplay's run that ends at each step (TYPED).
+DOWN9 = "\\v" * 9  # the list's Down nine times: Stone to Flesh (its index 9)
 STEPS = [("the temple's menu", ""), ("View's sheet", "v"),
-         ("the temple's menu after the sheet", "\\e"), ("the adventure after Exit", "e")]
-TYPED = ["", "v", "v\\e", "v\\ee"]
+         ("the temple's menu after the sheet", "\\e"),
+         ("Heal's menu", "h"),
+         ("Heal's question for Stone to Flesh", DOWN9 + "\\r"),
+         ("Heal's menu after No", "n"),
+         ("the temple's menu after Heal", "\\e"),
+         ("the adventure after Exit", "e")]
+TYPED = []
+for _ in STEPS:
+    TYPED.append("".join(k for _, k in STEPS[:len(TYPED) + 1]))
 # The mouse pointer at the corner (the original's; eclplay has none), as dqk_fight masks it.
 MASKS = [(2, 2, 16, 18, "the mouse cursor (the shield at the corner)")]
-# The adventure after the temple's Exit: the original's box shows DISK READ ERROR in the bar and
-# its redraw stops before the party's list (as after any COMBAT with no monsters that returns:
-# the treasure's too, in the same box; a box artifact, not compared). The party's records and the
-# variables are compared at this step, and the frame's pixels.
-EXIT_MASKS = MASKS + [(0, 184, 320, 16, "the bottom bar: DISK READ ERROR in the original's box "
-                       "after COMBAT returns (the treasure's too), eclplay's command bar"),
-                      (136, 16, 176, 112, "the party's list and status: not drawn by the "
-                       "original's redraw that the error stops (records compared apart)")]
-# Heal and Repair, each typed alone: eclplay stops at the cited routine.
-STOPS = [("h", "dqk 7825:0615", "Heal"), ("r", "dqk 7825:08fa", "Repair")]
+# Each other Heal option, typed alone (h, Down as many times as its index, Enter): eclplay stops
+# at its routine, cited (the original is not compared here). Index 9 is Stone to Flesh (above).
+HEAL_STOPS = [(0, "dqk 7825:0045", "Cure Blindness"), (1, "dqk 7825:00b8", "Cure Disease"),
+              (2, "dqk 7825:0193", "Cure Light Wounds"), (3, "dqk 7825:0193", "Cure Serious Wounds"),
+              (4, "dqk 7825:0193", "Cure Critical Wounds"), (5, "dqk 7825:0193", "Heal"),
+              (6, "dqk 7825:0394", "Neutralize Poison"), (7, "dqk 7825:02c0", "Raise Dead"),
+              (8, "dqk 7825:0479", "Remove Curse"), (10, "dqk 7825:059e", "Restoration")]
 
 
 def temple_block():
     """Block 1: the entry PRESS KEY, the temple's variable set, COMBAT (no monsters), EXIT."""
     b = Block()
     b.op("PRESS_KEY")
+    b.op("LOAD_FILES", imm(2), imm(1))  # the jumper's (block 1, ECL 8025), as dqk_ecl_text.start
     b.op("SAVE", imm(1), var(TEMPLE))
     b.op("COMBAT")
     b.op("EXIT")
@@ -150,7 +163,7 @@ def main():
         v.check(len(variables) == VARIABLES and "error:" not in transcript,
                 f"eclplay runs the temple to {what} with no error", transcript.strip()[-200:])
         if shot is not None:
-            masks = EXIT_MASKS if i == len(STEPS) - 1 else MASKS
+            masks = [dqk_ecl_text.POINTER_WIDE] if i == len(STEPS) - 1 else MASKS
             v.screen(f"the screen at {what}", o["screen"], shot, masks=masks, work=work)
         else:
             v.check(False, f"eclplay saves the screen at {what}")
@@ -167,12 +180,16 @@ def main():
         v.check(len(want) == len(have) and want == have,
                 f"the party's records at {what} agree (pointers masked)",
                 f"{len(have)} records, the original {len(want)}")
-    # Heal and Repair: eclplay's run stops at each, cited (the original is not compared here).
-    for key, cite, name in STOPS:
-        _, _, _, transcript, _ = port(work, patched, f"stop-{name.lower()}", key)
+    # The other Heal options: eclplay's run stops at each, cited (the original is not compared).
+    for k, cite, name in HEAL_STOPS:
+        keys = "h" + "\\v" * k + "\\r"
+        _, _, _, transcript, _ = port(work, patched, f"stop-{k}", keys)
         v.check(cite in transcript,
-                f"eclplay stops at the temple's {name} (not ported), citing {cite}",
+                f"eclplay stops at Heal's {name} (not ported), citing {cite}",
                 transcript.strip()[-200:])
+    _, _, _, transcript, _ = port(work, patched, "repair", "r")
+    v.check("dqk 7825:08fa" in transcript, "eclplay stops at the temple's Repair (not ported)",
+            transcript.strip()[-200:])
     return v.finish()
 
 
