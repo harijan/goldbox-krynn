@@ -5761,6 +5761,15 @@ static bool treasure_end(cok_adventure *game)
         bool money, items;
         if (!results(game, q->share, &money, &items)) return false; /* 1438 */
         if (money || items) { /* 1446-1455 */
+            /* Part 20's facts so far (disassembled, not ported): 0e93 sets the screen (77e:1ad1), the
+             * picture (d7:27a6) and the flags money DS:c3e9, items DS:c7e0 (74b9:092c); the menu's
+             * items are View 0 (10a7: 1d99:0fef), Take 1 (10b6: 75cc:0d01, money or items), Pool 2
+             * (10ca: 64b9:00f6), Share 3 (10d2: 64b9:01ee, money), Detect 4 (10da: 1d99:100d, a
+             * spell found) and Exit 5 (10f3), by the jump table at 75cc:109b. Detect's spell is
+             * the first of 0x89 bytes from +0xce that is 5, 0x0b, 0x4d or 0x3c (DQK's Detect Magic
+             * ids; Death Knights' 0x67 is not one), with +0x18b set (0ed5-0f5e): the shared
+             * detect_spell does not match DQK. Exit with money or items asks the claim question
+             * (1105-1188). Unverified: 0d01, 00f6, 01ee, 0fef, 100d, 0bdb:0424's answer. */
             cok_adventure_not_yet(game, "the treasure", "dqk 75cc:0e93 (the treasure menu, part "
                                                        "20)");
             return false;
