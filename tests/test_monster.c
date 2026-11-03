@@ -1269,6 +1269,47 @@ static cok_ecl_status dq_run(cok_adventure *adv, const uint8_t *code, size_t siz
 #define DQK_RUN(adv, ...) \
     dq_run(adv, (const uint8_t[]){__VA_ARGS__}, sizeof (const uint8_t[]){__VA_ARGS__})
 
+/* COMBAT with no monsters (dqk 5f07:081b's branches, in its order): the vault (var 0x31 1)
+ * stops, cited (771f:09a0); the temple (var 0x14 1) runs its menu, with no key the run goes on
+ * (the variable cleared, the mode 4 with no 3D area and variable 0x24 not 1, 3 where it is 1);
+ * with none wanted the treasure stops (75cc:135c). */
+static void test_dark_queen_no_monsters(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's no-monster COMBAT not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_VAULT, 1);
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_VAULT) == 0);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 771f:09a0") != NULL);
+    CHECK(cok_ecl_var(&dqk.vm, COK_VAR_TEMPLE) == 1);
+
+    /* The temple: no key, so its menu runs out and the branch ends with status OK. */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_VAULT, 0);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && cok_ecl_var(&dqk.vm, COK_VAR_TEMPLE) == 0);
+    CHECK(dqk.vm.mode == 4); /* no 3D area (0x22 0) and variable 0x24 not 1 */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    cok_ecl_store(&dqk.vm, 0x24, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.mode == 3); /* the overland */
+    cok_ecl_set_var(&dqk.vm, COK_VAR_TEMPLE, 1);
+    cok_ecl_store(&dqk.vm, 0x22, 1); /* a 3D area: fought (the redraw), mode 4 */
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.mode == 4);
+    cok_ecl_store(&dqk.vm, 0x22, 0);
+    cok_ecl_store(&dqk.vm, 0x24, 0);
+
+    /* The treasure: nothing wanted, cited (75cc:135c). */
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
+}
+
 /* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the
  * MINOTAUR, then 170e's ten GORGONs (the icon in slot 10), and stops at the
  * battle. CLEARMONSTERS then resets the slots and the undead count, as
@@ -1317,14 +1358,14 @@ static void test_dark_queen_appends(void)
 
     /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the
      * next icon slot back to 8 (the block's start, 6c70:0001, does the same). The
-     * records stay in the list. The next COMBAT with none loaded: the vault,
-     * temple and treasure stop, cited (5f07:081b). */
+     * records stay in the list. The next COMBAT with none loaded and no vault or
+     * temple wanted: the treasure stops, cited (5f07:081b's last branch, 75cc:135c). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
     CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5f07:081b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:135c") != NULL);
 
     /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
      * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
@@ -1584,6 +1625,7 @@ int main(void)
     test_death_knights_monsters();
     test_dark_queen_monsters();
     test_dark_queen_appends();
+    test_dark_queen_no_monsters();
     test_dark_queen_clear_between();
     test_dark_queen_six_loads();
     test_dark_queen_undead_clear();

@@ -1175,26 +1175,27 @@ static void combat(cok_adventure *game)
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game); /* 475c or 6961 */
         if (!area && vm->status == COK_ECL_OK)
             cok_adventure_load_big(game, rules->view.overland_picture); /* 6961:07ed */
-    } else if (R->no_monsters_unported != NULL) {
-        cok_adventure_not_yet(game, "combat", R->no_monsters_unported);
     } else if (R->vault && cok_ecl_var(vm, COK_VAR_VAULT) == 1) {
         cok_ecl_set_var(vm, COK_VAR_VAULT, 0);
         if (R->vault_unported != NULL)
             cok_adventure_not_yet(game, "vault", R->vault_unported);
         else
             cok_treasure_vault(game); /* dkk 3948:000e */
-    } else if (cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
+    } else if (cok_ecl_has_var(rules, COK_VAR_SHOP) && cok_ecl_var(vm, COK_VAR_SHOP) == 1) {
         cok_ecl_set_var(vm, COK_VAR_SHOP, 0);
         cok_adventure_overlay(game); /* 36d0 */
         cok_shop(game);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
     } else if (cok_ecl_var(vm, COK_VAR_TEMPLE) == 1) {
-        cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
+        if (!R->temple_var_after) cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
         cok_adventure_overlay(game); /* 340d */
         cok_temple(game);
+        if (R->temple_var_after) cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
+    } else if (R->no_monsters_treasure_unported != NULL) {
+        cok_adventure_not_yet(game, "the treasure", R->no_monsters_treasure_unported);
     } else {
         cok_adventure_overlay(game); /* 351b */
         cok_treasure_end_of_combat(game);
@@ -1204,14 +1205,23 @@ static void combat(cok_adventure *game)
         game->moving = moving;
         return;
     }
-    vm->mode = area ? 4 : 3;
+    /* The mode: 3 on the overland (no 3D area), else 4; Dark Queen's is 3 only where its
+     * variable 0x24 is 1 too (5f07:0917). */
+    bool overland = !area && (R->overland_var == 0 || cok_ecl_load_var(vm, R->overland_var) == 1);
+    vm->mode = overland ? 3 : 4;
     cok_ecl_set_var(vm, COK_VAR_SEARCH, cok_ecl_var(vm, COK_VAR_SEARCH) & 1);
     game->sprite_loaded = game->closeup_shown = false;
     game->picture_shown = false;
     if (fought) {
         cok_adventure_redraw(game);
-        if (!area && !vm->abort && !cok_ecl_flag(vm, COK_VAR_OFF_MAP))
+        if (R->overland_var != 0) {
+            /* Dark Queen's mark on the overland (5f07:0982) comes only after a fought
+             * end (vault, treasure) that stops here: cited, not ported. */
+            if (overland)
+                cok_adventure_not_yet(game, "the mark on the overland", R->overland_mark_unported);
+        } else if (!area && !vm->abort && !cok_ecl_flag(vm, COK_VAR_OFF_MAP)) {
             cok_adventure_mark(game);
+        }
     }
     game->moving = moving;
 }

@@ -10,6 +10,7 @@
 #include "queen_view.h"
 #include "queen_train.h"
 #include "queen_modify.h"
+#include "shop.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -4860,3 +4861,56 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_cell = arena_cell,
     .encounter = encounter,
 };
+
+/* The temple (dqk 7825:0af6): "Heal View Repair Exit" by the bar's buttons, the party's list
+ * drawn after each choice (5e22:023b). The mode is 1, the shop's frame off while the screen is
+ * drawn, and the pool's coins cleared. View is the sheet (86b8:0b0c, view_character). Heal (7825:
+ * 0615, its menu of cures and the Heal whom? picker) and Repair (7825:08fa, the cures by
+ * 7825:00b8, 0193, 0394, 02c0, 0479, 0524, 059e) stop: their options cure and raise through the
+ * effects engine (148f, part 27) and the spells (849a, 7fd8). Exit leaves; no money is asked for.
+ * Escape is Exit; Up and Down pick a member (cok_adventure_special). Keys that run out end it. */
+void cok_dark_queen_temple(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    static const char *const words[] = {"Heal", "View", "Repair", "Exit"};
+    enum { TEMPLE_HEAL, TEMPLE_VIEW, TEMPLE_REPAIR, TEMPLE_EXIT };
+    vm->mode = 1;
+    game->shop_frame = false; /* 7825:0af6: DS:bee9 */
+    cok_adventure_redraw(game);
+    game->shop_frame = true;
+    party_list(game);
+    memset(game->pool.coins, 0, sizeof game->pool.coins);
+    for (;;) {
+        log_menu(game, words, 4);
+        int choice = bar_menu(game, "", words, 4, true, true, 0, 0);
+        if (choice < 0) return;
+        int key = -1; /* a key that picks nothing */
+        if (choice == 0x1b) {
+            key = TEMPLE_EXIT;
+        } else if (choice == 0x84 || choice == 0x88) {
+            cok_adventure_special(game, (uint8_t)choice);
+        } else if (choice < 4) {
+            key = choice;
+        }
+        if (key >= 0) log_choice(game, key);
+        switch (key) {
+        case TEMPLE_HEAL:
+            cok_adventure_not_yet(game, "Heal in the temple", "dqk 7825:0615");
+            return;
+        case TEMPLE_VIEW:
+            /* The sheet leaves the screen as it was (the original's: the adventure's
+             * screen by the mode, 177e:1ad1, as the adventure's View does after 2d99:0fef). */
+            if (!view_character(game)) return;
+            cok_adventure_redraw(game);
+            break;
+        case TEMPLE_REPAIR:
+            cok_adventure_not_yet(game, "Repair in the temple", "dqk 7825:08fa");
+            return;
+        case TEMPLE_EXIT:
+            return;
+        default: break;
+        }
+        if (vm->status != COK_ECL_OK || vm->abort) return;
+        party_list(game);
+    }
+}

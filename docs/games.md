@@ -672,9 +672,16 @@ run, citing their handlers (`unported`). It holds:
   into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
   (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
-  extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters at the
-  vault (`771f:09a0`), the temple (`7825:0af6`) and the treasure (`75cc:135c`), the branches
-  of `5f07:081b`, cited. Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
+  extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters, the
+  branches of `5f07:081b` in their order: the vault (var 0x31, `771f:09a0`) stops, cited; the
+  temple (var 0x14, `7825:0af6`) runs its menu, "Heal View Repair Exit" (`dark_queen.c`'s
+  `cok_dark_queen_temple`): View (`86b8:0b0c`, the sheet, then the screen as it was) and Exit
+  leave, Up and Down pick a member; Heal (`7825:0615`) and Repair (`7825:08fa`) stop, cited (their
+  cures run `148f`'s effects and the spells `849a`, `7fd8`, not ported); the mode after it is 3
+  only on the overland (var 0x22 0 and 0x24 1, `5f07:0917`), else 4, the variable 0x14 cleared
+  after the call (`5f07:0861-0871`); the treasure (`75cc:135c`) stops, cited. The temple's Heal and
+  Repair cite `dqk_shops.py`'s checks, the temple's View and Exit agree with the original there.
+  Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
   `5f07:088f`-`08ba`, between the overlay's loads and the text) run now, as the encounter's
   (below). Both need LOAD FILES
   first, as the shipped block 4 runs it before its dragons (8066). Without it, in the

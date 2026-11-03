@@ -21,6 +21,9 @@ void cok_shop(cok_adventure *game);
 /* The temple (340d:0ea9): "Heal View Take Pool Share Appraise Exit" with
  * money in the pool, else "Heal View Pool Appraise Exit", as the shop. */
 void cok_temple(cok_adventure *game);
+/* The Dark Queen's temple (dqk 7825:0af6, dark_queen.c): "Heal View Repair Exit"; Heal and
+ * Repair stop, cited. Its shops are Champions' (COK_SHOPS_DARK_QUEEN). */
+void cok_dark_queen_temple(cok_adventure *game);
 
 /* Appraise (58e7:1929) the selected character's gems and jewelry: each
  * one valued on dice, then sold for steel (58e7:01f2) or kept as an item.
