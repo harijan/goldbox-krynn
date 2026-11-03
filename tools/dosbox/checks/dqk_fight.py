@@ -388,9 +388,9 @@ COMBAT_SECONDS = 300
 # the block's last PRESS KEY, as 59c7 is loaded only once the battle starts.
 # The first turn's stop (step 4, part 10b): 5045:078b's arena turn (5837:12f5, cursor on) draws the
 # cursor's box (5837:00f4, ported: part 11b), then the side panel (177e:085f, dark_queen.c's
-# combat_panel, ported), then the turn's dispatch (5045:08cf: the first combatant, CINDER, is the
-# party's, so its command menu is next, cited as part 22; the computer's turn 5bb8:0000 is not
-# reached). eclplay stops there: the `dispatch` flow compares the original's state at 08cf with it.
+# combat_panel, ported), then the turn's dispatch (5045:08cf: the first combatant is a party
+# member (TIMASALIN or BALTHIR NOMOON in these flows; CINDER in the repo test's walk), so its
+# command menu is next, cited as part 22; the computer's turn 5bb8:0000 is not reached). eclplay stops there: the `dispatch` flow compares the original's state at 08cf with it.
 BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's party's command menu (dqk 5045:08cf, "
                "the command menu (part 22))")
 # The party's records as eclplay imports them from the saved game (--load) are the

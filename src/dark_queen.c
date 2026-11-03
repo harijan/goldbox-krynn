@@ -1057,10 +1057,11 @@ static const char *const status_names[10] = {
  * (DS:023e) on row 3 and "AC" (DS:0248) on row 5 in grey at column 23; the hit points at column
  * 33 (177e:07b4: light cyan below the most, else grey) and the armour class at column 26
  * (177e:0724: 0x3c less +0x18e, a '-' before it above 60, grey; its trailing blank is not drawn).
- * The cursor's row is 5 (DS:ae4e). Row 7: the status name in light cyan where the character
- * cannot act, else "(Helpless)" (DS:024b, 177e:0a19) or "(Casting)" (DS:0256) in light cyan
- * while it casts a spell (+0x40's byte). The readied weapon's name (177e:03fc, queen_item_name)
- * is wrapped from row 7 before the status, so the status is drawn over it, as the original's. */
+ * The cursor's row is 5 (DS:ae4e). The status name in light cyan where the character cannot act,
+ * else "(Helpless)" (DS:024b, 177e:0a19) or "(Casting)" (DS:0256) in light cyan while it casts a
+ * spell (+0x40's byte), two rows below the readied weapon's name's last row (177e:0981 reads the
+ * cursor row 177e:0311 left: row 7 with no weapon). The weapon's name (177e:03fc,
+ * queen_item_name) is wrapped from row 7 by 177e:0311, drawn at once (no delay). */
 static bool combat_panel(cok_adventure *game, cok_character *c)
 {
     const cok_rules *R = cok_game_rules(game);
@@ -1083,24 +1084,27 @@ static bool combat_panel(cok_adventure *game, cok_character *c)
     text(game, 8 * 5, 8 * 26, line, 0x87);
     game->vm.cursor.y = 5;
     /* The readied weapon (slot 0, +0xc): its name by 177e:03fc (queen_item_name, as the sheet's),
-     * wrapped by 177e:0311 in columns 23-38 over rows 7-9 (print_window from the window's first
-     * cell, the cursor being on row 5), colour 7, not cleared. */
+     * wrapped by 177e:0311 in columns 23-38 over rows 7-9, colour 7. 085f:095e passes clear (1);
+     * the delay between characters is only while DS:ae65 is set (0476), which 59c7:1dd7 clears
+     * for a battle, so the name is printed at once (slow false). */
     size_t slot = c->slots[0];
     if (slot != 0 && slot <= c->item_count) {
         char weapon[96];
         queen_item_name(&game->party, c->items[slot - 1], false, weapon, sizeof weapon);
-        if (!print_window(game, weapon, 23, 7, 38, 9, 7, false, true)) return false;
+        if (!print_window(game, weapon, 23, 7, 38, 9, 7, true, false)) return false;
     }
+    /* 177e:0981: the cursor row 0311 left, plus two. */
+    int row = game->vm.cursor.y + 2;
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) { /* 177e:085f's status line */
         int status = cok_field_s8(L, r, COK_FIELD_STATUS);
         if (status < 0 || status > 9)
             return cok_adventure_not_yet(game, "a status the original's table does not hold",
                                          "dqk 177e:085f (DS:3bde)");
-        text(game, 8 * 7, 8 * 23, status_names[status], 0x8b);
+        text(game, 8 * row, 8 * 23, status_names[status], 0x8b);
     } else if (cok_combat_helpless(c, R)) { /* 177e:0a19 */
-        text(game, 8 * 7, 8 * 23, "(Helpless)", 0x8b);
+        text(game, 8 * row, 8 * 23, "(Helpless)", 0x8b);
     } else if (cok_character_combat(c)->spell > 0) {
-        text(game, 8 * 7, 8 * 23, "(Casting)", 0x8b);
+        text(game, 8 * row, 8 * 23, "(Casting)", 0x8b);
     }
     return true;
 }

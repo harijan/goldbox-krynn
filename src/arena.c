@@ -982,7 +982,11 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
     const cok_drawing *own = cok_adventure_drawing(game);
     if (own != NULL && own->arena_panel != NULL) {
         cb->panel = false;
-        return own->arena_panel(game, c) || own_failed(game);
+        if (own->arena_panel(game, c)) return true;
+        /* A hook that failed through cok_adventure_fail (its own status, e.g. not yet ported)
+         * has reported itself; only a failure that left the error text alone is reported here. */
+        if (!game->vm.abort) own_failed(game);
+        return false;
     }
     if (own_ground(game) != NULL)
         return fail(game, "the side panel is not drawn on this game's screen yet (parts 11-12)");
