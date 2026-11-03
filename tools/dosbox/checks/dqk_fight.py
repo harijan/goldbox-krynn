@@ -89,9 +89,9 @@ original's view (pointer masked).
 Flow `icons` (step 4, part 11b: the combatants' icons drawn): the runs of `slots` and the dungeon with the party on
 FIELD_SQUARES[1] ((0, 3, 2), where a SHARKMAN stands in the view at (5, 4): Q2), to the same stop. eclplay's --screen,
 its icons drawn by the port, must equal the original's screenshot over the view (8, 8, 168 by 168) in RGB, the combatants'
-cells not masked and only the mouse pointer (8, 8, 8, 9) masked: 0 pixels differing. The pixels outside the view (the
-frame, 20b2:02fa, not ported) is reported, not gated. Gated: at least PARTY combatants drawn in the view in every run, and a
-monster (CPIC) drawn in the view in the square's run.
+cells not masked and only the mouse pointer (dqk_views.POINTER) masked, over the whole screen: 0 pixels differing (the
+combat frame, 20b2:02fa, included). Gated: at least PARTY combatants drawn in the view in every run, no combatant at cell 0, 0,
+and a monster (CPIC) drawn in the view in the square's run.
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
@@ -120,6 +120,7 @@ import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
+import dqk_views  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
 from dqkecl import OPCODES, Block, imm, var  # noqa: E402
@@ -1370,8 +1371,9 @@ def slots(v, work, opts):
 
 # The combatants' icons drawn (step 4, part 11b: arena.c's cursor and pose, dark_queen.c's
 # arena_icon, queen_arena.c's blit): the same runs as `slots`, to the first turn (5045:078b). The
-# port's own screen (eclplay --screen, its icons drawn by the port) must equal the original's
-# screenshot over the view (8, 8, 168 by 168) in RGB, with only the mouse pointer masked. The
+# port's own screen (eclplay --screen, its icons drawn by the port, the combat frame too) must
+# equal the original's screenshot over the whole screen in RGB, with only the mouse pointer
+# masked (dqk_views.POINTER: the DOSBox pointer's arrow at 2-15 by 2-16). The
 # COMSPR cursor box is drawn only with the cursor on, which the battle's stop has not (the header
 # is [0, 1, 0]), so it is not in the compare.
 ICON_MONSTERS = range(0x08, 0x0F)       # the monsters' slots (DS:ad6b: 8-0x0e, 170e's and 29fc's)
@@ -1405,14 +1407,14 @@ def icons(v, work, opts):
         if square is not None:
             v.check(len(monsters) >= 1, f"a monster (CPIC) is drawn in the view at {where}",
                     f"{len(monsters)}")
-        count, box = checklib.masked_diff(r["screen"], port, [GROUND_POINTER] + OUTSIDE)
-        outside, _ = checklib.masked_diff(r["screen"], port, [(*GROUND, "the view")])
-        print(f"  reported, not gated: {outside} pixels differ outside the view at {where} "
-              f"(the frame, 20b2:02fa: not ported)", flush=True)
+        corner = [e["n"] for e in drawn if e["sx"] == 0 and e["sy"] == 0]
+        v.check(not corner, f"no combatant stands at cell 0, 0 (the pointer's mask would hide its "
+                f"icon) at {where}", f"{corner}")
+        count, box = checklib.masked_diff(r["screen"], port, [dqk_views.POINTER])
         v.check(count == 0,
-                f"the view agrees with the original's, the combatants' cells not masked (the "
-                f"pointer only) at {where} ({len(drawn)} combatants drawn, {len(monsters)} "
-                f"monsters: {monsters})",
+                f"the whole screen agrees with the original's, the combatants' icons and the frame "
+                f"not masked (the mouse pointer only) at {where} ({len(drawn)} combatants drawn, "
+                f"{len(monsters)} monsters: {monsters})",
                 f"{count} pixels differ in {box}")
 
 

@@ -655,8 +655,9 @@ run, citing their handlers (`unported`). It holds:
   hotspot, clipped to the view), and so are the cursor's box (slot 0x1e, COMSPR 15, 5837:00f4) and a
   pose with effect 0xd5, which faces 2 (5837:09ab). Not yet: a body's skull (`cok_arena_kill`,
   025d, part 12), and the missiles and the side panel and text (parts 11-12), each a stop
-  (`cok_arena_kill`, `say`), never a picture left out. The redraw's frame (20b2:02fa) is not drawn
-  by the icons.
+  (`cok_arena_kill`, `say`), never a picture left out. The redraw's frame (20b2:02fa: the panel
+  cleared to 0x17 at cells 23-38 by 1-21, FRAME 1, 2, 3 and 5, FRAME 4 within rows 186-199, FRAME 6)
+  is `combat_screen` in `dark_queen.c`, the screen's hook for COMBAT; its panel's text is not drawn.
   Arena.c's one cell draw (`terrain`) goes to the game's `arena_cell` (5837:04d4, 00f4, 172c)
   and its show does not blit the 4-bit buffer. `eclplay --ground FILE --ground-set dungcom4`
   draws a map file's ground and saves `--screen`.
