@@ -2614,6 +2614,50 @@ static bool h_item(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
                     "the 9-byte record, from whatever the heap holds there (dkk 0x79, 504d:28e6)");
 }
 
+/* Dark Queen's own handlers (dqk 78e4), each from its routine. */
+
+/* dqk 78e4:14d1, 0x64, a terrible presence, with either flag (the flag is not read): each record
+ * of the whole list (DS:c6e5, c among them) on the other side from c (+0x66, a word), of status 0
+ * (+0x64, a word), of level (+0x91) below 7 (unsigned) and holding neither the entry's effect
+ * (0x78) nor 0x5c is terrified: 252c(r, 0x78, 0 minutes, value 0, flag 1, kind 1, not saved, "is
+ * terrified", DS:83bc). No saving throw, unlike Champions' 0x48 and 0x52. The routine sets DS:c280
+ * across the walk; only 0x1c's handler (78e4:0580, not ported) reads it, which event 9 can reach. */
+static bool h_presence(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    const cok_rules_effect *h = &fx->rules->effects.handlers[fx->running];
+    (void)removing, (void)effect;
+    size_t status = cok_field_one_(L, COK_FIELD_STATUS, 1);
+    size_t side = cok_field_one_(L, COK_FIELD_HOSTILE, 1);
+    for (size_t i = 0; i < fx->party->count; ++i) {
+        cok_character *other = fx->party->members[i];
+        const uint8_t *r = other->record;
+        if (cok_field_get16_(r, side) == cok_field_get16_(c->record, side) ||
+            cok_field_get16_(r, status) != 0 ||
+            (uint8_t)cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL) >= 7 ||
+            cok_character_find_effect(other, h->value) != NULL ||
+            cok_character_find_effect(other, 0x5c) != NULL)
+            continue;
+        if (!add_with_text(fx, other, h->value, 0, 0, true, 1, false, h->address, h->text))
+            return false;
+    }
+    return true;
+}
+
+/* dqk 78e4:4949, 0xc3, with either flag: for each record of the whole list (DS:c6e5) holding
+ * 0xc3 (c does, when in the list), c gets the entry's effect (0xcb: 255 minutes, value 4, flag 0;
+ * 19c2, no event 9) unless it holds one. */
+static bool h_kin(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    uint8_t id = fx->running, gives = entry_value(fx);
+    (void)removing, (void)effect;
+    for (size_t i = 0; i < fx->party->count; ++i)
+        if (cok_character_find_effect(fx->party->members[i], id) != NULL &&
+            cok_character_find_effect(c, gives) == NULL && !add(fx, c, gives, 0xff, 4, false))
+            return false;
+    return true;
+}
+
 /* The handler table the original fills at DS:6b94 (3f44:38ea), by effect
  * id: the handler's address in overlay 3f44 (or 5b04, which fills a few
  * at startup, 5b04:58ed), 0 for none, and the port. */
@@ -2737,6 +2781,8 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_DISPEL_EVIL] = h_dispel_evil,
     [COK_FX_BARKSKIN] = h_barkskin,
     [COK_FX_MIND_BLANK] = h_mind_blank,
+    [COK_FX_PRESENCE] = h_presence,
+    [COK_FX_KIN] = h_kin,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original

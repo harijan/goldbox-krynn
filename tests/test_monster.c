@@ -1,7 +1,6 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp, symlink */
 #include "dark_queen.h"
 #include "hlib.h"
-#include "rules_dark_queen_magic.h"
 #include "monster.h"
 #include "queen.h"
 
@@ -1263,23 +1262,6 @@ static int dq_read(void *context)
     return scripted(context);
 }
 
-/* The descriptor these tests open with: Dark Queen's, but with the set-up's events 8 and 0x18
- * (59c7:1eb9, 5045:059d) dropped. Monster 64 holds effect 0x64, which both run (dqk 78e4:14d1,
- * not ported), so with them the set-up stops before the battlefield hook and the battle's end
- * the tests check. The events are checked on their own (test_effect.c, test_dark_queen.c). */
-static cok_rules dq_rules;
-static const uint8_t *dq_events[0x19];
-
-static void dq_rules_set(void)
-{
-    if (dq_rules.effects.events != NULL) return;
-    dq_rules = cok_rules_dark_queen;
-    for (unsigned e = 0; e < 0x19; ++e) dq_events[e] = cok_dark_queen_event_lists[e];
-    dq_events[8] = NULL;
-    dq_events[0x18] = NULL;
-    dq_rules.effects.events = dq_events;
-}
-
 static bool dq_open(cok_adventure *adv)
 {
     static cok_keyboard keys;
@@ -1287,11 +1269,10 @@ static bool dq_open(cok_adventure *adv)
     dq_keys("");
     keys = (cok_keyboard){dq_read, &dq_quiet, NULL, NULL};
     hooks = (cok_adventure_hooks){.log = log_line, .context = &dq_quiet};
-    dq_rules_set();
     FILE *f = fopen("DQKAssets/DISK2/MONCHA.GLB", "rb");
     if (f == NULL) return false;
     fclose(f);
-    CHECK(cok_adventure_open(adv, &dq_rules, "DQKAssets", &keys, &hooks));
+    CHECK(cok_adventure_open(adv, &cok_rules_dark_queen, "DQKAssets", &keys, &hooks));
     adv->vm.file = 1;
     adv->vm.status = COK_ECL_OK;
     /* The battle's tile set is the wall set LOAD FILES names (DS:ca03; the
@@ -2199,8 +2180,8 @@ static void test_dark_queen_appends(void)
           dqk.monster_slots[8].icon == 64);
     CHECK(dqk.monster_slots[9].id == 49 && dqk.monster_slots[9].count == 1);
 
-    /* COMBAT appends them and the setup's event 8 runs a monster's effect 0xc3 (dqk 78e4:4949,
-     * not ported): the run stops there, after the battlefield's set-up. */
+    /* COMBAT appends them (the setup's event 8 runs the SHARKMEN's 0x64 and the GORGONS' 0xc3,
+     * 78e4:14d1 and 4949), the battle's end runs, and the run goes on to its end. */
     memset(&at_setup, 0, sizeof at_setup);
     dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);

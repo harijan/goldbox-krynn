@@ -1778,6 +1778,45 @@ static void test_dark_queen(void)
     CHECK(cok_effects_remove(&dfx, c, NULL, 0x03) && cok_character_find_effect(c, 0x03) == NULL);
     cok_character_free(c);
     free(c);
+
+    /* 0x64 (78e4:14d1) at event 8: each record of the list on the other side (+0x66, a word) of
+     * status 0 (+0x64, a word) below level 7 (+0x91) without 0x78 or 0x5c "is terrified" and gets
+     * 0x78 (0 minutes, value 0, flag 1); 0xc3 (4949) gives its holder one 0xcb (255 minutes,
+     * value 4, flag 0). */
+    cok_character *m[6];
+    for (unsigned i = 0; i < 6; ++i) {
+        m[i] = calloc(1, sizeof *m[i]);
+        CHECK(m[i] != NULL);
+        dq_party.members[i] = m[i];
+        m[i]->record[0x91] = 6;
+    }
+    dq_party.count = 6;
+    m[0]->record[0x66] = 1;    /* the holder */
+    m[1]->record[0x91] = 7;    /* level 7 */
+    add(m[2], 0x5c, 0, 0, false);
+    m[3]->record[0x65] = 1;    /* status 0x100 */
+    m[4]->record[0x67] = 1;    /* side 0x100: another side */
+    add(m[0], 0x64, 0, 0, false);
+    said_text[0] = '\0';
+    dfx.say = said;
+    dfx.rolls.pending = 0;
+    dfx.rolls.damage_type = 0;
+    CHECK(cok_effects_dispatch(&dfx, m[0], 8));
+    const cok_effect *t = cok_character_find_effect(m[4], 0x78);
+    CHECK(t != NULL && t->duration == 0 && t->value == 0 && t->on_remove);
+    t = cok_character_find_effect(m[5], 0x78);
+    CHECK(t != NULL && t->duration == 0 && t->value == 0 && t->on_remove);
+    for (unsigned i = 0; i < 4; ++i) CHECK(cok_character_find_effect(m[i], 0x78) == NULL);
+    CHECK(strcmp(said_text, "is terrified;is terrified;") == 0);
+    add(m[1], 0xc3, 0, 0, false);
+    CHECK(cok_effects_dispatch(&dfx, m[1], 8) && cok_effects_dispatch(&dfx, m[1], 8));
+    t = cok_character_find_effect(m[1], 0xcb);
+    CHECK(t != NULL && t->duration == 0xff && t->value == 4 && !t->on_remove && t->next == NULL);
+    dfx.say = NULL;
+    for (unsigned i = 0; i < 6; ++i) {
+        cok_character_free(m[i]);
+        free(m[i]);
+    }
     cok_effects_free(&dfx);
 }
 

@@ -209,6 +209,26 @@ def records(box):
     return out
 
 
+def effect_chains(box):
+    """Each record's effect chain, in list order: [[id, minutes, value, flag], ...] per node in
+    chain order (the record's chain pointer at +4; a node is 9 bytes: +0 id, +1 minutes (a word),
+    +3 value, +4 the flag that runs its handler on removal (0 or 1), +5 the next node's far
+    pointer). eclplay's --effects writes the same thing; dqk_fight.py's chains_agree compares."""
+    out = []
+    for _, raw in records(box):
+        off, seg = struct.unpack_from("<HH", raw, 4)
+        nodes = []
+        while (off, seg) != (0, 0):
+            if len(nodes) >= CHAIN_MAX:
+                raise cokbox.BoxError("a record's effect chain does not end")
+            node = read_far(box, (seg, off), 9)
+            nodes.append([node[0], struct.unpack_from("<H", node, 1)[0], node[3],
+                          1 if node[4] else 0])
+            off, seg = struct.unpack_from("<HH", node, 5)
+        out.append(nodes)
+    return out
+
+
 def combat_record(box, raw):
     """A record's combat record: (pointer, 0x18 bytes), None for a NULL pointer
     (outside combat)."""
@@ -279,6 +299,7 @@ def state(box):
                          dict(at=f"{combat[0][0]:04x}:{combat[0][1]:04x}", raw=combat[1].hex())))
     return dict(
         records=recs,
+        chains=effect_chains(box),
         monsters_loaded=box.ds_byte(DS_MONSTERS_LOADED),
         monster_count=box.ds_byte(DS_MONSTER_COUNT),
         icon_slot=box.ds_byte(DS_ICON_SLOT),

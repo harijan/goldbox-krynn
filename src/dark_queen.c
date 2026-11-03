@@ -4439,6 +4439,15 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
  * as Champions' clock does; that is the difference Encamp will need. */
 static bool moon(cok_adventure *game, uint16_t at, uint8_t days, unsigned base);
 
+/* Whether node is still in c's chain (NULL, the head, always is). */
+static bool linked(const cok_character *c, const cok_effect *node)
+{
+    if (node == NULL) return true;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e == node) return true;
+    return false;
+}
+
 static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
 {
     static const uint16_t limits[7] = {10, 10, 6, 24, 30, 12, 100}; /* DS:634b */
@@ -4496,20 +4505,23 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
             if (q->timed[i] == 0) continue;
             q->timed[i] = 0;
             cok_character *c = game->party.members[r];
+            /* The last node the walk kept (NULL: the chain's head), its safe place to go on
+             * from. */
+            cok_effect *kept = NULL;
             cok_effect *e = c->effects;
             while (e != NULL) {
                 if (e->duration == 0) {
+                    kept = e;
                     e = e->next;
                     continue;
                 }
                 if (step < e->duration) {
                     e->duration = (uint16_t)(e->duration - step);
                     q->timed[i] = 1;
+                    kept = e;
                     e = e->next;
                     continue;
                 }
-                /* 019f's kept next: the removal frees the node, so it is read before. */
-                cok_effect *next = e->next;
                 uint8_t id = e->id;
                 if (!cok_effects_remove(&game->effects, c, e, id))
                     return cok_adventure_effect_failed(game);
@@ -4517,7 +4529,15 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
                     return cok_adventure_not_yet(game, "the effect 0xc4's call (5e22:0065)",
                                                  "dqk 5e22:0065");
                 q->timed[i] = 1;
-                e = next;
+                /* The removal may have run a handler that removed other nodes, the next one
+                 * among them, and freed it (e is freed too), so the walk does not follow the
+                 * next read before the removal. It goes on from the kept node's link as it
+                 * is now; a kept node the handler removed has no place to go on from, cited. */
+                if (!linked(c, kept))
+                    return cok_adventure_not_yet(game, "an effect's removal that removes the "
+                                                 "timers' kept node (1396:019f's walk)",
+                                                 "dqk 1396:019f");
+                e = kept != NULL ? kept->next : c->effects;
             }
         }
         minutes = (uint16_t)(minutes - step);
