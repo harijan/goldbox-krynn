@@ -1252,7 +1252,9 @@ static void test_dark_queen_handlers(void)
     CHECK(cok_ecl_unported(Q, 0x40) == NULL && Q->ecl.opcodes[0x40].operands == 1);
     CHECK(cok_ecl_unported(Q, 0x28) == NULL && Q->ecl.opcodes[0x28].operands == 3);
     CHECK(cok_ecl_unported(Q, 0x39) == NULL && Q->ecl.opcodes[0x39].operands == 1);
-    CHECK(cok_ecl_unported(Q, 0x27) != NULL && cok_ecl_unported(Q, 0x2e) != NULL);
+    CHECK(cok_ecl_unported(Q, 0x27) == NULL && Q->ecl.opcodes[0x27].operands == COK_ECL_LIST &&
+          Q->ecl.opcodes[0x27].header == 4); /* TREASURE ITEMS: the coins (dark_queen.c) */
+    CHECK(cok_ecl_unported(Q, 0x2e) != NULL);
 }
 
 /* Dark Queen's character fields at 0x0401-0x0800 (dqk 6c70:040d reads,

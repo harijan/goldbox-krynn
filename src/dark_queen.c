@@ -2550,6 +2550,19 @@ static void program(cok_adventure *game)
     game->moving = moving;
 }
 
+/* TREASURE ITEMS steel gems jewelry n : id... (dark_queen.c's, 6c70:2127): the three header
+ * words are added as unsigned words to the pool's coins 4-6 (steel, gems, jewelry: DS:b1db, b1df,
+ * b1e3, 213f-216b). With n > 0 the items come next (2188-22a3, from DS:c6de + 17 * id, the id 0xff
+ * is 1a83's): not ported, cited, after the coins. */
+static void treasure_items(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    for (size_t k = 0; k < 3; ++k) game->pool.coins[4 + k] += cok_ecl_header_value(vm, k);
+    if (vm->operands > 0)
+        cok_adventure_not_yet(game, "the treasure", "dqk 6c70:218f (TREASURE ITEMS' items: "
+                                                   "the item table)");
+}
+
 static bool opcode(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -2617,6 +2630,7 @@ static bool opcode(cok_adventure *game)
         animate(game);
         return true;
     case COK_ECL_PROGRAM: program(game); return true;
+    case COK_ECL_TREASURE_ITEMS: treasure_items(game); return true;
     case COK_ECL_ECL_CLOCK: {
         /* 5f07:0a35: the first operand, a byte, is the count and the second,
          * a word, the unit (1396:044d). Its count loop's byte counter wraps at
@@ -5282,6 +5296,18 @@ static uint16_t word_field(const cok_character_layout *L, const uint8_t *r, cok_
     return (uint16_t)(r[at] | r[at + 1] << 8);
 }
 
+/* 10d7:2a72, Borland C's LDIV@ (signed): the magnitudes by 32 shifts and subtractions, then
+ * the sign of the result (bit 4 of di). It has no division instruction and no test for 0, so a
+ * divisor of 0 gives 0xffffffff, or 1 for a negative dividend; 0x80000000 / -1 is 0x80000000. */
+static uint32_t ldiv_borland(uint32_t a, uint32_t b)
+{
+    bool negative = false;
+    if (a & 0x80000000u) { a = 0u - a; negative = true; }
+    if (b & 0x80000000u) { b = 0u - b; negative = !negative; }
+    uint32_t q = b == 0 ? 0xffffffffu : a / b;
+    return negative ? 0u - q : q;
+}
+
 /* 75cc:01fb, the experience (after 0593 when a member stands): every monster in the list
  * (hostile word 1, status word neither 0, 3 nor 9) sets DS:c7df, and one past the party (its
  * combat record's not_party 1) puts its coins (three words, steel, gems, jewelry) in the pool
@@ -5289,8 +5315,8 @@ static uint16_t word_field(const cok_character_layout *L, const uint8_t *r, cok_
  * jewelry 2200, and each magic item with a bonus above 0 adds 400 times it (as a signed word,
  * 0x30; the last missile recovered, DS:c2e3, stops the walk). The sum, a LongInt, is divided by
  * the party's variable 0x20 less those out (DS:b1da, decremented first where the variable is no
- * more: 01fb 3a2-3ac); a divisor of 0 is runtime error 200. The share is DS:ae4f.
- * A monster's items go to the pool through 000b (part 19b): cited, the
+ * more: 01fb 3a2-3ac), by ldiv_borland (2a72: a divisor of 0 gives 0xffffffff, not an error).
+ * The share is DS:ae4f. A monster's items go to the pool through 02cb (part 19b): cited, the
  * first time one would move. The party with no monsters past it adds nothing here. */
 static bool experience(cok_adventure *game)
 {
@@ -5315,10 +5341,11 @@ static bool experience(cok_adventure *game)
         total += cok_field_u16(L, r, COK_FIELD_MONSTER_EXPERIENCE);
         if (cok_ecl_load_var(vm, 0x1e) == 1) continue; /* KEEP_ITEMS: the items stay (2a5) */
         if (c->item_count != 0 && c->items[0][ir->type] != 0x69) {
-            /* 2b3-2be: the first item (+0x28) is not 'i'; the items move to the pool (2cb-338)
-             * and 000b (the item loop, 309-312) runs for each: part 19b. */
-            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:000b (a monster's items to the "
-                                                       "pool: 01fb's item loop, part 19b)");
+            /* 2b3-2be: the first item (+0x28) is not 'i'; the items move to the pool (2cb-338,
+             * with 000b, the merge of counted items, for each: part 19b). */
+            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:02cb (a monster's items to the "
+                                                       "pool; 000b merges counted items, part "
+                                                       "19b)");
             return false;
         }
     }
@@ -5334,13 +5361,7 @@ static bool experience(cok_adventure *game)
     uint8_t var = (uint8_t)cok_ecl_load_var(vm, 0x20);
     if (var <= q->out) --q->out; /* 3e7-3f5: DS:b1da */
     int32_t divisor = (int32_t)(int16_t)((int)var - (int)q->out); /* 3f9-40c */
-    if (divisor == 0) {
-        cok_adventure_fail(game, COK_ECL_DIVIDE_BY_ZERO,
-                           "the experience is divided by the party less those out, 0 "
-                           "(dqk 75cc:01fb's division, 2a72)");
-        return false;
-    }
-    q->share = (uint32_t)((int32_t)total / divisor); /* 414-41c: DS:ae4f */
+    q->share = ldiv_borland(total, (uint32_t)divisor); /* 414-41c: DS:ae4f */
     return true;
 }
 
@@ -5371,11 +5392,11 @@ static bool award(cok_adventure *game)
                      (klass == 5 && intel > 15) || (klass == 6 && dex > 15);
         uint32_t gain = share;
         if (bonus)
-            gain = (uint32_t)((int32_t)share / 10) + share; /* 4b0 */
+            gain = ldiv_borland(share, 10) + share; /* 4b0 */
         else if (klass == 8 || (klass >= 10 && klass <= 14) || klass == 16)
-            gain = (uint32_t)((int32_t)share / 2); /* 522 */
+            gain = ldiv_borland(share, 2); /* 522 */
         else if (klass == 9 || klass == 15)
-            gain = (uint32_t)((int32_t)share / 3); /* 53c */
+            gain = ldiv_borland(share, 3); /* 53c */
         uint32_t experience_now = cok_field_u32(L, r, COK_FIELD_EXPERIENCE) + gain; /* 557-561 */
         cok_field_set32(L, r, COK_FIELD_EXPERIENCE, experience_now);
         bool may;
@@ -5480,6 +5501,7 @@ cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game)
     s.monsters_present = own(game)->monsters_present;
     s.out = own(game)->out;
     s.b7a7 = own(game)->b7a7;
+    s.share = own(game)->share;
     return s;
 }
 

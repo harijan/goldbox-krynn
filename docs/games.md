@@ -710,12 +710,17 @@ run, citing their handlers (`unported`). It holds:
   cited): b7a7, c7de, af3f and b1da set from the records, and the 18 effects that end with the battle
   (DS:631e) removed from each (a record holding one stops, cited `148f:017d`, part 27); when a member
   stands, 01fb (the experience: the pool's steel x2, gems x250 and jewelry x2200, and the magic items'
-  bonuses x400, over var 0x20 less those out, DS:b1da, which 01fb decrements where var 0x20 is no more;
-  a divisor of 0 is runtime error 200; the monsters past the party add their coins, experience and
-  items, the items cited at `000b`, part 19b) and 0427 (the award by class, as Champions') run; then
-  its rest from `75cc:0736` (the party's and the destroyed, cited, part 19b). `dqk_treasure.py` checks
-  the state at that stop (flows `won`, `fled` and `lost`); saved game A's pool is empty, so `won`
-  awards nothing there: 01fb's arithmetic and 0427 are covered by repo tests. The
+  bonuses x400, a magic item's bonus a signed word, over var 0x20 less those out, DS:b1da, which 01fb
+  decrements where var 0x20 is no more; the division is Borland's LDIV@ (`10d7:2a72`, signed, with no
+  test for 0: a divisor of 0 gives 0xffffffff, or 1 for a negative dividend, and no error); the
+  monsters past the party add their coins, experience and items, the items moved at `02cb` (`000b`
+  merges counted items), part 19b) and 0427 (the award by class, as Champions'; half and a third
+  divide by LDIV@ too) run; then its rest from `75cc:0736` (the party's and the destroyed, cited,
+  part 19b). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
+  jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
+  that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
+  and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share);
+  the repo tests cover the magic items, the records past the party and the missile stop. The
   temple's View,
   Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
   hit points in the colour the original draws: byte 0x00 on the window's grey; Stone to Flesh on a
