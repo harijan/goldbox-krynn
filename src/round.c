@@ -923,6 +923,7 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     if (cr->spell == 0 && !event(game, c, 0x15)) return false;
     if (cr->initiative > 0 && !cok_combat_act(game, c, cok_field_u8(L, r, COK_FIELD_COMPUTER) != 0))
         return false;
+    if (game->vm.abort) return true;
     return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
 

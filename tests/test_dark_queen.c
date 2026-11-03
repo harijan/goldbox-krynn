@@ -9,6 +9,7 @@
 #include "arena.h"
 #include "combat.h"
 #include "ecl.h"
+#include "dark_queen.h"
 #include "data_dark_queen.h"
 #include "field.h"
 #include "hlib.h"
@@ -1387,8 +1388,9 @@ static void test_command_menu_items(void)
     menu_c->combat->turns = 1; /* as many as undead: none */
     menu_expect("Aim Guard Quick@Delay View Speed End");
     menu_c->combat->turns = 0;
-    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0xff); /* -1 reads 0, unsigned */
-    menu_expect("Aim Guard Quick@Delay View Speed End");
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0xff); /* 177e:2234 reads it unsigned */
+    menu_expect("Aim Turn Guard Quick@Delay View Speed End");
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0);
     cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 3);
     menu_expect("Aim Turn Guard Quick@Delay View Speed End");
     cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 2); /* class 3 needs above 2 */
@@ -1519,6 +1521,14 @@ static void test_pass_draw(void)
     uint32_t want = menu_game.vm.seed;
     cok_tp_random(&want, 1000);
     queen_bar_message(&menu_game, "Guarding");
+    CHECK(menu_game.vm.seed == want);
+    /* ADD EP's wait (1a62:0949 -> 1df9:052a): one draw for a time, none for none. */
+    want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    cok_dark_queen_wait(&menu_game, 100);
+    CHECK(menu_game.vm.seed == want);
+    want = menu_game.vm.seed;
+    cok_dark_queen_wait(&menu_game, 0);
     CHECK(menu_game.vm.seed == want);
     menu_close();
 }

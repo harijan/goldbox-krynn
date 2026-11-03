@@ -22,6 +22,10 @@ extern const cok_drawing cok_dark_queen_drawing;
  * (dqk 5f07:0974; rules.h's combat load_asked). */
 bool cok_dark_queen_load_asked(cok_adventure *game);
 
+/* A wait of ms as the game's 1df9:052a does it (one random(1000) first for ms != 0): the wait of
+ * ADD EP (1a62:0949 -> 1df9:052a, var 0x12's 100 ms times). */
+void cok_dark_queen_wait(cok_adventure *game, unsigned ms);
+
 /* The treasure branch of COMBAT with no monsters (75cc:135c; rules.h's no_monsters_treasure). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game);
 

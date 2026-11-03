@@ -1104,6 +1104,19 @@ def spins_at_placement(v, r):
     v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
 
 
+def menu_screen_agrees(v, original, path, where):
+    """The command menu's whole screen (the original's at its wait, 08cf given back and settled)
+    against eclplay's --screen at the menu's stop: only the mouse pointer masked."""
+    if not path.exists():
+        v.check(False, f"eclplay writes its screen at the menu at {where}")
+        return
+    port = cokbox.RGBScreen.load(path, SLOT_SCREEN)
+    count, box = checklib.masked_diff(original, port, [MENU_POINTER])
+    v.check(count == 0, f"the command menu's whole screen agrees with the original's at {where} "
+            "(the menu's rows, the frame, the bar; the mouse pointer masked)",
+            f"{count} pixels differ in {box}")
+
+
 def placement(v, work, patched, tag, where, square, r):
     """eclplay's run to the first turn (5045:078b) against the original's state r: the battlefield,
     RandSeed (the original's, after the draws the battle made: the builders' and the initiative's),
@@ -1114,13 +1127,17 @@ def placement(v, work, patched, tag, where, square, r):
     records = work / f"port-{tag}.records"
     blocks = work / f"port-{tag}.blocks"
     turns = work / f"port-{tag}.turns"
+    menu = r.get("menu_screen")
+    screen = work / f"port-{tag}.bmp" if menu is not None else None
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
-                                records=records, blocks=blocks, turns=turns)
+                                records=records, blocks=blocks, turns=turns, screen=screen)
     v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
             "eclplay ends at the battle's command menu (out of keys)", port_last)
     if not path.exists():
         v.check(False, "eclplay writes its battlefield at the stop", port_last)
         return
+    if screen is not None:
+        menu_screen_agrees(v, menu, screen, where)
     # Var 0x3c gates the records' effect 0x95 (59c7:0f7b:10cf): its value agrees, and the
     # records' effects (masked in the record compare) follow it; 0 at every square here.
     gate = r["variables"][0x3C - 1]
@@ -1458,40 +1475,86 @@ def snapshot(box):
                 mode=box.ds_word(L.DS_MODE), variables=block_vars(box), state=L.state(box))
 
 
+MENU_POINTER = (8, 8, 10, 10, "the mouse pointer at the command menu's wait (the arrow)")
+KEYS = ("E", "G", "D")          # End, Guard, Delay: the keys typed at the first turn's menu
+TAIL = (0x5045, 0x066A)         # the turn's tail: the lcall 148f:2ab8 after 078b (TURN - 0x121)
+TAIL_SECONDS = 120
+# The cursor's cell at the tail (TIMASALIN's, 24 by 24): the original keeps the cursor's box (COMSPR
+# 15) after 078b's tail redraw of the cell; eclplay's redraw erases it. Not resolved (docs/checks.md).
+TAIL_CURSOR_CELL = (104, 80, 24, 24, "the cursor's box at TIMASALIN's cell (the tail's redraw)")
+
+
+def to_menu(box):
+    """The first turn's command menu (step 4, part 10b) in an entered box, RandSeed set: the
+    turn's trap (5045:078b, held) is given back, and 5045:08cf, the party's dispatch, is spun in
+    the same copies (EB FE over its two bytes at +0x144, the routine's entry). The state is read
+    at the turn (078b) and at the menu (08cf), and DS:ad67, the selected record, at the menu. Then
+    08cf is given back, the menu drawn and waiting (the emulation paused). The returned keys are
+    snapshot's, at the menu (placement's), with the turn's state as `turn`, the menu spin's
+    `menu_held`, `menu_polls`, `menu_traps`, `handle` (078b's copies) and `purges`."""
+    purges_at_seed = purges(box)
+    box.keys("\\r")                 # the 'monsters' PRESS KEY (field_original's keys)
+    box.settled(tolerance=64)
+    box.keys("\\r")                 # the 'loaded' PRESS KEY
+    box.settled(tolerance=64)
+    box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
+    handle = at_placement(box)      # the placement made (placed), the turn's spin held
+    box.settled(tolerance=64)
+    held, polls, polls_held = L.held(box, handle)
+    turn = snapshot(box)
+    menu = [(addr + MENU[1] - TURN[1], None) for addr, _ in handle]
+    menu = [(addr, box.read(addr, 2)) for addr, _ in menu]
+    for addr, _ in menu:
+        box.write(addr, b"\xeb\xfe")
+    L.untrap(box, handle)           # 078b given back: the turn runs on to 08cf
+    menu_held, menu_polls, menu_polls_held = L.held(box, menu, seconds=1.5)
+    at_menu = snapshot(box)
+    selected = "%04x:%04x" % (box.ds_word(0xAD69), box.ds_word(0xAD67))
+    box.write_paused(menu)
+    box.settled(quiet=1.0, tolerance=0)   # the menu drawn, waiting for a key
+    return dict(traps=len(handle), held=held, polls=(polls, polls_held),
+                menu_traps=len(menu), menu_held=menu_held,
+                menu_polls=(menu_polls, menu_polls_held), selected=selected,
+                purges=purges(box) - purges_at_seed, turn=turn, handle=handle, **at_menu)
+
+
 def dispatch_original(work, patched, verbose, tag="dispatch"):
-    """The original's run to the first turn's dispatch (step 4, part 10b): the turn's trap
-    (5045:078b, held) is given back, and 5045:08cf, the party's dispatch, is spun in the same
-    copies (EB FE over its two bytes at +0x144, the routine's entry). The state is read at the
-    turn (078b) and at the command menu (08cf), and DS:ad67, the selected record, at the menu.
-    The returned keys are snapshot's, at the menu (placement's), with the turn's state as
-    `turn` and the menu spin's `menu_held`, `menu_polls`, `menu_traps`."""
+    """The original's run to the first turn's dispatch (step 4, part 10b): to_menu, with the
+    menu's screen kept (`menu_screen`, the PNG under work)."""
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
         enter(box)
         box.set_seed(SEED)
-        purges_at_seed = purges(box)
-        box.keys("\\r")                 # the 'monsters' PRESS KEY (field_original's keys)
-        box.settled(tolerance=64)
-        box.keys("\\r")                 # the 'loaded' PRESS KEY
-        box.settled(tolerance=64)
-        box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
-        handle = at_placement(box)      # the placement made (placed), the turn's spin held
-        box.settled(tolerance=64)
-        held, polls, polls_held = L.held(box, handle)
-        turn = snapshot(box)
-        menu = [(addr + MENU[1] - TURN[1], None) for addr, _ in handle]
-        menu = [(addr, box.read(addr, 2)) for addr, _ in menu]
-        for addr, _ in menu:
-            box.write(addr, b"\xeb\xfe")
-        L.untrap(box, handle)           # 078b given back: the turn runs on to 08cf
-        menu_held, menu_polls, menu_polls_held = L.held(box, menu, seconds=1.5)
-        at_menu = snapshot(box)
-        selected = "%04x:%04x" % (box.ds_word(0xAD69), box.ds_word(0xAD67))
-        box.write_paused(menu)
-        return dict(traps=len(handle), held=held, polls=(polls, polls_held),
-                    menu_traps=len(menu), menu_held=menu_held,
-                    menu_polls=(menu_polls, menu_polls_held), selected=selected,
-                    purges=purges(box) - purges_at_seed, turn=turn, **at_menu)
+        r = to_menu(box)
+        r["menu_screen"] = box.screenshot(path=str(work / f"{tag}-menu.png"))
+        return r
+
+
+def keys_original(work, patched, key, verbose):
+    """The original at the first turn's menu, the key typed there (step 4, part 22a: End,
+    Guard or Delay) and the turn's tail reached (5045:066a, trapped where the lcall 148f:2ab8
+    runs). The menu's screen, the turn's state at the menu and the state at the tail."""
+    tag = f"keys{key}"
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / f"{tag}-menu.png"))
+        tail = [(addr + TAIL[1] - TURN[1], box.read(addr + TAIL[1] - TURN[1], 2))
+                for addr, _ in menu["handle"]]
+        box.write_paused([(addr, b"\xeb\xfe") for addr, _ in tail])
+        box.keys(key)
+        held, end = False, time.monotonic() + TAIL_SECONDS
+        while not held and time.monotonic() < end:
+            box.settle(0.5)
+            held = L.held(box, tail, seconds=0.6)[0]
+        if not held:
+            raise cokbox.BoxError(f"the original's turn tail (5045:066a) is not reached after {key}")
+        tail_state = snapshot(box)
+        tail_screen = box.screenshot(path=str(work / f"{tag}-tail.png"))
+        return dict(menu=menu, tail=tail_state, tail_screen=tail_screen,
+                    tail_held=held, tail_traps=len(tail))
 
 
 def dispatch(v, work, opts):
@@ -1519,13 +1582,93 @@ def dispatch(v, work, opts):
     placement(v, work, patched, "dispatch", "the first turn's dispatch (5045:08cf)", None, r)
 
 
+KEY_TURN = {"E": 1, "G": 1, "D": 0}   # DS:bd2d at the tail (the turn's combatant index)
+KEY_DRAWS = {"E": 0, "G": 1, "D": 0}  # RandSeed draws past the menu's (Guard's message's wait)
+KEY_TAIL = re.compile(r".*148f:2ab8.*")
+
+
+def keys(v, work, opts):
+    """The command menu's keys (step 4, part 22a): End, Guard and Delay each typed at the first
+    turn's menu. The original's menu (the placement's comparison, then its tail: 5045:066a, the
+    turn's end) against eclplay's run to the menu and to the tail after the key."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    for key in KEYS:
+        tag = f"keys{key}"
+        r = keys_original(work, patched, key, opts.verbose)
+        spins_at_placement(v, r["menu"])
+        placement(v, work, patched, tag, f"the first turn's menu before {key}", None, r["menu"])
+        text = (work / f"port-{tag}.txt").read_text().splitlines()
+        v.check("menu: Aim Use Guard Quick@Delay View Speed End" in text,
+                f"the menu's built text is \"Aim Use Guard Quick@Delay View Speed End\" (before {key})",
+                [line for line in text if line.startswith("menu:")][:1])
+        t = r["tail"]
+        m_seed = r["menu"]["seed"]
+        draws = L.draws(m_seed, t["seed"])
+        v.check(draws == KEY_DRAWS[key], f"the original's RandSeed past the menu after {key} is "
+                f"{KEY_DRAWS[key]} draw(s) (Guard's message's wait, 1df9:052a)",
+                f"{draws} draws")
+        v.check(t["state"]["turn"] == KEY_TURN[key],
+                f"the original's turn index (DS:bd2d) at the tail after {key} is {KEY_TURN[key]}",
+                f"{t['state']['turn']}")
+        tail_path = work / f"port-{tag}-tail"
+        ported = tail_run(work, patched, tag, key, tail_path)
+        if ported is None:
+            continue
+        port_last, field, records, blocks, turns, screen = ported
+        v.check(KEY_TAIL.fullmatch(port_last or "") is not None,
+                f"eclplay stops at the turn's tail (148f:2ab8) after {key}", port_last)
+        if not field.exists():
+            v.check(False, f"eclplay writes its battlefield at the tail after {key}", port_last)
+            continue
+        seed = parse_field(field)[0]
+        v.check(seed == t["seed"], f"RandSeed at the tail after {key} is the original's "
+                f"({t['seed']:#x})", f"eclplay {seed:#x}")
+        data = records.read_bytes() if records.exists() else b""
+        ported_records = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
+        differ = [i for i in range(min(len(ported_records), len(t["records"])))
+                  if masked(ported_records[i]) != masked(t["records"][i])]
+        v.check(not differ and len(ported_records) == len(t["records"]),
+                f"every record agrees at the tail after {key} (pointers masked)",
+                f"{len(ported_records)} against {len(t['records'])}; differ: "
+                f"{' '.join(map(str, differ))}")
+        data = blocks.read_bytes() if blocks.exists() else b""
+        ported_blocks = [data[i:i + COMBAT_BLOCK].hex() for i in range(0, len(data), COMBAT_BLOCK)]
+        diffs = block_diffs(t["blocks"], ported_blocks)
+        v.check(not diffs and len(ported_blocks) == len(t["blocks"]),
+                f"every record's combat block agrees at the tail after {key} (0x18 bytes, the "
+                f"named bytes guarding, dying, hits, forced, turns and turning)",
+                f"{len(ported_blocks)} against {len(t['blocks'])}; (record, offset, original, "
+                f"eclplay): " + " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
+        turns_agree(v, t["turns"], turns, f" at the tail after {key}")
+        count, box = checklib.masked_diff(r["tail_screen"], cokbox.RGBScreen.load(screen, SLOT_SCREEN),
+                                          [MENU_POINTER, TAIL_CURSOR_CELL])
+        v.check(count == 0, f"the whole screen agrees with the original's at the tail after {key} "
+                "(the menu erased, the cell redrawn; the mouse pointer and the cursor's cell "
+                "masked: docs/checks.md's gap)",
+                f"{count} pixels differ in {box}")
+
+
+def tail_run(work, patched, tag, key, base):
+    """eclplay's run to the tail after KEY (the menu's keys, then the key), with its records,
+    blocks, turn list, field and screen. Returns (its last line, field, records, blocks, turns,
+    screen), or None when it writes no screen."""
+    field, records = base.with_suffix(".field"), base.with_suffix(".records")
+    blocks, turns = base.with_suffix(".blocks"), base.with_suffix(".turns")
+    screen = base.with_suffix(".bmp")
+    _, last = port(work, patched, name=f"{tag}-tail", typed="\\r\\r" + key, field=field,
+                   at=None, records=records, blocks=blocks, turns=turns, screen=screen)
+    return last, field, records, blocks, turns, screen
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
-                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch",
+                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
+                                "keys",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch")
+                             "slots, icons, dispatch, keys")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -1554,6 +1697,8 @@ def main():
         icons(v, work, opts)
     if "dispatch" in flows:
         dispatch(v, work, opts)
+    if "keys" in flows:
+        keys(v, work, opts)
     return v.finish()
 
 

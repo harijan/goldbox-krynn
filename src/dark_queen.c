@@ -393,6 +393,11 @@ static void pass(cok_adventure *game, unsigned ms)
     wait_cycles(game, ms);
 }
 
+void cok_dark_queen_wait(cok_adventure *game, unsigned ms)
+{
+    pass(game, ms);
+}
+
 /* A library's palette record id into the palette (2796:0536, 261b:00b1),
  * its colours and cycles moved shift entries on. */
 static void set_palette(cok_adventure *game, const hlib_library *l, unsigned id, unsigned shift)

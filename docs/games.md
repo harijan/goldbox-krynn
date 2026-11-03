@@ -629,9 +629,8 @@ run, citing their handlers (`unported`). It holds:
   words in colour 7 through the window routine; the party's list drawn again after a
   party's ADD EP, `6c70:2828`, and the cursor set to (1, 0x11) before a selected member
   that cannot act is passed over, `6c70:2755`; its pause is variable 0x12 as it is now
-  (100 ms times, `1a62:0949`), waited by the game's delay hook: the Dark Queen's clock
-  (`pass`, which steps the colour cycles) is not run for it, as no drawing hook waits
-  alone)
+  (100 ms times, `1a62:0949` -> `1df9:052a`): as the game's wait it draws one random(1000)
+  first (`cok_dark_queen_wait`, `pass`), then steps the colour cycles and waits by the delay hook)
   and FIND NPC (`6c70:31e8`: the first member whose name matches, case-blind, with bit 7
   of +0x9b, its position and 0x80 if it cannot act, else 0xff). ADD NPC (`6c70:307b`)
   stops: `604b:2886` allocates a 0x19e record, fills it from DS:b2a4 by `604b:257c`,

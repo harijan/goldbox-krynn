@@ -22,9 +22,8 @@ static const char *const item_words[ITEM_COUNT] = {
     "Speed", "End",
 };
 
-/* The record's byte offsets the menu reads (Dark Queen's layout, rules_dark_queen.c): the class
- * levels (0xa5 + k, the unsigned byte of a class's level: 0 when negative) and the race (0x58, a
- * word with 0x59 0 for a kender). */
+/* The record's byte offsets the menu reads (Dark Queen's layout, rules_dark_queen.c): the race
+ * (0x58, a word with 0x59 0 for a kender); the class levels are read by the field layout. */
 enum { RACE = 0x58, RACE_HIGH = 0x59, MEMORIZED_BYTES = 0x89 };
 
 static bool type_past(cok_adventure *game)
@@ -34,11 +33,11 @@ static bool type_past(cok_adventure *game)
     return false;
 }
 
-/* The class level byte k of c's record as 177e:2234 reads it: max(r[0xa5 + k], 0), unsigned. */
+/* The class level byte k of c's record as 177e:2234 reads it: the byte unsigned (its max with 0 is
+ * the same for an unsigned byte), so 0xff is a level 255. */
 static unsigned class_level(const cok_character_layout *L, const uint8_t *r, size_t k)
 {
-    int8_t level = cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, k);
-    return level > 0 ? (unsigned)level : 0;
+    return cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, k);
 }
 
 /* 0cd7: the items the record may choose, in index order (Aim always; Use while it has items;
