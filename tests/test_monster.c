@@ -1317,7 +1317,7 @@ static void test_dark_queen_no_monsters(void)
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     dqk.lost_weapons = calloc(1, sizeof *dqk.lost_weapons);
     dqk.lost_weapon_count = 1;
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
@@ -1360,7 +1360,7 @@ static void test_dark_queen_experience(void)
     dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1;
     cok_ecl_store(&dqk.vm, 0x20, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_dark_queen_end_state_of(&dqk).out == 0);
@@ -1392,7 +1392,7 @@ static void test_dark_queen_experience(void)
     cok_field_set32(L, a->record, COK_FIELD_EXPERIENCE, 0);
     cok_field_set32(L, b->record, COK_FIELD_EXPERIENCE, 0);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0xffffffffu);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0xffffffffu);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 0);
@@ -1463,7 +1463,7 @@ static void test_dark_queen_pool_and_past_party(void)
     dq_clear_pool(&dqk);
     dq_pool_item(&dqk, 3);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 1200); /* 3 * 400 */
     dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 82;
     DQK_RUN(&dqk, DQK_COMBAT);
@@ -1493,7 +1493,7 @@ static void test_dark_queen_pool_and_past_party(void)
     cok_ecl_store(&dqk.vm, 0x20, 0);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0xffffffffu);
     dq_pool_item(&dqk, 82); /* -32736 over 0 */
     DQK_RUN(&dqk, DQK_COMBAT);
@@ -1544,7 +1544,7 @@ static void test_dark_queen_pool_and_past_party(void)
     cok_dark_queen_set_monsters_present_for_test(&dqk, false);
     cok_character *p = dq_past_party(&dqk, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(dqk.pool.coins[4] == 5 && dqk.pool.coins[5] == 7 && dqk.pool.coins[6] == 11);
     CHECK(cok_dark_queen_end_state_of(&dqk).monsters_present);
     CHECK(cok_dark_queen_end_state_of(&dqk).share ==
@@ -1557,14 +1557,14 @@ static void test_dark_queen_pool_and_past_party(void)
     CHECK(cok_character_insert_item(p, p->item_count, it));
     cok_ecl_store(&dqk.vm, 0x1e, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     cok_ecl_store(&dqk.vm, 0x1e, 0);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
           strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:02cb") != NULL);
     p->items[0][cok_rules_dark_queen.item_record.type] = 0x69;
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
 }
 
 /* TREASURE ITEMS (6c70:2127, dark_queen.c's treasure_items): the header's three words (word 1000,
@@ -1617,7 +1617,7 @@ static void test_dark_queen_after_combat(void)
     cok_ecl_store(&dqk.vm, 0x20, 2);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0);
     CHECK(!dqk.vm.flags[0] && !dqk.vm.flags[1] && !dqk.vm.flags[2] && !dqk.vm.flags[3]);
     CHECK(dqk.vm.flags[4] && dqk.vm.flags[5]);
@@ -1629,34 +1629,46 @@ static void test_dark_queen_after_combat(void)
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 3);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.standing && st.fled && st.out == 0 && !st.b7a7);
 
-    /* Lost (status 2, inactive): nobody found, b7a7 stays set, both count out. */
+    /* Lost (status 2, inactive): nobody found, b7a7 stays set, both count out. The load is
+     * asked, so 0736 removes the party (818-86e: 1e31 each, the count to 0) and the members
+     * are made again for the rest of the test (a and b are freed). */
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 2);
     cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 0);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 2);
     cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(!st.standing && !st.fled && st.out == 2 && st.b7a7);
+    CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
+    a = dq_member(&dqk, 2, 0);
+    b = dq_member(&dqk, 2, 0);
 
-    /* The gentle variable (0x1d) clears b7a7 when a member is found (active, status 2). */
+    /* The gentle variable (0x1d) clears b7a7 when a member is found (active, status 2). A
+     * b7a7 that stays set removes the party (818), so the members are made again for each run. */
     cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(st.b7a7 && st.out == 1);
+    CHECK(st.b7a7 && st.out == 1 && dqk.party.count == 0);
+    a = dq_member(&dqk, 2, 1);
+    b = dq_member(&dqk, 2, 0);
     cok_ecl_store(&dqk.vm, 0x1d, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(!st.b7a7 && st.out == 1 && strstr(cok_adventure_why(&dqk, dqk.vm.status), "0736") != NULL);
+    CHECK(!st.b7a7 && st.out == 1 && dqk.party.count == 2);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "11b0") != NULL);
     cok_ecl_store(&dqk.vm, 0x1d, 0);
 
     /* The status and hostile are words (0593's cmpw, 5b7 and 680): a high byte of 1 makes
      * a's status 0x0100, not standing, and its hostile 0x0100, not 0, so loop 3 does not
      * clear b7a7 for it. Read as bytes, a would stand and b7a7 would clear. */
+    cok_party_free(&dqk.party);
+    a = dq_member(&dqk, 0, 1);
+    b = dq_member(&dqk, 2, 0);
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 0);
     cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 1);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 2);
@@ -1665,19 +1677,20 @@ static void test_dark_queen_after_combat(void)
     a->record[0x67] = 1;
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(!st.standing && st.b7a7 && st.out == 1); /* b is inactive: out; a is not */
-    a->record[0x65] = 0;
-    a->record[0x67] = 0;
 
     /* An effect that ends with the battle (0x03, the first of DS:631e) on a record stops at
      * 148f:017d (part 27); one that does not (0x01) runs on to 0593's stop. */
+    cok_party_free(&dqk.party);
+    a = dq_member(&dqk, 0, 1);
+    b = dq_member(&dqk, 0, 1);
     cok_field_set8(L, a->record, COK_FIELD_STATUS, 0);
     cok_field_set8(L, b->record, COK_FIELD_STATUS, 0);
     cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 1);
     CHECK(cok_character_add_effect(b, 0x01, 0, 0, false) != NULL);
     DQK_RUN(&dqk, DQK_COMBAT);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(cok_character_add_effect(a, 0x03, 0, 0, false) != NULL);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
@@ -1693,6 +1706,77 @@ static void test_dark_queen_after_combat(void)
     CHECK(cok_dark_queen_end_state_of(&dqk).b7a7 == st.b7a7 &&
           cok_dark_queen_end_state_of(&dqk).out == st.out);
     dqk.demo = false;
+    cok_party_free(&dqk.party);
+}
+
+/* 75cc:0736's loop A with no load asked (DS:b7a7 clear), as 0593 leaves the party: a standing
+ * member (a) keeps b7a7 clear, so the loop walks the party. Status 4 is revived (7bb) when its hit
+ * points (+0x198) are above 0, or with var 0x1d (777: hit points 1), else it stays 4; status 5
+ * is revived with var 0x1d and becomes 4 without it (76c, 78e). Fled (DS:c7de, from a status 3
+ * member) removes each member not status 3 (7d8, with the count, var 0x20, one less). */
+static void test_dark_queen_rest(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's rest after combat not run");
+        return;
+    }
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_character *a = dq_member(&dqk, 0, 1), *b = dq_member(&dqk, 4, 0);
+    cok_dark_queen_end_state st;
+    cok_field_set8(L, b->record, COK_FIELD_HIT_POINTS, 0);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 4);
+    cok_ecl_store(&dqk.vm, 0x20, 2);
+
+    /* Status 4, no hit points, var 0x1d clear: stays 4 (7a4, 7ca). */
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 4);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_ACTIVE) == 0);
+
+    /* Status 4 with var 0x1d set: revived (777): status 0, active, hit points 1. */
+    cok_ecl_store(&dqk.vm, 0x1d, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_ACTIVE) == 1);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_HIT_POINTS) == 1);
+    cok_ecl_store(&dqk.vm, 0x1d, 0);
+
+    /* Status 4 with hit points: revived (7bb), the hit points kept. */
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 4);
+    cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, b->record, COK_FIELD_HIT_POINTS, 3);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_HIT_POINTS) == 3);
+
+    /* Status 5 without var 0x1d becomes 4 (78e); with it, revived with 1 hit point. */
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 5);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 4);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 5);
+    cok_ecl_store(&dqk.vm, 0x1d, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_HIT_POINTS) == 1);
+    cok_ecl_store(&dqk.vm, 0x1d, 0);
+
+    /* Fled: a status 2 member (c, active) is removed, the count one less (7d8, 1e31 with 0, 1);
+     * the status 3 member is revived (7bb). b7a7 stays clear: the status 3 member is not hostile
+     * with status 3 (loop 3). */
+    dq_member(&dqk, 2, 1);
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 3);
+    cok_ecl_store(&dqk.vm, 0x20, 3);
+    size_t before = dqk.party.count;
+    DQK_RUN(&dqk, DQK_COMBAT);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
+    CHECK(st.fled && !st.b7a7 && dqk.party.count == before - 1);
+    CHECK(cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 2);
+    CHECK(cok_field_u8(L, a->record, COK_FIELD_STATUS) == 0);
+    CHECK(cok_field_u8(L, b->record, COK_FIELD_STATUS) == 0);
     cok_party_free(&dqk.party);
 }
 
@@ -1756,14 +1840,14 @@ static void test_dark_queen_appends(void)
      * the blocks are the first COMBAT's, left by the battle that stopped at 5045:0001 (11b0
      * frees them, part 19c, after 0593). Loop 2 has no such test: it finds record 0 (active),
      * and var 0x1d is 0, so b7a7 stays set (59e, 633). */
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     cok_dark_queen_end_state st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.standing && !st.fled && st.out == 0 && st.b7a7);
     /* With var 0x1d set, loop 2 clears b7a7 on the same record: it walks past the party. */
     cok_ecl_store(&dqk.vm, 0x1d, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:11b0") != NULL);
     CHECK(!st.standing && !st.b7a7 && st.out == 0);
     cok_ecl_store(&dqk.vm, 0x1d, 0);
 
@@ -2274,6 +2358,7 @@ int main(void)
     test_dark_queen_appends();
     test_dark_queen_no_monsters();
     test_dark_queen_after_combat();
+    test_dark_queen_rest();
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();
     test_dark_queen_treasure_items();

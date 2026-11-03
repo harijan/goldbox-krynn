@@ -14,21 +14,24 @@ COMBAT with no monsters, no vault and no temple wanted runs 75cc:135c: its treas
 lost weapons (1297, none here), clears var 0x2e, the flags = <> < > (2093:0015), and DS:c7df, then
 0593 (the party's after combat) sets the party's flags and removes the effects that end with the
 battle. When a member stands, 0593 runs 01fb (the experience: the pool's coins over the party) and
-0427 (the award), then its rest from 75cc:0736 (all flows). The stop is at 0736, cited for part 19b.
+0427 (the award), then its rest from 75cc:0736: a member standing walks the party (revives, fled
+removals), the load asked (DS:b7a7) removes the party (818-86e). Then 135c sets the mode 6 (1390) and
+calls 11b0 (the enemies removed: part 19c). The stop is at 11b0 (all flows), cited for part 19c.
 
 The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
 so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, overlay 8's
-75cc:0736 is spun too (after 01fb and 0427 in `won`), then 2093:0015 is given back. Its state is read where the spin
-holds: the 1 KB of variables, the records (pointers masked), the flags, DS:af3f, c7de, c7df, b1da,
-b7a7, the mode (DS:ae57), RandSeed, and the 18 effect ids at DS:631e. Stage 1 also shows that
-135c's start ran: var 0x2e is 0 at the 2093:0015 spin.
+75cc:11b0 is spun too (after 0593 in every flow), then 2093:0015 is given back. Its state is read where
+the spin holds: the 1 KB of variables, the records (pointers masked), the flags, DS:af3f, c7de, c7df,
+b1da, b7a7, the mode (DS:ae57: 6, set by 135c at 1390), RandSeed, and the 18 effect ids at DS:631e.
+Stage 1 also shows that 135c's start ran: var 0x2e is 0 at the 2093:0015 spin.
 
 Flows (each its own saved game as the original starts it; the block's ops before the PRESS KEY
 before COMBAT are its `extra`, and each member's record changes are its `changes`):
 - `won`: saved game A as it is (its members standing, status 0): 01fb and 0427 run, then 0736.
-- `fled`: every member's status word 3 (the others' records as A): 0736, fled set, b7a7 clear.
-- `lost`: every member's status word 2 and inactive: 0736, nobody standing or fled, b7a7 set, the
-  six members out.
+- `fled`: every member's status word 3 (the others' records as A): 0736 revives them (status 0, active),
+  fled set, b7a7 clear.
+- `lost`: every member's status word 2 and inactive: 0736 removes the six (818-86e: the count to 0),
+  nobody standing or fled, b7a7 set, b1da 6.
 - `pool`: TREASURE ITEMS 1000 3 1 0 first (the pool's coins 1000, 3, 1; no items): the share is
   4950 / 6 = 825, and each member gets its share by class (the bonus, the half and the third).
 - `bonus`: `pool` with the classes changed so that each rule shows (+0x5a: 2, 0 at members 0 and 3,
@@ -82,28 +85,29 @@ FLOWS = {
     # the stop's cite, the expected state (standing, fled, b7a7, out), DS:ae4f (the share; None
     # where 01fb does not run), the pool's coins 4-6, the experience each member gains, and each
     # member's may-train (+0xcd). The award is 0 where no member stands.
-    "won": dict(changes=None, extra=[], cite="dqk 75cc:0736", expect=(True, False, False, 0),
+    "won": dict(changes=None, extra=[], cite="dqk 75cc:11b0", expect=(True, False, False, 0),
                 share=0, pool=NO_POOL, gained=ZERO, may=ZERO),
-    "fled": dict(changes=[{0x64: 3, 0x65: 0}] * MEMBERS, extra=[], cite="dqk 75cc:0736",
+    "fled": dict(changes=[{0x64: 3, 0x65: 0}] * MEMBERS, extra=[], cite="dqk 75cc:11b0",
                  expect=(False, True, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
     "lost": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS, extra=[],
-                 cite="dqk 75cc:0736", expect=(False, False, True, MEMBERS), share=None,
-                 pool=NO_POOL, gained=ZERO, may=ZERO),
-    "pool": dict(changes=None, extra=[TREASURE], cite="dqk 75cc:0736",
+                 cite="dqk 75cc:11b0", expect=(False, False, True, MEMBERS), share=None,
+                 pool=NO_POOL, gained=[], may=[], members=0),
+    "pool": dict(changes=None, extra=[TREASURE], cite="dqk 75cc:11b0",
                  expect=(True, False, False, 0), share=825, pool=(1000, 3, 1),
                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
     "bonus": dict(changes=[{0x5a: 2}, {}, {}, {0x5a: 0}, {0x5a: 5}, {0x5a: 6}],
-                  extra=[TREASURE], cite="dqk 75cc:0736", expect=(True, False, False, 0),
+                  extra=[TREASURE], cite="dqk 75cc:11b0", expect=(True, False, False, 0),
                   share=825, pool=(1000, 3, 1), gained=[907, 275, 275, 907, 825, 907],
                   may=[0, 0, 0, 0, 1, 0]),
     "zero": dict(changes=[{}, {}, {}, {}, {}, {0x18b: 0}], extra=[SAVE_ZERO],
-                 cite="dqk 75cc:0736", expect=(True, False, False, 0), share=0xffffffff,
+                 cite="dqk 75cc:11b0", expect=(True, False, False, 0), share=0xffffffff,
                  pool=NO_POOL, gained=[-1, 0, 0, 0, 0, 0], may=ZERO),
     "negative": dict(changes=[{}, {}, {}, {0x18b: 0}, {0x18b: 0}, {0x18b: 0}],
-                     extra=[TREASURE, SAVE_ZERO], cite="dqk 75cc:0736",
+                     extra=[TREASURE, SAVE_ZERO], cite="dqk 75cc:11b0",
                      expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=(1000, 3, 1),
                      gained=[-2475, -825, -825, 0, 0, 0], may=ZERO),
 }
+MODE = 6     # DS:ae57 at the stop: 135c's 1390 sets it before 11b0
 EXP = 0x44   # the experience, a dword (rules_dark_queen.c: DWORD(0x44))
 MAY = 0xcd   # the may-train byte (BYTE(0xcd))
 
@@ -162,7 +166,7 @@ def read_state(box):
 
 def original(work, name, changes, patched, verbose):
     """The original's state at the spin for one flow: stage 1 at 2093:0015, then the traps at
-    75cc:0736 while stage 1 spins, then stage 1 given back. Returns (state, the
+    75cc:11b0 while stage 1 spins, then stage 1 given back. Returns (state, the
     trap's stop address, whether the game waited at the PRESS KEY before COMBAT)."""
     qsv, saves = saved_game(work, name, changes)
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose, timeout=900,
@@ -185,13 +189,13 @@ def original(work, name, changes, patched, verbose):
             if time.monotonic() - t0 > 60:
                 raise cokbox.BoxError("stage 1 did not hold at 2093:0015 (135c's start)")
         stage1_surprise = box.byte(v + SURPRISE)  # 135c's start cleared it before the flags
-        h3 = L.trap(box, 0x75CC, 0x0736, seconds=10)
+        h3 = L.trap(box, 0x75CC, 0x11B0, seconds=10)
         L.untrap(box, h1)
-        hold = L.Trap(list(h3), 0x75CC, 0x0736)
+        hold = L.Trap(list(h3), 0x75CC, 0x11B0)
         t0 = time.monotonic()
         while not L.held(box, hold)[0]:
             if time.monotonic() - t0 > 60:
-                raise cokbox.BoxError("stage 2 did not hold at 0593's 0736")
+                raise cokbox.BoxError("stage 2 did not hold at 135c's 11b0 (after 0593)")
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
@@ -228,15 +232,16 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
     v.check(orig["stage1_surprise"] == 0, f"var 0x2e is 0 at 2093:0015's spin: 135c's start ran "
             f"({name})", f"{orig['stage1_surprise']}")
-    v.check(len(orig["records"]) == MEMBERS, f"the original's party is the six members ({name})",
-            f"{len(orig['records'])} records")
+    members = spec.get("members", MEMBERS)
+    v.check(len(orig["records"]) == members, f"the original's party after 0593 ({name})",
+            f"{len(orig['records'])} records, want {members}")
     got = (orig["standing"], orig["fled"], orig["b7a7"], orig["out"])
     v.check(got == spec["expect"], f"the original's af3f, c7de, b7a7 and b1da are as the flow "
             f"sets them ({name})", f"standing, fled, b7a7, out: {got}, want {spec['expect']}")
     v.check(orig["effects"] == EFFECTS, "the 18 effect ids at DS:631e are as the port's table "
             f"({name})", orig["effects"].hex())
     v.check(orig["demo"] == 0, f"the original is not the demonstration ({name})")
-    v.check(orig["mode"] == 4, f"the mode is 4 at the stop, as 135c sets it after 0593 ({name})",
+    v.check(orig["mode"] == MODE, f"the mode is 6 at the stop, as 135c sets it at 1390 ({name})",
             f"mode {orig['mode']}")
     # The flow's own expectations on the original's side: the share, the pool's coins, each
     # member's experience gained (the saved game's, before the award) and its may-train.

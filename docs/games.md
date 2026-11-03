@@ -715,8 +715,12 @@ run, citing their handlers (`unported`). It holds:
   test for 0: a divisor of 0 gives 0xffffffff, or 1 for a negative dividend, and no error); the
   monsters past the party add their coins, experience and items, the items moved at `02cb` (`000b`
   merges counted items), part 19b) and 0427 (the award by class, as Champions'; half and a third
-  divide by LDIV@ too) run; then its rest from `75cc:0736` (the party's and the destroyed, cited,
-  part 19b). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
+  divide by LDIV@ too) run; then its rest from `75cc:0736`: with no load asked (b7a7 clear) each record
+  until one past the party walks its status (3 revived, 4 revived with hit points or var 0x1d, else
+  kept; 5 revived with var 0x1d, else 4), a fled party's members not status 3 are removed (`177e:1e31`:
+  icons, the count one less); with the load asked (b7a7 set) every record until one past the party is
+  removed and var 0x20 is 0 (`818-86e`). Then 135c sets the mode 6 (`1390`) and calls 11b0 (the enemies
+  removed: part 19c, cited). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
   that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share);

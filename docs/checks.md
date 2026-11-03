@@ -564,14 +564,15 @@ dqk-checks`) runs the end of combat with no monsters from the treasure's start: 
 and COMBAT, from saved game A (`won`, `pool`), or from copies with every member's status 3 (`fled`),
 status 2 and inactive (`lost`), or changed records (`bonus`: the classes; `zero` and `negative`:
 members inactive). The original is trapped in two stages: `2093:0015` (the flags' clear, always
-resident) spins at the PRESS KEY before COMBAT, then `75cc:0723` and `75cc:0736` are spun while it
-does, and it is given back. Each flow's state where the spin holds is compared with eclplay's stop
+resident) spins at the PRESS KEY before COMBAT, then `75cc:11b0` (after 0593 and its rest) is spun while
+it does, and it is given back. Each flow's state where the spin holds is compared with eclplay's stop
 (`--vars`, `--records`, `--state`): the 1 KB of variables (var 0x2e included), the records (pointers
 masked: the experience and may-train with them), the flags, DS:af3f, c7de, c7df, b1da, b7a7, the
 share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect ids at DS:631e
 (checked against the table). The expected values of each flow (the share, the pool, each member's
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
-too, so a mistake in a flow shows. eclplay stops at `dqk 75cc:0736` in every flow, cited for part 19b.
+too, so a mistake in a flow shows. eclplay stops at `dqk 75cc:11b0` in every flow (135c's call after
+0593, with the mode 6), cited for part 19c; `lost` leaves the party empty (0736 removes it).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);
 `negative` divides by -2 (-2475). Saved game A's pool is empty, so `won` awards nothing.
 
