@@ -86,8 +86,10 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c);
 bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer);
 
 /* 5045:059d's tail after each turn, before the sides and the early end (ends_in_round): the
- * pending lists (148f:2ab8, 2c4f, 2d9b) and 161b:05be. Dark Queen's turn_tail_unported stops
- * there; Champions and Death Knights have none and return true. */
+ * pending lists (148f:2ab8, 2c4f, 2d9b: rolls.damage_type 0 with them empty; a list that is not
+ * empty stops, pending_unported), the demonstration's key test (demo_key_unported) and the
+ * colour cycles (261b:05be, turn_tail_cycles). Champions and Death Knights have none and return
+ * true. */
 bool cok_combat_turn_tail(cok_adventure *game);
 
 /* 3995:0b6d: the end of a round. A minute passes (57e4:0549, every
@@ -99,8 +101,10 @@ bool cok_combat_turn_tail(cok_adventure *game);
  * are counted and the map redrawn around the view. *done is set when a
  * side cannot act or the rounds reach the limit; with the enemy's side
  * gone and the party's not, "Continue Battle:" asks, and Yes clears it.
- * Dark Queen's round end (5045:0f6c) is not these: its descriptor's round_end_unported stops
- * before any of it. */
+ * Dark Queen's round end (5045:0f6c) runs these with its descriptor's hooks: the clock
+ * (round_clock), the clouds (round_clouds_unported stops when one exists), the square test
+ * (square_unported), "Your Teammate is Dying" (teammate_dying) and the Continue question
+ * (continue_battle). */
 bool cok_combat_end_round(cok_adventure *game, bool *done);
 
 /* The shared helpers. */

@@ -1360,10 +1360,14 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[-1], "turn: BALTHIR NOMOON (initiative 7)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
-        # End at that menu: the turn's tail is the next stop (148f:2ab8, the pending lists).
+        # End at that menu: the turn's tail runs (no pending list, damage type 0, the colour
+        # cycles), the round goes on, and the next turn's menu is where the keys run out:
+        # WALKER KEYS (initiative 6).
         result = self.play("--start-menu", "--keys", walk + r"\rE", ASSETS)
-        self.assertEqual(result.returncode, 1)
-        self.assertIn("a turn's tail (dqk 148f:2ab8, 2c4f, 2d9b", result.stderr)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 4 at 8c20)")
+        self.assertIn("turn: WALKER KEYS (initiative 6)", result.stdout.splitlines())
 
     def test_load_and_play(self):
         # eclplay --load SAVGAMA.QSV is the start menu's Load (cok_drawing.load),

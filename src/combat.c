@@ -1587,22 +1587,28 @@ bool cok_combat_setup(cok_adventure *game)
  * outside combat again (DS:6e3a). */
 bool cok_combat_end(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
-    /* Dark Queen's battle's end (5045:0001) has effects of its own: a cited stop. */
-    if (cok_game_rules(game)->combat.end_unported != NULL) {
-        if (game->vm.abort) return true; /* the keys ran out: the run is over */
-        return cok_adventure_not_yet(game, "battle's end",
-                                     cok_game_rules(game)->combat.end_unported);
-    }
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_rules_combat *R = &rules->combat;
+    /* Dark Queen's battle's end (5045:0001): the clouds are freed as here; each record's effects
+     * 0xb0 and 0xd0 (148f:017d, part 27b) stop before its charm test, cited, and the icons'
+     * slots are emptied after the records (204c:004d, a drawing hook). */
+    if (R->battle_end_unported != NULL && game->vm.abort) return true; /* the keys ran out */
     cok_cloud_free(&game->combat);
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_CHARMED) != NULL &&
+        for (size_t k = 0; k < 2; ++k)
+            if (R->battle_end_effects[k] != 0 &&
+                cok_character_find_effect(c, R->battle_end_effects[k]) != NULL)
+                return cok_adventure_not_yet(game, "battle's end", R->battle_end_unported);
+        if (cok_character_find_named(c, rules, COK_EFFECT_CHARMED) != NULL &&
             cok_field_u8(L, r, COK_FIELD_STATUS) == 0)
             cok_field_set8(L, r, COK_FIELD_STATUS, game->combat.sides[1] > 1 ? 3 : 0);
         if (!cok_combat_battle_only(game, c)) return false;
     }
+    const cok_drawing *D = cok_adventure_drawing(game);
+    if (D != NULL && D->battle_icons != NULL) D->battle_icons(game);
     game->combat.active = false;
     game->combat_targets = false;
     return true;

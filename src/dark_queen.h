@@ -29,6 +29,16 @@ void cok_dark_queen_wait(cok_adventure *game, unsigned ms);
 /* The treasure branch of COMBAT with no monsters (75cc:135c; rules.h's no_monsters_treasure). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game);
 
+/* The round's and battle's hooks of rules.h's combat (5045:0f6c, 5045:0001, 5045:059d's tail):
+ * the clock (1396:044d(1, 1)), "Your Teammate is Dying" (177e:153c), the Continue question
+ * (1bdb:0424: true for Yes), the combat icons' empty slots (204c:004d) and the colour cycles
+ * (261b:05be) after a turn. */
+bool cok_dark_queen_round_clock(cok_adventure *game);
+void cok_dark_queen_teammate_dying(cok_adventure *game);
+bool cok_dark_queen_continue_battle(cok_adventure *game);
+void cok_dark_queen_battle_icons(cok_adventure *game);
+void cok_dark_queen_turn_tail_cycles(cok_adventure *game);
+
 /* The end-of-combat flags the checks read (eclplay --state): DS:af3f, c7de, c7df, b1da, b7a7 and
  * the experience's share (DS:ae4f); all zero for a game with none. */
 typedef struct {

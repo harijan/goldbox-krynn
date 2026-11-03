@@ -163,6 +163,10 @@ typedef struct {
      * laid (see cloud.h); setup empties them and the battle's end frees
      * them. DS:7115, a third such pointer, is only ever cleared. */
     cok_combat_cloud *clouds, *pools;
+    /* Dark Queen's pending lists of records that explode (DS:bd4c, ad6e, ad6f: 148f:2ab8, 2c4f,
+     * 2d9b run them after each turn). Only handlers 0x9a, 0xbc and 0xbd fill them, not yet
+     * ported: the counts stay 0 and the tail stops if one is not (round.c). */
+    unsigned pending[3];
     /* What the target routine's calls leave on the stack where 5b04:1903,
      * the cone, reads its range and side when a monster breathes (see
      * cast.c): the x step of the line 6b30:08d8 last looked along

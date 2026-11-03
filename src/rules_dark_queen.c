@@ -732,17 +732,23 @@ const cok_rules cok_rules_dark_queen = {
             .menu_first = true,
             .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
             .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
-            /* After each turn (5045:059d's tail): the pending lists (DS:c282, ad70, adc4, through
-             * 148f:2ab8, 2c4f and 2d9b), then the demonstration's key test (161b:05be). */
-            .turn_tail_unported = "dqk 148f:2ab8, 2c4f, 2d9b (the pending lists) and 161b:05be",
-            /* The round's end (5045:0f6c: 1396:044d, the clouds 148f:2817 and 148f:12ab, the
-             * "Your Teammate is Dying" text, the Continue question 1bdb:0424) and the battle's
-             * end (5045:0001: effects 0xb0 and 0xd0, 177e:1734, 104c:0468, 104c:004d, the
-             * clouds). */
-            .round_end_unported = "dqk 5045:0f6c, the round's end (148f:2817, 148f:12ab, 1bdb:0424)",
-            /* The battle's exit sets DS:ae65 (5045:0781): not reached, the stop is here. */
-            .end_unported =
-                "dqk 5045:0001, the battle's end (148f:017d, 177e:1734, 104c:0468, 104c:004d)",
+            /* After each turn (5045:059d's tail, round.c): the pending lists (148f:2ab8, 2c4f,
+             * 2d9b; DS:bd4c, ad6e, ad6f: the counts stop it, cited), the demonstration's key test
+             * (5045:06cf-070e, cited) and the colour cycles (261b:05be, the port's palette). */
+            .pending_unported = "dqk 148f:2ab8, 2c4f, 2d9b (a pending list: 0x9a, 0xbc, 0xbd, part 39)",
+            .demo_key_unported = "dqk 5045:06cf-070e (the demonstration's key test)",
+            /* The round's end (5045:0f6c): the clock 1396:044d(1, 1) (dark_queen.c's pass_time),
+             * the clouds 148f:2817 and the square test 148f:12ab (its cloud and terrain stops:
+             * part 39), "Your Teammate is Dying" (177e:153c) and the Continue question
+             * (1bdb:0424). */
+            .round_clouds_unported = "dqk 148f:2817 (the round's clouds, part 39)",
+            .square_unported = "dqk 148f:12ab (a cloud or a pool's terrain at the square, part 39)",
+            /* The battle's end (5045:0001): the clouds (round_clouds_unported), each record's
+             * effects 0xb0 and 0xd0 (148f:017d, part 27b), the icons (204c:004d). The aging
+             * report (5045:012f) is the battle's before it (rounds()). */
+            .battle_end_unported = "dqk 148f:017d (an effect's end, part 27b)",
+            .battle_end_effects = {0xb0, 0xd0},
+            .aging_unported = "dqk 5045:012f (the aging report, part 27e)",
             .combat_block = &dark_queen_combat_block,
         },
     .commands =
@@ -758,6 +764,6 @@ const cok_rules cok_rules_dark_queen = {
         {
             .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */
             .handlers = cok_dark_queen_effect_handlers,
-            /* .ids: NULL until an effects part names one (rules_dark_queen_magic.c) */
+            .ids = cok_dark_queen_effect_ids, /* rules_dark_queen_magic.c */
         },
 };
