@@ -3,6 +3,7 @@
 #include "arena.h"
 #include "attack.h"
 #include "command.h"
+#include "dark_queen.h"
 #include "ecl.h"
 #include "field.h"
 #include "round.h"
@@ -102,18 +103,43 @@ static bool taken_code(int code)
            code == 0xcc || code == 0xd7;
 }
 
+/* 0c0f (Alt-A and Alt-Q): the turn given back (the list's index less one, initiative 0x14),
+ * every record of the party taken by the computer (5045:1791), the bottom bar (1bdb:036c), and
+ * 200 ms (1df9:052a, one draw): command.c's quick() with the bar for its clear_row. */
+static void quick_all(cok_adventure *game, cok_character *c)
+{
+    --game->combat.turn_index;
+    c->combat->initiative = 0x14;
+    for (size_t i = 0; i < game->party.count; ++i)
+        cok_combat_auto(game->party.members[i], cok_game_rules(game));
+    queen_bottom_bar(game);
+    cok_dark_queen_wait(game, 200);
+}
+
 /* The turn's command routine by its item (08cf's table at 0925's jump table). done is set
- * where the turn ends; the stops are cited (part numbers for the ones still to port). */
-static bool command(cok_adventure *game, cok_character *c, int item, int code, bool *done)
+ * where the turn ends; out is set where the keys ran out in the middle of a command (Speed); the
+ * stops are cited (part numbers for the ones still to port). */
+static bool command(cok_adventure *game, cok_character *c, int item, int code, bool *done,
+                    bool *out)
 {
     *done = false;
+    *out = false;
     if (item < 0) {
         /* A key taken (0b3c's table): Move with a direction, Alt-A and Alt-Q, Alt-M, Alt-X. */
         if (code >= 0x81 && code <= 0x88)
             return cok_adventure_not_yet(game, "Move with a direction key", "dqk 5045:1099 (part 23)");
-        if (code == 0xc0 || code == 0xd0)
-            return cok_adventure_not_yet(game, "Alt-Q or Alt-A", "dqk 5045:0c0f (part 22b)");
-        if (code == 0xcc) return cok_adventure_not_yet(game, "Alt-M", "dqk 5045:0bd7 (part 22b)");
+        if (code == 0xc0 || code == 0xd0) {
+            quick_all(game, c); /* 0c0f */
+            *done = true;
+            return true;
+        }
+        if (code == 0xcc) {
+            /* 0bd7: the magic toggled, its message ("magic on" DS:4a9d, "magic off" DS:4aa6);
+             * the turn goes on (c8c). */
+            game->combat.magic_on = !game->combat.magic_on;
+            queen_bar_message(game, game->combat.magic_on ? "magic on" : "magic off");
+            return true;
+        }
         if (code == 0xd7)
             return cok_adventure_not_yet(game, "Alt-X (the gods)", "dqk 52db:3feb (part 22b)");
         return true; /* 0x12: nothing, the arena again (c8c) */
@@ -134,16 +160,29 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         }
         *done = true;
         return true;
-    case ITEM_QUICK: return cok_adventure_not_yet(game, "Quick", "dqk 5045:1791, 5bb8:0000 (part 22b)");
+    case ITEM_QUICK:
+        /* 0a2c: cok_combat_auto (1791), the bottom bar, the keys flushed (2093:0130), 200 ms
+         * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop. */
+        cok_combat_auto(c, cok_game_rules(game));
+        queen_bottom_bar(game);
+        cok_adventure_flush(game);
+        cok_dark_queen_wait(game, 200);
+        *done = true;
+        return cok_adventure_not_yet(game, "computer's turn",
+                                     cok_game_rules(game)->combat.computer_unported);
     case ITEM_DELAY:
         /* 0a60: command.c's delay (initiative 1, the turn list shifted). */
         cok_combat_delay(game, c);
         *done = true;
         return true;
-    case ITEM_BANDAGE: return cok_adventure_not_yet(game, "Bandage", "dqk 51c2:0d63 (part 22b)");
+    case ITEM_BANDAGE:
+        return cok_adventure_not_yet(game, "Bandage", "dqk 51c2:0d63 (its say 177e:156e, part 22b)");
     case ITEM_YELL: return cok_adventure_not_yet(game, "Yell", "dqk 148f:0005 (part 22b)");
     case ITEM_VIEW: return cok_adventure_not_yet(game, "View", "dqk 86b8:0b0c (part 22b)");
-    case ITEM_SPEED: return cok_adventure_not_yet(game, "Speed", "dqk 5045:166c (part 22b)");
+    case ITEM_SPEED:
+        /* 166c: the speed menu (queen_speed); the turn goes on (c8c). */
+        *out = !queen_speed(game);
+        return true;
     case ITEM_END:
         cok_combat_end_turn(c); /* 0b29: 51c2:0c11 */
         *done = true;
@@ -179,8 +218,10 @@ bool queen_commands(cok_adventure *game, cok_character *c)
         if (result < 0) return true; /* the keys ran out: the turn not ended */
         queen_combat_menu_close(game);
         int item = (size_t)result < count ? ids[result] : -1;
-        if (!command(game, c, item, item < 0 ? result : 0, &done)) return false;
+        bool out;
+        if (!command(game, c, item, item < 0 ? result : 0, &done, &out)) return false;
         if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+        if (out) return true; /* the keys ran out in Speed: the turn not ended */
         if (!done) {
             /* 08cf's c8c: the arena again, the panel, and the menu. */
             if (!cok_arena_turn(game, c, 2, true)) return false;

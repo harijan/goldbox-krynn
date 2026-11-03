@@ -1255,11 +1255,13 @@ static void menu_close(void)
     menu_is_open = false;
 }
 
+/* The keys: each character is a key, '~' the extended key's 0 (its scan code follows). */
 static int menu_keys(void *context)
 {
     menu_script *s = context;
     if (s->keys[s->at] == '\0') return -1;
-    return (unsigned char)s->keys[s->at++];
+    char c = s->keys[s->at++];
+    return c == '~' ? 0 : (unsigned char)c;
 }
 
 static void menu_log(cok_adventure *game, const char *kind, const char *text, void *context)
@@ -1510,6 +1512,64 @@ static void test_command_menu_keys(void)
     menu_close();
 }
 
+/* Quick, Alt-Q and Alt-M, Speed (dqk 5045:0a2c, 0c0f, 0bd7, 166c): the state each leaves, the
+ * wait's one draw, and the keys (Alt-Q is a 0 and its scan code 0x10, Alt-M 0x32). */
+static void test_command_menu_quick_speed(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Quick, Alt-M and Speed not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    /* Quick: the computer's, the target on her own side dropped, one draw, then the computer's
+     * turn's stop (5bb8:0000). */
+    menu_open();
+    cok_combat_record *cr = menu_c->combat;
+    cr->target = menu_c->record;
+    uint32_t drawn = menu_game.vm.seed;
+    cok_tp_random(&drawn, 1000);
+    CHECK(!menu_run("Q") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "5bb8:0000") != NULL);
+    CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(cr->target == NULL && cr->initiative == 5);
+    CHECK(menu_game.vm.seed == drawn);
+    /* Alt-Q: the turn index less one, initiative 0x14, every party member taken by the computer,
+     * and the turn ends (one draw). */
+    menu_open();
+    cr = menu_c->combat;
+    menu_game.combat.turn_index = 1;
+    menu_game.vm.status = COK_ECL_OK;
+    drawn = menu_game.vm.seed;
+    cok_tp_random(&drawn, 1000);
+    CHECK(menu_run("~\x10") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.combat.turn_index == 0 && cr->initiative == 0x14);
+    CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(menu_game.vm.seed == drawn);
+    /* Alt-M: the toggle and its message ("magic on"), then the turn goes on to the arena (c8c's
+     * 5837:12f5, which needs the battle's map: not in this test, so its stop is the check). */
+    menu_open();
+    CHECK(!menu_game.combat.magic_on);
+    CHECK(!menu_run("~\x32") && strstr(menu_game.error, "6beb:12ef") != NULL);
+    CHECK(menu_game.combat.magic_on && strcmp(script.messages, "magic on;") == 0);
+    CHECK(script.menus == 1 && menu_c->combat->initiative == 5);
+    menu_game.vm.status = COK_ECL_OK;
+    CHECK(!menu_run("~\x32") && !menu_game.combat.magic_on);
+    CHECK(strcmp(script.messages, "magic off;") == 0);
+    /* Speed: Slower then Exit; the variable 0x12 up by one, the menu shown again (the arena), then
+     * the keys run out. Faster and Escape (1b) leave it as they are. */
+    menu_open();
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 5);
+    CHECK(!menu_run("SSE") && strstr(menu_game.error, "6beb:12ef") != NULL);
+    CHECK(cok_ecl_var(&menu_game.vm, COK_VAR_SPEED) == 6);
+    menu_open();
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 5);
+    CHECK(!menu_run("SFE") && cok_ecl_var(&menu_game.vm, COK_VAR_SPEED) == 4);
+    menu_open();
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 5);
+    CHECK(!menu_run("S\x1b") && cok_ecl_var(&menu_game.vm, COK_VAR_SPEED) == 5);
+    menu_close();
+}
+
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
 static void test_pass_draw(void)
 {
@@ -1555,6 +1615,7 @@ int main(void)
     test_command_menu_items();
     test_command_menu_text();
     test_command_menu_keys();
+    test_command_menu_quick_speed();
     test_pass_draw();
     puts("dark queen tests passed");
     return 0;
