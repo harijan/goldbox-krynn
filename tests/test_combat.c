@@ -1106,8 +1106,25 @@ static void unported(cok_adventure *g, void *context)
     (void)context;
 }
 
+/* The placement's distance (shared by Champions, Death Knights and Dark Queen): Champions have
+ * no ambush distance, so a facing that is not the party's keeps the distance; Death Knights take
+ * 1 where it is 0, and 2 in the demonstration. */
+static void test_layout_distance(void)
+{
+    const cok_rules_combat *C = &cok_rules_champions.combat, *K = &cok_rules_death_knights.combat;
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, false) == 0);
+    CHECK(cok_combat_layout_distance(K, 0, 2, 0, false) == 1);
+    CHECK(cok_combat_layout_distance(K, 0, 0, 0, false) == 0);
+    CHECK(cok_combat_layout_distance(K, 3, 2, 0, false) == 3);
+    CHECK(cok_combat_layout_distance(K, 0, 2, 0, true) == 2);
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, true) == 0);
+    /* Champions has no ambush, so no record is laid out again (layout_sets_side off). */
+    CHECK(!C->layout_sets_side);
+}
+
 int main(void)
 {
+    test_layout_distance();
     cok_keyboard keys = {scripted, &s, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line, .unported = unported, .key_pending = pending,
                                  .battlefield = battlefield, .flush = flushed, .context = &s};

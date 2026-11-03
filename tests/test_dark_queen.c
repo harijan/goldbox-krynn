@@ -5,9 +5,11 @@
  * bytes in build/DQK_FULL.EXE (make dqk-merged) and the party of its shipped
  * saved game in DQKAssets/ (the checks needing either are skipped, with a
  * line saying so, where it is not there). */
+#include "adventure.h"
 #include "combat.h"
 #include "ecl.h"
 #include "data_dark_queen.h"
+#include "field.h"
 #include "party.h"
 #include "queen_levels.h"
 #include "rules.h"
@@ -17,6 +19,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #define CHECK(x) do { if (!(x)) { fprintf(stderr, "%s:%d: %s\n", __FILE__, __LINE__, #x); exit(1); } } while (0)
@@ -641,9 +644,83 @@ static void test_wilderness(void)
     cok_random_select(COK_RANDOM_PASCAL);
 }
 
+/* The placement's distance (dqk 59c7:16b3's flag): var 0x37, else 1 for a facing that is not
+ * the party's, the same for the demonstration as none (its demonstration distance is 0). The
+ * placement itself (59c7:1864) is not ported, so this checks the helper the layout shares. */
+static void test_layout_distance(void)
+{
+    const cok_rules_combat *C = &R->combat;
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, false) == 1);
+    CHECK(cok_combat_layout_distance(C, 0, 0, 0, false) == 0);
+    CHECK(cok_combat_layout_distance(C, 3, 2, 0, false) == 3);
+    CHECK(cok_combat_layout_distance(C, 3, 0, 0, false) == 3);
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, true) == 1);
+    CHECK(cok_combat_layout_distance(C, 0, 0, 0, true) == 0);
+}
+
+/* A record of Dark Queen's layout: active, one cell, on side (0 the party, 1 against it), its
+ * combat block allocated as the battle's records are. */
+static cok_character *placed(cok_adventure *game, uint8_t side)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    cok_field_set8(L, c->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, c->record, COK_FIELD_HOSTILE, side);
+    cok_field_set8(L, c->record, COK_FIELD_SIZE, 1);
+    CHECK(cok_party_append(&game->party, c));
+    return c;
+}
+
+/* The placement's relayout (dqk 59c7:16b3's loop is a local, so a record laid out again keeps its
+ * side; dkk 410b:18c2 leaves DS:86e8 1, so the descriptor's layout_sets_side is set for Death
+ * Knights only). The battle stops at 59c7:1864, so this calls the placement itself, on a copy of
+ * Dark Queen's descriptor with an ambush (its own has none, so no relayout is reached): an enemy
+ * at facing 2 is laid out first, then a party record at the party's facing 0, laid out again. The
+ * party record is placed on its side's formation, as Dark Queen's descriptor has it; with the flag
+ * it takes the enemy's, and its cell differs. Skipped without DQKAssets/. */
+static void test_relayout_side(void)
+{
+    struct stat st;
+    if (stat("DQKAssets/DISK2", &st) != 0) {
+        puts("dark queen: no DQKAssets/; the placement's relayout side not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    int x[2], y[2];
+    for (int flag = 0; flag < 2; ++flag) {
+        cok_rules rules = *R;
+        rules.combat.ambush = true;
+        rules.combat.layout_sets_side = flag;
+        CHECK(cok_adventure_open(&game, &rules, "DQKAssets", &keys, NULL));
+        game.vm.direction = 0;
+        game.vm.map_x = game.vm.map_y = 7;
+        game.vm.mode = 5;
+        cok_ecl_set_var(&game.vm, COK_VAR_DISTANCE, 0);
+        game.ambush = 0x2;
+        placed(&game, 1);
+        placed(&game, 0);
+        memset(game.combat.cells, COK_COMBAT_FLOOR, sizeof game.combat.cells);
+        CHECK(cok_combat_place_all(&game));
+        cok_combatant *party = &game.combat.combatant[2];
+        CHECK(party->character == game.party.members[1] && party->size == 1);
+        x[flag] = party->x;
+        y[flag] = party->y;
+        cok_adventure_close(&game);
+    }
+    /* Dark Queen's (flag 0): its own side's formation, 5 on and 3 down from the party's square
+     * (22, 10); with the flag, the enemy's, one row up. */
+    CHECK(x[0] == 27 && y[0] == 13 && x[1] == 27 && y[1] == 12);
+}
+
 int main(void)
 {
     test_wilderness();
+    test_layout_distance();
+    test_relayout_side();
     test_tables();
     test_combat_tables();
     test_magic_ids();

@@ -1709,6 +1709,7 @@ const cok_rules cok_rules_champions = {
             /* 3cb2:17f7 */
             .placement_clears = 255,
             .ambush = false,
+            .layout_sets_side = false, /* no ambush: never laid out again */
             .ambush_distance = 0,
             .demo_distance = 0,
             .body_under = false,

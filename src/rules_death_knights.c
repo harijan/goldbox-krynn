@@ -1816,6 +1816,7 @@ const cok_rules cok_rules_death_knights = {
             /* 410b:1aa4, 18c2 */
             .placement_clears = 0x48,
             .ambush = true,
+            .layout_sets_side = true, /* 410b:18c2's loop leaves DS:86e8 1 */
             .ambush_distance = 1,
             .demo_distance = 2,
             .body_under = true, /* 6f03:152e */

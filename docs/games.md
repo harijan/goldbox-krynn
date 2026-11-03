@@ -802,8 +802,12 @@ run, citing their handlers (`unported`). It holds:
   the river (`0860`, var 0x33), trees (`09e7`) and scatter (`0b79`, its cell `0ce3` with a 0x2c band one
   roll wider and no 0x2c + d5) as Death Knights' builder does; the flags are `DS:5d7b` at var 0x1a2, the
   Abyss's encounter state (only blocks 64 and 66 store it: 0, 1, 2, 4), 32 entries) is ported
-  (`COK_WILDERNESS_DARK_QUEEN`; `dqk_fight`'s flow `wild`). The placement (`59c7:1864`) stops the battle,
-  cited.
+  (`COK_WILDERNESS_DARK_QUEEN`; `dqk_fight`'s flow `wild`). The placement's helpers (`1117` the
+  both-out test, `113a` the cell try, `128e` the find, `16b3` the layout) are combat.c's shared
+  ones, checked against the original: the layout's distance is the descriptor's `ambush_distance`
+  (1, as Death Knights'); a record laid out again is placed on its own side (`layout_sets_side`
+  off: 16b3's loop is a local), where Death Knights' 18c2 leaves it the enemy's (on). The
+  placement (`59c7:1864`) stops the battle, cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

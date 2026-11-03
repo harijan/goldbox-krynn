@@ -1159,12 +1159,16 @@ typedef struct {
      * (game->ambush, dkk DS:c4cc) split the enemy's side among them, each
      * enemy facing from the next, and each record's combat facing is set
      * here; the enemy's distance where it is 0 and the facing is not the
-     * party's (dkk 1), and in the demonstration (dkk 2; 0 none); whether a
-     * body's cell keeps the cell under it rather than the map's (dkk
-     * 6f03:152e: under a body already there, the body's); and whether a
-     * record of status 9 is taken off the map (3cb2:17f7; dkk none). */
+     * party's (dkk 1; dqk 59c7:16b3's flag is 1 too), and in the demonstration
+     * (dkk 2; 0 none); whether a record laid out again for its facing is placed
+     * as the enemy's side (dkk 410b:18c2's loop leaves DS:86e8 1, true; dqk
+     * 59c7:16b3's loop is a local and leaves the record's own side, false);
+     * whether a body's cell keeps the cell under it rather than the map's
+     * (dkk 6f03:152e: under a body already there, the body's);
+     * and whether a record of status 9 is taken off the map (3cb2:17f7; dkk
+     * none). */
     uint8_t placement_clears;
-    bool ambush;
+    bool ambush, layout_sets_side;
     uint8_t ambush_distance, demo_distance;
     bool body_under, status_9;
     /* The end of combat (351b:1968; dkk 3a37:1318): whether the weapons
