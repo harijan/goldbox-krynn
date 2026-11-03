@@ -672,9 +672,25 @@ run, citing their handlers (`unported`). It holds:
   into a slot and into slot + 0x26 (`29fc:2b0b`, `170e:17d3`), the drawing part's
   (`combat.monster_icons_unported`), so the slots are taken and no icon is read or logged.
   `icon_slots` is 15: LOAD MONSTER takes 8 to 13 (it stops at 0x0e, `29ac`), and 170e's
-  extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters at the
-  vault (`771f:09a0`), the temple (`7825:0af6`) and the treasure (`75cc:135c`), the branches
-  of `5f07:081b`, cited. Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
+  extras take 14. COMBAT starts the battle (`5045:059d`, below) and with no monsters, the
+  branches of `5f07:081b` in their order: the vault (var 0x31, `771f:09a0`) stops, cited; the
+  temple (var 0x14, `7825:0af6`) runs its menu, "Heal View Repair Exit" (`dark_queen.c`'s
+  `cok_dark_queen_temple`): View (`86b8:0b0c`, the sheet, then the screen as it was) and Exit
+  leave (Exit draws the party's list, `5e22:023b`), Up and Down pick a member; Heal (`7825:0615`,
+  its list of eleven cures, `085f`'s table: Cure Blindness `0045`, Cure Disease `00b8`, Cure Light,
+  Serious and Critical Wounds and Heal `0193`, Neutralize Poison `0394`, Raise Dead `02c0`, Remove
+  Curse `0479`, Stone to Flesh `0524`, Restoration `059e`) runs, Stone to Flesh is ported (the
+  question "is not stoned." and "cast cure anyway? " for a member not stoned, which changes nothing;
+  a stoned one with a readied item of type 0x8c, `+0x37`, is told "spell dosn't work!"; else status
+  0, active, 1 hit point; no money); every other cure stops, cited (their effects run `148f`, the
+  spells `849a` and `7fd8`, not ported); Repair (`7825:08fa`, which ends the party's effects through
+  `148f:017d` and casts `849a:21b5`) stops, cited; the mode after it is 3
+  only on the overland (var 0x22 0 and 0x24 1, `5f07:0917`), else 4, the variable 0x14 cleared
+  after the call (`5f07:0861-0871`); the treasure (`75cc:135c`) stops, cited. The temple's View,
+  Heal's list and its question agree with the original in `dqk_shops.py` (the wounded member's
+  hit points in the colour the original draws: byte 0x00 on the window's grey; Stone to Flesh on a
+  stoned member, by keys); the other cures are checked to stop at their routines.
+  Its open squares (`6c70:01c3`, lowering var 0x37 to its result in
   `5f07:088f`-`08ba`, between the overlay's loads and the text) run now, as the encounter's
   (below). Both need LOAD FILES
   first, as the shipped block 4 runs it before its dragons (8066). Without it, in the

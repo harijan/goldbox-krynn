@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py` and `dqk_camp.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py`, `dqk_camp.py` and `dqk_shops.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -540,6 +540,22 @@ loop's redraw after the EXIT (the view's, CALL 1's DS:b7f8) is not reached in th
 not checked. The variables the original changed agree (0x30 and the marker; in the overland flow
 0x22, 0x24, 0x3e, 0x25 and 0x26 too). The other variables are not compared: eclplay starts from a
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
+
+`dqk_shops.py` (flows `temple`, `wounded` and `stoned`, about a minute each; in `make dqk-checks`)
+runs the temple: a test block (`tools/dqkecl.py`) runs LOAD FILES 2 1 (the jumper's, as
+`dqk_ecl_text.py`'s start), sets var 0x14 and calls COMBAT with no monsters, from a saved game (the
+original's entry as `dqk_fight.py`'s). `temple` is saved game A: the menu, View's sheet, the menu
+after it, Heal's list (`h`), its Stone to Flesh question (Down nine times and Enter, then No), the
+list after No, the menu after Heal (Escape) and Exit. `wounded` is a copy of saved game A with
+Roland at 100 of 134 hit points (`+0x198`): Heal's list, the menu after it, Exit. `stoned` is a copy
+with Roland's status `+0x64` 7: Heal, Stone to Flesh by keys (Down nine, Enter: no question; cured
+to status 0, active, 1 hit point), the list again, the menu, Exit. Each step is compared in RGB (the
+mouse's shield masked, the pointer's wider arrow at Exit), the 1 KB of variables (at the menu steps
+but var 0x14, which eclplay's run has returned from by then) and the party's records. The other
+Heal cures are not compared: eclplay stops at each, citing its routine, and Repair likewise.
+The wounded hit points are drawn by the original's colour byte 0x00 (`7825:0737-074b`) on the
+window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black background the Heal screen
+differs by 121 pixels.
 
 `dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's

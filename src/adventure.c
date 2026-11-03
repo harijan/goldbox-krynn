@@ -2304,6 +2304,15 @@ static void music(cok_adventure *game)
         cok_adventure_sound(game, COK_SOUND_COMMAND, cok_game_rules(game)->ecl.music_sounds[n]);
 }
 
+bool cok_adventure_load_asked(cok_adventure *game)
+{
+    switch (cok_game_rules(game)->combat.load_asked) {
+    case COK_LOAD_ASKED_DARK_QUEEN: return cok_dark_queen_load_asked(game);
+    case COK_LOAD_ASKED_NONE: break;
+    }
+    return false;
+}
+
 bool cok_adventure_not_yet(cok_adventure *game, const char *what, const char *routine)
 {
     cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's %s (%s)",
