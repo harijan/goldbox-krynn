@@ -641,9 +641,24 @@ static void test_wilderness(void)
     cok_random_select(COK_RANDOM_PASCAL);
 }
 
+/* The placement's distance (dqk 59c7:16b3's flag): var 0x37, else 1 for a facing that is not
+ * the party's, the same for the demonstration as none (its demonstration distance is 0). The
+ * placement itself (59c7:1864) is not ported, so this checks the helper the layout shares. */
+static void test_layout_distance(void)
+{
+    const cok_rules_combat *C = &R->combat;
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, false) == 1);
+    CHECK(cok_combat_layout_distance(C, 0, 0, 0, false) == 0);
+    CHECK(cok_combat_layout_distance(C, 3, 2, 0, false) == 3);
+    CHECK(cok_combat_layout_distance(C, 3, 0, 0, false) == 3);
+    CHECK(cok_combat_layout_distance(C, 0, 2, 0, true) == 1);
+    CHECK(cok_combat_layout_distance(C, 0, 0, 0, true) == 0);
+}
+
 int main(void)
 {
     test_wilderness();
+    test_layout_distance();
     test_tables();
     test_combat_tables();
     test_magic_ids();

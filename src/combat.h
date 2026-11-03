@@ -321,6 +321,15 @@ bool cok_combat_occupy(cok_combat *combat, const cok_rules *rules);
 bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
                       uint8_t dir, uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle);
 
+/* The distance the formations are laid out at (3cb2:17f7's start; dkk 410b:18c2;
+ * dqk 59c7:16b3): distance, the var COK_VAR_DISTANCE, unless it is 0 and the facing
+ * is not the party's (direction), when the descriptor's ambush distance is taken
+ * (dqk 59c7:16b3's flag: var 0x37, else 1 for a facing that is not the party's, dkk
+ * 1); in the demonstration (demo) the descriptor's demonstration distance, if it has
+ * one. */
+uint16_t cok_combat_layout_distance(const cok_rules_combat *R, uint16_t distance, uint8_t facing,
+                                    uint8_t direction, bool demo);
+
 /* Put character on the map at x, y (6beb:10f3), in combat (mode 5;
  * otherwise *placed is true and nothing changes): its size from +0xcf &
  * 0x7f, and if nothing stands there and it can be walked on, *placed;

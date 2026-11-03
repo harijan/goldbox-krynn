@@ -814,6 +814,15 @@ bool cok_combat_records(cok_adventure *game, char *error, size_t error_size)
     return true;
 }
 
+uint16_t cok_combat_layout_distance(const cok_rules_combat *R, uint16_t distance, uint8_t facing,
+                                    uint8_t direction, bool demo)
+{
+    if (distance == 0 && facing != direction && R->ambush_distance != 0)
+        distance = R->ambush_distance;
+    if (demo && R->demo_distance != 0) distance = R->demo_distance;
+    return distance;
+}
+
 /* Placement (3cb2:17f7). */
 
 /* Its state in the data segment: for each side, the 3D square it stands
@@ -835,10 +844,10 @@ typedef struct {
 } placement;
 
 /* The formations for facing (3cb2:17f7's start; dkk 410b:18c2, again for
- * each new facing an ambush gives): the party's side faces it, the enemy's
- * the other way from distance squares ahead (var 0x7ec1: dkk 1 where it is
- * 0 and the facing is not the party's, 2 in the demonstration), and each
- * side's formation cells are all free again. Returns whether it laid them
+ * each new facing an ambush gives; dqk 59c7:16b3, which reads the facing as the
+ * party's direction): the party's side faces it, the enemy's the other way from
+ * distance squares ahead (cok_combat_layout_distance), and each side's formation
+ * cells are all free again. Returns whether it laid them
  * out again: 18c2's loop over the sides then leaves DS:86e8, the side the
  * record is placed on (410b:1444, 12f7), 1. */
 static bool lay_out(placement *p, uint8_t facing)
@@ -849,10 +858,8 @@ static bool lay_out(placement *p, uint8_t facing)
     cok_ecl *vm = &game->vm;
     if (facing == p->laid) return false;
     p->laid = facing;
-    uint16_t distance = cok_ecl_var(vm, COK_VAR_DISTANCE);
-    if (distance == 0 && facing != vm->direction && R->ambush_distance != 0)
-        distance = R->ambush_distance;
-    if (game->demo && R->demo_distance != 0) distance = R->demo_distance;
+    uint16_t distance = cok_combat_layout_distance(R, cok_ecl_var(vm, COK_VAR_DISTANCE), facing,
+                                                   vm->direction, game->demo);
     p->quadrant[0] = facing >> 1;
     p->quadrant[1] = (uint8_t)((facing + 4) % 8) >> 1;
     p->anchor_x[1] = s8((int)distance * cok_step_x[facing]);
@@ -873,7 +880,9 @@ static bool lay_out(placement *p, uint8_t facing)
 /* 3cb2:122c: try column, row of formation k, from square ax, ay: if the
  * formation's cell is free, the combatant stands at the cell it gives,
  * and if nothing is there and it can be walked on (6beb:0c9d), the cell is
- * taken. */
+ * taken. Dark Queen's (dqk 59c7:113a) is the same: its probe (4837:0bd1, here
+ * cok_combat_probe) is not checked for failure there, and its occupant, terrain
+ * and terrain cost 0xff tests are these three. */
 static bool try_cell(placement *p, uint8_t d, int8_t column, int8_t row, int8_t ax, int8_t ay,
                      uint8_t k, bool *placed)
 {
@@ -903,8 +912,9 @@ static bool try_cell(placement *p, uint8_t d, int8_t column, int8_t row, int8_t 
  * four squares are tried. */
 enum { PLACE_STEPS = 1 << 20 };
 
-/* 3cb2:1379: find combatant d a place. From the side's square (k 0), its
- * formation is filled rank by rank: a rank starts at a cell set by k and
+/* 3cb2:1379: find combatant d a place. Dark Queen's (dqk 59c7:128e) is the same, its
+ * side 0 rank step by quadrant & 1 coming from 1df9:0428. From the side's square (k 0),
+ * its formation is filled rank by rank: a rank starts at a cell set by k and
  * the quadrant (DS:03de, 03e6) moved back by the rank's number, then
  * takes cells to one side and the other, one further each pair (combat
  * directions DS:03da by the quadrant). A rank ends at a cell outside the
@@ -963,7 +973,8 @@ static bool find_place(placement *p, uint8_t d, bool *found)
             ++tried;
         }
         bool out = column < 0 || row < 0 || column > 10 || row > 5;
-        bool both = (column < 0 || column > 10) && (row < 0 || row > 5); /* 3cb2:11fb */
+        /* 3cb2:11fb; dqk 59c7:1117 (the same test, its arguments pushed the other way): */
+        bool both = (column < 0 || column > 10) && (row < 0 || row > 5);
         if ((out && !both) || (first && tried >= p->width[side]) || (!first && tried > 11)) {
             ++rank;
             if (side == 0 && (quadrant & 1) && k == 0 && rank == 1) {
