@@ -15,16 +15,25 @@ lost weapons (1297, none here), clears var 0x2e, the flags = <> < > (2093:0015),
 0593 (the party's after combat) sets the party's flags and removes the effects that end with the
 battle. When a member stands, 0593 runs 01fb (the experience: the pool's coins over the party) and
 0427 (the award), then its rest from 75cc:0736: a member standing walks the party (revives, fled
-removals), the load asked (DS:b7a7) removes the party (818-86e). Then 135c sets the mode 6 (1390) and
-calls 11b0 (the enemies removed, part 19d: none here, but the `enemy` flow has one). The stop is
-at 13a4 (all flows, cited for part 19d: 135c's loop of 177e:0be2 over the records, after 11b0).
+removals), the load asked (DS:b7a7) removes the party (818-86e). Then 135c sets the mode 6 (1390),
+calls 11b0 (the enemies removed, part 19d), and finishes (part 19d, ported): the stats (177e:0be2)
+of each record, the lost party's words (b7a7, 1460) or the results (091f: the texts, the share's
+line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75cc:151b), and back
+to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93, part
+20) is the stop; a lost party stops at its continue prompt's poll (2aa6:1586, unverified).
 
 The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
-so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, overlay 8's
-75cc:13a4 is spun too (after 11b0, which runs after 0593 in every flow), then 2093:0015 is given
-back. Its state is read where the spin holds: the 1 KB of variables, the records (pointers masked),
-the flags, DS:af3f, c7de, c7df, b1da, b7a7, the mode (DS:ae57: 6, set by 135c at 1390), RandSeed, and the 18 effect ids at DS:631e.
-Stage 1 also shows that 135c's start ran: var 0x2e is 0 at the 2093:0015 spin.
+so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, the flow's end
+(75cc:0e93, 2aa6:1586 or 5f07:0987, COMBAT's return after 135c) is trapped too, then 2093:0015 is
+given back. The game then waits at its first key (the results' bar, or the lost party's continue
+prompt): its screen is read there, the key is typed, and the end's trap holds. Its state is read
+where the spin holds: the 1 KB of variables, the records (pointers masked), the flags, DS:af3f, c7de,
+c7df, b1da, b7a7, the mode (DS:ae57), RandSeed, and the 18 effect ids at DS:631e. Stage 1 also shows
+that 135c's start ran: var 0x2e is 0 at the 2093:0015 spin.
+
+eclplay runs the same block twice from the same saved game: with the PRESS KEY only (its last shot
+is its first key wait: the screen compared with the original's there), and with every key typed (its
+--state, --records, --vars and --screen at its end or its cited stop, compared with the original's).
 
 Flows (each its own saved game as the original starts it; the block's ops before the PRESS KEY
 before COMBAT are its `extra`, and each member's record changes are its `changes`):
@@ -49,6 +58,9 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
 - `lost9`: `lost` with var 0x20 set to 9 (SAVE 9): 818-86e removes the six and stores 0.
 - `enemy`: `won` with member 5's hostile word 1 (status 0, active): 01fb skips it (status 0), the award
   adds 0, and 11b0 removes it (hostile 1, active: var 0x15 stays 0, var 0x20 one less) and sets DS:c7df.
+- `enemyout`: member 5 hostile 1 and inactive (SAVE 5 -> var 0x15 first): 11ba clears var 0x15, 11f4
+  counts it (1), and var 0x20 is one less.
+- `enemyhigh`: member 5's hostile word is 0x0101: not 1, so 11b0 keeps it (six records stay).
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -68,6 +80,7 @@ sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parents[2]))  # tools/: hlib, dqkecl
 import checklib  # noqa: E402
 import dqk_ecl  # noqa: E402
+import dqk_ecl_text  # noqa: E402
 import dqk_fight  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
@@ -95,42 +108,49 @@ FLOWS = {
     # the stop's cite, the expected state (standing, fled, b7a7, out), DS:ae4f (the share; None
     # where 01fb does not run), the pool's coins 4-6, the experience each member gains, and each
     # member's may-train (+0xcd). The award is 0 where no member stands.
-    "won": dict(changes=None, extra=[], cite="dqk 75cc:13a4", expect=(True, False, False, 0),
+    "won": dict(changes=None, extra=[], end="end", expect=(True, False, False, 0),
                 share=0, pool=NO_POOL, gained=ZERO, may=ZERO),
-    "fled": dict(changes=[{0x64: 3, 0x65: 0}] * MEMBERS, extra=[], cite="dqk 75cc:13a4",
+    "fled": dict(changes=[{0x64: 3, 0x65: 0}] * MEMBERS, extra=[], end="end",
                  expect=(False, True, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
     "lost": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS, extra=[],
-                 cite="dqk 75cc:13a4", expect=(False, False, True, MEMBERS), share=None,
+                 end="lost", expect=(False, False, True, MEMBERS), share=None,
                  pool=NO_POOL, gained=[], may=[], members=0),
-    "pool": dict(changes=None, extra=[TREASURE], cite="dqk 75cc:13a4",
+    "pool": dict(changes=None, extra=[TREASURE], end="treasure",
                  expect=(True, False, False, 0), share=825, pool=(1000, 3, 1),
                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
     "bonus": dict(changes=[{0x5a: 2}, {}, {}, {0x5a: 0}, {0x5a: 5}, {0x5a: 6}],
-                  extra=[TREASURE], cite="dqk 75cc:13a4", expect=(True, False, False, 0),
+                  extra=[TREASURE], end="treasure", expect=(True, False, False, 0),
                   share=825, pool=(1000, 3, 1), gained=[907, 275, 275, 907, 825, 907],
                   may=[0, 0, 0, 0, 1, 0]),
     "zero": dict(changes=[{}, {}, {}, {}, {}, {0x18b: 0}], extra=[SAVE_ZERO],
-                 cite="dqk 75cc:13a4", expect=(True, False, False, 0), share=0xffffffff,
+                 end="end", expect=(True, False, False, 0), share=0xffffffff,
                  pool=NO_POOL, gained=[-1, 0, 0, 0, 0, 0], may=ZERO),
     "negative": dict(changes=[{}, {}, {}, {0x18b: 0}, {0x18b: 0}, {0x18b: 0}],
-                     extra=[TREASURE, SAVE_ZERO], cite="dqk 75cc:13a4",
+                     extra=[TREASURE, SAVE_ZERO], end="treasure",
                      expect=(True, False, False, 2), share=-2475 & 0xFFFFFFFF, pool=(1000, 3, 1),
                      gained=[-2475, -825, -825, 0, 0, 0], may=ZERO),
     "rest": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
-                          {0x64: 2}], extra=[], cite="dqk 75cc:13a4",
+                          {0x64: 2}], extra=[], end="end",
                  expect=(True, False, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
     "gentle": dict(changes=[{}, {0x64: 3}, {0x64: 4, 0x198: 0}, {0x64: 4, 0x198: 5}, {0x64: 5},
-                            {0x64: 2}], extra=[("SAVE", (imm(1), var(0x1d)))], cite="dqk 75cc:13a4",
+                            {0x64: 2}], extra=[("SAVE", (imm(1), var(0x1d)))], end="end",
                    expect=(True, False, False, 0), share=None, pool=NO_POOL, gained=ZERO, may=ZERO),
     "fledmix": dict(changes=[{0x64: 3}, {0x64: 2}, {0x64: 3}, {0x64: 3}, {0x64: 4, 0x198: 0},
-                             {0x64: 3}], extra=[], cite="dqk 75cc:13a4",
+                             {0x64: 3}], extra=[], end="end",
                     expect=(False, True, False, 0), share=None, pool=NO_POOL, gained=[0] * 4,
                     may=[0] * 4, members=4),
     "enemy": dict(changes=[{}, {}, {}, {}, {}, {0x66: 1, 0x67: 0}], extra=[],
-                  cite="dqk 75cc:13a4", expect=(True, False, False, 0), share=0, pool=NO_POOL,
+                  end="end", expect=(True, False, False, 0), share=0, pool=NO_POOL,
                   gained=[0] * 5, may=[0] * 5, members=5, monsters=1),
+    "enemyout": dict(changes=[{}, {}, {}, {}, {}, {0x66: 1, 0x67: 0, 0x18b: 0}],
+                     extra=[("SAVE", (imm(5), var(0x15)))], end="end",
+                     expect=(True, False, False, 1), share=0, pool=NO_POOL,
+                     gained=[0] * 5, may=[0] * 5, members=5, monsters=1),
+    "enemyhigh": dict(changes=[{}, {}, {}, {}, {}, {0x66: 1, 0x67: 1}], extra=[],
+                      end="end", expect=(True, False, False, 0), share=0, pool=NO_POOL,
+                      gained=ZERO, may=ZERO),
     "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
-                  extra=[("SAVE", (imm(9), var(0x20)))], cite="dqk 75cc:13a4",
+                  extra=[("SAVE", (imm(9), var(0x20)))], end="lost",
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
                   may=[], members=0),
 }
@@ -201,10 +221,17 @@ def read_state(box):
         pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3)))
 
 
-def original(work, name, changes, patched, verbose):
-    """The original's state at the spin for one flow: stage 1 at 2093:0015, then the traps at
-    75cc:13a4 while stage 1 spins, then stage 1 given back. Returns (state, the
-    trap's stop address, whether the game waited at the PRESS KEY before COMBAT)."""
+END_STOPS = {"treasure": (0x75CC, 0x0E93), "lost": (0x2AA6, 0x1586), "end": (0x5F07, 0x0987)}
+TYPED_TO_WAIT = "\\r"            # the PRESS KEY before COMBAT (eclplay's entry key comes first)
+TYPED_TO_END = "\\r\\r\\r"       # that, the results' key (or the continue prompt's) and one more
+
+
+def original(work, name, changes, patched, verbose, end):
+    """The original's run of the block from its entry to the end's stop (END_STOPS): stage 1 at
+    2093:0015 (the flags' clear), the end's trap set while it spins, then the game waits at its
+    first key (the results' bar, or the continue prompt): its screen there is read, the key is
+    typed, and the end's trap holds. Returns (state, the saved game, the screen at the first key
+    wait, the screen at the end's stop)."""
     qsv, saves = saved_game(work, name, changes)
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=verbose, timeout=900,
                     files=L.files(patched), saves=saves if changes is not None else []) as box:
@@ -226,31 +253,45 @@ def original(work, name, changes, patched, verbose):
             if time.monotonic() - t0 > 60:
                 raise cokbox.BoxError("stage 1 did not hold at 2093:0015 (135c's start)")
         stage1_surprise = box.byte(v + SURPRISE)  # 135c's start cleared it before the flags
-        h3 = L.trap(box, 0x75CC, 0x13A4, seconds=10)
+        seg, off = END_STOPS[end]
+        h_end = L.trap(box, seg, off, seconds=10)
         L.untrap(box, h1)
-        hold = L.Trap(list(h3), 0x75CC, 0x13A4)
+        t0 = time.monotonic()
+        while not box.waiting():
+            if time.monotonic() - t0 > 60:
+                raise cokbox.BoxError("the game waits for no key before the end of the treasure")
+        wait_shot = box.settled(tolerance=64)
+        box.keys("\\r")  # the results' bar, or the continue prompt
+        hold = L.Trap(list(h_end), seg, off)
         t0 = time.monotonic()
         while not L.held(box, hold)[0]:
             if time.monotonic() - t0 > 60:
-                raise cokbox.BoxError("stage 2 did not hold at 135c's 13a4 (after 11b0)")
+                raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
-        return state, qsv
+        end_shot = box.settled(tolerance=64)
+        return state, qsv, wait_shot, end_shot
 
 
-def port(work, name, patched, qsv):
-    """eclplay's run of the block from the saved game (qsv), the keys typed: the entry PRESS KEY
-    and the one before COMBAT. Returns (variables, the records as raw bytes, the state's lines,
-    the transcript)."""
+def port(work, name, patched, qsv, typed, shots=False):
+    """eclplay's run of the block from the saved game's copy (qsv, --load, --play), the keys TYPED
+    after the entry. With SHOTS its screen is the last of its shots (one at each key wait: the
+    one where the keys ran out); else its --screen at its end. Returns (variables, the records as
+    raw bytes, the state's lines, the transcript, the screen or None)."""
     entry = dqk_shops.entry_file(work, name, qsv)
     records = work / f"port-{name}.records"
     state = work / f"port-{name}.state"
-    for path in (records, state):
+    shot_dir = work / f"port-{name}-shots"
+    screen = work / f"port-{name}.bmp"
+    for path in (records, state, screen):
         if path.exists():
             path.unlink()
+    if shot_dir.exists():
+        shutil.rmtree(shot_dir)
     extra = ["--load", str(entry), "--play", "--records", str(records), "--state", str(state)]
-    variables, _, _ = dqk_ecl.port(work, name, patched, typed="\\r", extra=extra, block=None)
+    extra += ["--shots", str(shot_dir)] if shots else ["--screen", str(screen)]
+    variables, _, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra, block=None)
     data = records.read_bytes() if records.exists() else b""
     size = L.RECORD
     ported = [data[k:k + size] for k in range(0, max(len(data) - 3, 0), size)]
@@ -260,12 +301,21 @@ def port(work, name, patched, qsv):
             key, _, value = line.partition(" ")
             lines[key] = value
     transcript = (work / f"port-{name}.txt").read_text()
-    return variables, ported, lines, transcript
+    if shots:
+        waits = sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem)) if shot_dir.is_dir() else []
+        picture = cokbox.RGBScreen.load(waits[-1]) if waits else None
+    else:
+        picture = cokbox.RGBScreen.load(screen) if screen.exists() else None
+    return variables, ported, lines, transcript, picture
+
+
+MASKS = [dqk_ecl_text.POINTER_WIDE]  # the mouse's pointer at the corner (DOSBox-X's own)
 
 
 def run_flow(v, work, patched, name, verbose):
     spec = FLOWS[name]
-    orig, qsv = original(work, name, spec["changes"], patched, verbose)
+    end = spec["end"]
+    orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end)
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
     v.check(orig["stage1_surprise"] == 0, f"var 0x2e is 0 at 2093:0015's spin: 135c's start ran "
             f"({name})", f"{orig['stage1_surprise']}")
@@ -278,8 +328,14 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["effects"] == EFFECTS, "the 18 effect ids at DS:631e are as the port's table "
             f"({name})", orig["effects"].hex())
     v.check(orig["demo"] == 0, f"the original is not the demonstration ({name})")
-    v.check(orig["mode"] == MODE, f"the mode is 6 at the stop, as 135c sets it at 1390 ({name})",
-            f"mode {orig['mode']}")
+    # The mode: 6 where the flow stops in 135c (the treasure menu, the lost party's poll), else
+    # COMBAT's ending has set it (3 or 4: monster.c's overland).
+    if end == "end":
+        v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
+                f"mode {orig['mode']}")
+    else:
+        v.check(orig["mode"] == MODE, f"the mode is 6 at the stop, as 135c sets it at 1390 "
+                f"({name})", f"mode {orig['mode']}")
     v.check(orig["monsters"] == spec.get("monsters", 0), f"DS:c7df is as 11b0 sets it ({name})",
             f"{orig['monsters']}, want {spec.get('monsters', 0)}")
     # The flow's own expectations on the original's side: the share, the pool's coins, each
@@ -301,10 +357,20 @@ def run_flow(v, work, patched, name, verbose):
     v.check(may == spec["may"], f"each member's may-train is as the flow's ({name})",
             f"{may}, want {spec['may']}")
 
-    variables, ported, lines, transcript = port(work, name, patched, qsv)
-    stop = f"{spec['cite']}"
-    v.check(stop in transcript and "error:" in transcript,
-            f"eclplay stops at {stop}, cited ({name})", transcript.strip()[-200:])
+    # The first key wait: the port's run with the keys ran out there (its last shot).
+    _, _, _, _, first = port(work, name + "-wait", patched, qsv, typed=TYPED_TO_WAIT, shots=True)
+    v.screen(f"the screen at the first key wait ({name})", wait_shot, first, masks=MASKS,
+             work=work)
+
+    variables, ported, lines, transcript, end_screen = port(work, name, patched, qsv,
+                                                           typed=TYPED_TO_END)
+    stop = {"treasure": "dqk 75cc:0e93", "lost": "dqk 2aa6:1586", "end": None}[end]
+    if stop is not None:
+        v.check(stop in transcript and "error:" in transcript,
+                f"eclplay stops at {stop}, cited ({name})", transcript.strip()[-200:])
+    else:
+        v.check("error:" not in transcript, f"eclplay runs the block to its end ({name})",
+                transcript.strip()[-200:])
     v.check(len(variables) == VARIABLES, f"eclplay runs the block to the stop ({name})")
     differing = [a for a in range(1, VARIABLES + 1) if orig["vars"][a - 1] != variables[a - 1]]
     v.check(not differing, f"the 1 KB of variables agree, var 0x2e included ({name})",
@@ -335,6 +401,7 @@ def run_flow(v, work, patched, name, verbose):
         port_value = int(lines.get(key, -1))
         v.check(port_value == int(value), f"DS:{addr} agrees ({name})",
                 f"original {int(value)}, port {port_value}")
+    v.screen(f"the screen at the end ({name})", end_shot, end_screen, masks=MASKS, work=work)
 
 
 def main():

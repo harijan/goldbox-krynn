@@ -5,6 +5,7 @@
 #include "data_dark_queen.h"
 #include "hlib.h"
 #include "magic.h"
+#include "monster.h"
 #include "queen.h"
 #include "queen_levels.h"
 #include "queen_arena.h"
@@ -15,6 +16,7 @@
 #include "round.h"
 #include "queen_modify.h"
 #include "shop.h"
+#include "treasure.h"
 #include "vga.h"
 
 #include <dirent.h>
@@ -883,6 +885,12 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
                 /* 064f, 06c6: the sound's toggles (2023:0247, 0272, not
                  * sounded yet), and the menu waits on. */
                 continue;
+            }
+            /* A menu with no items (091f's "Press button or enter to continue") ends on
+             * Return: the prompt's words; with items Return picks none. */
+            if (count == 0 && is_return(k)) {
+                result = 0;
+                break;
             }
             bool filtered = k == 0x1b || k == 0x60 ||
                             (dirs && ((k >= KEY_PAD5 && k <= KEY_UP) ||
@@ -5563,11 +5571,129 @@ static bool after_combat(cok_adventure *game)
     return true; /* 091b: the exit */
 }
 
+/* 75cc:091f, the results (485 bytes), after 135c's share (DS:ae4f): the full window (20b2:0030),
+ * then with monsters (DS:c7df), "the party has fled." (DS:c7de: the share 0, the pool's items freed
+ * and its three coins cleared, 2093:0015 at DS:b1db), "you have lost the fight." (no member
+ * standing, var 0x1d: the share 0), else "The party has won.". Then "each character receives N"
+ * and "experience points." at rows 5 and 7 unless var 0x1f is set (N is the share, the buffer of
+ * 2d1b:003a at 9fc is never read and not made), and "the party has found treasure" or "... no
+ * treasure" at row 10 by 74b9:092c's flags (*money: the pool's coins 4-6; *items: its items).
+ * Then the bar's "Press button or enter to continue" wait (1bdb:1e29, no items; the text's delay
+ * is 1a62:0046's, none). False where the keys ran out. */
+static bool results(cok_adventure *game, uint32_t share, bool *money, bool *items)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    full_window(game); /* 925 */
+    if (q->monsters_present) { /* 92a: DS:c7df */
+        if (q->fled) { /* 934: DS:c7de */
+            say(game, 1, 3, "the party has fled.", 7);
+            share = 0;
+            cok_pool_free_items(&game->pool); /* 961-9a4: the items' nodes, already freed */
+            memset(&game->pool.coins[4], 0, 3 * sizeof game->pool.coins[4]);
+        } else if (!q->standing && cok_ecl_load_var(vm, 0x1d) != 0) { /* 9a9: DS:af3f */
+            say(game, 1, 3, "you have lost the fight.", 7);
+            share = 0;
+        } else {
+            say(game, 1, 3, "The party has won.", 7); /* 9e3 */
+        }
+    }
+    char line[96];
+    snprintf(line, sizeof line, "%s%ld", "each character receives ", (long)(int32_t)share);
+    if (cok_ecl_load_var(vm, 0x1f) == 0) { /* a3e */
+        say(game, 1, 5, line, 7);
+        say(game, 1, 7, "experience points.", 7);
+    }
+    /* 74b9:092c: DS:c3e9 and c7e0 cleared, then set from the pool's coins 4-6 and its items. */
+    *money = *items = false;
+    for (size_t k = 4; k < 7; ++k)
+        if (game->pool.coins[k] != 0) *money = true;
+    *items = game->pool.items != NULL;
+    if (*money || *items) say(game, 1, 10, "the party has found treasure", 7); /* a9a */
+    else say(game, 1, 10, "the party has found no treasure", 7);
+    /* ae2: 1bdb:1e29 with the empty list and the prompt; 1 and 0 as its last two arguments. */
+    return bar_menu(game, "Press button or enter to continue", NULL, 0, true, false, 0, 0) >= 0;
+}
+
+/* 75cc:1460-14e8, the lost party (DS:b7a7 set at 13d6): the full window, then "The Dark Queen
+ * sneers with pleasure" / "at your meaningless demise." / "Nothing can stop her now... NOTHING!"
+ * in the window from cell 2 by rows 5-7 (the text's cursor at 2, 6 first), then the continue
+ * prompt (1bdb:0511: 1bdb:0495, then 2aa6:1586 with 0, 0, not verified: a cited stop). The
+ * text's delay is off here (DS:ae65 is clear in a battle: 1a62:0476), so the words come at once.
+ * False where the keys ran out or the stop is taken. */
+static bool lost_party(cok_adventure *game)
+{
+    full_window(game); /* 1460 */
+    game->vm.cursor = (cok_text_cursor){2, 6}; /* 1465-146a: DS:ae4d, ae4e */
+    if (!print_window(game, "The Dark Queen sneers with pleasure", 2, 5, 0x25, 0x16, 7, false,
+                      false))
+        return false;
+    if (!print_window(game, "at your meaningless demise.", 2, 6, 0x25, 0x16, 7, false, false))
+        return false;
+    if (!print_window(game, "Nothing can stop her now... NOTHING!", 2, 7, 0x25, 0x16, 7, false,
+                      false))
+        return false;
+    if (!continue_prompt(game, false, false)) return false; /* 093f -> 1bdb:0511 */
+    cok_adventure_not_yet(game, "the treasure", "dqk 2aa6:1586 (the dialog's poll after the "
+                                               "continue prompt, unverified: part 19d's end)");
+    return false;
+}
+
+/* 75cc:135c after 11b0 (the mode 6 is set): 13ae sets flag 1 (<>), each record's stats are
+ * recomputed (177e:0be2, cok_character_stats) and then: the lost party (DS:b7a7, 1460); else, when
+ * fled (DS:c7de) the pool's items are freed (13e7-1425), otherwise flag 0 (=) is set and flag 1
+ * cleared (1427); then the results (091f), and with the pool's money or items the treasure menu
+ * (75cc:0e93, part 20: cited stop). The pool is emptied (63ee:0002), the vars 0x01, 0x2f, 0x1c,
+ * 0x1e, 0x1d and 0x1f cleared (14eb-150d) and the monsters cleared (75cc:151b, monster.c's shared
+ * clear). False where the run stopped. */
+static bool treasure_end(cok_adventure *game)
+{
+    queen *q = own(game);
+    cok_ecl *vm = &game->vm;
+    const cok_rules *rules = cok_game_rules(game);
+    vm->flags[1] = true; /* 13ae: DS:b2f6 */
+    for (size_t i = 0; i < game->party.count; ++i) { /* 13b3-13d4: 177e:0be2 for each record */
+        char error[300];
+        if (!cok_character_stats(game->party.members[i], rules, &game->item_types, error,
+                                 sizeof error)) {
+            cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+            return false;
+        }
+    }
+    if (q->b7a7) { /* 13d6 */
+        if (!lost_party(game)) return false;
+    } else {
+        if (q->fled) { /* 13e0 */
+            cok_pool_free_items(&game->pool);
+        } else {
+            vm->flags[0] = true; /* 1427: DS:b2f5 (=) */
+            vm->flags[1] = false; /* DS:b2f6 (<>) */
+        }
+        bool money, items;
+        if (!results(game, q->share, &money, &items)) return false; /* 1438 */
+        if (money || items) { /* 1446-1455 */
+            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:0e93 (the treasure menu, part "
+                                                       "20)");
+            return false;
+        }
+        cok_pool_free(&game->pool); /* 1458: 63ee:0002 */
+    }
+    cok_ecl_store(vm, 0x01, 0); /* 14eb-150d: DS:ae65 is set by 14eb (the text's delay, timing only) */
+    cok_ecl_store(vm, 0x2f, 0);
+    cok_ecl_store(vm, 0x1c, 0);
+    cok_ecl_store(vm, 0x1e, 0);
+    cok_ecl_store(vm, 0x1d, 0);
+    cok_ecl_store(vm, 0x1f, 0);
+    cok_monster_clear(game); /* 1512: 75cc:151b */
+    return true;           /* 1517: back to COMBAT's ending (monster.c) */
+}
+
 /* 75cc:135c's treasure branch with no monsters (5f07:081b's last): the weapons lost in combat
  * come back (1297; none here, a list that is not empty stops), var 0x2e is cleared (136a), the
  * flags = <> < > are cleared (2093:0015 with DS:b2f5 and 4: 136f), DS:c7df is cleared (1380),
  * then 0593 unless the demonstration runs (1385; then 1390 on, part 19d, cited). After 0593 the
- * mode is 6 (1390), 11b0 removes the enemies, and the stop is at 13a4 (135c's loop after it). */
+ * mode is 6 (1390), 11b0 removes the enemies, and treasure_end (13ae-1517) finishes the branch,
+ * then COMBAT's ending (monster.c) runs. */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -5587,8 +5713,7 @@ void cok_dark_queen_no_monsters_treasure(cok_adventure *game)
     if (!after_combat(game)) return;
     vm->mode = 6; /* 1390: DS:ae57 */
     enemies_removed(game);
-    cok_adventure_not_yet(game, "the treasure", "dqk 75cc:13a4 (135c after 11b0: the loop of "
-                                                "177e:0be2 over the records, part 19d)");
+    treasure_end(game);
 }
 
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present)

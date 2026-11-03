@@ -558,24 +558,29 @@ window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black backgrou
 differs by 121 pixels.
 
 `dqk_treasure.py` (flows `won`, `fled`, `lost`, `pool`, `bonus`, `zero`, `negative`, `rest`, `gentle`,
-`fledmix`, `lost9` and `enemy`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
+`fledmix`, `lost9`, `enemy`, `enemyout` and `enemyhigh`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
 (`tools/dqkecl.py`) runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01
 01), SAVE 1 to var 0x2e, the flow's own ops (TREASURE ITEMS for the pool's coins, SAVE 0 to var 0x20),
 and COMBAT, from saved game A (`won`, `pool`), or from copies with every member's status 3 (`fled`),
 status 2 and inactive (`lost`, `lost9`: var 0x20 set to 9), or changed records (`bonus`: the classes;
 `zero` and `negative`: members inactive; `rest` and `gentle`: the statuses 2-5 and hit points, with
 none fled, `gentle` with var 0x1d; `fledmix`: fled, the survivors matched to the saved game by name;
-`enemy`: member 5 hostile). The original is trapped in two stages: `2093:0015` (the flags' clear, always
-resident) spins at the PRESS KEY before COMBAT, then `75cc:13a4` (after 11b0, which runs after 0593 and its
-rest) is spun while it does, and it is given back. Each flow's state where the spin holds is compared with eclplay's stop
-(`--vars`, `--records`, `--state`): the 1 KB of variables (var 0x2e included), the records (pointers
+`enemy`: member 5 hostile; `enemyout`: member 5 hostile and inactive, var 0x15 set first; `enemyhigh`: its
+hostile word 0x0101). The original is trapped in two stages: `2093:0015` (the flags' clear, always
+resident) spins at the PRESS KEY before COMBAT; the flow's end is trapped too (`75cc:0e93` where the
+treasure menu is the stop, `2aa6:1586` for a lost party, else `5f07:0987`, COMBAT's return), and the
+game waits at its first key (the results' bar, or the continue prompt): its screen is compared with
+eclplay's last shot there (the keys ran out), the key typed, then the end's trap holds. Each flow's
+state where it holds is compared with eclplay's end (`--vars`, `--records`, `--state`, `--screen`): the 1 KB of variables (var 0x2e included), the records (pointers
 masked: the experience and may-train with them), the flags, DS:af3f, c7de, c7df, b1da, b7a7, the
 share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect ids at DS:631e
 (checked against the table). The expected values of each flow (the share, the pool, each member's
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
-too, so a mistake in a flow shows. eclplay stops at `dqk 75cc:13a4` in every flow (135c's loop after
-11b0, which runs with the mode 6), cited for part 19d; `lost` leaves the party empty (0736 removes it),
-and `enemy` leaves DS:c7df set (11b0 removes the hostile member).
+too, so a mistake in a flow shows. eclplay runs `won`, `fled`, `rest`, `gentle`, `fledmix`, `zero`,
+`enemy*` to COMBAT's end; `pool`, `bonus` and `negative` stop at the treasure menu (`dqk 75cc:0e93`,
+part 20, cited); `lost` and `lost9` stop at the continue prompt's poll (`dqk 2aa6:1586`, not verified).
+`lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
+hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);
 `negative` divides by -2 (-2475). Saved game A's pool is empty, so `won` awards nothing.
 

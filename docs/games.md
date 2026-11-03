@@ -722,8 +722,15 @@ run, citing their handlers (`unported`). It holds:
   removed and var 0x20 is 0 (`818-86e`). Then 135c sets the mode 6 (`1390`) and calls 11b0: each enemy (a
   record past the party, or hostile word 1) sets DS:c7df, counts in var 0x15 when inactive, and is removed
   (`177e:1e31`, the count one less only for a record in the party); the other records lose their combat
-  blocks; the selection ends on the first record. Then 135c's loop of `177e:0be2` over the records is cited
-  (part 19d, not run). TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
+  blocks; the selection ends on the first record. Then 135c (part 19d) sets flag 1 and runs `177e:0be2`
+  over the records; a lost party (b7a7) prints its three words and waits at the continue prompt (`1460`,
+  cited at the poll `2aa6:1586`, not verified); else fled frees the pool's items, otherwise flag 0 is set
+  and flag 1 cleared (`1427`); the results (`091f`: "the party has fled." / "you have lost the fight." /
+  "The party has won." with monsters, the share's "each character receives N experience points.", the
+  treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with
+  money or items the treasure menu is cited (`75cc:0e93`, part 20); the pool is emptied (`63ee:0002`),
+  vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
+  clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
   that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),
