@@ -1195,8 +1195,8 @@ class DarkQueenTests(unittest.TestCase):
         result = self.play("--start-menu", "--keys",
                            r"\k\ePLTAB\r\r\rP\r\r\r\r\rL\r" + TO_FIGHT + r"\r", ASSETS)
         self.assertEqual(result.returncode, 1)
-        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's battle "
-                         "(dqk 5045:059d)\n")
+        self.assertEqual(result.stderr, "not yet ported: The Dark Queen of Krynn's battle's "
+                         "placement (dqk 59c7:0f7b)\n")
         moves = [line for line in result.stdout.splitlines()
                  if line.startswith(("step:", "turn:"))]
         self.assertEqual(len(moves), 29)
@@ -1236,7 +1236,7 @@ class DarkQueenTests(unittest.TestCase):
                                  ASSETS)):
             self.assertEqual(result.returncode, 1)
             self.assertEqual(result.stderr,
-                             "not yet ported: The Dark Queen of Krynn's battle (dqk 5045:059d)\n")
+                             "not yet ported: The Dark Queen of Krynn's battle's placement (dqk 59c7:0f7b)\n")
             self.assertEqual(sum(line.startswith(("step:", "turn:"))
                                  for line in result.stdout.splitlines()), 29)
             outs.append(result.stdout[result.stdout.index("protection:"):])

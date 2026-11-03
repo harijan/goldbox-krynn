@@ -300,9 +300,12 @@ or `DUNGCOM`'s 0x19, the latter only when the wilderness's were loaded
 since (`DS:b58c`, `combat.tiles_kept`), and no random tiles (it has no
 `RANDCOM`). The dungeon (`410b:0892`) fills the map with floor first
 (`combat.dungeon_fill`: every cell built) and draws two corners otherwise
-(`combat.door_corners`, `410b:04d8` and `06ae`: a door on the
-north-west's west edge as a wall, and beyond the north-east's north
-tile 7 where the east is open). Open ground is a builder of its own
+(`combat.door_corner_nw`, `410b:04d8`: a door on the north-west's west
+edge as a wall; `combat.door_corner_ne`, `410b:06ae`: beyond the
+north-east's north tile 7 where the east is open). Dark Queen's dungeon
+(`59c7:06a7`) has the same fill and no tables or chairs
+(`combat.dungeon_no_tables`), with its corners the other way round
+(`door_corner_nw` false, `door_corner_ne` true: `59c7:0285`, `049e`). Open ground is a builder of its own
 (`combat.wilderness`, `COK_WILDERNESS_DEATH_KNIGHTS`, `410b:107e`): floor
 `0x45` (its tile `0x25`); a river where var `0x4bf3` is set
 (`COK_VAR_RIVER`; no d100), from a column 34 less 5d4 moved left to a
