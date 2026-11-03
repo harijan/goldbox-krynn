@@ -771,6 +771,14 @@ the view (8, 8, 168 by 168) in RGB, with only the mouse pointer (8, 8, 8, 9) mas
 outside the view (the frame of the redraw, 20b2:02fa, not ported) is reported, not gated. Gated: at least 6 combatants drawn in
 the view in every run, and a monster (CPIC) drawn in the view in the square's run.
 
+Flow `dispatch` (step 4, part 10b: the first turn's dispatch). The original's turn (`5045:078b`, held) is given back,
+and its command menu (`5045:08cf`, the party's dispatch of `cok_combat_act`) is spun in the same copies (EB FE over
+its entry, 0x144 on): the state is read where the dispatch starts. DS:ad67, the selected record, is the turn list's
+first combatant (57fb:019e), and the records, blocks, combatants, battlefield, turn list and RandSeed (0x1756582c)
+are those at the turn. eclplay stops earlier, at the side panel (`6346:0af6`, parts 11-12), which comes before the
+dispatch, so its stop is compared with that state (`placement`). The dispatch itself is not reached by eclplay, and
+the computer's (`5045:0891`, `5bb8:0000`) is not checked: the party's first turn stops at the panel too.
+
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):
