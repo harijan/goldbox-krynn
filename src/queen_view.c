@@ -463,7 +463,7 @@ static void set_coin(cok_character *character, unsigned k, unsigned value)
  * after it in light cyan, boxed): digits add one, but past max the number
  * is max's own; Backspace takes one off (a blank over its cell);
  * Return gives the number, Escape (or '`') 0. -1 where the keys ran out. */
-static long amount_input(cok_adventure *game, const char *prompt, long max)
+long queen_amount_input(cok_adventure *game, const char *prompt, long max)
 {
     char text[32], max_text[16], buf[16] = "";
     snprintf(max_text, sizeof max_text, "%ld", max);
@@ -548,7 +548,7 @@ bool queen_view_drop(cok_adventure *game, cok_character *character)
         if (picked == 0) return true;
         char prompt[64];
         snprintf(prompt, sizeof prompt, "How much %s will you drop? ", coin_names[coin]);
-        long amount = amount_input(game, prompt, (long)coin_of(character, coin));
+        long amount = queen_amount_input(game, prompt, (long)coin_of(character, coin));
         if (amount < 0) return false;
         /* 86b8:2bc6: the coin and the weight (+0x56) less it. */
         set_coin(character, coin, coin_of(character, coin) - (unsigned)amount);
@@ -584,7 +584,7 @@ bool queen_view_trade(cok_adventure *game, cok_character *character)
             if (picked == 0) break;
             char prompt[64];
             snprintf(prompt, sizeof prompt, "How much %s will you trade? ", coin_names[coin]);
-            long amount = amount_input(game, prompt, (long)coin_of(character, coin));
+            long amount = queen_amount_input(game, prompt, (long)coin_of(character, coin));
             if (amount < 0) return false;
             char error[300];
             int16_t allowance;

@@ -22,7 +22,8 @@ line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75
 to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93) runs:
 its waits are read one at a time (POOL_STEPS and the others: the screen, the variables, the records,
 the pool's coins, and the selected record by name), and its last keys lead to COMBAT's return
-(5f07:0987), the end. Take, Pool, Share and Detect are not typed (cited stops, part 20b and 28). A
+(5f07:0987), the end. Detect's cast (part 28) and Take's items (part 21) are not typed: cited stops. Take, Pool and
+Share are typed in the flows below. A
 lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
 b7a7 test) is the stop.
 
@@ -74,6 +75,17 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
 - `enemyout`: member 5 hostile 1 and inactive (SAVE 5 -> var 0x15 first): 11ba clears var 0x15, 11f4
   counts it (1), and var 0x20 is one less.
 - `enemyhigh`: member 5's hostile word is 0x0101: not 1, so 11b0 keeps it (six records stay).
+- `take`: the pool 1000 3 1 0 (as `pool`): Take's list (t), Down twice and Select (the prompt), 500
+  (Roland's steel 700, the pool's steel 500), the list again, Escape, Exit's question (e), No (n).
+- `share`: `pool`'s pool, Share (s): the probe's shares (steel 367 four times, 366 twice; gems 1 for
+  the first three; jewelry 1 for the first), the pool empty, Exit (e) with no question.
+- `gather`: the pool 1000 3 1 0, Pool (p: the pool 2200 3 1), Share (s), Exit (e).
+- `overload`: Roland's steel 64000 (member 0's 0x4c/0x4d; 177e:0be2 recomputes the weight, so 0x56 is
+  not poked: 710 + 64000 = 64710), the pool 1000 3 1 0: Take (t), Steel (Down twice, Select), 1000:
+  "Overloaded" on the bar and nothing taken (the 32-bit test; a 16-bit sum would let it through), the
+  list (Escape), Exit (e), No (n).
+- `takeall`: the pool 100 3 1 0: Take, Steel 100 taken whole, Return on the last row (Gems: 1b05:0055
+  keeps the cursor on it), Escape on the prompt (0 gems), Escape on the list, Exit (e), No (n).
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -113,6 +125,7 @@ NAME = 0x68      # the record's name, 16 bytes (rules_dark_queen.c's COK_FIELD_N
 EFFECTS = bytes([0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23, 0x1f, 0x33, 0x34, 0x35,
                  0x78, 0x76, 0x6f, 0x6a, 0xb2, 0xb1, 0x95, 0x4d])  # DS:631e, 18 bytes
 TREASURE = ("TREASURE_ITEMS", (dqkecl.word(1000), imm(3), imm(1), imm(0)))  # steel, gems, jewelry
+TREASURE100 = ("TREASURE_ITEMS", (dqkecl.word(100), imm(3), imm(1), imm(0)))  # steel 100
 SAVE_ZERO = ("SAVE", (imm(0), var(0x20)))  # var 0x20 (the shares' divisor) is 0
 ZERO = [0] * MEMBERS
 NO_POOL = (0, 0, 0)
@@ -124,6 +137,38 @@ POOL_STEPS = [("the treasure menu after the results", ""), ("View's sheet", "v")
               ("Down: the next member selected", "\\v"), ("Exit's question", "e"),
               ("the menu after Yes (the window cleared)", "y"), ("Exit's question again", "e"),
               ("the adventure after No", "n")]
+# Take, Pool and Share (part 20b): each step's keys as the probe typed them (saved game A, pool
+# 1000 3 1 0): Take's list (Jewelry 1, Gems 3, Steel 1000), Down twice to Steel and Select (the
+# prompt), 500 (Roland's steel 700, the pool's 500), the list again and Escape (the menu).
+TAKE_STEPS = [("the treasure menu after the results", ""),
+              ("Take's coin list (Jewelry 1, Gems 3, Steel 1000)", "t"),
+              ("the prompt for Steel (Down twice, Select)", "\\v\\v\\r"),
+              ("the coin list after 500 (Steel 500)", "500\\r"),
+              ("the menu after the list (Escape)", "\\e"), ("Exit's question", "e"),
+              ("the adventure after No", "n")]
+SHARE_STEPS = [("the treasure menu after the results", ""),
+               ("the menu after Share (View Pool Exit)", "s"),
+               ("the adventure after Exit (no question: the pool is empty)", "e")]
+OVERLOAD_STEPS = [("the treasure menu after the results", ""),
+                  ("Take's coin list (Steel 64000 as Roland's, the pool 1000)", "t"),
+                  ("the prompt for Steel (Down twice, Select)", "\\v\\v\\r"),
+                  ("the coin list after 1000: Overloaded, nothing taken", "1000\\r"),
+                  ("the menu after the list (Escape)", "\\e"), ("Exit's question", "e"),
+                  ("the adventure after No", "n")]
+# Take's whole row (Steel 100 taken whole; the cursor on Gems, the last row), then Return on Gems'
+# prompt, Escape there (0 gems) and Escape on the list.
+TAKEALL_STEPS = [("the treasure menu after the results", ""),
+                 ("Take's coin list (Jewelry 1, Gems 3, Steel 100)", "t"),
+                 ("the prompt for Steel (Down twice, Select)", "\\v\\v\\r"),
+                 ("the coin list after 100 (Steel gone, Gems selected)", "100\\r"),
+                 ("Gems' prompt (Return on the last row)", "\\r"),
+                 ("the coin list after the prompt (Escape: 0 gems)", "\\e"),
+                 ("the menu after the list (Escape)", "\\e"), ("Exit's question", "e"),
+                 ("the adventure after No", "n")]
+GATHER_STEPS = [("the treasure menu after the results", ""),
+                ("the menu after Pool (the pool 2200 3 1)", "p"),
+                ("the menu after Share", "s"),
+                ("the adventure after Exit (no question)", "e")]
 BONUS_STEPS = [("the treasure menu after the results", ""), ("Escape is Exit: the question", "\\e"),
                ("the adventure after No", "n")]
 NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
@@ -175,6 +220,27 @@ FLOWS = {
     "enemyhigh": dict(changes=[{}, {}, {}, {}, {}, {0x66: 1, 0x67: 1}], extra=[],
                       end="end", expect=(True, False, False, 0), share=0, pool=NO_POOL,
                       gained=ZERO, may=ZERO),
+    # The coins flows (part 20b): the pool 1000 3 1 0 as "pool" (the share 825 and the same
+    # experience), with the treasure menu's Take, Overload, Share and Pool.
+    "take": dict(changes=None, extra=[TREASURE], end="end", steps=TAKE_STEPS,
+                 expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                 gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    "share": dict(changes=None, extra=[TREASURE], end="end", steps=SHARE_STEPS,
+                  expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    "gather": dict(changes=None, extra=[TREASURE], end="end", steps=GATHER_STEPS,
+                   expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                   gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    # overload: Roland's steel 64000 (weight 710 + 64000 = 64710: the 16-bit sum would pass), the
+    # pool 1000 3 1 0 stays after Take's 1000 ("Overloaded"). takeall: Steel 100 taken whole, then
+    # Return on Gems (the list's cursor past the last row is kept on Gems, 1b05:0055).
+    "overload": dict(changes=[{0x4c: 64000 & 0xff, 0x4d: 64000 >> 8}, {}, {}, {}, {}, {}],
+                     extra=[TREASURE], end="end", steps=OVERLOAD_STEPS,
+                     expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                     gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    "takeall": dict(changes=None, extra=[TREASURE100], end="end", steps=TAKEALL_STEPS,
+                    expect=(True, False, False, 0), share=525, pool=NO_POOL,
+                    gained=[525, 175, 175, 262, 262, 262], may=[0, 0, 0, 0, 1, 0]),
     "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
                   extra=[("SAVE", (imm(9), var(0x20)))], end="lost",
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
