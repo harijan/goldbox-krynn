@@ -678,6 +678,11 @@ typedef struct {
     const char *text;
 } cok_rules_effect_text;
 
+/* The stat recompute (cok_effects_ability): Champions' (60f4:1743) or Dark Queen's
+ * (148f:1dfc, a routine of its own: the stats 1 and 2 stored, the constitution's effect 0x3e,
+ * and the 18/xx strength as the strength effects give it). */
+typedef enum { COK_ABILITY_CHAMPIONS, COK_ABILITY_DARK_QUEEN } cok_ability_routine;
+
 /* The spell effects (effect.c, magic.c, cast.c): what is keyed by effect
  * id. */
 typedef struct {
@@ -741,10 +746,19 @@ typedef struct {
      * immune to the damage with 0x80 (bit 0x10) or 0x40 (bit 8): the damage and the
      * effect pending are cleared. */
     uint16_t damage_flags_at;
-    /* 017d: the ids whose removal recomputes the stats (0-ended). Where stat_unported is
-     * set, the recompute is not ported (its cite) and the removal stops there. */
-    const uint8_t *stat_ids;
-    const char *stat_unported;
+    /* The stat recompute (cok_effects_ability): Champions' (60f4:1743) or Dark Queen's
+     * (148f:1dfc). Removing FRIENDLY recomputes charisma, ENLARGED and STRENGTH strength, and
+     * removing ability_low_id intelligence and wisdom (148f:017d). */
+    cok_ability_routine ability_routine;
+    /* Dark Queen's 1dfc: the strength effect 0x71 merged with the others (148f:1f92), and the
+     * effect that makes intelligence and wisdom 3 while held (0x44, 148f:21e1). 0 for none. */
+    uint8_t ability_second_strength_id, ability_low_id;
+    /* Dark Queen's 1dfc: the effect a constitution of 20 and up holds (0x3e, 60 minutes, value
+     * 0xff, flag 1); 0 for none. */
+    uint8_t constitution_id;
+    /* Dark Queen's heal (148f:25f7): without the flag a holder of this effect is not healed
+     * (0xd7). 0 for none. */
+    uint8_t heal_guard_id;
     /* 19c2: an effect of id 0 adds nothing, and the effects' pool holds pool_size nodes
      * (0 unlimited); past it the add stops, cited by pool_unported. */
     unsigned pool_size;

@@ -1718,9 +1718,124 @@ static void test_dkk_handlers(void)
     reset();
 }
 
+/* Dark Queen's stat recompute (148f:1dfc, cok_effects_ability with the descriptor's routine) and
+ * the heal (148f:25f7): strength from the base, the items' 18/xx and the effect 0x26's exceptional
+ * strength for a fighter; intelligence and wisdom stored, 3 under 0x44 (and back on its removal);
+ * charisma from Friends (0x0e); constitution's hit points by class, and the effect 0x3e at 20 and
+ * up (its removal stops at its handler, cited); the heal's guard 0xd7 and the status. */
+static void test_dark_queen_stats(void)
+{
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    cok_ecl dvm;
+    cok_item_types item_types = {0};
+    cok_party dq_party = {0};
+    cok_effects dfx;
+    memset(&dvm, 0, sizeof dvm);
+    dvm.rules = R;
+    dvm.mode = 5;
+    cok_effects_init(&dfx, R, &dvm, &dq_party, &item_types);
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    dq_party.members[0] = c;
+    dq_party.count = 1;
+    uint8_t *r = c->record;
+    /* Strength: base 15, effect 0x26 of 105 (5 more, 20): not a fighter, so 18 with no
+     * exceptional strength; a fighter (class 1 at a level) gets (20 - 18) * 10 = 20. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 0, 15);
+    cok_character_add_effect(c, 0x26, 0, 105, false);
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 18 && r[0x84] == 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 3);
+    r[0x84] = 0;
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 18 && r[0x84] == 20);
+    /* The stored exceptional strength is added to again at each recompute (1f4b reads +0x84):
+     * 2 * 10 + 20. */
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 18 && r[0x84] == 40);
+    /* 0x71 merges by the same helpers: 18/00 on a record with nothing else, and its removal
+     * recomputes the strength. */
+    CHECK(cok_effects_remove(&dfx, c, NULL, 0x26) && r[0x79] == 15 && r[0x84] == 0);
+    cok_effect *gone = cok_character_add_effect(c, 0x71, 0, 118, false);
+    CHECK(gone != NULL && cok_effects_ability(&dfx, c, 0) && r[0x79] == 18 && r[0x84] == 0);
+    /* 017d recomputes for 0x0e, 0x0c, 0x26 and 0x44 only, so 0x71's removal leaves 18 until the
+     * next recompute. */
+    CHECK(cok_effects_remove(&dfx, c, gone, 0x71) && r[0x79] == 18);
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 15);
+    /* Intelligence and wisdom are stored; 0x44 makes both 3, and its removal recomputes them. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 1, 12);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 2, 9);
+    CHECK(cok_effects_ability(&dfx, c, 1) && r[0x7b] == 12);
+    CHECK(cok_effects_ability(&dfx, c, 2) && r[0x7d] == 9);
+    cok_character_add_effect(c, 0x44, 0, 0, false);
+    CHECK(cok_effects_ability(&dfx, c, 1) && r[0x7b] == 3 && cok_effects_ability(&dfx, c, 2) &&
+          r[0x7d] == 3);
+    CHECK(cok_effects_remove(&dfx, c, NULL, 0x44) && r[0x7b] == 12 && r[0x7d] == 9);
+    /* Charisma: base 8 and Friends (0x0e) of 2 stored at +0x83; its removal recomputes it. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 5, 8);
+    cok_character_add_effect(c, 0x0e, 0, 2, false);
+    CHECK(cok_effects_ability(&dfx, c, 5) && r[0x83] == 10);
+    CHECK(cok_effects_remove(&dfx, c, NULL, 0x0e) && r[0x83] == 8);
+    /* Constitution 16 and a class 0 level of 1: 2 hit points (a non-fighter's 2 a level above
+     * 14), and the maximum with them; no effect 0x3e below 20. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 1);
+    cok_field_set8(L, r, COK_FIELD_BASE_HIT_POINTS, 4);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 4);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 5);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 6 && r[0x198] == 5 + 2 && r[0x81] == 16);
+    CHECK(cok_character_find_effect(c, 0x3e) == NULL);
+    /* Constitution 20 adds 0x3e (60 minutes, value 0xff, flag 1); dropping to 19 runs its
+     * handler (78e4:0df6, not ported): the stop, cited, and the effect is still there. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 20);
+    CHECK(cok_effects_ability(&dfx, c, 4) && cok_character_find_effect(c, 0x3e) != NULL);
+    cok_effect *endurance = cok_character_find_effect(c, 0x3e);
+    CHECK(endurance->duration == 60 && endurance->value == 0xff && endurance->on_remove);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 19);
+    CHECK(!cok_effects_ability(&dfx, c, 4) && strstr(dfx.error, "78e4:0df6") != NULL);
+    CHECK(cok_character_find_effect(c, 0x3e) != NULL);
+    /* Without its flag the node goes with no handler (the cited stop is not in its way). */
+    cok_character_find_effect(c, 0x3e)->on_remove = false;
+    /* A fighter (class 1 at 2 levels, one more: 3) at 16 gets 2 a level: 6 hit points on 4. */
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 2);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 4);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 0);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 10 && r[0x198] == 6);
+    /* No class level at all: the divide error, cited. */
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0);
+    CHECK(!cok_effects_ability(&dfx, c, 4) && strstr(dfx.error, "divide") != NULL);
+    /* Heal (25f7): a status 0 member below the maximum, healed without the flag unless 0xd7;
+     * with the flag only below the maximum. */
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 4);
+    bool healed = false;
+    CHECK(cok_effects_heal(&dfx, c, 3, false, &healed) && healed &&
+          cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 7);
+    cok_character_add_effect(c, 0xd7, 0, 0, false);
+    CHECK(cok_effects_heal(&dfx, c, 3, false, &healed) && !healed &&
+          cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 7);
+    CHECK(cok_effects_heal(&dfx, c, 3, true, &healed) && healed &&
+          cok_field_u8(L, r, COK_FIELD_HIT_POINTS) == 10);
+    CHECK(cok_effects_heal(&dfx, c, 3, true, &healed) && !healed);
+    /* Status 4 out of combat is healed to status 0, active. */
+    cok_field_set8(L, r, COK_FIELD_STATUS, 4);
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 0);
+    dvm.mode = 0;
+    CHECK(cok_effects_heal(&dfx, c, 1, true, &healed) && healed &&
+          cok_field_u8(L, r, COK_FIELD_STATUS) == 0 && cok_field_u8(L, r, COK_FIELD_ACTIVE) == 1);
+    dvm.mode = 5;
+    cok_character_free(c);
+    free(c);
+    cok_effects_free(&dfx);
+}
+
 /* Dark Queen's effects section (dqk 148f): the event lists (148f:0512's cases, a0512.txt), 02ed's
  * resistance (its condition, MR at +0xcc, and the caster level's stop), 2a6d's immunity after
- * event 6, and 017d's stat recompute (1dfc, not ported) and removal with no handler. */
+ * event 6, and 017d's removal with no handler. */
 static void test_dark_queen(void)
 {
     static const uint8_t ev2[] = {0x56, 0x65, 0x66, 0x79, 0x41, 0x73, 0x20, 0x58, 0xaa, 0xb0,
@@ -1770,10 +1885,10 @@ static void test_dark_queen(void)
     dfx.rolls.pending = 0x33;
     c->record[0xc8] = 0x08;
     CHECK(cok_effects_dispatch(&dfx, c, 6) && dfx.rolls.amount == 7 && dfx.rolls.pending == 0x33);
-    /* 017d: Enlarge (0x0c) recomputes the stats (148f:1dfc, not ported) and stops there; a
+    /* 017d: Enlarge (0x0c) recomputes the strength (148f:1dfc, test_dark_queen_stats); a
      * removal with no flag of an id with no handler (0x03) ends. */
     cok_effect *enlarged = add(c, 0x0c, 0, 0, false);
-    CHECK(!cok_effects_remove(&dfx, c, enlarged, 0x0c) && strstr(dfx.error, "148f:1dfc") != NULL);
+    CHECK(cok_effects_remove(&dfx, c, enlarged, 0x0c) && cok_character_find_effect(c, 0x0c) == NULL);
     add(c, 0x03, 0, 0, false);
     CHECK(cok_effects_remove(&dfx, c, NULL, 0x03) && cok_character_find_effect(c, 0x03) == NULL);
     cok_character_free(c);
@@ -1844,6 +1959,7 @@ int main(void)
     test_haste_aging();
     test_dkk_handlers();
     test_dark_queen();
+    test_dark_queen_stats();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);

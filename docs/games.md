@@ -1483,6 +1483,20 @@ click as its arrow key, with its cursor) are ported and checked
 (`dqk_view_mouse.py`); not ported: the areas of the outside-3D commands
 (`1bdb:1beb`) and the party list's control (`1bdb:0a33`).
 
+The stats (`148f:1dfc`) are Dark Queen's own recompute (`cok_effects_ability`, with the
+descriptor's `ability_routine`): strength from the base at +0x78 and the readied items' 18/xx
+(power 3 and 5) with the strength effects 0x26, 0x71 and 0x0c merged as their helpers give
+(a fighter, a class 1-4 at a level, gets the excess as exceptional strength, added to the
+stored exceptional strength at each recompute); intelligence and wisdom stored at +0x7b and
++0x7d, 3 while the holder has 0x44; charisma from 0x0e; constitution's hit points by class
+(`148f:1d0e`: classes 1 and 4 a level more, the top's level less one) and the effect 0x3e
+(60 minutes, value 0xff, flag 1) at 20 and up, added again at each recompute as the original
+does not check for one held. The removal (`148f:017d`) recomputes for 0x0e, 0x0c, 0x26 and 0x44
+(0x71's leaves the stats as they are). The heal (`148f:25f7`) is `cok_effects_heal`: without
+its flag a holder of 0xd7 is not healed. The temple's cures that call them (`7825:0045`,
+`00b8`, `0193`, `0394`) still stop, cited, as does a removal of 0x3e, whose handler
+(`78e4:0df6`) is not ported.
+
 ### The character record's layout
 
 A character stays a record of raw bytes (`cok_character.record`), as the

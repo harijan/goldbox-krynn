@@ -924,6 +924,9 @@ const cok_data_segment cok_dark_queen_data = {
         /* DS:00a2 + i (148f:1b66's k - 1): the shared loop (round.c) counts from 0. */
         [COK_DATA_BATTLE_ONLY] = LIST(0x00a2, 1, 0, 16),
         [COK_DATA_CLOUD_CELLS] = LIST(0x6341, 1, 1, 9),
+        /* DS:640a + k (148f:1d0e, 1dfc's constitution; the classes table holds it): the level
+         * above which the hit dice stop, by class 0-6. */
+        [COK_DATA_TOP_LEVELS] = LIST(0x640a, 1, 0, 7),
     },
 };
 
