@@ -104,6 +104,7 @@ static cok_character *selected(cok_effects *fx, uint8_t id)
 
 static bool remove_effect(cok_effects *fx, cok_character *character, cok_effect *effect,
                           uint8_t id);
+static bool listed(const uint8_t *ids, uint8_t id);
 
 static void log_text(cok_effects *fx, const char *kind, const char *text)
 {
@@ -207,10 +208,28 @@ bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 }
 
 
-/* Add an effect, or fail when out of memory. */
+/* The nodes linked in the party's records (the effects' pool, DS:bd51, as 19c2 counts it:
+ * a removed node's bit is cleared at once). */
+static unsigned pooled(const cok_effects *fx)
+{
+    unsigned n = 0;
+    for (size_t i = 0; i < fx->party->count; ++i)
+        for (const cok_effect *e = fx->party->members[i]->effects; e != NULL; e = e->next) ++n;
+    return n;
+}
+
+/* Add an effect, or fail when out of memory. Where the game has a pool (19c2, Dark Queen),
+ * an id of 0 adds nothing, and a full pool stops, cited. */
 static bool add(cok_effects *fx, cok_character *c, uint8_t id, uint16_t duration, uint8_t value,
                 bool on_remove)
 {
+    const cok_rules_effects *E = &fx->rules->effects;
+    if (E->pool_size != 0) {
+        if (id == 0) return true;
+        if (pooled(fx) >= E->pool_size)
+            return fail(fx, "effect 0x%02x: the effects' pool is full (%u nodes; %s)", id,
+                        E->pool_size, E->pool_unported);
+    }
     if (cok_character_add_effect(c, id, duration, value, on_remove) != NULL) return true;
     return fail(fx, "out of memory adding effect 0x%02x", id);
 }
@@ -2931,6 +2950,10 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
     }
     *link = effect->next;
     fx->removed[fx->removed_count++] = (struct cok_removed){effect, cok_effects_made()};
+    const cok_rules_effects *E = &fx->rules->effects;
+    if (E->stat_unported != NULL && listed(E->stat_ids, id))
+        return fail(fx, "not yet ported: %s's effect 0x%02x recomputes the stats (%s)",
+                    fx->rules->text.name, id, E->stat_unported);
     if (IS_EFFECT(id, FRIENDLY)) return ability(fx, c, 5);
     if (IS_EFFECT(id, ENLARGED) || IS_EFFECT(id, STRENGTH)) return ability(fx, c, 0);
     return true;
@@ -2960,9 +2983,18 @@ static bool listed(const uint8_t *ids, uint8_t id)
  * restored, but not its count). */
 static bool dispatch_id(cok_effects *fx, cok_character *target, uint8_t id)
 {
-    cok_effect *effect = cok_character_find_effect(target, id);
-    if (effect != NULL) return call_handler(fx, id, false, effect, target);
     const cok_rules_effects *E = &fx->rules->effects;
+    cok_effect *effect = cok_character_find_effect(target, id);
+    if (effect != NULL) {
+        /* dqk 0369: a handler of acting_id gets the selected record (DS:ad67), with the
+         * target's node. */
+        cok_character *who = target;
+        if (E->acting_id != 0 && id == E->acting_id) {
+            who = selected(fx, id);
+            if (who == NULL) return false;
+        }
+        return call_handler(fx, id, false, effect, who);
+    }
     if (!listed(E->shared, id)) return true; /* 60f4:0332 */
     for (size_t i = 0; i < fx->party->count; ++i) {
         cok_character *holder = fx->party->members[i];
@@ -3020,7 +3052,12 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
         cok_rolls *r = &fx->rolls;
         uint8_t resistance = cok_field_u8(L, (*target)->record, COK_FIELD_MAGIC_RESISTANCE), level;
         bool magic = (r->damage_type & 8) != 0;
-        if (resistance != 0 &&
+        if (resistance != 0 && E->resist_unported != NULL) {
+            /* dqk 02ed: the condition has no amount test; the roll needs the caster level. */
+            if (r->pending != 0 || magic)
+                return fail(fx, "not yet ported: %s's magic resistance rolls (dqk 02ed) at the "
+                                "caster level (%s)", fx->rules->text.name, E->resist_unported);
+        } else if (resistance != 0 &&
             (r->pending != 0 || (fx->rules->casting.resist_damage && magic)) &&
             (r->amount == 0 || magic)) {
             if (!caster_level(fx, r->spell, &level)) return false;
@@ -3033,6 +3070,17 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
     }
     for (const uint8_t *id = E->events[event]; *id != 0; ++id)
         if (!dispatch_id(fx, *target, *id)) return false;
+    if (event == 6 && E->damage_flags_at != 0) {
+        /* dqk 2a6d: the record's immunity to the damage type clears it and the effect. */
+        const uint8_t *c = (*target)->record;
+        uint8_t flags = c[E->damage_flags_at];
+        cok_rolls *r = &fx->rolls;
+        if (((r->damage_type & 0x80) && (flags & 0x10)) ||
+            ((r->damage_type & 0x40) && (flags & 8))) {
+            r->amount = 0;
+            r->pending = 0;
+        }
+    }
     return true;
 }
 

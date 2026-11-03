@@ -260,9 +260,10 @@ static void test_round_start_queen(void)
     cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 1);
     CHECK(cok_combat_ammunition(&game, c, &ammo, &has) && !has && ammo == 0);
     cok_ecl_set_var(vm, COK_VAR_RECORD_EFFECT, 0);
-    /* Effect 0xb2 leaves no movement (last: no effect is removed here). */
+    /* Effect 0xb2 (event 0x12's list) runs its handler at the round's start, not ported (dqk
+     * 7e76:0dc6): the round's start stops there. */
     CHECK(cok_character_add_effect(c, 0xb2, 0, 0x10, false) != NULL);
-    CHECK(cok_combat_round_start(&game, c) && c->combat->movement == 0);
+    CHECK(!cok_combat_round_start(&game, c) && strstr(game.error, "0dc6") != NULL);
     cok_adventure_close(&game);
 }
 
@@ -920,13 +921,16 @@ static void test_magic_ids(void)
             CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
-    /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE and BERSERK
-     * have their ids, every other name is 0 (none). */
+    /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
+     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, every other name is 0 (none). */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
+    CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
+    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
-        if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE)
+        if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
+            n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
