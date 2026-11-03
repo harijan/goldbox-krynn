@@ -148,9 +148,9 @@ typedef enum {
     COK_VAR_RIVER,         /* dkk 0x4bf3: a river crosses the open ground (410b:0a4c); dqk 0x33
                             * (59c7:0860); Champions none */
     COK_VAR_TURNING,       /* dkk 0x4cff: turning undead's level less (5340:119b); Champions none */
-    COK_VAR_TERRAIN,       /* dqk 0x1a2: the open ground's terrain value, its flags' index
-                            * (59c7:0e3b stores it at DS:a960, 0783 reads the flags there);
-                            * the others none */
+    COK_VAR_ABYSS,         /* dqk 0x1a2: the Abyss's encounter state (only blocks 64 and 66
+                            * store it: 0, 1, 2, 4); the open ground's flags index (59c7:0e3b
+                            * stores it at DS:a960, 0783 reads DS:5d7b there); the others none */
     COK_VARS
 } cok_var;
 

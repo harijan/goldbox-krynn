@@ -76,7 +76,7 @@ pixel for pixel in RGB, masked: the cells the combatants stand on (their icons: 
 ground). The set is asserted to be DUNGCOM 4 (LOAD FILES 4 4).
 
 Flow `wild` (step 4, part 8): the same fight outside 3D (dqkecl.fight's `ground`: var 0x22 0, the
-terrain at var 0x1a2, the river at var 0x33), two grounds from one seed, each read at the placement
+flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, each read at the placement
 (59c7:0f7b) and compared with eclplay's --field: the cells, header, records and RandSeed, which here is
 the original's after its draws past SEED (the open ground's rolls).
 
@@ -840,10 +840,11 @@ def encounter(v, work, opts):
 # origin is written after the placement (1dd7's 4837:0aea), so it is what the battle before left,
 # and is compared as read.
 FIELD_CELLS = 50 * 25
-# The wild flow's grounds: (terrain value, river) as the block stores them (var 0x1a2, var 0x33).
-# Terrain 12's flags are 0x71 (scatter's density 110, tree chance 7, no river); terrain 14's are
-# 0x06 (density 20, tree chance 1, and a river): the flags the builders read, and the river.
-WILD_GROUNDS = ((0x0C, 0), (0x0E, 1))
+# The wild flow's grounds: (var 0x1a2, var 0x33) as the block stores them, values the shipped
+# ECL stores in var 0x1a2 (blocks 64 and 66: 0, 1, 2, 4). Index 1 is flags 0x18 (tree chance 10,
+# scatter's density 60) with no river; index 2 is flags 0x11 with the river on. Index 0 and 2
+# have the same flags (0x00 and 0x11 build alike), so the second ground differs by its river.
+WILD_GROUNDS = ((0x01, 0), (0x02, 1))
 # The party's squares: the fixture's (saved game A's, 7, 13, facing 0), one on the map's west
 # edge (0, 3, facing 2), where the squares off the map are walls but for the party's row (the
 # open side the builder's off-map rule gives, 59c7:0072), and two that catch what the first
@@ -923,33 +924,33 @@ def field_one(v, work, opts, square, tag):
     placement(v, work, patched, tag, where, square, r)
 
 
-def wild_block(terrain, river):
+def wild_block(state, river):
     """Block 1 of the wild flow: the fight block, outside 3D (see dqkecl.fight's GROUND)."""
     b = Block()
     b.op("PRESS_KEY")
-    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, ground=(terrain, river))
+    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, ground=(state, river))
     b.op("EXIT")
     return b
 
 
 def wild(v, work, opts):
-    """The open ground flow (step 4, part 8): battles outside 3D, each (terrain, river) of
+    """The open ground flow (step 4, part 8): battles outside 3D, each (var 0x1a2, river) of
     WILD_GROUNDS, from the same saved game and seed, compared at the placement as `field`
     compares the dungeon's."""
-    for k, (terrain, river) in enumerate(WILD_GROUNDS):
-        wild_one(v, work, opts, terrain, river, f"wild{k}")
+    for k, (state, river) in enumerate(WILD_GROUNDS):
+        wild_one(v, work, opts, state, river, f"wild{k}")
 
 
-def wild_one(v, work, opts, terrain, river, tag):
+def wild_one(v, work, opts, state, river, tag):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
-    patched = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(terrain, river)))
-    where = f"terrain {terrain:#x}, river {river}"
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(state, river)))
+    where = f"var 0x1a2 {state:#x}, river {river}"
     r = field_original(work, patched, opts.verbose, None, tag)
     spins_at_placement(v, r)
     variables = r["variables"]
-    v.check(variables[0x22 - 1] == 0 and variables[0x1A2 - 1] == terrain and
+    v.check(variables[0x22 - 1] == 0 and variables[0x1A2 - 1] == state and
             variables[0x33 - 1] == river,
-            f"the battle at {where} is outside 3D (var 0x22 0) with the block's terrain (var 0x1a2) "
+            f"the battle at {where} is outside 3D (var 0x22 0) with the block's var 0x1a2 "
             f"and river (var 0x33): the open ground's builder runs (59c7:0e3b)",
             f"var 0x22 {variables[0x22 - 1]}, 0x1a2 {variables[0x1A2 - 1]}, "
             f"0x33 {variables[0x33 - 1]}")

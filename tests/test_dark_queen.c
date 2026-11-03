@@ -6,6 +6,7 @@
  * saved game in DQKAssets/ (the checks needing either are skipped, with a
  * line saying so, where it is not there). */
 #include "combat.h"
+#include "ecl.h"
 #include "data_dark_queen.h"
 #include "party.h"
 #include "queen_levels.h"
@@ -591,28 +592,41 @@ static uint32_t cells_hash(const cok_combat *c)
     return h;
 }
 
+/* The draws from seed that reach target, one step each (every roll of the builders is above 1,
+ * so each steps the seed once); ~0 if it is not reached. */
+static uint32_t draws_to(uint32_t seed, uint32_t target)
+{
+    for (uint32_t n = 0; n < 100000; ++n) {
+        if (seed == target) return n;
+        cok_tp_random(&seed, 100);
+    }
+    return ~0u;
+}
+
 /* Dark Queen's open ground (dqk 59c7:0e3b): Death Knights' floor, river, trees and scatter, the
- * scatter's cell as 59c7:0ce3's, the flags of the terrain value (DS:5d7b). Two grounds from one
- * seed: terrain 12 (flags 0x71: scatter's density 110, tree chance 7, no river) and terrain 14
- * (flags 0x06: density 20, tree chance 1, and a river from var 0x33). The hashes and seeds after
- * the call are the port's for these calls (the game starts its builder from another seed: the
- * wild flow of tools/dosbox/checks/dqk_fight.py checks the game's own grounds against the
- * original's cells and RandSeed). */
+ * scatter's cell as 59c7:0ce3's, the flags of DS:5d7b's entry (flags 0x71: scatter's density 110,
+ * tree chance 7, and flags 0x06: density 20, tree chance 1). The builders roll with Dark Queen's
+ * generator (2102:0234, the descriptor's random), from seed 12345. The pinned hashes, seeds and
+ * draw counts are the port's; the wild flow of tools/dosbox/checks/dqk_fight.py checked them
+ * against the original's RandSeed at 59c7:0f7b when its grounds were these flags (terrain 12 and
+ * 14, then 2629 and 2327 draws); the wild flow's grounds are now the shipped var 0x1a2 values 1 and 2
+ * (flags 0x18 and 0x11), built by the same routines. */
 static void test_wilderness(void)
 {
     static cok_combat c;
+    cok_random_select(R->random);
     uint8_t flags = cok_data_u8_at(R->data, COK_DATA_TERRAIN_FLAGS, 12);
     CHECK(flags == 0x71 && cok_data_u8_at(R->data, COK_DATA_TERRAIN_FLAGS, 14) == 0x06);
     uint32_t seed = 12345;
     CHECK(cok_ecl_var_address(R, COK_VAR_RIVER, 0) == 0x33 &&
-          cok_ecl_var_address(R, COK_VAR_TERRAIN, 0) == 0x1a2);
+          cok_ecl_var_address(R, COK_VAR_ABYSS, 0) == 0x1a2);
     cok_combat_wilderness(&c, R, flags, false, &seed);
-    CHECK(cells_hash(&c) == 0xe68638f3u && seed == 94928693u);
+    CHECK(cells_hash(&c) == 0x97ec18aau && seed == 2803431546u && draws_to(12345, seed) == 2629u);
     for (int y = 0; y < COK_COMBAT_HEIGHT; ++y)
         for (int x = 0; x < COK_COMBAT_WIDTH; ++x) CHECK(c.cells[y][x] != 0x34);
     seed = 12345;
     cok_combat_wilderness(&c, R, 0x06, true, &seed);
-    CHECK(cells_hash(&c) == 0x1d513c20u && seed == 2614685811u);
+    CHECK(cells_hash(&c) == 0x4bcdffe2u && seed == 3122112960u && draws_to(12345, seed) == 2327u);
     /* The river: from a column 34 less 5d4, moved left to a multiple of 7 less 2 (on row 0), its
      * bank 0x34 and water or a ford 0x34-0x3d, the far bank 0x34 five on, a column right a row. */
     int x = -1;
@@ -624,6 +638,7 @@ static void test_wilderness(void)
         for (int k = 1; k <= 4; ++k)
             CHECK(c.cells[y][x + y + k] >= 0x34 && c.cells[y][x + y + k] <= 0x3d);
     }
+    cok_random_select(COK_RANDOM_PASCAL);
 }
 
 int main(void)

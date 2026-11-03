@@ -402,7 +402,7 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_MOONS] = VARS(0x01fa, 3), /* 1396:000e: the phases */
     [COK_VAR_MOON_DAYS] = VARS(0x01fd, 3), /* and the days in each */
     [COK_VAR_RIVER] = VAR(0x33),      /* 59c7:0860: a river on the open ground */
-    [COK_VAR_TERRAIN] = VAR(0x1a2),   /* 59c7:0e3b: the open ground's terrain */
+    [COK_VAR_ABYSS] = VAR(0x1a2),     /* 59c7:0e3b: the open ground's flags index */
 };
 
 /* What a block's start sets besides (6c70:0001): 0x2b and 0x2c. */
@@ -638,7 +638,7 @@ const cok_rules cok_rules_dark_queen = {
             .no_monsters_unported = "dqk 5f07:081b with no monsters: 771f:09a0 (the vault), "
                                     "7825:0af6 (the temple), 75cc:135c (the treasure)",
             /* The open ground (59c7:0e3b: floor, river, trees, scatter, the
-             * flags at var 0x1a2; see COK_WILDERNESS_DARK_QUEEN). */
+             * flags at var 0x1a2, the Abyss's state; see COK_WILDERNESS_DARK_QUEEN). */
             .wilderness = COK_WILDERNESS_DARK_QUEEN,
             /* The placement (59c7:0f7b, 1864) and the battle's rounds are not
              * ported: the battle stops after the battlefield is built. */

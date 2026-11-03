@@ -1051,8 +1051,8 @@ typedef enum {
     /* dqk 59c7:0e3b: Death Knights' floor, river (0860, var COK_VAR_RIVER 0x33),
      * trees (09e7, 0beb's code) and scatter (0b79, 0f00's bands), except the
      * scatter's cell (0ce3): its 0x2c band is one roll wider and its 0x2c + d5
-     * band never comes (the second check repeats the first). The flags are the
-     * terrain's at COK_VAR_TERRAIN (DS:a960, set by 0e3b). */
+     * band never comes (the second check repeats the first). The flags are
+     * DS:5d7b's at COK_VAR_ABYSS's value (DS:a960, stored by 0e3b; 32 of them). */
     COK_WILDERNESS_DARK_QUEEN,
 } cok_wilderness_routine;
 

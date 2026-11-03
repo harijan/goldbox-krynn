@@ -244,8 +244,8 @@ bool cok_combat_dungeon(cok_combat *combat, const cok_rules *rules, const cok_vi
  * another (rules' combat.wilderness) builds its own: Death Knights'
  * (dkk 410b:107e) of its own tiles, with a river where river is set (var
  * COK_VAR_RIVER, 410b:0a4c), the flags not asked for one. Dark Queen's (dqk 59c7:0e3b)
- * is that with its own scatter cell (59c7:0ce3), and its flags are the terrain's (the
- * caller's flags argument: DS:5d7b at the terrain value, see build in combat.c). */
+ * is that with its own scatter cell (59c7:0ce3), and its flags are DS:5d7b's at var
+ * 0x1a2 (the caller's flags argument, see build in combat.c). */
 void cok_combat_wilderness(cok_combat *combat, const cok_rules *rules, uint8_t flags, bool river,
                            uint32_t *seed);
 

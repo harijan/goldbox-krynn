@@ -1260,19 +1260,19 @@ static bool build(cok_adventure *game)
     } else {
         const cok_rules *rules = cok_game_rules(game);
         bool river = cok_ecl_has_var(rules, COK_VAR_RIVER) && cok_ecl_var(vm, COK_VAR_RIVER) != 0;
-        /* The flags are type 15's (3cb2:0fc8; dkk 410b:107e), or Dark Queen's terrain's
-         * (dqk 59c7:0e3b stores var 0x1a2 at DS:a960, and 0783 reads the flags there: 32 of
-         * them; a value past them reads the stack, so the battle stops). */
+        /* The flags are type 15's (3cb2:0fc8; dkk 410b:107e), or Dark Queen's: var 0x1a2
+         * (the Abyss's state, stored at DS:a960 by 59c7:0e3b) indexes DS:5d7b (0783), 32
+         * of them; a value past them reads the stack, so the battle stops. */
         uint8_t type = 15;
         if (R->wilderness == COK_WILDERNESS_DARK_QUEEN) {
-            uint16_t terrain = cok_ecl_var(vm, COK_VAR_TERRAIN);
-            if (terrain >= cok_data_count(rules->data, COK_DATA_TERRAIN_FLAGS, 0)) {
+            uint16_t index = cok_ecl_var(vm, COK_VAR_ABYSS);
+            if (index >= cok_data_count(rules->data, COK_DATA_TERRAIN_FLAGS, 0)) {
                 cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                                   "terrain %u has no flags (dqk 59c7:0783 reads past them)",
-                                   terrain);
+                                   "var 0x1a2 is %u, past its flags (dqk 59c7:0783 reads "
+                                   "the stack)", index);
                 return false;
             }
-            type = (uint8_t)terrain;
+            type = (uint8_t)index;
         }
         cok_combat_wilderness(combat, rules,
                               cok_data_u8_at(rules->data, COK_DATA_TERRAIN_FLAGS, type), river,

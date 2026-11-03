@@ -717,15 +717,18 @@ origin (DS:bedb +2, +4) is not compared: it is written after the placement (`1dd
 original holds what was there before (0, 0 for the fixture, 117, 118 for the west edge).
 
 Flow `wild` (step 4, part 8: the open ground's builders, `59c7:0e3b`, to the placement). The block is the fight
-block with the battle outside 3D: after LOAD FILES it stores var 0x22 0, var 0x1a2 the terrain value and var 0x33 the
-river (`dqkecl.fight`'s `ground`), the variables 59c7:1dd7 and 0e3b read; the rest is the game's own COMBAT (its
-distance from the open squares, `6c70:01c3`). A saved square on the overland would need the overland's map and its
-terrain, which the saved game does not give; the store is the same state for the builders. Two grounds from the same
-seed: terrain 12 (flags 0x71, no river) and terrain 14 (flags 0x06, the river). Each is checked as `field` checks the
+block with the battle outside 3D: after LOAD FILES it stores var 0x22 0, var 0x1a2 and var 0x33 (`dqkecl.fight`'s
+`ground`), the variables 59c7:1dd7 and 0e3b read. Var 0x1a2 is the Abyss's encounter state: the only ECL SAVEs of it
+are blocks 64 and 66 (values 0, 1, 2, 4), and 0783 reads it as the index into `DS:5d7b` (the flags, 32 of them) with
+no other reader; var 0x33 is the river, read at 086a, and its shipped SAVEs are blocks 3, 5, 30 and 42 (0 or 1). So
+the block stores values the game stores, not a saved square's (the overland's map and terrain are not in a saved
+game). The rest is the game's own COMBAT: outside 3D, `6c70:01c3` only sets var 0x38 to 2. Two grounds from the same
+seed: var 0x1a2 1 (flags 0x18, no river) and 2 (flags 0x11, the river). Each is checked as `field` checks the
 dungeon: the original trapped at `59c7:0f7b`, the cells (1250), the header and the records agree with eclplay's
-`--field` at the stop, and RandSeed is the original's after its draws past SEED (2629 and 2327: the trees, river and
-scatter roll one for one), not SEED as the dungeon's is. The flags are read at the terrain value (32 of them,
-`DS:5d7b`).
+`--field` at the stop, and RandSeed is the original's after its draws past SEED (2502 and 2259: the trees, river and
+scatter roll one for one), not SEED as the dungeon's is. The unit test (`test_dark_queen`'s `test_wilderness`) pins the builder with
+flags 0x71 and 0x06 from seed 12345 under Dark Queen's generator; `test_monster` runs the flags index (var 0 and 1
+differ; 32 stops with COK_ECL_UNDEFINED).
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

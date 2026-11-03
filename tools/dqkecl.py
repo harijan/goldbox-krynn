@@ -144,16 +144,17 @@ def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False, ground=None):
     block 7), the distance and the ambush directions; APPROACH; COMBAT. PAUSE: two
     PRESS KEYs, labelled 'monsters' (after CLEARMONSTERS, before the loads: the
     checks compare the variables there with eclplay's) and 'loaded' (after the
-    loads: the checks read the state there). GROUND, if given, is (terrain, river):
+    loads: the checks read the state there). GROUND, if given, is (state, river):
     after LOAD FILES the block stores var 0x22 0 (no 3D area: the open ground), var
-    0x1a2 the terrain and var 0x33 the river (battle outside 3D, 59c7:0e3b's and
-    0860's variables). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and 0x24 as rules_dark_queen.c
+    0x1a2 the state (the Abyss's; the open ground's flags index, 0-31: the shipped
+    blocks 64 and 66 store 0, 1, 2 or 4) and var 0x33 the river (battle outside 3D,
+    59c7:0e3b's and 0860's variables). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and 0x24 as rules_dark_queen.c
     has them."""
     b.op("LOAD_FILES", imm(4), imm(4))
     if ground is not None:
-        terrain, river = ground
+        state, river = ground
         b.op("SAVE", imm(0), var(0x22))
-        b.op("SAVE", imm(terrain), var(0x1A2))
+        b.op("SAVE", imm(state), var(0x1A2))
         b.op("SAVE", imm(river), var(0x33))
     b.op("CLEARMONSTERS")
     if pause:
