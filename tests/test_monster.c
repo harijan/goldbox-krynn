@@ -5,6 +5,7 @@
 #include "queen.h"
 
 #include "camp.h"
+#include "shop.h"
 #include "treasure.h"
 
 #include <dirent.h>
@@ -1304,6 +1305,14 @@ static cok_ecl_status dq_combat(cok_adventure *adv)
     return DQK_RUN(adv, DQK_COMBAT);
 }
 
+/* COMBAT to the treasure menu's Exit (e) and the claim question's No (n): the results' bar
+ * ("\r"), the menu's Return (it beeps), then the run goes on past the treasure. */
+static cok_ecl_status dq_combat_leave(cok_adventure *adv)
+{
+    dq_keys("\r\ren");
+    return DQK_RUN(adv, DQK_COMBAT);
+}
+
 /* COMBAT with no monsters (dqk 5f07:081b's branches, in its order): the vault (var 0x31 1)
  * stops, cited (771f:09a0); the temple (var 0x14 1) runs its menu, with no key the run goes on
  * (the variable cleared, the mode 4 with no 3D area and variable 0x24 not 1, 3 where it is 1);
@@ -1390,9 +1399,8 @@ static void test_dark_queen_experience(void)
     /* 2452 (1 steel, 1 gems, 1 jewelry) over two members: 1226 each. */
     dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1;
     cok_ecl_store(&dqk.vm, 0x20, 2);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 1226);
     CHECK(cok_dark_queen_end_state_of(&dqk).out == 0);
@@ -1403,7 +1411,8 @@ static void test_dark_queen_experience(void)
     cok_field_set8(L, a->record, COK_FIELD_CLASS, 2);
     cok_field_set8_at(L, a->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 16);
     cok_field_set8(L, b->record, COK_FIELD_CLASS, 8);
-    dq_combat(&dqk);
+    dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1; /* the pool is freed at Exit */
+    dq_combat_leave(&dqk);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 1348);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 613);
 
@@ -1411,7 +1420,8 @@ static void test_dark_queen_experience(void)
     cok_field_set32(L, a->record, COK_FIELD_EXPERIENCE, 0);
     cok_field_set32(L, b->record, COK_FIELD_EXPERIENCE, 0);
     cok_ecl_store(&dqk.vm, 0x1f, 1);
-    dq_combat(&dqk);
+    dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1; /* the pool is freed at Exit */
+    dq_combat_leave(&dqk);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0);
     cok_ecl_store(&dqk.vm, 0x1f, 0);
 
@@ -1423,9 +1433,9 @@ static void test_dark_queen_experience(void)
     cok_ecl_store(&dqk.vm, 0x20, 0);
     cok_field_set32(L, a->record, COK_FIELD_EXPERIENCE, 0);
     cok_field_set32(L, b->record, COK_FIELD_EXPERIENCE, 0);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dqk.pool.coins[4] = dqk.pool.coins[5] = dqk.pool.coins[6] = 1;
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0xffffffffu);
     CHECK(cok_field_u32(L, a->record, COK_FIELD_EXPERIENCE) == 0xffffffffu);
     CHECK(cok_field_u32(L, b->record, COK_FIELD_EXPERIENCE) == 0);
@@ -1494,23 +1504,26 @@ static void test_dark_queen_pool_and_past_party(void)
     /* Pool items over a and b, both standing (out 0), var 0x20 1: the divisor is 1. */
     dq_clear_pool(&dqk);
     dq_pool_item(&dqk, 3);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 1200); /* 3 * 400 */
-    dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 82;
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 82);
     dq_combat(&dqk);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == (uint32_t)-32736); /* 32800 as a word */
-    dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 0xff; /* -1: nothing */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 0xff); /* -1: nothing */
     dq_combat(&dqk);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0);
-    dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 0; /* 0: nothing */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 0); /* 0: nothing */
     dq_combat(&dqk);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0);
 
     /* The missile: 1 + its index. Missile 1 stops before the first item; with two items and
      * missile 2 the first counts and the second is stopped before. */
-    dqk.pool.items[0][cok_rules_dark_queen.item_record.bonus] = 3;
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
     dqk.pool.missile = 1;
     dq_combat(&dqk);
     CHECK(cok_dark_queen_end_state_of(&dqk).share == 0);
@@ -1574,9 +1587,7 @@ static void test_dark_queen_pool_and_past_party(void)
     dq_clear_pool(&dqk);
     cok_dark_queen_set_monsters_present_for_test(&dqk, false);
     cok_character *p = dq_past_party(&dqk, 2);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat(&dqk); /* the menu's keys run out: the pool is kept for the checks below */
     CHECK(dqk.pool.coins[4] == 5 && dqk.pool.coins[5] == 7 && dqk.pool.coins[6] == 11);
     CHECK(cok_dark_queen_end_state_of(&dqk).monsters_present);
     CHECK(cok_dark_queen_end_state_of(&dqk).share ==
@@ -1590,9 +1601,8 @@ static void test_dark_queen_pool_and_past_party(void)
     p = dq_past_party(&dqk, 2);
     CHECK(cok_character_insert_item(p, p->item_count, it));
     cok_ecl_store(&dqk.vm, 0x1e, 1);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
     cok_ecl_store(&dqk.vm, 0x1e, 0);
     p = dq_past_party(&dqk, 2);
     CHECK(cok_character_insert_item(p, p->item_count, it));
@@ -1600,9 +1610,8 @@ static void test_dark_queen_pool_and_past_party(void)
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
           strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:02cb") != NULL);
     p->items[0][cok_rules_dark_queen.item_record.type] = 0x69;
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
 }
 
 /* TREASURE ITEMS (6c70:2127, dark_queen.c's treasure_items): the header's three words (word 1000,
@@ -2101,9 +2110,8 @@ static void test_dark_queen_rest(void)
     dq_past_party(&dqk, 4);
     cok_character *k4 = dq_member(&dqk, 4, 1);
     cok_field_set8(L, k4->record, COK_FIELD_HIT_POINTS, 5);
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0e93") != NULL);
+    dq_combat_leave(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
     CHECK(dqk.party.count == 2 && dqk.party.members[1] == k4);
     CHECK(cok_field_u8(L, k4->record, COK_FIELD_STATUS) == 4);
     cok_party_free(&dqk.party);
@@ -2659,6 +2667,146 @@ static void test_dark_queen_ambush_gorgons(void)
     cok_adventure_close(&dqk);
 }
 
+/* How many times needle is in hay. */
+static int dq_count(const char *hay, const char *needle)
+{
+    int n = 0;
+    for (const char *p = hay; (p = strstr(p, needle)) != NULL; p += strlen(needle)) ++n;
+    return n;
+}
+
+/* The treasure menu (75cc:0e93, treasure_menu) from COMBAT: the results' Return, then the keys
+ * at the menu. The log is dq_quiet.log. */
+static cok_ecl_status dq_menu(cok_adventure *adv, const char *keys)
+{
+    static char menu_keys[32];
+    snprintf(menu_keys, sizeof menu_keys, "\r%s", keys);
+    dq_keys(menu_keys);
+    dq_quiet.log[0] = '\0';
+    return DQK_RUN(adv, DQK_COMBAT);
+}
+
+/* The treasure menu's items by the pool (View; Take with money or items; Pool; Share with
+ * money; Detect with a spell found; Exit), Exit's question with Yes and No, Escape, the stops
+ * of Take, Pool and Share (part 20b) and of Detect (part 28), and the member keys (Down and Up
+ * wrap, 5e22:067c). */
+static void test_dark_queen_treasure_menu(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's treasure menu not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_character *a = dq_member(&dqk, 0, 1);
+    dq_member(&dqk, 0, 1);
+    const char *money_menu = "menu: ~View ~Take ~Pool ~Share ~Exit;";
+    const char *items_menu = "menu: ~View ~Take ~Pool ~Exit;";
+
+    /* Money: Exit asks, No leaves, and the pool is freed (63ee:0002). */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 3);
+    CHECK(dq_count(dq_quiet.log, money_menu) == 1 && dq_count(dq_quiet.log, "choice: 5;") == 1);
+    CHECK(dqk.pool.coins[4] == 0);
+
+    /* Escape is Exit. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "\x1b" "n");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 3);
+    CHECK(dq_count(dq_quiet.log, "choice: 5;") == 1);
+
+    /* Yes clears the question and the menu comes again: Exit, Yes, Exit, No. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "eyen");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 5);
+    CHECK(dq_count(dq_quiet.log, money_menu) == 2 && dq_count(dq_quiet.log, "choice: 5;") == 2);
+    CHECK(dqk.pool.coins[4] == 0);
+
+    /* Items with no money: no Share; Exit asks as well. */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 3);
+    CHECK(dq_count(dq_quiet.log, items_menu) == 1);
+
+    /* Take, Pool and Share stop, cited. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "t");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0d01 (part 20b)") != NULL);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "p");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 74b9:00f6 (part 20b)") != NULL);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "s");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 74b9:01ee (part 20b)") != NULL);
+
+    /* Detect is listed with an item and a spell found: 0x3c at +0xce+i with +0x18b set. Its stop
+     * is cited (part 28). Without +0x18b, or with the byte 0x67, it is not listed. */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dqk.vm.character = a->record;
+    a->record[0xce + 0x10] = 0x3c;
+    a->record[0x18b] = 1;
+    dq_menu(&dqk, "d");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 849a:145b (Detect's cast, "
+                                                          "part 28)") != NULL);
+    a->record[0x18b] = 0;
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_count(dq_quiet.log, items_menu) == 1);
+    a->record[0x18b] = 1;
+    a->record[0xce + 0x10] = 0x67;
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_count(dq_quiet.log, items_menu) == 1);
+    a->record[0xce + 0x10] = 0;
+    a->record[0x18b] = 0;
+
+    /* The member keys: Up from the first member picks the last, Down from the last the first. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    cok_character *first = dqk.party.members[0];
+    cok_character *last = dqk.party.members[dqk.party.count - 1];
+    dqk.vm.character = first->record;
+    dq_menu(&dqk, "\x01H" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.character == last->record);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_menu(&dqk, "\x01P\x01P" "en"); /* COMBAT leaves the first member selected: Down, Down wraps */
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 2 && dqk.vm.character == first->record);
+}
+
+/* The temple's Down picks the next member (7825:0af6 calls 5e22:067c): the Dark Queen temple's
+ * menu from the first member, Down, Exit. */
+static void test_dark_queen_temple_member_keys(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's temple member keys not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    dq_member(&dqk, 0, 1);
+    cok_character *b = dq_member(&dqk, 0, 1);
+    dqk.vm.character = dqk.party.members[0]->record;
+    dq_keys("\x01P" "e");
+    cok_dark_queen_temple(&dqk);
+    CHECK(dqk.vm.character == b->record);
+}
+
 #undef DQK_PICTURE
 #undef DQK_SETUP
 #undef DQK_APPROACH
@@ -2697,6 +2845,8 @@ int main(void)
     test_dark_queen_rest();
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();
+    test_dark_queen_treasure_menu();
+    test_dark_queen_temple_member_keys();
     test_dark_queen_treasure_items();
     test_dark_queen_heal();
     test_dark_queen_jump_table();

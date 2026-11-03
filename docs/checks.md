@@ -493,8 +493,8 @@ which member is selected, which needs the same party on both sides. The flow
 fails if eclplay leaves keys unread (its `(keys left unread in block N at ADDR)`
 on stderr). Not run: the `DS:c2f5` paths. `1bdb:0424` (YES NO, 0452) and
 `6c70:0e3f` (HORIZONTAL, ASK) branch on c2f5, which `1bdb:1206` sets to 1 for a
-mouse hit on a control; `queen.h` calls it "whether a mouse driver answers", which
-the original does not show, and no block clicks. All agree (2026-11-02); a port
+menu's code result (a key below 0x20 or an extended key, a view area's click), not
+for a mouse hit on a control; no block clicks. All agree (2026-11-02); a port
 string limit one short fails INPUT STRING's block.
 
 `dqk_ecl_misc.py` (two blocks, in `make dqk-checks`) runs the ECL CLOCK, DUMP and FIND SPECIAL the
@@ -577,8 +577,8 @@ share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect 
 (checked against the table). The expected values of each flow (the share, the pool, each member's
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
 too, so a mistake in a flow shows. eclplay runs `won`, `fled`, `rest`, `gentle`, `fledmix`, `zero`,
-`enemy*` to COMBAT's end; `pool`, `bonus` and `negative` stop at the treasure menu (`dqk 75cc:0e93`,
-part 20, cited); `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
+`enemy*` to COMBAT's end; `pool`, `bonus` and `negative` run the treasure menu (`75cc:0e93`) and stop
+at its Take, Pool or Share; `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
 `lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
 hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);

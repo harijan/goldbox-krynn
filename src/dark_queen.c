@@ -2109,11 +2109,13 @@ static void encamp_screen(cok_adventure *game)
  * none above 10): 0 the full window (10b2:0030); 3 the view again
  * (5e22:0000), where picture 9 is not shown and variable 0x24 is 1
  * (177e:1b82); 4 the adventure's screen, the view, the party's list and the
- * status (177e:1b5d). Mode 2 is the camp's (encamp_screen). Modes 1, 6 and 10
- * first draw the adventure's screen (10b2:00e4; in 1 and 10 only where DS:bee9
- * is set) and a small picture (63ae:0078, then 000c), then the list and the
- * status: not ported, so they stop. Other modes draw nothing. False where the run stopped. DS:beea (set
- * to 0 in mode 4) is read by LOAD FILES' redraw only, not ported. */
+ * status (177e:1b5d). Mode 2 is the camp's (encamp_screen). Mode 6 is the treasure's
+ * (177e:1b9b): the adventure's screen, the small picture 0x81 (63ae:0078, then 000c at
+ * 3, 3) and the list, no status. Modes 1 and 10 first draw the adventure's screen
+ * (10b2:00e4; in 1 and 10 only where DS:bee9 is set) and a small picture, then the
+ * list and the status: not ported, so they stop. Other modes draw nothing. False where
+ * the run stopped. DS:beea (set to 0 in mode 4) is read by LOAD FILES' redraw only, not
+ * ported. */
 static bool screen_as_it_was(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -2134,8 +2136,13 @@ static bool screen_as_it_was(cok_adventure *game)
         party_list(game);
         status_line(game);
         return true;
-    case 1: case 6: case 10:
-        return cok_adventure_not_yet(game, "the screen as it was in modes 1, 6 and 10 "
+    case 6:
+        adventure_screen(game);
+        small_picture(game, 0x81);
+        party_list(game);
+        return true;
+    case 1: case 10:
+        return cok_adventure_not_yet(game, "the screen as it was in modes 1 and 10 "
                                            "(a small picture, DS:bee9)", "dqk 177e:1ad1");
     default:
         return true;
@@ -2185,10 +2192,26 @@ static const char *const alt_words[ALT_ITEMS] = {"Order", "Drop", "Speed", "Icon
                                                  "Exit"};
 
 /* The filtered keys the list's selection takes (5e22:067c's table: Down 0x84, End 0x85,
- * Home 0x87, Up 0x88; Left and the rest do nothing). Not ported: a member picked by one. */
+ * Home 0x87, Up 0x88; Left and the rest do nothing). */
 static bool list_key(int key)
 {
     return key == 0x84 || key == 0x85 || key == 0x87 || key == 0x88;
+}
+
+/* 5e22:067c: a list key picks the member selected (vm->character): Down and End the next,
+ * the head after the last; Up and Home the previous, the last before the head. Then the
+ * list is drawn again (5e22:0065's two rows). With the list empty, nothing. Other keys do
+ * nothing. Only the treasure menu and the temple use it so far: the other callers stop,
+ * cited ("a member picked by a key"). */
+static void member_key(cok_adventure *game, int key)
+{
+    cok_ecl *vm = &game->vm;
+    if (!list_key(key) || game->party.count == 0) return;
+    size_t i = cok_party_index(&game->party, vm->character), n = game->party.count;
+    if (key == 0x84 || key == 0x85) i = i + 1 < n ? i + 1 : 0;
+    else i = i > 0 && i < n ? i - 1 : n - 1;
+    vm->character = cok_party_record(&game->party, i);
+    party_list(game);
 }
 
 /* The selected member's name line and the text under it (177e:156e, the camp's shape:
@@ -5665,6 +5688,16 @@ static bool after_combat(cok_adventure *game)
     return true; /* 091b: the exit */
 }
 
+/* 74b9:092c: the pool's money (its coins 4-6, steel, gems and jewelry, not 0) and items
+ * (the list not NULL). */
+static void pool_flags(cok_adventure *game, bool *money, bool *items)
+{
+    *money = false;
+    for (size_t k = 4; k < 7; ++k)
+        if (game->pool.coins[k] != 0) *money = true;
+    *items = game->pool.items != NULL;
+}
+
 /* 75cc:091f, the results (485 bytes), after 135c's share (DS:ae4f): the full window (20b2:0030),
  * then with monsters (DS:c7df), "the party has fled." (DS:c7de: the share 0, the pool's items freed
  * and its three coins cleared, 2093:0015 at DS:b1db), "you have lost the fight." (no member
@@ -5699,10 +5732,7 @@ static bool results(cok_adventure *game, uint32_t share, bool *money, bool *item
         say(game, 1, 7, "experience points.", 7);
     }
     /* 74b9:092c: DS:c3e9 and c7e0 cleared, then set from the pool's coins 4-6 and its items. */
-    *money = *items = false;
-    for (size_t k = 4; k < 7; ++k)
-        if (game->pool.coins[k] != 0) *money = true;
-    *items = game->pool.items != NULL;
+    pool_flags(game, money, items);
     if (*money || *items) say(game, 1, 10, "the party has found treasure", 7); /* a9a */
     else say(game, 1, 10, "the party has found no treasure", 7);
     /* ae2: 1bdb:1e29 with the empty list and the prompt; 1 and 0 as its last two arguments. */
@@ -5728,11 +5758,115 @@ static bool lost_party(cok_adventure *game)
     return continue_prompt(game, false, false); /* 093f -> 1bdb:0511 */
 }
 
+/* The treasure menu's Detect (75cc:0ed5-0f5e): the selected record (DS:ad67) has a
+ * spell byte at +0xce+i (i 0-0x88) that is 5, 0x0b, 0x4d or 0x3c, and +0x18b (active)
+ * is not 0. The spell is not cast here: Detect stops (849a:145b, part 28). */
+static bool treasure_detect(const uint8_t *c)
+{
+    if (c == NULL || c[0x18b] == 0) return false;
+    for (size_t i = 0; i <= 0x88; ++i) {
+        uint8_t b = c[0xce + i];
+        if (b == 5 || b == 0x0b || b == 0x4d || b == 0x3c) return true;
+    }
+    return false;
+}
+
+enum { TM_VIEW, TM_TAKE, TM_POOL, TM_SHARE, TM_DETECT, TM_EXIT, TM_ITEMS };
+static const char *const treasure_words[TM_ITEMS] = {"View", "Take", "Pool", "Share", "Detect",
+                                                     "Exit"};
+
+/* 75cc:0e93, the treasure menu, after the results with money or items in the pool. The
+ * screen is as it was in mode 6 (177e:1ad1, once). Each pass lists View; Take with money
+ * or items; Pool; Share with money; Detect when treasure_detect finds a spell; Exit (the
+ * jump table at 75cc:109b). View shows the sheet and the screen again. Exit with money or
+ * items says "there is still treasure left." and asks whether to go back and claim it: Yes
+ * clears the window and the menu comes again, No (or Escape) leaves. Take, Pool, Share and
+ * Detect stop, cited (part 20b; Detect's cast is part 28). Escape is Exit; Up, Down, End
+ * and Home pick a member (member_key); other codes do nothing. DS:c6e4 (the saved item),
+ * DS:ae5a (the pool's flag: no reader found) and the party list's mouse area (1bdb:0c00,
+ * 0a33, DS:1d0f) are not modelled; with the mouse on a click outside the buttons beeps. The
+ * ECL's song call (2023:0006) at the end is not played (as at PROGRAM's songs). False where
+ * the run stopped; true when the pool may be freed. */
+static bool treasure_menu(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    if (!screen_as_it_was(game)) return false; /* 75cc:0e9d: 177e:1ad1, mode 6 */
+    for (;;) {
+        bool money, items;
+        pool_flags(game, &money, &items); /* 75cc:0ea6 (74b9:092c) */
+        bool detect = items && treasure_detect(vm->character);
+        int shown[TM_ITEMS];
+        size_t n = 0;
+        shown[n++] = TM_VIEW;
+        if (money || items) shown[n++] = TM_TAKE;
+        shown[n++] = TM_POOL;
+        if (money) shown[n++] = TM_SHARE;
+        if (detect) shown[n++] = TM_DETECT;
+        shown[n++] = TM_EXIT;
+        const char *labels[TM_ITEMS];
+        for (size_t i = 0; i < n; ++i) labels[i] = treasure_words[shown[i]];
+        log_menu(game, labels, n);
+        int choice = bar_menu(game, "", labels, n, true, true, 0, 0);
+        if (choice < 0) return false;
+        int code;
+        if (choice == 0x1b) {
+            code = TM_EXIT;
+        } else if (list_key(choice)) {
+            member_key(game, choice);
+            continue;
+        } else if (choice < (int)n) {
+            code = shown[choice];
+        } else {
+            continue; /* other codes do nothing */
+        }
+        log_choice(game, code);
+        switch (code) {
+        case TM_VIEW:
+            /* 10a7: 2d99:0fef (86b8:0b0c), then 177e:1ad1 (86b8:0d97) */
+            if (!view_character(game)) return false;
+            if (!screen_as_it_was(game)) return false;
+            break;
+        case TM_TAKE:
+            return cok_adventure_not_yet(game, "Take in the treasure menu", "dqk 75cc:0d01 "
+                                                                            "(part 20b)");
+        case TM_POOL:
+            return cok_adventure_not_yet(game, "Pool in the treasure menu", "dqk 74b9:00f6 "
+                                                                            "(part 20b)");
+        case TM_SHARE:
+            return cok_adventure_not_yet(game, "Share in the treasure menu", "dqk 74b9:01ee "
+                                                                             "(part 20b)");
+        case TM_DETECT:
+            return cok_adventure_not_yet(game, "Detect in the treasure menu", "dqk 849a:145b "
+                                                                              "(Detect's "
+                                                                              "cast, part 28)");
+        case TM_EXIT: {
+            pool_flags(game, &money, &items); /* 10f3: 092c again */
+            if (!money && !items) return true;
+            /* 1a62:0311 (cells 1-38 by 17-22, colour 7, cleared), then the question on
+             * from the cursor (colour 0x0b, not cleared), then the Yes or No bar (0424). */
+            if (!print_window(game, "there is still treasure left. ", 1, 0x11, 0x26, 0x16, 7,
+                              true))
+                return false;
+            if (!print_window(game, "do you want to go back and claim it?", 1, 0x11, 0x26, 0x16,
+                              0x0b, false))
+                return false;
+            int yes = yes_no(game, "", false);
+            if (yes < 0) return false;
+            if (yes == 0) return true;
+            clear_cells(game, 1, 0x11, 0x26, 0x16); /* 1a62:09a1 */
+            break;
+        }
+        default:
+            break;
+        }
+    }
+}
+
 /* 75cc:135c after 11b0 (the mode 6 is set): 13ae sets flag 1 (<>), each record's stats are
  * recomputed (177e:0be2, cok_character_stats) and then: the lost party (DS:b7a7, 1460); else, when
  * fled (DS:c7de) the pool's items are freed (13e7-1425), otherwise flag 0 (=) is set and flag 1
  * cleared (1427); then the results (091f), and with the pool's money or items the treasure menu
- * (75cc:0e93, part 20: cited stop). The pool is emptied (63ee:0002), the vars 0x01, 0x2f, 0x1c,
+ * (75cc:0e93, treasure_menu). The pool is emptied (63ee:0002), the vars 0x01, 0x2f, 0x1c,
  * 0x1e, 0x1d and 0x1f cleared (14eb-150d) and the monsters cleared (75cc:151b, monster.c's shared
  * clear). False where the run stopped. */
 static bool treasure_end(cok_adventure *game)
@@ -5760,19 +5894,8 @@ static bool treasure_end(cok_adventure *game)
         }
         bool money, items;
         if (!results(game, q->share, &money, &items)) return false; /* 1438 */
-        if (money || items) { /* 1446-1455 */
-            /* Part 20's facts so far (disassembled, not ported): 0e93 sets the screen (77e:1ad1), the
-             * picture (d7:27a6) and the flags money DS:c3e9, items DS:c7e0 (74b9:092c); the menu's
-             * items are View 0 (10a7: 1d99:0fef), Take 1 (10b6: 75cc:0d01, money or items), Pool 2
-             * (10ca: 64b9:00f6), Share 3 (10d2: 64b9:01ee, money), Detect 4 (10da: 1d99:100d, a
-             * spell found) and Exit 5 (10f3), by the jump table at 75cc:109b. Detect's spell is
-             * the first of 0x89 bytes from +0xce that is 5, 0x0b, 0x4d or 0x3c (DQK's Detect Magic
-             * ids; Death Knights' 0x67 is not one), with +0x18b set (0ed5-0f5e): the shared
-             * detect_spell does not match DQK. Exit with money or items asks the claim question
-             * (1105-1188). Unverified: 0d01, 00f6, 01ee, 0fef, 100d, 0bdb:0424's answer. */
-            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:0e93 (the treasure menu, part "
-                                                       "20)");
-            return false;
+        if (money || items) { /* 1446-1455: the treasure menu (75cc:0e93) */
+            if (!treasure_menu(game)) return false;
         }
         cok_pool_free(&game->pool); /* 1458: 63ee:0002 */
     }
@@ -5838,7 +5961,7 @@ cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game)
  * screen is drawn, and the pool's coins cleared. Heal (heal) and View (86b8:0b0c, view_character)
  * run; Repair (7825:08fa) stops, cited: it ends the party's effects (148f:017d) and casts 849a's
  * spell. Exit leaves; no money is asked for. Escape is Exit; Up and Down pick a member
- * (cok_adventure_special). Keys that run out end it. */
+ * (member_key, 5e22:067c). Keys that run out end it. */
 void cok_dark_queen_temple(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
@@ -5858,7 +5981,7 @@ void cok_dark_queen_temple(cok_adventure *game)
         if (choice == 0x1b) {
             key = TEMPLE_EXIT;
         } else if (choice == 0x84 || choice == 0x88) {
-            cok_adventure_special(game, (uint8_t)choice);
+            member_key(game, choice); /* 7825:0af6 calls 5e22:067c, not the special's scan */
         } else if (choice < 4) {
             key = choice;
         }
