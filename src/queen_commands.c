@@ -104,8 +104,9 @@ static bool taken_code(int code)
 }
 
 /* 0c0f (Alt-A and Alt-Q): the turn given back (the list's index less one, initiative 0x14),
- * every record of the party taken by the computer (5045:1791), the bottom bar (1bdb:036c), and
- * 200 ms (1df9:052a, one draw): command.c's quick() with the bar for its clear_row. */
+ * every record of the combat list (DS:c6e5, the monsters appended too, 0c20-0c4a) taken by the
+ * computer (5045:1791), the bottom bar (1bdb:036c), and 200 ms (1df9:052a, one draw): command.c's
+ * quick() with the bar for its clear_row. */
 static void quick_all(cok_adventure *game, cok_character *c)
 {
     --game->combat.turn_index;
@@ -162,7 +163,12 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         return true;
     case ITEM_QUICK:
         /* 0a2c: cok_combat_auto (1791), the bottom bar, the keys flushed (2093:0130), 200 ms
-         * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop. */
+         * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop.
+         * The flush is the typed keys only. The original's 2093:0136 also drains them through
+         * 2093:0078 (Alt-S and Alt-T toggle the sound, 2023:0247 and 2023:0272; Escape or '`'
+         * with DS:ae59 set sets DS:a890) and reads a pending mouse click (22b7:235f, DS:cb49).
+         * cok_adventure_flush drops the keys and leaves both alone. Not reached by eclplay's keys;
+         * to be done with the menu's mouse part (1bdb:1595). */
         cok_combat_auto(c, cok_game_rules(game));
         queen_bottom_bar(game);
         cok_adventure_flush(game);

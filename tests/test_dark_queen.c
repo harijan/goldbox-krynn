@@ -1533,10 +1533,15 @@ static void test_command_menu_quick_speed(void)
     CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
     CHECK(cr->target == NULL && cr->initiative == 5);
     CHECK(menu_game.vm.seed == drawn);
-    /* Alt-Q: the turn index less one, initiative 0x14, every party member taken by the computer,
-     * and the turn ends (one draw). */
+    /* Alt-Q: the turn index less one, initiative 0x14, every record of the combat list taken by
+     * the computer (a second party member and a monster, appended as the battle's are), and the
+     * turn ends (one draw). */
     menu_open();
     cr = menu_c->combat;
+    cok_character *ally = placed(&menu_game, 0);
+    cok_character *monster = placed(&menu_game, 1);
+    CHECK(cok_field_u8(L, ally->record, COK_FIELD_COMPUTER) == 0);
+    CHECK(cok_field_u8(L, monster->record, COK_FIELD_COMPUTER) == 0);
     menu_game.combat.turn_index = 1;
     menu_game.vm.status = COK_ECL_OK;
     drawn = menu_game.vm.seed;
@@ -1544,6 +1549,8 @@ static void test_command_menu_quick_speed(void)
     CHECK(menu_run("~\x10") && menu_game.vm.status == COK_ECL_OK);
     CHECK(menu_game.combat.turn_index == 0 && cr->initiative == 0x14);
     CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(cok_field_u8(L, ally->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(cok_field_u8(L, monster->record, COK_FIELD_COMPUTER) == 1);
     CHECK(menu_game.vm.seed == drawn);
     /* Alt-M: the toggle and its message ("magic on"), then the turn goes on to the arena (c8c's
      * 5837:12f5, which needs the battle's map: not in this test, so its stop is the check). */

@@ -1654,6 +1654,7 @@ def keys(v, work, opts):
                 "(the menu erased, the cell redrawn: the original's after its flip; the mouse "
                 "pointer masked)",
                 f"{count} pixels differ in {box}")
+    commands(v, work, patched, opts)
 
 
 def tail_run(work, patched, tag, key, base):
@@ -1666,6 +1667,256 @@ def tail_run(work, patched, tag, key, base):
     _, last = port(work, patched, name=f"{tag}-tail", typed="\\r\\r" + key, field=field,
                    at=None, records=records, blocks=blocks, turns=turns, screen=screen)
     return last, field, records, blocks, turns, screen
+
+
+# The command menu's commands (step 4, part 22b: Quick, Alt-A and Alt-Q, Alt-M, Speed). Each run
+# is the first turn's menu (to_menu), the flow's keys typed there, and the stop where the routine
+# hands the turn on: Quick at the computer's turn (5045:0a56, the lcall 2d99:0ff9), Alt-Q at the
+# tail (5045:066a, flipped as keys_original's), Alt-M and Speed where the menu is built again
+# (5045:0cd7, after c8c's arena). The values are the review's (dqk-commands-b): the original and
+# eclplay agree on each.
+QUICK_TRAP = 0x0A56
+MENU_TRAP = 0x0CD7
+MAGIC = 0xB1CB                          # DS:b1cb: the magic (Alt-M toggles it, 0bd7)
+SPEED_VAR = 0x12                        # var 0x12: the game speed (Faster and Slower, 166c)
+QUICK_AUTO = (0, 1, 0, 0, 0, 0, 1, 1)   # +0x18c of the eight records after Quick (record 1 is the turn's)
+ALT_Q_AUTO = (1, 1, 1, 1, 1, 1, 1, 1)   # after Alt-Q every record of the list, the monsters too
+TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
+QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
+ALT_Q_INITIATIVE = 0x14                 # record 1's initiative after Alt-Q (0c0f)
+COMPUTER_STOP = re.compile(r".*5bb8:0000.*")
+
+
+def wait_trap(box, t, where):
+    """Waits until the trap at WHERE (its copies T, written paused) is reached: the keyboard
+    polls hold over 0.6 s (as keys_original's tail)."""
+    end = time.monotonic() + TAIL_SECONDS
+    while time.monotonic() < end:
+        box.settle(0.5)
+        if L.held(box, t, seconds=0.6)[0]:
+            return
+    raise cokbox.BoxError(f"the original's trap at {where} is not reached after {TAIL_SECONDS} s")
+
+
+def var12(box):
+    return block_vars(box)[SPEED_VAR - 1]
+
+
+def command_original(work, patched, flow, verbose):
+    """The original at the first turn's menu (to_menu, the menu's screen kept), FLOW's keys typed
+    there, and its stop: Quick (Q) at 5045:0a56, Alt-Q (\\@Q) at the tail 5045:066a, flipped as
+    keys_original's tail, Alt-M (\\@M) and Speed (S, F, E) at 5045:0cd7, the menu built again. The
+    stop's state and screen; Speed's bar screens after S and after F; the menu's wait screen after
+    the trap is given back (Alt-M, Speed)."""
+    tag = f"cmd-{flow}"
+    trap = {"Q": QUICK_TRAP, "AltQ": TAIL[1]}.get(flow, MENU_TRAP)
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / f"{tag}-menu.png"))
+        menu["magic"] = box.ds_byte(MAGIC)
+        menu["var12"] = menu["variables"][SPEED_VAR - 1]
+        t = [(addr + trap - TURN[1], box.read(addr + trap - TURN[1], 2)) for addr, _ in menu["handle"]]
+        box.write_paused([(addr, b"\xeb\xfe") for addr, _ in t])
+        out = dict(menu=menu)
+        if flow == "SFE":
+            box.keys("S")
+            box.settled(quiet=1.0, tolerance=0)
+            out["speed"] = dict(screen=box.screenshot(path=str(work / f"{tag}-speed.png")),
+                                var12=var12(box))
+            box.keys("F")
+            box.settled(quiet=1.0, tolerance=0)
+            out["speedF"] = dict(screen=box.screenshot(path=str(work / f"{tag}-speedF.png")),
+                                 var12=var12(box))
+            box.keys("E")
+        else:
+            box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M"}[flow])
+        wait_trap(box, t, f"5045:{trap:04x}")
+        out["stop"] = snapshot(box)
+        out["stop_magic"] = box.ds_byte(MAGIC)
+        out["stop_var12"] = var12(box)
+        out["stop_begun"] = box.ds_byte(L.DS_BEGUN)
+        out["stop_screen"] = box.screenshot(path=str(work / f"{tag}-stop.png"))
+        if flow in ("Q", "AltQ"):
+            out["flipped"] = L.flip(box, t)
+            out["flip_screen"] = box.screenshot(path=str(work / f"{tag}-flip.png"))
+        else:
+            L.untrap(box, t)
+            box.settled(quiet=1.0, tolerance=0)
+            out["menu_again"] = dict(screen=box.screenshot(path=str(work / f"{tag}-menu2.png")),
+                                     seed=box.ds_dword(L.DS_SEED))
+    return out
+
+
+def command_port(work, patched, name, typed):
+    """eclplay's run to the stop of NAME (the first turn's menu, then TYPED): its variables, its
+    last line, its text, and the files its state is read from (base: field, records, blocks,
+    turns, bmp)."""
+    base = work / f"cmd-{name}"
+    variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
+                           field=base.with_suffix(".field"), records=base.with_suffix(".records"),
+                           blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
+                           screen=base.with_suffix(".bmp"))
+    text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
+    return dict(base=base, vars=variables, last=last, text=text)
+
+
+def port_var12(p):
+    return p["vars"][SPEED_VAR - 1] if len(p["vars"]) == dqk_ecl.VARIABLES else -1
+
+
+def command_state(v, tag, s, p, m_seed):
+    """The stop's state against eclplay's: the RandSeed, the records (pointers masked), the
+    combat blocks and the turn list. Returns the original's RandSeed draws past the menu's."""
+    draws = L.draws(m_seed, s["seed"])
+    field = p["base"].with_suffix(".field")
+    if not field.exists():
+        v.check(False, f"eclplay writes its battlefield at the stop after {tag}", p["last"])
+    else:
+        seed = parse_field(field)[0]
+        v.check(seed == s["seed"], f"RandSeed at the stop after {tag} is the original's "
+                f"({s['seed']:#x})", f"eclplay {seed:#x}")
+    data = p["base"].with_suffix(".records").read_bytes() if p["base"].with_suffix(".records").exists() else b""
+    ported = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
+    differ = [i for i in range(min(len(ported), len(s["records"])))
+              if masked(ported[i]) != masked(s["records"][i])]
+    v.check(not differ and len(ported) == len(s["records"]),
+            f"every record agrees at the stop after {tag} (pointers masked)",
+            f"{len(ported)} against {len(s['records'])}; differ: {' '.join(map(str, differ))}")
+    path = p["base"].with_suffix(".blocks")
+    data = path.read_bytes() if path.exists() else b""
+    blocks = [data[i:i + COMBAT_BLOCK].hex() for i in range(0, len(data), COMBAT_BLOCK)]
+    diffs = block_diffs(s["blocks"], blocks)
+    v.check(not diffs and len(blocks) == len(s["blocks"]),
+            f"every record's combat block agrees at the stop after {tag} (0x18 bytes)",
+            f"{len(blocks)} against {len(s['blocks'])}; (record, offset, original, eclplay): " +
+            " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
+    turns_agree(v, s["turns"], p["base"].with_suffix(".turns"), f" at the stop after {tag}")
+    return draws
+
+
+def command_screen(v, what, o_screen, png, mask):
+    """The original's whole screen at WHAT against eclplay's --screen (MASK masked)."""
+    if not png.exists():
+        v.check(False, f"eclplay writes its screen {what}")
+        return
+    port_screen = cokbox.RGBScreen.load(png, SLOT_SCREEN)
+    count, box = checklib.masked_diff(o_screen, port_screen, [mask])
+    v.check(count == 0, f"the whole screen agrees with the original's {what} (the mouse pointer "
+            "masked)", f"{count} pixels differ in {box}")
+
+
+def command_init(blocks, record):
+    return bytes.fromhex(blocks[record])[TURN_INITIATIVE] if blocks[record] is not None else None
+
+
+def quick_check(v, work, patched, opts):
+    o = command_original(work, patched, "Q", opts.verbose)
+    p = command_port(work, patched, "Q", "Q")
+    s, m = o["stop"], o["menu"]
+    v.check(COMPUTER_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay stops at the computer's turn (5bb8:0000, computer_unported) after Q", p["last"])
+    draws = command_state(v, "Q", s, p, m["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after Q is one draw (the bar "
+            "message's wait, 1df9:052a)", f"{draws} draws")
+    v.check(s["state"]["turn"] == 1, "the original's turn index (DS:bd2d) at the stop after Q is 1",
+            f"{s['state']['turn']}")
+    auto = tuple(bytes.fromhex(r)[0x18C] for r in s["records"])
+    v.check(auto == QUICK_AUTO, "the original's COMPUTER (+0x18c) of the records after Q: record 1 "
+            "on Auto (cok_combat_auto), the others as at the menu", f"{auto}")
+    initiative = command_init(s["blocks"], 1)
+    v.check(initiative == QUICK_INITIATIVE, f"record 1's initiative (block +3) is kept at "
+            f"{QUICK_INITIATIVE} by Q", f"{initiative}")
+    v.check(o["stop_begun"] == 0 and o["flipped"] == 0, "the original's DS:1cb5 at the stop after Q "
+            "is 0 (no tail redraw on the back page: the flip changes nothing)",
+            f"{o['stop_begun']} at the stop, {o['flipped']} after the flip")
+    bmp = p["base"].with_suffix(".bmp")
+    command_screen(v, "at the stop after Q", o["stop_screen"], bmp, MENU_POINTER)
+    command_screen(v, "after the flip after Q", o["flip_screen"], bmp, MENU_POINTER)
+
+
+def alt_q_check(v, work, patched, opts):
+    o = command_original(work, patched, "AltQ", opts.verbose)
+    p = command_port(work, patched, "AltQ", "\\@Q")
+    s, m = o["stop"], o["menu"]
+    v.check(KEY_TAIL.fullmatch(p["last"] or "") is not None,
+            "eclplay stops at the turn's tail (148f:2ab8) after Alt-Q", p["last"])
+    draws = command_state(v, "AltQ", s, p, m["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after Alt-Q is one draw (the bar "
+            "message's wait, 1df9:052a)", f"{draws} draws")
+    v.check(s["state"]["turn"] == 0, "the original's turn index (DS:bd2d) at the tail after Alt-Q "
+            "is 0 (the list's index less one)", f"{s['state']['turn']}")
+    auto = tuple(bytes.fromhex(r)[0x18C] for r in s["records"])
+    v.check(auto == ALT_Q_AUTO, "the original's COMPUTER (+0x18c) of the records after Alt-Q: every "
+            "record of the list on Auto, the monsters too (0c0f, 5045:1791 over DS:c6e5)",
+            f"{auto}")
+    initiative = command_init(s["blocks"], 1)
+    v.check(initiative == ALT_Q_INITIATIVE, f"record 1's initiative (block +3) is "
+            f"{ALT_Q_INITIATIVE:#x} after Alt-Q (0c0f)", f"{initiative}")
+    v.check(o["stop_begun"] == 1 and o["flipped"] == 0, "the original's DS:1cb5 at the tail after "
+            "Alt-Q is 1 (the redraw on the back page), 0 after its flip (19a4:06d3)",
+            f"{o['stop_begun']} at the tail, {o['flipped']} after the flip")
+    command_screen(v, "after the flip after Alt-Q", o["flip_screen"], p["base"].with_suffix(".bmp"),
+                   MENU_POINTER)
+
+
+def alt_m_check(v, work, patched, opts):
+    o = command_original(work, patched, "AltM", opts.verbose)
+    p = command_port(work, patched, "AltM", "\\@M")
+    m = o["menu"]
+    v.check(m["magic"] == 0 and o["stop_magic"] == 1, "the original's DS:b1cb is 0 at the menu and "
+            "1 after Alt-M (0bd7 toggles the magic)", f"{m['magic']} then {o['stop_magic']}")
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys) after Alt-M", p["last"])
+    v.check("message: magic on" in p["text"], "eclplay says \"magic on\" (queen_bar_message) "
+            "after Alt-M", [line for line in p["text"] if line.startswith("message:")])
+    menus = sum(1 for line in p["text"] if line.startswith("menu: Aim"))
+    v.check(menus == 2, "eclplay builds the command menu again after the message (its built text "
+            "logged twice)", f"{menus} times")
+    draws = command_state(v, "AltM", o["stop"], p, m["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after Alt-M is one draw (the bar "
+            "message's wait, 1df9:052a)", f"{draws} draws")
+    command_screen(v, "with the command menu again after Alt-M", o["menu_again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+def speed_check(v, work, patched, opts):
+    o = command_original(work, patched, "SFE", opts.verbose)
+    m = o["menu"]
+    runs = {name: command_port(work, patched, name, keys)
+            for name, keys in (("S", "S"), ("SF", "SF"), ("SFE", "SFE"))}
+    for name, p in runs.items():
+        v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+                f"eclplay ends in the battle at the out of keys after {name}", p["last"])
+    v.check(m["var12"] == 4 and o["speed"]["var12"] == 4 and o["speedF"]["var12"] == 3
+            and o["stop_var12"] == 3,
+            "the original's game speed (var 0x12) is 4 at the menu, 4 on the speed bar, 3 after F "
+            "(Faster), 3 after Exit", f"{m['var12']}, {o['speed']['var12']}, {o['speedF']['var12']}, "
+            f"{o['stop_var12']}")
+    v.check(port_var12(runs["S"]) == 4 and port_var12(runs["SF"]) == 3
+            and port_var12(runs["SFE"]) == 3,
+            "eclplay's var 0x12 is 4 on the speed bar, 3 after F and after Exit",
+            f"{port_var12(runs['S'])}, {port_var12(runs['SF'])}, {port_var12(runs['SFE'])}")
+    draws = command_state(v, "SFE", o["stop"], runs["SFE"], m["seed"])
+    v.check(draws == 0, "the original's RandSeed past the menu after S, F and E is unchanged (no "
+            "draw: the speed menu takes no random number)", f"{draws} draws")
+    command_screen(v, "on the speed bar after S", o["speed"]["screen"],
+                   runs["S"]["base"].with_suffix(".bmp"), dqk_views.POINTER)
+    command_screen(v, "on the speed bar after F", o["speedF"]["screen"],
+                   runs["SF"]["base"].with_suffix(".bmp"), dqk_views.POINTER)
+    command_screen(v, "with the command menu again after Exit", o["menu_again"]["screen"],
+                   runs["SFE"]["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+def commands(v, work, patched, opts):
+    """The command menu's four commands (step 4, part 22b) from the first turn's menu: Quick, Alt-Q,
+    Alt-M and Speed (S, F, E), each run against eclplay's stop after its keys."""
+    quick_check(v, work, patched, opts)
+    alt_q_check(v, work, patched, opts)
+    alt_m_check(v, work, patched, opts)
+    speed_check(v, work, patched, opts)
 
 
 def main():
