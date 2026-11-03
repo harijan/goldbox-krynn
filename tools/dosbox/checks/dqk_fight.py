@@ -1479,9 +1479,6 @@ MENU_POINTER = (8, 8, 10, 10, "the mouse pointer at the command menu's wait (the
 KEYS = ("E", "G", "D")          # End, Guard, Delay: the keys typed at the first turn's menu
 TAIL = (0x5045, 0x066A)         # the turn's tail: the lcall 148f:2ab8 after 078b (TURN - 0x121)
 TAIL_SECONDS = 120
-# The cursor's cell at the tail (TIMASALIN's, 24 by 24): the original keeps the cursor's box (COMSPR
-# 15) after 078b's tail redraw of the cell; eclplay's redraw erases it. Not resolved (docs/checks.md).
-TAIL_CURSOR_CELL = (104, 80, 24, 24, "the cursor's box at TIMASALIN's cell (the tail's redraw)")
 
 
 def to_menu(box):
@@ -1533,7 +1530,11 @@ def dispatch_original(work, patched, verbose, tag="dispatch"):
 def keys_original(work, patched, key, verbose):
     """The original at the first turn's menu, the key typed there (step 4, part 22a: End,
     Guard or Delay) and the turn's tail reached (5045:066a, trapped where the lcall 148f:2ab8
-    runs). The menu's screen, the turn's state at the menu and the state at the tail."""
+    runs). The menu's screen, the turn's state at the menu and the state at the tail. The tail's
+    redraw of the cell (5837:025d) went to the back page (DS:1cb5 set: 19a4:0515's begin), which
+    the game shows at its next flip: the tail's screen is taken after its own flip (19a4:06d3)
+    is run at the spin (dqk_fight_lib.flip), `tail_begun` and `tail_flipped` DS:1cb5 before and
+    after it."""
     tag = f"keys{key}"
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
@@ -1552,9 +1553,11 @@ def keys_original(work, patched, key, verbose):
         if not held:
             raise cokbox.BoxError(f"the original's turn tail (5045:066a) is not reached after {key}")
         tail_state = snapshot(box)
+        begun = box.ds_byte(L.DS_BEGUN)
+        flipped = L.flip(box, tail)
         tail_screen = box.screenshot(path=str(work / f"{tag}-tail.png"))
-        return dict(menu=menu, tail=tail_state, tail_screen=tail_screen,
-                    tail_held=held, tail_traps=len(tail))
+        return dict(menu=menu, tail=tail_state, tail_screen=tail_screen, tail_begun=begun,
+                    tail_flipped=flipped, tail_held=held, tail_traps=len(tail))
 
 
 def dispatch(v, work, opts):
@@ -1641,11 +1644,15 @@ def keys(v, work, opts):
                 f"{len(ported_blocks)} against {len(t['blocks'])}; (record, offset, original, "
                 f"eclplay): " + " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
         turns_agree(v, t["turns"], turns, f" at the tail after {key}")
+        v.check(r["tail_begun"] == 1 and r["tail_flipped"] == 0,
+                f"the original's tail redraw after {key} is on the back page (DS:1cb5 1 at 066a), "
+                "shown by its own flip (19a4:06d3) run there (DS:1cb5 0 after it)",
+                f"DS:1cb5 {r['tail_begun']} at the tail, {r['tail_flipped']} after the flip")
         count, box = checklib.masked_diff(r["tail_screen"], cokbox.RGBScreen.load(screen, SLOT_SCREEN),
-                                          [MENU_POINTER, TAIL_CURSOR_CELL])
+                                          [MENU_POINTER])
         v.check(count == 0, f"the whole screen agrees with the original's at the tail after {key} "
-                "(the menu erased, the cell redrawn; the mouse pointer and the cursor's cell "
-                "masked: docs/checks.md's gap)",
+                "(the menu erased, the cell redrawn: the original's after its flip; the mouse "
+                "pointer masked)",
                 f"{count} pixels differ in {box}")
 
 
