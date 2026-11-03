@@ -768,7 +768,8 @@ and the dungeon with the party on the west edge's square (0, 3, 2, `FIELD_SQUARE
 view at (5, 4) in the original: the answer to Q2, read at DS:aeac and DS:aee0 + n; the fixture's SHARKMEN are at 10 and 8, outside),
 each to the first turn (`5045:078b`). eclplay's `--screen` (its icons drawn by the port) must equal the original's screenshot over
 the view (8, 8, 168 by 168) in RGB, with only the mouse pointer (8, 8, 8, 9) masked: 0 pixels. Reported, not gated: the pixels
-outside the view (the frame of the redraw, 20b2:02fa, not ported) and the combatants and monsters drawn in the view.
+outside the view (the frame of the redraw, 20b2:02fa, not ported) is reported, not gated. Gated: at least 6 combatants drawn in
+the view in every run, and a monster (CPIC) drawn in the view in the square's run.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

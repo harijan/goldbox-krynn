@@ -132,6 +132,9 @@ static void test_icons_drawn(const cok_drawing *d)
     CHECK(d->arena_icon(&game, 2, 3, 0, 0, 11));
     for (int y = 80; y < 104; ++y)
         for (int x = 56; x < 80; ++x) CHECK(screen_at(x, y) == 0x20);
+    /* Faced above 3, the empty slot draws the scratch slot 0x98's stale picture in the
+     * original (19a4:0881:08f5): a stop, cited. */
+    CHECK(!d->arena_icon(&game, 2, 3, 7, 0, 11) && strstr(game.error, "0x98") != NULL);
     /* Image 2 and a slot past the table stop, citing the table. */
     CHECK(!d->arena_icon(&game, 2, 3, 0, 2, 5) && strstr(game.error, "DS:b17d") != NULL);
     CHECK(!d->arena_icon(&game, 2, 3, 0, 0, 0x26) && strstr(game.error, "DS:b17d") != NULL);

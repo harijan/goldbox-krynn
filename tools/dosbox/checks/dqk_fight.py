@@ -90,7 +90,8 @@ Flow `icons` (step 4, part 11b: the combatants' icons drawn): the runs of `slots
 FIELD_SQUARES[1] ((0, 3, 2), where a SHARKMAN stands in the view at (5, 4): Q2), to the same stop. eclplay's --screen,
 its icons drawn by the port, must equal the original's screenshot over the view (8, 8, 168 by 168) in RGB, the combatants'
 cells not masked and only the mouse pointer (8, 8, 8, 9) masked: 0 pixels differing. The pixels outside the view (the
-frame, 20b2:02fa, not ported) and the combatants and monsters drawn are reported, not gated.
+frame, 20b2:02fa, not ported) is reported, not gated. Gated: at least PARTY combatants drawn in the view in every run, and a
+monster (CPIC) drawn in the view in the square's run.
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
@@ -1399,6 +1400,11 @@ def icons(v, work, opts):
         port = cokbox.RGBScreen.load(screen_path, SLOT_SCREEN)
         drawn = [e for e in r["combatants"] if shown_in_view(e)]
         monsters = [e["n"] for e in drawn if e["raw"][0xC5] in ICON_MONSTERS]
+        v.check(len(drawn) >= PARTY, f"at least {PARTY} combatants are drawn in the view at "
+                f"{where}", f"{len(drawn)}: {[e['n'] for e in drawn]}")
+        if square is not None:
+            v.check(len(monsters) >= 1, f"a monster (CPIC) is drawn in the view at {where}",
+                    f"{len(monsters)}")
         count, box = checklib.masked_diff(r["screen"], port, [GROUND_POINTER] + OUTSIDE)
         outside, _ = checklib.masked_diff(r["screen"], port, [(*GROUND, "the view")])
         print(f"  reported, not gated: {outside} pixels differ outside the view at {where} "
