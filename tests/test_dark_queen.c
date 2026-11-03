@@ -260,8 +260,10 @@ static void test_round_start_queen(void)
 }
 
 /* The first turn's dispatch (dqk 5045:078b) in Dark Queen's game: a party member that can act
- * (+0x18b) stops at the command menu (5045:08cf), a computer's turn at 5bb8:0000, and a member
- * that cannot act returns at once (08cf's test), with its initiative kept (no turn is ended). */
+ * (+0x18b) stops at the command menu (5045:08cf), one with a spell pending at its cast
+ * (849a:145b), a computer's turn at 5bb8:0000, and a member that cannot act is ended at once
+ * (08cf's 51c2:0c11: initiative, spell, guard and movement zeroed). --combat's stubs do not pass
+ * over those stops. The round's end, the turn's tail and the battle's end are cited stops too. */
 static void test_turn_dispatch(void)
 {
     if (!have_assets()) {
@@ -296,15 +298,54 @@ static void test_turn_dispatch(void)
     CHECK(!cok_combat_act(&game, c, false));
     CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5045:08cf") != NULL);
     CHECK(c->combat->initiative == 5);
-    /* One that cannot act (+0x18b 0): the menu returns at once, and the turn goes on. */
+    /* With a spell pending (the combat block's spell), the stop is the cast (849a:145b). */
+    game.vm.status = COK_ECL_OK;
+    c->combat->spell = 3;
+    CHECK(!cok_combat_act(&game, c, false));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "849a:145b") != NULL);
+    CHECK(strstr(game.error, "5045:08cf") == NULL && c->combat->initiative == 5);
+    c->combat->spell = 0;
+    /* One that cannot act (+0x18b 0): ended at once, its initiative, spell, guard and movement
+     * zero (51c2:0c11), with a spell and movement set beforehand. */
     game.vm.status = COK_ECL_OK;
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+    c->combat->spell = 3;
+    c->combat->guarding = 1;
+    c->combat->movement = 2;
     CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
-    CHECK(c->combat->initiative == 5);
+    CHECK(c->combat->initiative == 0 && c->combat->spell == 0);
+    CHECK(c->combat->guarding == 0 && c->combat->movement == 0);
     /* A computer's turn stops at 5bb8:0000. */
+    game.vm.status = COK_ECL_OK;
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    c->combat->initiative = 5;
     CHECK(!cok_combat_act(&game, c, true));
     CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
+    /* --combat's stubs do not pass over the stops: the party's menu, the computer's turn. */
+    static const cok_combat_stub stubs[] = {COK_COMBAT_PASS, COK_COMBAT_MELEE};
+    for (size_t i = 0; i < sizeof stubs / sizeof stubs[0]; ++i) {
+        game.combat_stub = stubs[i];
+        game.vm.status = COK_ECL_OK;
+        CHECK(!cok_combat_act(&game, c, false));
+        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5045:08cf") != NULL);
+        CHECK(c->combat->initiative == 5);
+        game.vm.status = COK_ECL_OK;
+        CHECK(!cok_combat_act(&game, c, true));
+        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
+    }
+    game.combat_stub = COK_COMBAT_UNPORTED;
+    /* The turn's tail (5045:059d's, before the sides), the round's end (5045:0f6c) and the
+     * battle's end (5045:0001) are cited stops too. */
+    bool done = false;
+    game.vm.status = COK_ECL_OK;
+    CHECK(!cok_combat_turn_tail(&game) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "148f:2ab8") != NULL && strstr(game.error, "161b:05be") != NULL);
+    game.vm.status = COK_ECL_OK;
+    CHECK(!cok_combat_end_round(&game, &done) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "5045:0f6c") != NULL && !done);
+    game.vm.status = COK_ECL_OK;
+    CHECK(!cok_combat_end(&game) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "5045:0001") != NULL);
     cok_adventure_close(&game);
 }
 

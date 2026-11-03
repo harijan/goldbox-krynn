@@ -704,11 +704,26 @@ const cok_rules cok_rules_dark_queen = {
             .enemy_health_skip_status_9 = true,
             .sides_skip_status_9 = true,
             .sides_ambush_0x20 = true,
+            /* After each turn (5045:0726): a side gone or the round limit ends the round, the
+             * first time in a battle (ae4c, b45a, the [bp-6] flag), as DKK's ends_in_round. */
+            .ends_in_round = true,
             /* Each turn (5045:078b): the computer's turn stops at 5bb8:0000, the party's at the
-             * command menu (5045:08cf) for a record that can act. */
+             * command menu (5045:08cf) for a record that can act, or at 849a:145b for one with a
+             * spell pending (cast; not ported). A record that cannot act is ended at 08cf's
+             * 51c2:0c11, which is cok_combat_end_turn. */
             .menu_unported = "dqk 5045:08cf, the command menu (part 22)",
             .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
-            .end_unported = "dqk 5045:0001, the battle's end before any round",
+            .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
+            /* After each turn (5045:059d's tail): the pending lists (DS:c282, ad70, adc4, through
+             * 148f:2ab8, 2c4f and 2d9b), then the demonstration's key test (161b:05be). */
+            .turn_tail_unported = "dqk 148f:2ab8, 2c4f, 2d9b (the pending lists) and 161b:05be",
+            /* The round's end (5045:0f6c: 1396:044d, the clouds 148f:2817 and 148f:12ab, the
+             * "Your Teammate is Dying" text, the Continue question 1bdb:0424) and the battle's
+             * end (5045:0001: effects 0xb0 and 0xd0, 177e:1734, 104c:0468, 104c:004d, the
+             * clouds). */
+            .round_end_unported = "dqk 5045:0f6c, the round's end (148f:2817, 148f:12ab, 1bdb:0424)",
+            .end_unported =
+                "dqk 5045:0001, the battle's end (148f:017d, 177e:1734, 104c:0468, 104c:004d)",
             .combat_block = &dark_queen_combat_block,
         },
     .effects =

@@ -1202,12 +1202,19 @@ typedef struct {
      * is left out of it (dqk; Champions and DKK count it). */
     bool enemy_health_skip_status_9;
     /* Each turn's dispatch (dqk 5045:078b, after 51c2:0920, 52db:0004 and 5045:0447): a
-     * computer's turn is 5bb8:0000 and a party's is the command menu, 5045:08cf, which returns at
-     * once for a record that cannot act (+0x18b). Reaching either stops the run there, with its
-     * citation (NULL: none). A battle that is over before any round (a side gone at the start,
-     * 5045:059d's done) goes to its end (5045:0001), which end_unported's citation stops: the
-     * end's effects are not ported. */
-    const char *menu_unported, *computer_unported, *end_unported;
+     * computer's turn is 5bb8:0000 and a party's is the command menu, 5045:08cf, for a record
+     * that can act (+0x18b). A record that cannot act is ended at once (51c2:0c11, its turn
+     * ended); one with a spell pending (its combat block's spell) is cast at 849a:145b
+     * (spell_unported) instead of the menu. Reaching any of these stops the run there, with its
+     * citation (NULL: none). The menu and the computer's are checked before --combat's stubs,
+     * so no stub passes a turn over them.
+     * After each turn (5045:059d's tail, before the sides and ends_in_round's early end),
+     * turn_tail_unported stops at 148f:2ab8, 2c4f, 2d9b and 161b:05be. The round's end
+     * (5045:0f6c, round_end_unported) and the battle's end (5045:0001, end_unported, also
+     * before any round: 5045:059d's done) are Dark Queen's own routines, not the shared ones:
+     * their effects (clouds, 0xb0 and 0xd0, the Continue question) are not ported. */
+    const char *menu_unported, *computer_unported, *spell_unported;
+    const char *turn_tail_unported, *round_end_unported, *end_unported;
     /* The placement (3cb2:17f7; dkk 410b:1aa4 and 18c2): the entries whose
      * sizes it clears first, 1 to placement_clears (255, into the screen
      * positions; dkk 72); whether SETUP MONSTERS' ambush directions

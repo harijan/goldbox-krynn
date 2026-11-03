@@ -79,9 +79,15 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c);
 
 /* The dispatch of a turn that has one (5045:078b's 5bb8:0000 or 5045:08cf, Dark Queen's; the
  * computer's and the player's turn otherwise, cok_combat_turn's act): computer is the record's
- * computer flag. A descriptor's stop (computer_unported, menu_unported) returns false with the
- * stop; a record that cannot act (+0x18b 0) at the menu returns true, its turn not ended. */
+ * computer flag. A descriptor's stop (computer_unported, menu_unported, spell_unported) returns
+ * false with the stop, and those are checked before the --combat stubs. A record that cannot act
+ * (+0x18b 0) at the menu has its turn ended (51c2:0c11, cok_combat_end_turn) and returns true. */
 bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer);
+
+/* 5045:059d's tail after each turn, before the sides and the early end (ends_in_round): the
+ * pending lists (148f:2ab8, 2c4f, 2d9b) and 161b:05be. Dark Queen's turn_tail_unported stops
+ * there; Champions and Death Knights have none and return true. */
+bool cok_combat_turn_tail(cok_adventure *game);
 
 /* 3995:0b6d: the end of a round. A minute passes (57e4:0549, every
  * record's effects counted down in mode 5), the round is counted
@@ -91,7 +97,9 @@ bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer);
  * "Your Teammate is Dying" if a party member is (6346:31e9); the sides
  * are counted and the map redrawn around the view. *done is set when a
  * side cannot act or the rounds reach the limit; with the enemy's side
- * gone and the party's not, "Continue Battle:" asks, and Yes clears it. */
+ * gone and the party's not, "Continue Battle:" asks, and Yes clears it.
+ * Dark Queen's round end (5045:0f6c) is not these: its descriptor's round_end_unported stops
+ * before any of it. */
 bool cok_combat_end_round(cok_adventure *game, bool *done);
 
 /* The shared helpers. */
