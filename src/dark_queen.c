@@ -5080,6 +5080,38 @@ void queen_combat_menu_close(cok_adventure *game)
     draw_frame_record(game, 6, 0, 0, NULL);
 }
 
+/* Speed (dqk 5045:166c, from 08cf's 0b22): "game speed: (N) " on the bar over Faster (while the
+ * speed is above 0), Slower (below 9) and Exit, by 1bdb:1e29 with no extended keys; Faster lowers
+ * var 0x12 (and game->speed) by one, Slower raises it, and the menu is shown again after each.
+ * Exit, or Escape or '`' (the bar's 0x1b), leaves it: true. False where the keys ran out. */
+bool queen_speed(cok_adventure *game)
+{
+    for (;;) {
+        unsigned speed = cok_ecl_var(&game->vm, COK_VAR_SPEED);
+        char prompt[48];
+        snprintf(prompt, sizeof prompt, "game speed: (%u) ", speed);
+        const char *items[3];
+        int index[3], n = 0;
+        if (speed > 0) {
+            index[n] = 0;
+            items[n++] = "Faster";
+        }
+        if (speed < 9) {
+            index[n] = 1;
+            items[n++] = "Slower";
+        }
+        index[n] = 2;
+        items[n++] = "Exit";
+        int choice = bar_menu(game, prompt, items, (size_t)n, false, false, 0, 0);
+        if (choice < 0) return false;
+        if (choice == 0x1b) return true;
+        if (choice >= n) continue;
+        if (index[choice] == 2) return true;
+        if (index[choice] == 0) set_speed(game, speed - 1u);
+        else set_speed(game, speed + 1u);
+    }
+}
+
 void queen_message(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
 {
     message_at(game, s, x, fg, bg);

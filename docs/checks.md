@@ -821,9 +821,26 @@ End and Delay none) and its DS:bd2d at the tail (End and Guard 1, Delay 0); the 
 guarding, dying, hits, forced, turns and turning bytes), turn list and whole screen at the tail. Traps: 078b is given
 back before 08cf is spun; 066a is spun only after the key (the keyboard polls held over 0.6 s); the menu is given back
 (`write_paused`) and settled a second before its screenshot.
-Gap (not resolved): at the tail the original keeps the cursor's box (COMSPR 15) at the combatant's cell after 078b's
-tail redraw, while eclplay's `cok_arena_redraw_cell` erases it (356 pixels, the 24 by 24 cell at (104, 80)). The
-whole-screen compare masks that cell (`TAIL_CURSOR_CELL`); the menu's and the other screens are not masked there.
+The tail's screen is the original's after its own page flip: 078b's tail redraw of the cell (`5837:025d`: the
+ground by `172c` through `19a4:0515`, whose begin, `19a4:05ee`, copies the front page to the back, `22b7:0849`, and
+draws to the back, `22b7:0c21(0)`, DS:1cb5 set; then the icon by `204c:030f`) is not shown until the next flip
+(`19a4:06d3`, `22b7:0a0b`), before the game's next wait. At 066a the shown page still has the menu's cursor box
+(356 pixels, the 24 by 24 cell at (104, 80)). So the flow checks DS:1cb5 is 1 there, then runs the flip at the spin
+(`dqk_fight_lib.flip`: lcall `19a4:06d3` over the trapped lcall, then EB FE 5 bytes on, written paused; DS:1cb5
+0 after it), and takes the screenshot after it. That is what eclplay's one screen holds, as at every wait.
+
+The same flow runs the command menu's four commands (step 4, part 22b; `command_original`, `command_port`,
+`commands`), each from the same first menu: Quick (Q) trapped at `5045:0a56` (the lcall to the computer's turn),
+Alt-Q (`\@Q`) at the tail `5045:066a` and flipped as above, Alt-M (`\@M`) and Speed (S, F, E) trapped at
+`5045:0cd7` (the menu built again), the menu's wait screen taken once the trap is given back. Eclplay's stops are
+the computer's turn (`5bb8:0000`), the tail (`148f:2ab8`) and the keys running out at the menu or the speed bar.
+Checked against the original: the RandSeed draws past the menu (Quick, Alt-Q and Alt-M one; Speed none), the
+records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too), the combat blocks (record 1's
+initiative 9 after Quick, 0x14 after Alt-Q), the turn list, DS:bd2d (1 after Quick, 0 at Alt-Q's tail), DS:b1cb
+(0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
+bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
+(`dqk_views.POINTER`), the others with the menu's pointer masked. Yell, Bandage and the mouse areas have no flow
+(repo tests only).
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

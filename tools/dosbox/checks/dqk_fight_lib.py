@@ -396,6 +396,30 @@ def untrap(box, handle):
     box.write_paused(moved)
 
 
+def call_then_spin(addresses, seg, off):
+    """The writes that make a trap's spin (at each of ADDRESSES, an instruction of 5 bytes or
+    more) call real SEG:OFF and then spin after it: lcall SEG:OFF (9A, the offset, the segment)
+    over the trap's 5 bytes, EB FE at +5. For write_paused (the CPU stands at the spin's jump)."""
+    call = b"\x9a" + struct.pack("<HH", off, seg) + b"\xeb\xfe"
+    return [(addr, call) for addr in addresses]
+
+
+DS_BEGUN = 0x1CB5          # DS:1cb5: drawing goes to the back page (19a4:05ee sets it, 06d3 clears)
+FLIP = (0x19A4, 0x06D3)    # the page flip: the back page shown (22b7:0a0b), drawing to the front
+
+
+def flip(box, handle, seconds=0.6):
+    """The original's own page flip (19a4:06d3) run where HANDLE's trap spins (at a far call:
+    the keys flow's 5045:066a), then the spin 5 bytes on: what is drawn since the last flip
+    (19a4:05ee's begin: 22b7:0849 copies the front page to the back, 22b7:0c21(0) draws to the
+    back) is then shown, as at the game's next wait. Returns DS:1cb5 after it (0: flipped)."""
+    seg, _ = box.from_ghidra(*FLIP)
+    spin = [(addr + 5, box.read(addr + 5, 2)) for addr, _ in handle]
+    box.write_paused(call_then_spin([addr for addr, _ in handle], seg, FLIP[1]))
+    held(box, spin, seconds)
+    return box.ds_byte(DS_BEGUN)
+
+
 def portable(s):
     """The state as setup.json keeps it. The heap pointers (the records' and the
     combat records' far pointers, the combatants' and the first record's) are not
