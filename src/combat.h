@@ -328,6 +328,13 @@ bool cok_combat_occupy(cok_combat *combat, const cok_rules *rules);
 bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
                       uint8_t dir, uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle);
 
+/* The marks of record's footprint shifted in dir, as Dark Queen's probe 5837:0bd1 sets them
+ * (0cca-0cf0): *kind the tile of the last cell that is 0x1b, 0x1c or 0x1d (0 for none), and
+ * *acid whether a cell is 0x46. Each cell is read on its own, not through the terrain cost the
+ * probe picks. Returns false for a size past the footprints. */
+bool cok_combat_marks(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                      uint8_t dir, uint8_t *kind, bool *acid);
+
 /* The distance the formations are laid out at (3cb2:17f7's start; dkk 410b:18c2;
  * dqk 59c7:16b3): distance, the var COK_VAR_DISTANCE, unless it is 0 and the facing
  * is not the party's (direction), when the descriptor's ambush distance is taken

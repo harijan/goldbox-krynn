@@ -95,19 +95,33 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *ru
     return true;
 }
 
+unsigned cok_combat_field_word(const cok_rules *rules, const uint8_t *r, cok_field f)
+{
+    size_t at = cok_field_one_(rules->character, f, 1);
+    return rules->combat.int_status_hostile ? cok_field_get16_(r, at) : r[at];
+}
+
+void cok_combat_set_field_word(const cok_rules *rules, uint8_t *r, cok_field f, unsigned v)
+{
+    size_t at = cok_field_one_(rules->character, f, 1);
+    if (rules->combat.int_status_hostile) cok_field_put16_(r, at, (uint16_t)v);
+    else r[at] = (uint8_t)v;
+}
+
 bool cok_combat_bandage(cok_adventure *game, bool bandage)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
     bool found = false;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_character_combat(c)->not_party != 0 || cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 ||
-            cok_field_u8(L, r, COK_FIELD_STATUS) != 5)
+        if (cok_character_combat(c)->not_party != 0 ||
+            cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) != 0 ||
+            cok_combat_field_word(rules, r, COK_FIELD_STATUS) != 5)
             continue;
         found = true;
         if (!bandage) continue;
-        cok_field_set8(L, r, COK_FIELD_STATUS, 4);
+        cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 4);
         if (c->combat != NULL) c->combat->dying = 0;
         (void)cok_arena_say(game, c, cok_game_rules(game)->fight.words.bandaged, 10,
                             true); /* 6346:326c; row 10 never fails */
@@ -308,7 +322,7 @@ bool cok_combat_battle_only(cok_adventure *game, cok_character *c)
     }
     if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_BERSERK) != NULL &&
         cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3)
-        cok_field_set8(L, c->record, COK_FIELD_HOSTILE, 0);
+        cok_combat_set_field_word(cok_game_rules(game), c->record, COK_FIELD_HOSTILE, 0);
     return true;
 }
 
@@ -949,8 +963,9 @@ bool cok_combat_turn_tail(cok_adventure *game)
 
 /* The square test of each record at the round's end: the shared cok_cloud_square, or, where
  * the descriptor has square_unported (Dark Queen's 148f:12ab(rec, 0, 1)), a record that can act
- * (+0x18b) probes its square (probe 8), and a cloud or terrain 0x46 there stops, cited. Its
- * other branches are the clouds' (part 39), not run here. */
+ * (+0x18b) reads its footprint's marks (cok_combat_marks, probe 8: 5837:0bd1). A cloud kind 0x1b
+ * or 0x1c, or acid (0x46), stops, cited; kind 0x1d is skipped at the round's end (12f0-12fc).
+ * Its other branches are the clouds' (part 39), not run here. */
 static bool round_square(cok_adventure *game, cok_character *c)
 {
     const cok_rules *rules = cok_game_rules(game);
@@ -958,18 +973,18 @@ static bool round_square(cok_adventure *game, cok_character *c)
     if (R->square_unported == NULL) return cok_cloud_square(game, c, false);
     const cok_character_layout *L = rules->character;
     if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) return true;
-    uint8_t occupant, terrain;
-    bool cloud, puddle;
-    if (!cok_combat_probe(&game->combat, rules, c->record, 8, &occupant, &terrain, &cloud, &puddle))
+    uint8_t kind;
+    bool acid;
+    if (!cok_combat_marks(&game->combat, rules, c->record, 8, &kind, &acid))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (cloud || terrain == 0x46) return cok_adventure_not_yet(game, "round's end", R->square_unported);
+    if (kind == 0x1b || kind == 0x1c || acid)
+        return cok_adventure_not_yet(game, "round's end", R->square_unported);
     return true;
 }
 
 bool cok_combat_end_round(cok_adventure *game, bool *done)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     /* 57e4:0549, a minute on the clock: Dark Queen's is 1396:044d(1, 1) (its timers too). */
     const cok_drawing *D = cok_adventure_drawing(game);
@@ -987,10 +1002,11 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         if (!event(game, c, 0x13) || !round_square(game, c)) return false;
-        if (cok_field_u8(L, c->record, COK_FIELD_STATUS) != 5) continue;
+        if (cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS) != 5) continue;
         cok_combat_record *cr = record_of(game, c);
         if (cr == NULL) return false;
-        if (++cr->dying > 9) cok_field_set8(L, c->record, COK_FIELD_STATUS, 6);
+        if (++cr->dying > 9)
+            cok_combat_set_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS, 6);
     }
     if (cok_combat_bandage(game, false)) {
         if (D != NULL && D->teammate_dying != NULL) D->teammate_dying(game);

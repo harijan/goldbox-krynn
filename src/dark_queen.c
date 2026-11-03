@@ -5835,12 +5835,13 @@ bool cok_dark_queen_continue_battle(cok_adventure *game)
     return queen_yes_no(game, "continue battle? ") == 1;
 }
 
-/* 5045:0001's icons (204c:004d): the slots 0x0f-0x16 emptied. The slots 0x98-0x9c are not
- * emptied here: icon_clear keeps no slot past ICON_SLOTS, and 204c:004d's index for them is
- * not traced (open: part 39). */
+/* 5045:0001's icons (204c:004d): the slots 0x0f-0x25 emptied, k = 0..0x16 at 00e0-00f9 (the
+ * battle's 23 COMSPR slots, the cursor's 0x1e among them). The slots 0x98-0x9c are not emptied
+ * here: icon_clear keeps no slot past ICON_SLOTS, and 204c:004d's index for them is not traced
+ * (open: part 39). */
 void cok_dark_queen_battle_icons(cok_adventure *game)
 {
-    for (unsigned slot = 0x0f; slot <= 0x16; ++slot) icon_clear(game, slot);
+    for (unsigned k = 0; k <= 0x16; ++k) icon_clear(game, 0x0f + k);
 }
 
 /* 261b:05be after a turn (5045:066a): each colour cycle whose time has come steps once, at the

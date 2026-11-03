@@ -1141,14 +1141,16 @@ static void battle(cok_adventure *game)
         return;
     }
     if (!cok_combat_battle(game) || game->vm.abort) return;
-    /* The sound driver is off through the end of combat (2fd3:1b6e to
-     * 1b84), with 351b's overlay loaded. Dark Queen's end of combat is 75cc:135c, the same
-     * branch as with no monsters (dark_queen.c). */
-    cok_adventure_sound(game, COK_SOUND_OVERLAY, 0);
-    if (cok_game_rules(game)->combat.no_monsters_treasure == COK_NO_MONSTERS_TREASURE_DARK_QUEEN)
+    /* Dark Queen's end of combat is 75cc:135c, the same branch as with no monsters
+     * (dark_queen.c), called with no sound call around it (5f07:08f0-08f5). */
+    if (cok_game_rules(game)->combat.no_monsters_treasure == COK_NO_MONSTERS_TREASURE_DARK_QUEEN) {
         cok_dark_queen_no_monsters_treasure(game);
-    else
-        cok_treasure_end_of_combat(game);
+        return;
+    }
+    /* The sound driver is off through the end of combat (2fd3:1b6e to
+     * 1b84), with 351b's overlay loaded. */
+    cok_adventure_sound(game, COK_SOUND_OVERLAY, 0);
+    cok_treasure_end_of_combat(game);
     cok_adventure_sound(game, COK_SOUND_OVERLAY_END, 0);
 }
 

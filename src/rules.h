@@ -1233,7 +1233,8 @@ typedef struct {
     const char *pending_unported, *demo_key_unported;
     /* Dark Queen's round end (5045:0f6c; the drawing's hooks round_clock, teammate_dying and
      * continue_battle where set): the clouds stop at round_clouds_unported when one exists, and
-     * the square test (148f:12ab) stops at square_unported for a cloud or terrain 0x46. */
+     * the square test (148f:12ab) stops at square_unported for a cloud kind 0x1b or 0x1c, or
+     * acid (0x46: cok_combat_marks). */
     const char *round_clouds_unported, *square_unported;
     /* Dark Queen's battle's end (5045:0001, the shared cok_combat_end): each record holding one
      * of the two effect ids (0 for none) stops at battle_end_unported (148f:017d, part 27b)
@@ -1333,6 +1334,10 @@ typedef struct {
     /* Dark Queen's combat block and the records that differ (59c7:0f7b), or NULL where
      * cok_combat_records is the records (3cb2:10d9, dkk 410b's). */
     const cok_combat_block *combat_block;
+    /* Dark Queen's status and hostile are ints (5045:0001's cmpw, 0f6c's and 51c2's cmpw, 1b66's
+     * movw): the battle's end and the round's end test and write the word at the byte field
+     * (cok_combat_field_word, cok_combat_set_field_word). */
+    bool int_status_hostile;
 } cok_rules_combat;
 
 /* The fight's words that differ (round.c, ai.c, attack.c, arena.c,

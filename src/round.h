@@ -126,6 +126,11 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *ru
  * unconscious, no rounds dying, and "is bandaged" said. */
 bool cok_combat_bandage(cok_adventure *game, bool bandage);
 
+/* A record's status or hostile field (cok_field f, one byte): read and written as the byte, or,
+ * where the descriptor's int_status_hostile (Dark Queen's ints), as the word at it. */
+unsigned cok_combat_field_word(const cok_rules *rules, const uint8_t *r, cok_field f);
+void cok_combat_set_field_word(const cok_rules *rules, uint8_t *r, cok_field f, unsigned v);
+
 /* 6346:0cdb: whether c has effect 0x33, 0x34, 0x35 or 0x1f (DS:200c). */
 bool cok_combat_helpless(const cok_character *c, const cok_rules *rules);
 

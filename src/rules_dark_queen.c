@@ -741,6 +741,7 @@ const cok_rules cok_rules_dark_queen = {
              * the clouds 148f:2817 and the square test 148f:12ab (its cloud and terrain stops:
              * part 39), "Your Teammate is Dying" (177e:153c) and the Continue question
              * (1bdb:0424). */
+            .int_status_hostile = true,
             .round_clouds_unported = "dqk 148f:2817 (the round's clouds, part 39)",
             .square_unported = "dqk 148f:12ab (a cloud or a pool's terrain at the square, part 39)",
             /* The battle's end (5045:0001): the clouds (round_clouds_unported), each record's

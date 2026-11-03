@@ -599,7 +599,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
  * must be ported with its id first (dqk-effects-a..e). */
 const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_CHARMED] = 0x0b,   /* 5045:0001's charm test */
-    [COK_EFFECT_INVISIBLE] = 0x19, /* 1b66's sixteen, the attack's invisible */
+    [COK_EFFECT_INVISIBLE] = 0x19, /* 148f:1b2a removes every 0x19; the attack's invisible */
     [COK_EFFECT_BERSERK] = 0x4d,   /* 1b66's test (75cc, the battle's end) */
 };
 
