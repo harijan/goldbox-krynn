@@ -1337,7 +1337,7 @@ static bool aimed(cok_adventure *game, cok_character *attacker, cok_character *t
     bool missile, has, thrown;
     if (!missile_weapon(game, attacker, &missile)) return false;
     if (missile) {
-        if (!cok_combat_ammunition(&game->item_types, attacker, &item, &has) ||
+        if (!cok_combat_ammunition(game, attacker, &item, &has) ||
             !cok_combat_thrown(&game->item_types, attacker, &thrown))
             return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
         if (has && thrown) {
@@ -1361,7 +1361,7 @@ bool cok_combat_melee(cok_adventure *game, cok_character *c)
         size_t ammunition = 0;
         uint8_t n, range = 1;
         if (!missile_weapon(game, c, &missile)) return false;
-        if (missile && !cok_combat_ammunition(&game->item_types, c, &ammunition, &has))
+        if (missile && !cok_combat_ammunition(game, c, &ammunition, &has))
             return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
         if (!cok_combat_enemies(game, c, 1, &n)) return false;
         if (n == 0 && missile && has) {

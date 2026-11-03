@@ -329,13 +329,13 @@ static void test_weapon(void)
     bool missile, has;
     size_t ammo;
     CHECK(cok_combat_missile_weapon(t, a, &missile) && missile);
-    CHECK(cok_combat_ammunition(t, a, &ammo, &has) && !has && ammo == 0);
+    CHECK(cok_combat_ammunition(&game, a, &ammo, &has) && !has && ammo == 0);
     /* Without arrows it attacks at +0x10b, halved. */
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 2);
     /* With 3 arrows its rate (byte 5, at least 2), at most 3. */
     give(a, 0x1e, 3);
     CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
-    CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 2);
+    CHECK(cok_combat_ammunition(&game, a, &ammo, &has) && has && ammo == 2);
     uint8_t rate = t->type[bow][5] < 2 ? 2 : t->type[bow][5];
     uint8_t n = (uint8_t)(rate >> 1);
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == (n < 3 ? n : 3));
@@ -360,7 +360,7 @@ static void test_weapon(void)
     r[0x10b] = 6;
     give(a, 0x1c, 1);
     CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
-    CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 0);
+    CHECK(cok_combat_ammunition(&game, a, &ammo, &has) && has && ammo == 0);
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 1);
     /* A hoopak (0x43, thrown, rate 0) is its own ammunition, at 2. */
     reset("");
@@ -369,7 +369,7 @@ static void test_weapon(void)
     r[0x10b] = 6;
     give(a, 0x43, 1);
     CHECK(cok_character_stats(a, &cok_rules_champions, t, error, sizeof error));
-    CHECK(cok_combat_ammunition(t, a, &ammo, &has) && has && ammo == 1);
+    CHECK(cok_combat_ammunition(&game, a, &ammo, &has) && has && ammo == 1);
     CHECK(cok_combat_weapon_attacks(&game, a) && r[0x18f] == 1);
     /* A range of 1 is no missile weapon (no shipped type has one). */
     cok_item_types saved = game.item_types;
@@ -384,8 +384,27 @@ static void test_weapon(void)
     /* No weapon: no ammunition, unless... flags 0x0a need a weapon. */
     reset("");
     cok_character *b = record('B', 0, 5, 5);
-    CHECK(cok_combat_ammunition(t, b, &ammo, &has) && !has);
+    CHECK(cok_combat_ammunition(&game, b, &ammo, &has) && !has);
     CHECK(cok_combat_missile_weapon(t, b, &missile) && !missile);
+}
+
+/* A types table never read (record_type_at 0) keeps a record's type at 0x2e, where Champions and
+ * Death Knights keep it: the readied weapon's missile flag (type 5's range 2) and no byte 0 of the
+ * item (0, a type with no range). */
+static void test_record_type(void)
+{
+    reset("");
+    cok_character *a = record('A', 0, 5, 5);
+    static cok_item_types types;
+    types.type[5][12] = 2;
+    give(a, 5, 1);
+    a->slots[0] = 1;
+    bool missile = false;
+    CHECK(cok_combat_missile_weapon(&types, a, &missile) && missile);
+    types.record_type_at = 0x2e;
+    CHECK(cok_combat_missile_weapon(&types, a, &missile) && missile);
+    types.record_type_at = 0x30;
+    CHECK(cok_combat_missile_weapon(&types, a, &missile) && !missile);
 }
 
 static void test_damage(void)
@@ -1492,6 +1511,7 @@ int main(void)
     test_round_start();
     test_movement();
     test_weapon();
+    test_record_type();
     test_damage();
     test_helpers();
     test_leave();

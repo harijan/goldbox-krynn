@@ -2946,8 +2946,11 @@ bool cok_adventure_read_item_types(cok_adventure *game)
         }
         snprintf(path, sizeof path, "%s/%s/%s", game->assets, folders[i], f->item_types);
     }
-    return cok_item_types_read_at(path, f->item_types_at, &game->item_types, game->error,
-                                  sizeof game->error);
+    if (!cok_item_types_read_at(path, f->item_types_at, &game->item_types, game->error,
+                                sizeof game->error))
+        return false;
+    game->item_types.record_type_at = cok_game_rules(game)->item_record.type;
+    return true;
 }
 
 void cok_adventure_close(cok_adventure *game)

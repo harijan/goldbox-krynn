@@ -1125,7 +1125,7 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over)
         if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return type_past(game);
         if (missile) {
             bool has, thrown;
-            if (!cok_combat_ammunition(&game->item_types, c, &ammunition, &has) ||
+            if (!cok_combat_ammunition(game, c, &ammunition, &has) ||
                 !cok_combat_thrown(&game->item_types, c, &thrown))
                 return type_past(game);
             combat->in_reach = has;
