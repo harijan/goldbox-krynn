@@ -1833,6 +1833,150 @@ static void test_dark_queen_stats(void)
     cok_effects_free(&dfx);
 }
 
+/* A one-member party for the Dark Queen's stat tests: the member is freed by dq_member_free. */
+static cok_character *dq_member(cok_party *dq)
+{
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    dq->members[0] = c;
+    dq->count = 1;
+    return c;
+}
+
+static void dq_member_free(cok_party *dq, cok_character *c)
+{
+    dq->count = 0;
+    dq->members[0] = NULL;
+    cok_character_free(c);
+    free(c);
+}
+
+/* A readied (or not) item of Dark Queen's layout: power (+0x38, 0x80 and up) and kind (+0x37). */
+static void dq_item(cok_character *c, const cok_rules *R, uint8_t power, uint8_t kind, uint8_t readied)
+{
+    uint8_t (*items)[COK_ITEM_SIZE] = realloc(c->items, (c->item_count + 1) * COK_ITEM_SIZE);
+    CHECK(items != NULL);
+    c->items = items;
+    uint8_t *item = c->items[c->item_count++];
+    memset(item, 0, COK_ITEM_SIZE);
+    item[R->item_record.readied] = readied;
+    item[0x38] = power;
+    item[0x37] = kind;
+}
+
+/* 148f:1dfc with strength (stat 0): the readied items' 18/xx (1e37-1ea2: a power above 0x80
+ * counts, an unreadied item or a power of exactly 0x80 does not) and Enlarge (0x0c, merged by
+ * the same helpers as the effects). The base strength is 15. */
+static void test_dark_queen_strength_items(void)
+{
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    cok_ecl dvm;
+    cok_item_types item_types = {0};
+    cok_party dq_party = {0};
+    cok_effects dfx;
+    memset(&dvm, 0, sizeof dvm);
+    dvm.rules = R;
+    dvm.mode = 5;
+    cok_effects_init(&dfx, R, &dvm, &dq_party, &item_types);
+
+    /* Power 3 is 18/100; power 5 is 18 + its kind (20 for kind 2) and 18/100 for kind 0; a
+     * power of exactly 0x80 and an unreadied item count for nothing. */
+    static const struct { uint8_t power, kind, readied, strength, exceptional; } cases[] = {
+        {0x83, 0, 1, 18, 100},
+        {0x85, 2, 1, 20, 0},
+        {0x85, 0, 1, 18, 100},
+        {0x80, 0, 1, 15, 0},
+        {0x83, 0, 0, 15, 0},
+    };
+    cok_character *c = dq_member(&dq_party);
+    uint8_t *r = c->record;
+    for (size_t i = 0; i < sizeof cases / sizeof cases[0]; ++i) {
+        c->item_count = 0;
+        cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 0, 15);
+        dq_item(c, R, cases[i].power, cases[i].kind, cases[i].readied);
+        CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == cases[i].strength &&
+              r[0x84] == cases[i].exceptional);
+    }
+    dq_member_free(&dq_party, c);
+
+    /* Enlarge (0x0c): value 0x40 is 18 with exceptional 63 (cok_effect_strength), 120 is 20. */
+    c = dq_member(&dq_party);
+    r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 0, 15);
+    add(c, 0x0c, 0, 0x40, false);
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 18 && r[0x84] == 63);
+    dq_member_free(&dq_party, c);
+    c = dq_member(&dq_party);
+    r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 0, 15);
+    add(c, 0x0c, 0, 120, false);
+    CHECK(cok_effects_ability(&dfx, c, 0) && r[0x79] == 20 && r[0x84] == 0);
+    dq_member_free(&dq_party, c);
+    cok_effects_free(&dfx);
+}
+
+/* 148f:1dfc with constitution (stat 4, 203f-21ae): the former levels (+0xac) count, the current
+ * levels count above the change level (+0x92) and are capped at the top (DS:640a, 20a5-20b2),
+ * and a maximum that drops takes the hit points down by the drop, or to 0. */
+static void test_dark_queen_constitution(void)
+{
+    const cok_rules *R = &cok_rules_dark_queen;
+    const cok_character_layout *L = R->character;
+    cok_ecl dvm;
+    cok_item_types item_types = {0};
+    cok_party dq_party = {0};
+    cok_effects dfx;
+    memset(&dvm, 0, sizeof dvm);
+    dvm.rules = R;
+    dvm.mode = 5;
+    cok_effects_init(&dfx, R, &dvm, &dq_party, &item_types);
+
+    /* Former levels: class 0's former 3 is 6 hit points at 16 (2 a level), class 1's current 2
+     * is 3 levels (a fighter) at 2 = 6: 12 on the one class. */
+    cok_character *c = dq_member(&dq_party);
+    uint8_t *r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_FORMER_LEVEL, 0, 3);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 2);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 12 && r[0x198] == 12 && r[0x81] == 16);
+    dq_member_free(&dq_party, c);
+
+    /* Change level: class 1's current 2 less 1 is 1 level, 3 levels at 16 (2 a level): 4. */
+    c = dq_member(&dq_party);
+    r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 2);
+    cok_field_set8(L, r, COK_FIELD_CHANGE_LEVEL, 1);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 4 && r[0x198] == 4);
+    dq_member_free(&dq_party, c);
+
+    /* Top cap: class 0 at 12 counts its top, 10, and less the change level 5 is 5 levels: 10
+     * (uncapped, 7 levels would be 14). */
+    c = dq_member(&dq_party);
+    r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 12);
+    cok_field_set8(L, r, COK_FIELD_CHANGE_LEVEL, 5);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 10);
+    dq_member_free(&dq_party, c);
+
+    /* Drop: 6 hit points at 16, then 3 at 15 (1 a level: 3 levels), so the hit points fall by
+     * 3 (6 to 3); at 14 the maximum is 0 and the hit points, 2, fall to 0 (not below). */
+    c = dq_member(&dq_party);
+    r = c->record;
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 16);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 1, 2);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 6 && r[0x198] == 6);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 15);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 3 && r[0x198] == 3);
+    cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 2);
+    cok_field_set8_at(L, r, COK_FIELD_SCORE_BASE, 4, 14);
+    CHECK(cok_effects_ability(&dfx, c, 4) && r[0x89] == 0 && r[0x198] == 0);
+    dq_member_free(&dq_party, c);
+    cok_effects_free(&dfx);
+}
+
 /* Dark Queen's effects section (dqk 148f): the event lists (148f:0512's cases, a0512.txt), 02ed's
  * resistance (its condition, MR at +0xcc, and the caster level's stop), 2a6d's immunity after
  * event 6, and 017d's removal with no handler. */
@@ -1960,6 +2104,8 @@ int main(void)
     test_dkk_handlers();
     test_dark_queen();
     test_dark_queen_stats();
+    test_dark_queen_strength_items();
+    test_dark_queen_constitution();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);

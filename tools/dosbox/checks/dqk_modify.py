@@ -68,13 +68,14 @@ def patched(changes, member=0):
     return bytes(data)
 
 
-def node_patched(rewrites):
-    """SAVGAMA.QSV with some members' effect nodes rewritten in place: rewrites maps a member
-    (0 the first) to {node index (0 the first in its chain): (id, minutes, value, flag)}. A node
+def modified(rewrites=None, changes=None):
+    """SAVGAMA.QSV with some members' effect nodes rewritten in place and some of their record
+    bytes set: rewrites maps a member (0 the first) to {node index (0 the first in its chain):
+    (id, minutes, value, flag)}, changes maps a member to {offset in its record: byte}. A node
     is 9 bytes (+0 id, +1 minutes a word, +3 value, +4 the flag), its next pointer kept, so the
     file keeps its size."""
     data = bytearray((dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes())
-    for member, nodes in rewrites.items():
+    for member, nodes in (rewrites or {}).items():
         at = record_at(data, member)
         nodes_at = at + 0x19E + 17 * (data[at + 8] | data[at + 9] << 8)
         for k, (id_, minutes, value, flag) in nodes.items():
@@ -83,6 +84,10 @@ def node_patched(rewrites):
             data[node + 1:node + 3] = minutes.to_bytes(2, "little")
             data[node + 3] = value
             data[node + 4] = flag
+    for member, fields in (changes or {}).items():
+        at = record_at(data, member)
+        for offset, value in fields.items():
+            data[at + offset] = value
     return bytes(data)
 
 
