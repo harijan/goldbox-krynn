@@ -1921,7 +1921,8 @@ TURNS_SEED = 0x1756582C         # RandSeed at SHARKMAN's computer turn (0 draws 
 ROUND_SEED = 0x427245C1         # RandSeed at round 2's first menu (fixture 1)
 ROUND_TURN = 1                  # DS:bd2d at round 2's first menu (CINDER's entry)
 TURNS_LINE = "turn: SHARKMAN (initiative 5)"
-COMBAT_END = re.compile(r".*75cc:0e93.*")       # won: the treasure menu's stop (part 20)
+# won: the treasure menu's key wait (75cc:0e93, ported in part 20a): the keys run out there
+COMBAT_END = re.compile(r".*\(out of keys in block 1 at 8030\).*")
 WON_CHAINS_OFF = (0xB0, 0xD0, 0x0B)             # won: effects the battle's end and 1b66 read (none held)
 WON_STATE = ["mode 6", "seed 00003039", "flags 1 0 0 0 0 0", "standing 1", "fled 0", "monsters 1",
              "out 0", "b7a7 0", "share 1336", "pool 8 0 0"]
@@ -2202,7 +2203,7 @@ def won(v, work, opts):
                            records=base.with_suffix(".records"), state=base.with_suffix(".state"),
                            screen=base.with_suffix(".bmp"))
     v.check(COMBAT_END.fullmatch(end_last or "") is not None,
-            "eclplay stops at the treasure menu (75cc:0e93) after the results' key", end_last)
+            "eclplay waits at the treasure menu (75cc:0e93, part 20a) after the results' key", end_last)
     got = base.with_suffix(".state").read_text().splitlines() if base.with_suffix(".state").exists() else []
     v.check(got == WON_STATE, "eclplay's --state at the treasure menu is the original's", got)
     data = base.with_suffix(".records").read_bytes() if base.with_suffix(".records").exists() else b""
