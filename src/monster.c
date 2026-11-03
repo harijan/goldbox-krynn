@@ -1164,6 +1164,10 @@ static void combat(cok_adventure *game)
     bool fought = true;
     if (game->monsters_loaded && cok_game_rules(game)->combat.monsters_at_combat) {
         queen_monsters(game);
+        if (vm->abort) {
+            game->moving = moving;
+            return;
+        }
     } else if (game->monsters_loaded) {
         uint8_t open = cok_monster_open_squares(game, vm->map_x, vm->map_y, vm->direction);
         if (open < cok_ecl_var(vm, COK_VAR_DISTANCE)) cok_ecl_set_var(vm, COK_VAR_DISTANCE, open);

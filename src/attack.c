@@ -1309,7 +1309,10 @@ bool cok_combat_thrown(const cok_item_types *types, const cok_character *c, bool
     *thrown = false;
     if (!cok_combat_missile_weapon(types, c, &missile)) return false;
     if (!missile) return true;
-    uint8_t type = c->items[c->slots[0] - 1][0x2e];
+    /* The readied weapon's type at the game's item_record.type (0x2e Champions', Death Knights';
+     * 0x28 Dark Queen's), as weapon_type reads it (round.c). */
+    size_t at = types->record_type_at != 0 ? types->record_type_at : 0x2e;
+    uint8_t type = c->items[c->slots[0] - 1][at];
     *thrown = (types->type[type][14] & 0x14) == 0x14 || type == 0x43;
     return true;
 }

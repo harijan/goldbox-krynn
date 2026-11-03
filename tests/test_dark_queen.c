@@ -9,6 +9,7 @@
 #include "arena.h"
 #include "combat.h"
 #include "ecl.h"
+#include "dark_queen.h"
 #include "data_dark_queen.h"
 #include "field.h"
 #include "hlib.h"
@@ -298,9 +299,9 @@ static void test_turn_dispatch(void)
     game.vm.seed = 1;
     CHECK(cok_combat_round_start(&game, c));
     c->combat->initiative = 5;
-    /* A party member that can act: the stop at the command menu, its turn not ended. */
-    CHECK(!cok_combat_act(&game, c, false));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5045:08cf") != NULL);
+    /* A party member that can act reads the command menu (5045:08cf): with no keys the run ends
+     * there, its turn not ended and its initiative kept. */
+    CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
     CHECK(c->combat->initiative == 5);
     /* With a spell pending (the combat block's spell), the stop is the cast (849a:145b). */
     game.vm.status = COK_ECL_OK;
@@ -325,13 +326,13 @@ static void test_turn_dispatch(void)
     c->combat->initiative = 5;
     CHECK(!cok_combat_act(&game, c, true));
     CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
-    /* --combat's stubs do not pass over the stops: the party's menu, the computer's turn. */
+    /* --combat's stubs do not pass over the stops: the party's menu (no keys: kept), the
+     * computer's turn. */
     static const cok_combat_stub stubs[] = {COK_COMBAT_PASS, COK_COMBAT_MELEE};
     for (size_t i = 0; i < sizeof stubs / sizeof stubs[0]; ++i) {
         game.combat_stub = stubs[i];
         game.vm.status = COK_ECL_OK;
-        CHECK(!cok_combat_act(&game, c, false));
-        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5045:08cf") != NULL);
+        CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
         CHECK(c->combat->initiative == 5);
         game.vm.status = COK_ECL_OK;
         CHECK(!cok_combat_act(&game, c, true));
@@ -341,6 +342,9 @@ static void test_turn_dispatch(void)
     /* The turn's tail (5045:059d's, before the sides), the round's end (5045:0f6c) and the
      * battle's end (5045:0001) are cited stops too. */
     bool done = false;
+    /* The keys ran out at the menus above: the run is over, so the stops below are checked on a
+     * run that is going on (the stops are not reached once it is). */
+    game.vm.abort = game.input_ended = false;
     game.vm.status = COK_ECL_OK;
     CHECK(!cok_combat_turn_tail(&game) && game.vm.status == COK_ECL_UNPORTED);
     CHECK(strstr(game.error, "148f:2ab8") != NULL && strstr(game.error, "161b:05be") != NULL);
@@ -348,6 +352,7 @@ static void test_turn_dispatch(void)
     CHECK(!cok_combat_end_round(&game, &done) && game.vm.status == COK_ECL_UNPORTED);
     CHECK(strstr(game.error, "5045:0f6c") != NULL && !done);
     game.vm.status = COK_ECL_OK;
+    game.vm.abort = game.input_ended = false;
     CHECK(!cok_combat_end(&game) && game.vm.status == COK_ECL_UNPORTED);
     CHECK(strstr(game.error, "5045:0001") != NULL);
     cok_adventure_close(&game);
@@ -1228,6 +1233,306 @@ static void test_combat_panel(void)
     cok_adventure_close(&game);
 }
 
+/* The command menu (dqk 5045:08cf's 0cd7 and 1595) and its first routines, through
+ * queen_commands with a keyboard queue (script). CINDER is the one combatant. */
+typedef struct {
+    const char *keys;
+    size_t at;
+    int menus;          /* the "menu" lines logged (one per build) */
+    char menu[64];      /* the last one */
+    char messages[256]; /* the messages logged, each ended with ';' */
+} menu_script;
+
+static menu_script script;
+static cok_adventure menu_game;
+static bool menu_is_open;
+static cok_character *menu_c;
+static cok_character dummy_turn; /* a turn list entry that is not CINDER */
+
+static void menu_close(void)
+{
+    if (menu_is_open) cok_adventure_close(&menu_game);
+    menu_is_open = false;
+}
+
+static int menu_keys(void *context)
+{
+    menu_script *s = context;
+    if (s->keys[s->at] == '\0') return -1;
+    return (unsigned char)s->keys[s->at++];
+}
+
+static void menu_log(cok_adventure *game, const char *kind, const char *text, void *context)
+{
+    (void)game;
+    menu_script *s = context;
+    if (strcmp(kind, "menu") == 0) {
+        ++s->menus;
+        snprintf(s->menu, sizeof s->menu, "%s", text);
+    } else if (strcmp(kind, "message") == 0) {
+        size_t used = strlen(s->messages);
+        snprintf(s->messages + used, sizeof s->messages - used, "%s;", text);
+    }
+}
+
+/* Opens Dark Queen's game with CINDER at (5, 5), her turn to act with initiative 5, no items,
+ * no spells, no class levels, no weapon, not dying: the menu's defaults (Aim, Guard, Quick,
+ * Delay, View, Speed, End). The keys are set by menu_keys(script.keys). */
+static void menu_open(void)
+{
+    static cok_rules rules;
+    rules = *R;
+    rules.fight.cloud_tile = 0x1e;
+    menu_close();
+    cok_keyboard keys = {menu_keys, &script, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    hooks.log = menu_log;
+    hooks.context = &script;
+    CHECK(cok_adventure_open(&menu_game, &rules, "DQKAssets", &keys, &hooks));
+    menu_is_open = true;
+    const cok_character_layout *L = R->character;
+    menu_c = dqk_member(&menu_game, "'CINDER'");
+    CHECK(cok_party_add(&menu_game.party, R, menu_c));
+    menu_c->combat = calloc(1, sizeof *menu_c->combat);
+    CHECK(menu_c->combat != NULL);
+    uint8_t *r = menu_c->record;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, r, COK_FIELD_ITEM_COUNT, 0);
+    cok_field_set8(L, r, COK_FIELD_RACE, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 0);
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED);
+    memset(r + at, 0, 0x89);
+    menu_c->slots[0] = 0;
+    cok_combat *k = &menu_game.combat;
+    memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
+    k->count = 0;
+    place(&menu_game, menu_c, 5, 5);
+    menu_game.vm.seed = 1;
+    CHECK(cok_combat_round_start(&menu_game, menu_c));
+    menu_c->combat->initiative = 5;
+    menu_game.undead = 1;
+    menu_c->combat->turns = 0;
+    menu_c->combat->may_cast = 0;
+    menu_c->combat->forced = 0;
+    menu_c->combat->guarding = 0;
+    script.menus = 0;
+    script.menu[0] = '\0';
+    script.messages[0] = '\0';
+}
+
+/* Runs queen_commands on CINDER with keys, from a fresh menu's state (the keys' queue reset). */
+static bool menu_run(const char *keys)
+{
+    script.keys = keys;
+    script.at = 0;
+    script.menus = 0;
+    script.menu[0] = '\0';
+    script.messages[0] = '\0';
+    menu_game.vm.status = COK_ECL_OK;
+    menu_game.vm.abort = false;
+    return queen_commands(&menu_game, menu_c);
+}
+
+/* The menu's text when CINDER is as the test set her: queen_commands with no keys (the menu
+ * built, shown, and the keys run out at once). */
+static void menu_expect(const char *text)
+{
+    CHECK(menu_run(""));
+    if (strcmp(script.menu, text) != 0) {
+        fprintf(stderr, "menu \"%s\", expected \"%s\"\n", script.menu, text);
+        exit(1);
+    }
+    CHECK(menu_c->combat->initiative == 5 && menu_game.vm.status == COK_ECL_OK);
+}
+
+/* The menu's 13 conditions (0cd7): each item shown or hidden by the record's fields. */
+static void test_command_menu_items(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the command menu's items not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    menu_open();
+    uint8_t *r = menu_c->record;
+    /* The defaults: Guard (no weapon), Quick and Delay, Aim, View, Speed and End. */
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    /* Use while the record has items (+0xc9). */
+    cok_field_set8(L, r, COK_FIELD_ITEM_COUNT, 1);
+    menu_expect("Aim Use Guard Quick@Delay View Speed End");
+    cok_field_set8(L, r, COK_FIELD_ITEM_COUNT, 0);
+    /* Cast: a memorised byte past the old count (+0x150, below +0xce + 0x4a), with var 2 (the
+     * area's magic: COK_VAR_NO_MAGIC) 0 and the round's may-cast set; any of the three not, hides
+     * it. */
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED);
+    r[0x150] = 0x03;
+    menu_c->combat->may_cast = 1;
+    menu_expect("Aim Cast Guard Quick@Delay View Speed End");
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_NO_MAGIC, 1);
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_NO_MAGIC, 0);
+    menu_c->combat->may_cast = 0;
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    menu_c->combat->may_cast = 1;
+    r[0x150] = 0x80; /* the low 7 bits only count: this is no spell */
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    r[0x150] = 0;
+    memset(r + at, 0, 0x89);
+    /* Turn: a class's level above 0 (class 0 here, class 3 next), with fewer turns than undead. */
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 1);
+    menu_expect("Aim Turn Guard Quick@Delay View Speed End");
+    menu_c->combat->turns = 1; /* as many as undead: none */
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    menu_c->combat->turns = 0;
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0xff); /* 177e:2234 reads it unsigned */
+    menu_expect("Aim Turn Guard Quick@Delay View Speed End");
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 0);
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 3);
+    menu_expect("Aim Turn Guard Quick@Delay View Speed End");
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 2); /* class 3 needs above 2 */
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 3, 0);
+    /* Yell: a kender (+0x58 5, and +0x59 0 for the word) while no one has yelled. */
+    cok_field_set8(L, r, COK_FIELD_RACE, 5);
+    menu_expect("Aim Guard Quick@Delay Yell View Speed End");
+    r[0x59] = 1;
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    r[0x59] = 0;
+    uint8_t yelled = 0;
+    menu_game.combat.yelled = &yelled;
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    menu_game.combat.yelled = NULL;
+    cok_field_set8(L, r, COK_FIELD_RACE, 0);
+    /* Bandage: a party member dying (status 5, not hostile). */
+    cok_field_set8(L, r, COK_FIELD_STATUS, 5);
+    menu_expect("Aim Guard Quick@Delay Bandage View Speed End");
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    /* Guard: a bow (missile, not thrown) gives none; a thrown weapon, a sword, one. The type is
+     * the readied item's at +0x28 (Dark Queen's item_record.type), not Champions' +0x2e. */
+    cok_item_types *types = &menu_game.item_types;
+    free(menu_c->items); /* the saved record's items: this one replaces them */
+    menu_c->items = calloc(1, COK_ITEM_SIZE);
+    CHECK(menu_c->items != NULL);
+    menu_c->item_count = 1;
+    menu_c->slots[0] = 1;
+    uint8_t bow = 5;
+    menu_c->items[0][0x28] = bow;
+    types->type[bow][12] = 2; /* range above 1: a missile weapon */
+    types->type[bow][14] = 0; /* not thrown */
+    menu_expect("Aim Quick@Delay View Speed End");
+    types->type[bow][14] = 0x14;
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    types->type[bow][14] = 0;
+    menu_c->items[0][0x2e] = 0x43; /* Champions' field, a hoopak: not read here */
+    menu_expect("Aim Quick@Delay View Speed End");
+    types->type[bow][12] = 0; /* a sword: not a missile weapon */
+    menu_expect("Aim Guard Quick@Delay View Speed End");
+    menu_c->items[0][0x2e] = 0;
+    menu_close();
+}
+
+/* The built text with every item shown, and the split at Quick (the '@'). */
+static void test_command_menu_text(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the command menu's text not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    menu_open();
+    uint8_t *r = menu_c->record;
+    cok_field_set8(L, r, COK_FIELD_ITEM_COUNT, 1);
+    menu_c->combat->may_cast = 1;
+    r[0x150] = 0x03;
+    cok_field_set8_at(L, r, COK_FIELD_CLASS_LEVEL, 0, 1);
+    cok_field_set8(L, r, COK_FIELD_RACE, 5);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 5);
+    menu_expect("Aim Use Cast Turn Guard Quick@Delay Bandage Yell View Speed End");
+    menu_close();
+}
+
+/* End, Guard, Delay and the keys: Escape does nothing, the keys running out end the run with the
+ * turn kept. */
+static void test_command_menu_keys(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the command menu's keys not checked");
+        return;
+    }
+    menu_open();
+    cok_combat_record *cr = menu_c->combat;
+    /* Use's stop (the item's routine, 86b8:0f41) with the item shown. */
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_ITEM_COUNT, 1);
+    CHECK(!menu_run("U") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "86b8:0f41") != NULL);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_ITEM_COUNT, 0);
+    /* Escape gives nothing: the menu shown again, then End. */
+    menu_game.vm.status = COK_ECL_OK;
+    CHECK(menu_run("\x1b" "E") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(script.menus == 1 && script.at == 2);
+    CHECK(cr->initiative == 0 && cr->movement == 0 && cr->guarding == 0);
+    /* Guard: guarding, the message, and one draw (the message's wait). */
+    menu_open();
+    cr = menu_c->combat;
+    uint32_t before = menu_game.vm.seed, drawn = before;
+    cok_tp_random(&drawn, 1000);
+    CHECK(menu_run("G") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cr->initiative == 0 && cr->guarding == 1);
+    CHECK(strcmp(script.messages, "Guarding;") == 0);
+    CHECK(menu_game.vm.seed == drawn);
+    /* Guard while forced: no guard, no message, and no draw. */
+    menu_open();
+    cr = menu_c->combat;
+    cr->forced = 1;
+    before = menu_game.vm.seed;
+    CHECK(menu_run("G") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cr->initiative == 0 && cr->guarding == 0 && script.messages[0] == '\0');
+    CHECK(menu_game.vm.seed == before);
+    /* Delay: initiative 1, the turn list shifted (c to the end), the index put back one. */
+    menu_open();
+    cr = menu_c->combat;
+    before = menu_game.vm.seed;
+    menu_game.combat.turn_index = 1;
+    menu_game.combat.turn[1] = menu_c;
+    menu_game.combat.turn[2] = &dummy_turn;
+    menu_game.combat.turn[3] = NULL;
+    CHECK(menu_run("D") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cr->initiative == 1 && menu_game.combat.turn[1] == &dummy_turn);
+    CHECK(menu_game.combat.turn[2] == menu_c && menu_game.combat.turn_index == 0);
+    CHECK(menu_game.vm.seed == before);
+    /* No keys: the run ends with the turn kept (initiative 5). */
+    menu_open();
+    CHECK(menu_run("") && menu_game.vm.status == COK_ECL_OK && menu_c->combat->initiative == 5);
+    menu_close();
+}
+
+/* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
+static void test_pass_draw(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the wait's draw not checked");
+        return;
+    }
+    menu_open();
+    uint32_t want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    queen_bar_message(&menu_game, "Guarding");
+    CHECK(menu_game.vm.seed == want);
+    /* ADD EP's wait (1a62:0949 -> 1df9:052a): one draw for a time, none for none. */
+    want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    cok_dark_queen_wait(&menu_game, 100);
+    CHECK(menu_game.vm.seed == want);
+    want = menu_game.vm.seed;
+    cok_dark_queen_wait(&menu_game, 0);
+    CHECK(menu_game.vm.seed == want);
+    menu_close();
+}
+
 int main(void)
 {
     test_wilderness();
@@ -1247,6 +1552,10 @@ int main(void)
     test_combat_panel();
     test_round_start_queen();
     test_turn_dispatch();
+    test_command_menu_items();
+    test_command_menu_text();
+    test_command_menu_keys();
+    test_pass_draw();
     puts("dark queen tests passed");
     return 0;
 }

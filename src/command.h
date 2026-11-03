@@ -61,6 +61,11 @@ bool cok_combat_cell_of(cok_adventure *game, const uint8_t *record, int8_t *x, i
  * gods presses Alt-X (0x2d), auto Alt-Q (0x10). */
 bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed);
 
+/* Delay (command.c's delay; dqk 5045:0a60, the same): c's initiative 1 and c moved to the end of
+ * the round's turn list, each after it moving up, and the turn index put back one. Shared by
+ * Death Knights' Delay and Dark Queen's (queen_commands.c). */
+void cok_combat_delay(cok_adventure *game, cok_character *c);
+
 /* 3995:08d5's menu for c, cut to 40 characters: "Move " while it has
  * movement left, "View Aim ", "Use " while it has items (+0x142), "Cast "
  * with a spell memorized (+0x1e-+0x57) when it may cast this round

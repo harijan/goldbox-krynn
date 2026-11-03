@@ -1371,10 +1371,13 @@ static void add_experience(cok_adventure *game)
         snprintf(text, sizeof text, "%s", T->party_gains);
     }
     print_text(game, text, T->gains_colour, true);
-    /* Dark Queen's waits the variable 0x12 as it is now (1a62:0949); the others' the
-     * speed as the game loaded it (521:0b4b). Its clock is not run (see docs/games.md). */
-    unsigned speed = dark_queen ? cok_ecl_var(vm, COK_VAR_SPEED) : game->speed;
-    wait_ms(game, speed * 100u);
+    /* Dark Queen's waits the variable 0x12 as it is now (1a62:0949 -> 1df9:052a, its draw
+     * first); the others' the speed as the game loaded it (521:0b4b). */
+    if (dark_queen) {
+        cok_dark_queen_wait(game, cok_ecl_var(vm, COK_VAR_SPEED) * 100u);
+    } else {
+        wait_ms(game, game->speed * 100u);
+    }
     if (one) {
         if (vm->character != NULL) gain_experience(game, vm->character, points);
         return;
