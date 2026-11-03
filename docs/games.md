@@ -791,8 +791,12 @@ run, citing their handlers (`unported`). It holds:
   `leadership_*` fields) is ported; Dark Queen's var 0x36 is FLED (`1dd7` clears it, `52db:2aef`
   sets it); and its setup has no prelude (`no_setup_prelude`: `5045:059d` and `1dd7` free no
   picture, clear no row, wait and print nothing, so "A battle begins..." is printed once, by COMBAT).
-  The view's origin (DS:bedb +2, +4) is written after the placement, so it is not compared. The open ground (`59c7:0e3b`, the wilderness builders) and
-  the placement (`59c7:0f7b`, `1864`, the records) stop the battle, cited.
+  The view's origin (DS:bedb +2, +4) is written after the placement, so it is not compared. The open ground
+  (`59c7:0e3b`: the floor 0x45, the river (`0860`, var 0x33), trees (`09e7`) and scatter (`0b79`, its cell `0ce3`
+  with a 0x2c band one roll wider and no 0x2c + d5) as Death Knights' builder does; the flags are `DS:5d7b` at
+  var 0x1a2, the Abyss's encounter state (only blocks 64 and 66 store it: 0, 1, 2, 4), 32 entries) is ported
+  (`COK_WILDERNESS_DARK_QUEEN`; `dqk_fight`'s flow `wild`). The
+  placement (`59c7:0f7b`, `1864`, the records) stops the battle, cited.
 - its maps: `GEO.GLB` records of their own size (`cok_view_set_geo`,
   `8a8b:12e3`): u8 height, u8 width, the wall sets of slots 0-2 and three
   backdrops, then four planes of a byte a square, row by row: the north

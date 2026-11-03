@@ -75,6 +75,11 @@ pixel for pixel in RGB, masked: the cells the combatants stand on (their icons: 
 11-12, each 24 by 24 exactly) and the mouse pointer at the corner (8 by 9, not the
 ground). The set is asserted to be DUNGCOM 4 (LOAD FILES 4 4).
 
+Flow `wild` (step 4, part 8): the same fight outside 3D (dqkecl.fight's `ground`: var 0x22 0, the
+flags index at var 0x1a2, the river at var 0x33), two grounds from one seed, each read at the placement
+(59c7:0f7b) and compared with eclplay's --field: the cells, header, records and RandSeed, which here is
+the original's after its draws past SEED (the open ground's rolls).
+
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
 the field flow (below) checks it at each square and records the purges.
@@ -835,6 +840,11 @@ def encounter(v, work, opts):
 # origin is written after the placement (1dd7's 4837:0aea), so it is what the battle before left,
 # and is compared as read.
 FIELD_CELLS = 50 * 25
+# The wild flow's grounds: (var 0x1a2, var 0x33) as the block stores them, values the shipped
+# ECL stores in var 0x1a2 (blocks 64 and 66: 0, 1, 2, 4). Index 1 is flags 0x18 (tree chance 10,
+# scatter's density 60) with no river; index 2 is flags 0x11 with the river on. Index 0 and 2
+# have the same flags (0x00 and 0x11 build alike), so the second ground differs by its river.
+WILD_GROUNDS = ((0x01, 0), (0x02, 1))
 # The party's squares: the fixture's (saved game A's, 7, 13, facing 0), one on the map's west
 # edge (0, 3, facing 2), where the squares off the map are walls but for the party's row (the
 # open side the builder's off-map rule gives, 59c7:0072), and two that catch what the first
@@ -907,12 +917,57 @@ def field_one(v, work, opts, square, tag):
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     where = "the fixture's square" if square is None else f"the square {square}"
     r = field_original(work, patched, opts.verbose, square, tag)
-    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:0f7b)",
-            f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
-    v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
+    spins_at_placement(v, r)
     three_d = r["variables"][0x22 - 1]
     v.check(three_d != 0, f"the battle at {where} is in 3D (var 0x22 set): the dungeon builder ran",
             f"var 0x22 {three_d}")
+    placement(v, work, patched, tag, where, square, r)
+
+
+def wild_block(state, river):
+    """Block 1 of the wild flow: the fight block, outside 3D (see dqkecl.fight's GROUND)."""
+    b = Block()
+    b.op("PRESS_KEY")
+    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, ground=(state, river))
+    b.op("EXIT")
+    return b
+
+
+def wild(v, work, opts):
+    """The open ground flow (step 4, part 8): battles outside 3D, each (var 0x1a2, river) of
+    WILD_GROUNDS, from the same saved game and seed, compared at the placement as `field`
+    compares the dungeon's."""
+    for k, (state, river) in enumerate(WILD_GROUNDS):
+        wild_one(v, work, opts, state, river, f"wild{k}")
+
+
+def wild_one(v, work, opts, state, river, tag):
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(state, river)))
+    where = f"var 0x1a2 {state:#x}, river {river}"
+    r = field_original(work, patched, opts.verbose, None, tag)
+    spins_at_placement(v, r)
+    variables = r["variables"]
+    v.check(variables[0x22 - 1] == 0 and variables[0x1A2 - 1] == state and
+            variables[0x33 - 1] == river,
+            f"the battle at {where} is outside 3D (var 0x22 0) with the block's var 0x1a2 "
+            f"and river (var 0x33): the open ground's builder runs (59c7:0e3b)",
+            f"var 0x22 {variables[0x22 - 1]}, 0x1a2 {variables[0x1A2 - 1]}, "
+            f"0x33 {variables[0x33 - 1]}")
+    placement(v, work, patched, tag, where, None, r, drawn=True)
+
+
+def spins_at_placement(v, r):
+    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:0f7b)",
+            f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
+    v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
+
+
+def placement(v, work, patched, tag, where, square, r, drawn=False):
+    """eclplay's run to the placement stop against the original's state r: the battlefield,
+    RandSeed, the records, the header and the view. DRAWN: the builders roll (the open ground's
+    trees, river and scatter), so RandSeed is the original's, after however many draws; else
+    the builders draw nothing past SEED."""
     original = r["field"]
     cells = bytes.fromhex(original["cells"])
     path = work / f"port-{tag}.field"
@@ -924,13 +979,22 @@ def field_one(v, work, opts, square, tag):
         v.check(False, "eclplay writes its battlefield at the stop", port_last)
         return
     seed, view, header, ported = parse_field(path)
-    draws = L.draws(SEED, r["seed"], 1000)
-    v.check(seed == SEED and draws == 0,
-            f"RandSeed at the placement: the original draws nothing past SEED, as eclplay does, "
-            f"at {where} (its memory cache purged {r['purges']} times, each drawing nothing: "
-            f"dqk_fight_lib.freeze_purges)",
-            f"original {r['seed']:#x} ({draws} draws past SEED, {r['purges']} purges), "
-            f"eclplay {seed:#x}")
+    if drawn:
+        n = L.draws(SEED, r["seed"])
+        v.check(seed == r["seed"] and n is not None,
+                f"RandSeed at the placement is the original's, after {n} draws past SEED (the "
+                f"open ground's rolls, one for one) at {where} (its memory cache purged "
+                f"{r['purges']} times, each drawing nothing: dqk_fight_lib.freeze_purges)",
+                f"original {r['seed']:#x} ({n} draws past SEED, {r['purges']} purges), "
+                f"eclplay {seed:#x}")
+    else:
+        draws = L.draws(SEED, r["seed"], 1000)
+        v.check(seed == SEED and draws == 0,
+                f"RandSeed at the placement: the original draws nothing past SEED, as eclplay "
+                f"does, at {where} (its memory cache purged {r['purges']} times, each drawing "
+                f"nothing: dqk_fight_lib.freeze_purges)",
+                f"original {r['seed']:#x} ({draws} draws past SEED, {r['purges']} purges), "
+                f"eclplay {seed:#x}")
     text = (work / f"port-{tag}.txt").read_text().splitlines()
     begun = sum(1 for line in text if line == "print: A battle begins...")
     data = records.read_bytes() if records.exists() else b""
@@ -948,7 +1012,7 @@ def field_one(v, work, opts, square, tag):
             f"eclplay {header}, the original's {original['header']}")
     expect = cells.hex()
     diff = [i for i in range(FIELD_CELLS) if ported[2 * i:2 * i + 2] != expect[2 * i:2 * i + 2]]
-    v.check(not diff, f"the 50 by 25 cells agree (the dungeon's tiles, as the builders leave them) "
+    v.check(not diff, f"the 50 by 25 cells agree (the builders' output) "
             f"at {where}",
             f"{len(diff)} cells differ, first {diff[:6]}" if diff else
             f"all {FIELD_CELLS} cells agree")
@@ -963,8 +1027,8 @@ def field_one(v, work, opts, square, tag):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field",
-                        help="which flows: setup, load, clear, six, ground, encounter, field")
+    parser.add_argument("--flows", default="setup,load,clear,six,ground,encounter,field,wild",
+                        help="which flows: setup, load, clear, six, ground, encounter, field, wild")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -985,6 +1049,8 @@ def main():
         encounter(v, work, opts)
     if "field" in flows:
         field(v, work, opts)
+    if "wild" in flows:
+        wild(v, work, opts)
     return v.finish()
 
 
