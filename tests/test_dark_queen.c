@@ -19,6 +19,7 @@
 #include "queen_levels.h"
 #include "round.h"
 #include "rules.h"
+#include "rules_dark_queen_magic.h"
 #include "test_temp.h"
 #include "vga.h"
 
@@ -340,22 +341,192 @@ static void test_turn_dispatch(void)
         CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
     }
     game.combat_stub = COK_COMBAT_UNPORTED;
-    /* The turn's tail (5045:059d's, before the sides), the round's end (5045:0f6c) and the
-     * battle's end (5045:0001) are cited stops too. */
-    bool done = false;
-    /* The keys ran out at the menus above: the run is over, so the stops below are checked on a
-     * run that is going on (the stops are not reached once it is). */
-    game.vm.abort = game.input_ended = false;
+    /* The keys ran out at the menus above: the run is over, and the tail, the round's end and
+     * the battle's end are checked on their own (test_round_end). */
+    cok_adventure_close(&game);
+}
+
+/* The scripted keys and the log of test_round_end. */
+typedef struct {
+    const char *keys;
+    size_t at, length;
+    char log[4096];
+} end_script;
+static end_script es;
+
+static int end_read(void *context)
+{
+    end_script *e = context;
+    if (e->at == e->length) return -1;
+    return (unsigned char)e->keys[e->at++];
+}
+
+static void end_log(cok_adventure *game, const char *kind, const char *text, void *context)
+{
+    (void)game;
+    end_script *e = context;
+    size_t used = strlen(e->log);
+    snprintf(e->log + used, sizeof e->log - used, "%s: %s;", kind, text);
+}
+
+#define END_LOGGED(text) (strstr(es.log, text) != NULL)
+
+/* The turn's tail (5045:059d's: the pending lists, damage type 0, the demonstration's key test,
+ * the colour cycles), the round's end (5045:0f6c: the clouds, the teammate's text, the Continue
+ * question) and the battle's end (5045:0001: effect 0xb0, the charm test, the icons), on the
+ * first turn's one party member (CINDER). Each stop is one the port cites; the rest runs. */
+static void test_round_end(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the round's end not checked");
+        return;
+    }
+    static cok_rules rules;
+    rules = *R;
+    static cok_adventure game;
+    cok_keyboard keys = {end_read, &es, NULL, NULL};
+    cok_adventure_hooks hooks = {.log = end_log, .context = &es};
+    CHECK(cok_adventure_open(&game, &rules, "DQKAssets", &keys, &hooks));
+    const cok_character_layout *L = R->character;
+    cok_character *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, R, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    cok_combat *k = &game.combat;
+    memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
+    k->count = 1;
+    place(&game, c, 5, 5);
+    game.vm.seed = 1;
     game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    game.input_ended = false;
+
+    /* The tail: a pending list stops it (cited, all three names), else the damage type is 0. */
+    k->pending[1] = 1;
+    game.effects.rolls.damage_type = 8;
     CHECK(!cok_combat_turn_tail(&game) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "148f:2ab8") != NULL && strstr(game.error, "161b:05be") != NULL);
+    CHECK(strstr(game.error, "148f:2ab8") != NULL && strstr(game.error, "2d9b") != NULL);
+    k->pending[1] = 0;
     game.vm.status = COK_ECL_OK;
+    game.vm.abort = false; /* a stop ends the run */
+    CHECK(cok_combat_turn_tail(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.damage_type == 0);
+    /* The demonstration's key test is a cited stop. */
+    game.demo = true;
+    CHECK(!cok_combat_turn_tail(&game) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "5045:06cf-070e") != NULL);
+    game.demo = false;
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+
+    /* The round's end: a cloud stops it (148f:2817), before the count of rounds. */
+    cok_combat_cloud *cloud = calloc(1, sizeof *cloud);
+    CHECK(cloud != NULL);
+    k->clouds = cloud;
+    bool done = false;
     CHECK(!cok_combat_end_round(&game, &done) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "5045:0f6c") != NULL && !done);
+    CHECK(strstr(game.error, "148f:2817") != NULL && !done);
+    k->clouds = NULL;
+    free(cloud);
     game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+
+    /* The square test (148f:12ab, probe 8's footprint: cok_combat_marks): a cloud kind 0x1b or
+     * 0x1c stops it, cited; 0x1d is skipped at the round's end (12f0-12fc); acid (0x46) stops
+     * it, also where a later cell of the footprint is floor (the terrain pick would drop it). */
+    static const struct {
+        uint8_t tile;
+        bool stops;
+    } squares[] = {{0x1b, true}, {0x1c, true}, {0x1d, false}, {0x46, true}};
+    for (size_t i = 0; i < sizeof squares / sizeof squares[0]; ++i) {
+        k->cells[5][5] = squares[i].tile;
+        game.error[0] = '\0';
+        bool done2 = false;
+        bool ok = cok_combat_end_round(&game, &done2);
+        bool stopped = !ok && game.vm.status == COK_ECL_UNPORTED &&
+                       strstr(game.error, "148f:12ab") != NULL;
+        CHECK(stopped == squares[i].stops);
+        game.vm.status = COK_ECL_OK;
+        game.vm.abort = false;
+    }
+    k->cells[5][5] = COK_COMBAT_FLOOR;
+    /* Size 2: acid in the first cell of the footprint, floor in the rest: the walk still stops. */
+    k->combatant[1].size = 2;
+    CHECK(cok_combat_occupy(k, R));
+    int8_t dx0 = 0, dy0 = 0;
+    bool first = false;
+    for (unsigned j = 0; j < 8 && !first; ++j) {
+        int8_t dx, dy;
+        if (!cok_combat_footprint(R, 2, j, &dx, &dy)) continue;
+        if (!first) {
+            dx0 = dx;
+            dy0 = dy;
+            first = true;
+        }
+        k->cells[5 + dy][5 + dx] = COK_COMBAT_FLOOR;
+    }
+    CHECK(first);
+    k->cells[5 + dy0][5 + dx0] = 0x46;
+    game.error[0] = '\0';
+    bool done3 = false;
+    CHECK(!cok_combat_end_round(&game, &done3) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "148f:12ab") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    k->combatant[1].size = 1;
+    CHECK(cok_combat_occupy(k, R));
+    k->cells[5 + dy0][5 + dx0] = COK_COMBAT_FLOOR;
+    k->cells[5][5] = COK_COMBAT_FLOOR;
+
+    /* The round's end runs the centring (the arena's map), which this fixture does not build:
+     * its two texts are checked through their hooks. "Your Teammate is Dying" is in the bar;
+     * the Continue question keeps the battle on Yes and not on no keys (an abort). */
+    const cok_drawing *D = cok_adventure_drawing(&game);
+    CHECK(D != NULL && D->teammate_dying != NULL && D->continue_battle != NULL);
+    D->teammate_dying(&game);
+    CHECK(END_LOGGED("message: Your Teammate is Dying;"));
+    es.keys = "";
+    es.length = 0;
+    es.at = 0;
+    CHECK(!D->continue_battle(&game)); /* the keys ran out: no answer */
     game.vm.abort = game.input_ended = false;
+    es.keys = "Y";
+    es.length = 1;
+    es.at = 0;
+    CHECK(D->continue_battle(&game)); /* Yes */
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+
+    /* The battle's end: effect 0xb0 stops it (148f:017d), before the charm test. */
+    es.keys = "";
+    es.length = 0;
+    es.at = 0;
+    CHECK(cok_character_add_effect(c, 0xb0, 0, 0x10, false) != NULL);
     CHECK(!cok_combat_end(&game) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "5045:0001") != NULL);
+    CHECK(strstr(game.error, "148f:017d") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    CHECK(cok_effects_remove(&game.effects, c, NULL, 0xb0));
+    /* The charm test: charmed (0x0b) with status 0 is okay with the enemy's side standing (3),
+     * else 0 (the enemy's side is gone here). */
+    CHECK(cok_character_add_effect(c, 0x0b, 0, 1, false) != NULL);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    k->sides[1] = 2;
+    CHECK(cok_combat_end(&game) && game.vm.status == COK_ECL_OK && !game.combat_targets);
+    CHECK(cok_field_u8(L, r, COK_FIELD_STATUS) == 3);
+    /* Dark Queen's status is an int (cok_combat_field_word): 0x0100 is not 0, so the charm test
+     * leaves it (5045:0001's cmpw $0, +0x64), and the word is read and kept. */
+    CHECK(cok_character_add_effect(c, 0x0b, 0, 1, false) != NULL);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    r[cok_field_offset(L, COK_FIELD_STATUS) + 1] = 1;
+    CHECK(cok_combat_field_word(R, r, COK_FIELD_STATUS) == 0x100);
+    CHECK(cok_combat_end(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_field_word(R, r, COK_FIELD_STATUS) == 0x100);
     cok_adventure_close(&game);
 }
 
@@ -580,11 +751,11 @@ static void test_combat_tables(void)
     CHECK(cok_data_first(D, COK_DATA_CLOUD_CELLS, 0) == 1);
     CHECK(cok_data_count(D, COK_DATA_FOOTPRINTS, 1) == 6);
     CHECK(cok_data_count(D, COK_DATA_HELPLESS, 0) == 4);
-    CHECK(cok_data_first(D, COK_DATA_BATTLE_ONLY, 0) == 1);
+    CHECK(cok_data_first(D, COK_DATA_BATTLE_ONLY, 0) == 0); /* DS:00a2 + i: 1b66's k - 1 */
     CHECK(cok_data_count(D, COK_DATA_BATTLE_ONLY, 0) == 16);
     CHECK(cok_data_u8_at(D, COK_DATA_HELPLESS, 0) == 0x1f);
-    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 1) == 0x03);
-    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 16) == 0x76);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 0) == 0x03);
+    CHECK(cok_data_u8_at(D, COK_DATA_BATTLE_ONLY, 15) == 0x76);
     CHECK(cok_data_u8_at(D, COK_DATA_CLOUD_CELLS, 9) == 0x01);
 }
 
@@ -749,8 +920,14 @@ static void test_magic_ids(void)
             CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
-    /* No effect id is named yet (rules_dark_queen_magic.c): effects.ids stays NULL. */
-    CHECK(R->effects.ids == NULL);
+    /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE and BERSERK
+     * have their ids, every other name is 0 (none). */
+    CHECK(R->effects.ids == cok_dark_queen_effect_ids);
+    CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
+    CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
+    for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
+        if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE)
+            CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
      * shared code asks for; the names it has none of are 0. */
@@ -989,6 +1166,51 @@ static bool icon_empty(const cok_adventure *game, unsigned slot, unsigned image)
     const uint8_t *got = NULL;
     size_t got_size = 1;
     return queen_icon(game, slot, image, &got, &got_size) && got == NULL && got_size == 0;
+}
+
+/* 5045:0001's icons (204c:004d, 00e0-00f9): the battle's end empties the slots 0x0f-0x25, the
+ * cursor's 0x1e among them, and not a slot past them. Two members' CBODY go into 0x17 and 0x25
+ * (queen_added_icons), then the battle's end's icons (cok_dark_queen_battle_icons). Skipped
+ * without DQKAssets/. */
+static void test_battle_icons(void)
+{
+    struct stat st;
+    static cok_item_types types;
+    char error[300];
+    if (stat("DQKAssets/DISK3/CBODY.TLB", &st) != 0 ||
+        stat("DQKAssets/SAVE/ROLANDOF.QCH", &st) != 0 ||
+        !cok_item_types_read_at("DQKAssets/DISK1/ITEMS.DAT", 0, &types, error, sizeof error)) {
+        puts("dark queen: no DQKAssets/ characters; the battle's icons not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {NULL, NULL, NULL, NULL};
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, NULL));
+    uint8_t *bytes = NULL;
+    size_t n = 0;
+    hlib_library cbody;
+    CHECK(hlib_read_file("DQKAssets/DISK3/CBODY.TLB", &bytes, &n) == HLIB_OK);
+    CHECK(hlib_parse(bytes, n, &cbody) == HLIB_OK);
+    const cok_character_layout *L = R->character;
+    static const unsigned slots[] = {0x17, 0x25};
+    for (unsigned k = 0; k < 2; ++k) {
+        cok_character *c = malloc(sizeof *c);
+        CHECK(c != NULL && cok_character_read_file(c, R, "DQKAssets/SAVE", "ROLANDOF", "QCH",
+                                                   &types, error, sizeof error));
+        CHECK(cok_party_add(&game.party, R, c)); /* takes the lowest slot: set after */
+        cok_field_set8(L, c->record, COK_FIELD_ICON, (uint8_t)slots[k]);
+        CHECK(queen_added_icons(&game, c->record));
+        unsigned body = cok_field_u8(L, c->record, COK_FIELD_ICON_BODY);
+        CHECK(icon_is(&game, slots[k], 0, &cbody, body) &&
+              icon_is(&game, slots[k], 1, &cbody, body + 0x80));
+    }
+    CHECK(!icon_empty(&game, 0x17, 0) && !icon_empty(&game, 0x25, 1));
+    cok_dark_queen_battle_icons(&game);
+    CHECK(icon_empty(&game, 0x0f, 0) && icon_empty(&game, 0x17, 0) && icon_empty(&game, 0x17, 1));
+    CHECK(icon_empty(&game, 0x1e, 0) && icon_empty(&game, 0x1e, 1));
+    CHECK(icon_empty(&game, 0x25, 0) && icon_empty(&game, 0x25, 1));
+    free(bytes);
+    cok_adventure_close(&game);
 }
 
 /* Add Character's joins and icons (cok_party_add's slot, 604b:3491; queen_added_icons, 7368:0af4):
@@ -1649,11 +1871,13 @@ int main(void)
     test_added();
     test_loaded_icons();
     test_join_icons();
+    test_battle_icons();
     test_loaded_slots();
     test_combat_frame();
     test_combat_panel();
     test_round_start_queen();
     test_turn_dispatch();
+    test_round_end();
     test_command_menu_items();
     test_command_menu_text();
     test_command_menu_keys();

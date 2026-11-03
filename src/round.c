@@ -95,19 +95,33 @@ bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *ru
     return true;
 }
 
+unsigned cok_combat_field_word(const cok_rules *rules, const uint8_t *r, cok_field f)
+{
+    size_t at = cok_field_one_(rules->character, f, 1);
+    return rules->combat.int_status_hostile ? cok_field_get16_(r, at) : r[at];
+}
+
+void cok_combat_set_field_word(const cok_rules *rules, uint8_t *r, cok_field f, unsigned v)
+{
+    size_t at = cok_field_one_(rules->character, f, 1);
+    if (rules->combat.int_status_hostile) cok_field_put16_(r, at, (uint16_t)v);
+    else r[at] = (uint8_t)v;
+}
+
 bool cok_combat_bandage(cok_adventure *game, bool bandage)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
     bool found = false;
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_character_combat(c)->not_party != 0 || cok_field_u8(L, r, COK_FIELD_HOSTILE) != 0 ||
-            cok_field_u8(L, r, COK_FIELD_STATUS) != 5)
+        if (cok_character_combat(c)->not_party != 0 ||
+            cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) != 0 ||
+            cok_combat_field_word(rules, r, COK_FIELD_STATUS) != 5)
             continue;
         found = true;
         if (!bandage) continue;
-        cok_field_set8(L, r, COK_FIELD_STATUS, 4);
+        cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 4);
         if (c->combat != NULL) c->combat->dying = 0;
         (void)cok_arena_say(game, c, cok_game_rules(game)->fight.words.bandaged, 10,
                             true); /* 6346:326c; row 10 never fails */
@@ -308,7 +322,7 @@ bool cok_combat_battle_only(cok_adventure *game, cok_character *c)
     }
     if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_BERSERK) != NULL &&
         cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3)
-        cok_field_set8(L, c->record, COK_FIELD_HOSTILE, 0);
+        cok_combat_set_field_word(cok_game_rules(game), c->record, COK_FIELD_HOSTILE, 0);
     return true;
 }
 
@@ -930,35 +944,74 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
 bool cok_combat_turn_tail(cok_adventure *game)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    /* Once the keys ran out the run is over (vm.abort): the tail is not reached. */
-    if (R->turn_tail_unported != NULL && !game->vm.abort)
-        return cok_adventure_not_yet(game, "a turn's tail", R->turn_tail_unported);
+    cok_combat *combat = &game->combat;
+    /* Champions and Death Knights have no tail here. Once the keys ran out the run is over
+     * (vm.abort): the tail is not reached. */
+    if (R->pending_unported == NULL || game->vm.abort) return true;
+    /* 148f:2ab8, 2c4f and 2d9b, each with its guard (849a:000c): a list that is not empty
+     * stops (cited); with them all empty each sets DS:bebd to 0. */
+    if (combat->pending[0] != 0 || combat->pending[1] != 0 || combat->pending[2] != 0)
+        return cok_adventure_not_yet(game, "a turn's tail", R->pending_unported);
+    game->effects.rolls.damage_type = 0;
+    /* The demonstration's key test (5045:06cf-070e) is after the sides and the early end in
+     * the original; here it is before them, which runs no state. */
+    if (game->demo) return cok_adventure_not_yet(game, "a turn's tail", R->demo_key_unported);
+    const cok_drawing *D = cok_adventure_drawing(game);
+    if (D != NULL && D->turn_tail_cycles != NULL) D->turn_tail_cycles(game); /* 261b:05be */
+    return true;
+}
+
+/* The square test of each record at the round's end: the shared cok_cloud_square, or, where
+ * the descriptor has square_unported (Dark Queen's 148f:12ab(rec, 0, 1)), a record that can act
+ * (+0x18b) reads its footprint's marks (cok_combat_marks, probe 8: 5837:0bd1). A cloud kind 0x1b
+ * or 0x1c, or acid (0x46), stops, cited; kind 0x1d is skipped at the round's end (12f0-12fc).
+ * Its other branches are the clouds' (part 39), not run here. */
+static bool round_square(cok_adventure *game, cok_character *c)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_combat *R = &rules->combat;
+    if (R->square_unported == NULL) return cok_cloud_square(game, c, false);
+    const cok_character_layout *L = rules->character;
+    if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) return true;
+    uint8_t kind;
+    bool acid;
+    if (!cok_combat_marks(&game->combat, rules, c->record, 8, &kind, &acid))
+        return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
+    if (kind == 0x1b || kind == 0x1c || acid)
+        return cok_adventure_not_yet(game, "round's end", R->square_unported);
     return true;
 }
 
 bool cok_combat_end_round(cok_adventure *game, bool *done)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
-    /* Dark Queen's round end (5045:0f6c) is its own routines: a cited stop. */
-    if (R->round_end_unported != NULL)
-        return cok_adventure_not_yet(game, "round's end", R->round_end_unported);
-    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
-    if (!cok_adventure_pass_time(game, 1, 1)) return false; /* 57e4:0549 */
-    /* dkk 3e05:0ed0 ages its clouds here (638c:21ec). */
+    /* 57e4:0549, a minute on the clock: Dark Queen's is 1396:044d(1, 1) (its timers too). */
+    const cok_drawing *D = cok_adventure_drawing(game);
+    if (D != NULL && D->round_clock != NULL ? !D->round_clock(game)
+                                            : !cok_adventure_pass_time(game, 1, 1))
+        return false;
+    /* dkk 3e05:0ed0 ages its clouds here (638c:21ec). Dark Queen's clouds (148f:2817) stop
+     * here when one exists (part 39). */
+    if (R->round_clouds_unported != NULL && combat->clouds != NULL)
+        return cok_adventure_not_yet(game, "round's end", R->round_clouds_unported);
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
     if (!cok_cloud_round(game)) return false;
     ++game->effects.rolls.round;
     cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
-        if (!event(game, c, 0x13) || !cok_cloud_square(game, c, false)) return false;
-        if (cok_field_u8(L, c->record, COK_FIELD_STATUS) != 5) continue;
+        if (!event(game, c, 0x13) || !round_square(game, c)) return false;
+        if (cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS) != 5) continue;
         cok_combat_record *cr = record_of(game, c);
         if (cr == NULL) return false;
-        if (++cr->dying > 9) cok_field_set8(L, c->record, COK_FIELD_STATUS, 6);
+        if (++cr->dying > 9)
+            cok_combat_set_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS, 6);
     }
-    if (cok_combat_bandage(game, false)) cok_camp_notice(game, F->words.teammate_dying);
+    if (cok_combat_bandage(game, false)) {
+        if (D != NULL && D->teammate_dying != NULL) D->teammate_dying(game);
+        else cok_camp_notice(game, F->words.teammate_dying);
+    }
     if (!cok_combat_count_sides(combat, &game->party, cok_game_rules(game), game->ambush))
         return undefined(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
                                "DS:6b2d (6346:268a)");
@@ -969,8 +1022,10 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
         *done = true;
     /* The demonstration (DS:4b4b) does not ask (3995:0c78). */
     if (!game->demo && combat->sides[0] > 0 && combat->sides[1] == 0) {
-        int answer = cok_camp_yes_no(game, F->words.continue_battle, 13); /* 67b5:177f */
-        if (answer == 'Y') *done = false;
+        bool yes = D != NULL && D->continue_battle != NULL
+                       ? D->continue_battle(game)
+                       : cok_camp_yes_no(game, F->words.continue_battle, 13) == 'Y'; /* 67b5:177f */
+        if (yes) *done = false;
     }
     return true;
 }
@@ -1132,9 +1187,7 @@ static bool rounds(cok_adventure *game)
         done = true;
     }
     /* A battle over before any round (no side can act at the start) goes to its end, with no
-     * round's start (5045:059d's done); the end's effects are not ported (end_unported). */
-    if (done && R->end_unported != NULL)
-        return cok_adventure_not_yet(game, "battle's end before any round", R->end_unported);
+     * round's start (5045:059d's done): cok_combat_end below. */
     /* dkk 3e05:00ec's [bp-1]: the round ended early once this battle. */
     bool ended_early = false;
     while (!done && !vm->abort) {
@@ -1169,8 +1222,14 @@ static bool rounds(cok_adventure *game)
         if (vm->abort || !cok_combat_end_round(game, &done)) break;
     }
     if (vm->status != COK_ECL_OK) return false;
-    /* dkk 3e05:0264, after an effect 0x27 asked (DS:c463). */
-    if (!cok_train_aging(game)) return false;
+    /* dkk 3e05:0264, after an effect 0x27 asked (DS:c463). Dark Queen's aging report (5045:012f,
+     * when effects.aging is set) is a cited stop. */
+    if (R->aging_unported != NULL) {
+        if (game->effects.aging)
+            return cok_adventure_not_yet(game, "the aging report", R->aging_unported);
+    } else if (!cok_train_aging(game)) {
+        return false;
+    }
     if (game->combat_stub == COK_COMBAT_MELEE || game->combat_stub == COK_COMBAT_AUTO ||
         game->combat_stub == COK_COMBAT_PLAYER) {
         char text[32];

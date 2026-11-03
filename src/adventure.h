@@ -242,6 +242,17 @@ typedef struct {
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',
      * Death Knights'). */
     void (*encounter)(cok_adventure *game, uint8_t distance);
+    /* Dark Queen's combat routines the rules cannot name (their code is the drawing's file; the
+     * test binaries link the rules alone). round_clock: the round's clock (1396:044d(1, 1)),
+     * NULL: cok_adventure_pass_time. teammate_dying: "Your Teammate is Dying" (177e:153c), NULL:
+     * the camp notice. continue_battle: the Continue question, true for Yes (1bdb:0424), NULL:
+     * the camp's yes or no. battle_icons: the combat icons' slots emptied at the battle's end
+     * (204c:004d). turn_tail_cycles: one step of the colour cycles after a turn (261b:05be). */
+    bool (*round_clock)(cok_adventure *game);
+    void (*teammate_dying)(cok_adventure *game);
+    bool (*continue_battle)(cok_adventure *game);
+    void (*battle_icons)(cok_adventure *game);
+    void (*turn_tail_cycles)(cok_adventure *game);
 } cok_drawing;
 
 /* The game's own drawing, or NULL for the 8x8 tiles'. */

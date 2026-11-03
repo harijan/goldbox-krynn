@@ -163,6 +163,10 @@ typedef struct {
      * laid (see cloud.h); setup empties them and the battle's end frees
      * them. DS:7115, a third such pointer, is only ever cleared. */
     cok_combat_cloud *clouds, *pools;
+    /* Dark Queen's pending lists of records that explode (DS:bd4c, ad6e, ad6f: 148f:2ab8, 2c4f,
+     * 2d9b run them after each turn). Only handlers 0x9a, 0xbc and 0xbd fill them, not yet
+     * ported: the counts stay 0 and the tail stops if one is not (round.c). */
+    unsigned pending[3];
     /* What the target routine's calls leave on the stack where 5b04:1903,
      * the cone, reads its range and side when a monster breathes (see
      * cast.c): the x step of the line 6b30:08d8 last looked along
@@ -323,6 +327,13 @@ bool cok_combat_occupy(cok_combat *combat, const cok_rules *rules);
  * whether a cell is one. Returns false for a size past the footprints. */
 bool cok_combat_probe(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
                       uint8_t dir, uint8_t *occupant, uint8_t *terrain, bool *cloud, bool *puddle);
+
+/* The marks of record's footprint shifted in dir, as Dark Queen's probe 5837:0bd1 sets them
+ * (0cca-0cf0): *kind the tile of the last cell that is 0x1b, 0x1c or 0x1d (0 for none), and
+ * *acid whether a cell is 0x46. Each cell is read on its own, not through the terrain cost the
+ * probe picks. Returns false for a size past the footprints. */
+bool cok_combat_marks(const cok_combat *combat, const cok_rules *rules, const uint8_t *record,
+                      uint8_t dir, uint8_t *kind, bool *acid);
 
 /* The distance the formations are laid out at (3cb2:17f7's start; dkk 410b:18c2;
  * dqk 59c7:16b3): distance, the var COK_VAR_DISTANCE, unless it is 0 and the facing

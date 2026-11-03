@@ -2127,10 +2127,49 @@ static void test_dark_queen_rest(void)
     cok_party_free(&dqk.party);
 }
 
-/* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the
- * MINOTAUR, then 170e's ten GORGONs (the icon in slot 10), and stops at the
- * battle (no party: over before any round, 5045:0001). CLEARMONSTERS then resets the slots and the undead count, as
+/* The party at the battle's set-up (the battlefield hook, 3cb2:1c58, after the appends): the
+ * battle's end (5045:0001, then 135c's 11b0) removes the monsters, so the checks read this copy. */
+static struct {
+    size_t count;
+    char names[16][16];
+    uint8_t icon[16], hp[16], hp89[16], hostile[16], status[16], npc[16];
+    unsigned monsters, icon_slot, undead;
+    bool cpic8; /* slot 8 holds CPIC 64 and 64 + 0x80 */
+} at_setup;
+
+static bool cpic_holds(const cok_adventure *adv, unsigned slot, unsigned image, unsigned id);
+
+static void battlefield_copy(cok_adventure *adv, void *context)
+{
+    (void)context;
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    at_setup.count = adv->party.count;
+    at_setup.monsters = adv->monsters;
+    at_setup.icon_slot = adv->icon_slot;
+    at_setup.undead = adv->undead;
+    at_setup.cpic8 = cpic_holds(adv, 8, 0, 64) && cpic_holds(adv, 8, 1, 64 + 0x80);
+    for (size_t i = 0; i < adv->party.count && i < 16; ++i) {
+        const uint8_t *r = adv->party.members[i]->record;
+        cok_field_name(L, r, at_setup.names[i]);
+        at_setup.icon[i] = cok_field_u8(L, r, COK_FIELD_ICON);
+        at_setup.hp[i] = r[0x198];
+        at_setup.hp89[i] = r[0x89];
+        at_setup.hostile[i] = r[0x66];
+        at_setup.status[i] = r[0x64];
+        at_setup.npc[i] = r[0x9b];
+    }
+}
+
+/* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the MINOTAUR, then
+ * 170e's ten GORGONs (the icon in slot 10). The battle is over before any round (no party), so
+ * 5045:0001 runs and 135c's treasure branch (11b0 removes the monsters) finishes it; the checks
+ * read the party at the set-up. CLEARMONSTERS resets the slots and the undead count, as
  * 75cc:151b does (DS:ad6b to 8, DS:c2ed to 0). */
+static bool r9b_bits(size_t i)
+{
+    return (at_setup.npc[i] & 0x32) == 0x32;
+}
+
 static void test_dark_queen_appends(void)
 {
     static cok_adventure dqk;
@@ -2138,8 +2177,6 @@ static void test_dark_queen_appends(void)
         puts("monster: DQKAssets not found; Dark Queen's appends not run");
         return;
     }
-    const cok_character_layout *L = cok_rules_dark_queen.character;
-
     /* Registered only: no record yet, the flag set, the slots taken. */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 0);
@@ -2151,68 +2188,55 @@ static void test_dark_queen_appends(void)
           dqk.monster_slots[8].icon == 64);
     CHECK(dqk.monster_slots[9].id == 49 && dqk.monster_slots[9].count == 1);
 
-    /* COMBAT appends them (2 SHARKMEN, 1 MINOTAUR, and 170e's ten GORGONs in
-     * slot 10), then the battle is not ported: the run stops there. */
+    /* COMBAT appends them, the battle's end runs, and the run goes on to its end. */
+    memset(&at_setup, 0, sizeof at_setup);
+    dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
-    CHECK(dqk.monsters == 13 && dqk.icon_slot == 11 && dqk.party.count == 13);
-    CHECK(dqk.undead == 0);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 0 && !dqk.monsters_loaded);
+    CHECK(at_setup.count == 13 && at_setup.monsters == 13 && at_setup.icon_slot == 11);
+    CHECK(at_setup.undead == 0);
     static const char *names[] = {"SHARKMAN", "SHARKMAN", "MINOTAUR"};
     for (size_t i = 0; i < 13; ++i) {
-        cok_character *m = dqk.party.members[i];
-        char name[16];
-        CHECK(cok_field_name(L, m->record, name) > 0);
-        if (i < 3) CHECK(strcmp(name, names[i]) == 0);
-        else CHECK(strcmp(name, "GORGON") == 0);
+        if (i < 3) CHECK(strcmp(at_setup.names[i], names[i]) == 0);
+        else CHECK(strcmp(at_setup.names[i], "GORGON") == 0);
         /* The icon slots: 8 for the SHARKMEN, 9 for the MINOTAUR, 10 for 170e's. */
-        CHECK(cok_field_u8(L, m->record, COK_FIELD_ICON) == (i < 2 ? 8 : i == 2 ? 9 : 10));
+        CHECK(at_setup.icon[i] == (i < 2 ? 8 : i == 2 ? 9 : 10));
         if (i >= 3) { /* 170e's: status 9, the NPC bits, hostile 0 (var 0x3a is 0). */
-            CHECK(m->record[0x64] == 9 && m->record[0x65] == 0 && m->record[0x66] == 0);
-            CHECK((m->record[0x9b] & 0x32) == 0x32);
+            CHECK(at_setup.status[i] == 9 && at_setup.hostile[i] == 0 && r9b_bits(i));
         }
     }
 
-    /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the
-     * next icon slot back to 8 (the block's start, 6c70:0001, does the same). The
-     * records stay in the list. The next COMBAT with none loaded and no vault or
-     * temple wanted: the treasure runs, and 0593 stops at its rest or its experience, cited
-     * (5f07:081b's last branch, 75cc:135c). */
+    /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the next icon slot
+     * back to 8 (the block's start, 6c70:0001, does the same). The next COMBAT with none loaded
+     * and no vault or temple wanted: the treasure runs and the run goes on (5f07:081b's last
+     * branch, 75cc:135c). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
-    CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
+    CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 0);
     dq_combat(&dqk);
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the lost party's continue prompt */
-    /* The records are past the empty party, so loops 1 and 3 take none (59c7:0f7b, 0fec):
-     * the blocks are the first COMBAT's, left by the battle that stopped at 5045:0001. Loop 2
-     * has no such test: it finds record 0 (active), and var 0x1d is 0, so b7a7 stays set
-     * (59e, 633). Then 11b0 removes the 13 monsters (part 19d): the party is empty, DS:c7df
-     * is set, and 135c's lost party (b7a7: 1460) prints its words and waits at the continue
-     * prompt, which the key answers; 135c and COMBAT's ending then run to their end. */
-    cok_dark_queen_end_state st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(!st.standing && !st.fled && st.out == 0 && st.b7a7);
-    CHECK(dqk.party.count == 0 && st.monsters_present);
 
-    /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
-     * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
-     * (d + 1) / 4 (6c70:29fc), at least 1; var 0x27 is the difficulty. */
+    /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten GORGONs: the
+     * difficulty scales the hostile SHARKMAN's hit points by (d + 1) / 4 (6c70:29fc), at least
+     * 1; var 0x27 is the difficulty. */
     cok_character base;
     CHECK(cok_monster_read(&dqk, 64, &base));
     uint8_t hp = base.record[0x198], hostile = base.record[0x66];
     cok_character_free(&base);
     CHECK(hostile == 1 && hp > 1);
-    size_t at = dqk.party.count;
     cok_ecl_set_var(&dqk.vm, COK_VAR_DIFFICULTY, 1);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
+    memset(&at_setup, 0, sizeof at_setup);
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dqk.party.count == at + 11);
-    CHECK(dqk.party.members[at]->record[0x198] == (uint8_t)(2 * hp / 4) &&
-          dqk.party.members[at]->record[0x89] == (uint8_t)(2 * hp / 4));
+    CHECK(dqk.vm.status == COK_ECL_OK && at_setup.count == 11);
+    CHECK(at_setup.hp[0] == (uint8_t)(2 * hp / 4) && at_setup.hp89[0] == (uint8_t)(2 * hp / 4));
     cok_ecl_set_var(&dqk.vm, COK_VAR_DIFFICULTY, 3);
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
+    memset(&at_setup, 0, sizeof at_setup);
     dq_combat(&dqk);
-    CHECK(dqk.party.members[at + 11]->record[0x198] == hp);
+    CHECK(at_setup.hp[0] == hp);
+    dqk.hooks.battlefield = NULL;
     cok_adventure_close(&dqk);
 }
 
@@ -2248,15 +2272,15 @@ static void test_dark_queen_clear_between(void)
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 9);
     CHECK(dqk.monster_slots[8].id == 64 && dqk.monster_slots[8].count == 1);
+    memset(&at_setup, 0, sizeof at_setup);
+    dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
-    CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
-    /* LOAD MONSTER 64 loaded its icon into slot 8 (29fc:2b0b): CPIC 64 and 64 + 0x80. */
-    CHECK(cpic_holds(&dqk, 8, 0, 64) && cpic_holds(&dqk, 8, 1, 64 + 0x80));
-    char name[16];
-    CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
-    CHECK(strcmp(name, "SHARKMAN") == 0);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(at_setup.count == 11 && at_setup.monsters == 11 && at_setup.icon_slot == 10);
+    /* LOAD MONSTER 64 loaded its icon into slot 8 (29fc:2b0b): CPIC 64 and 64 + 0x80, at the
+     * set-up (11b0 removes the monsters' icons after it). */
+    CHECK(at_setup.cpic8);
+    CHECK(strcmp(at_setup.names[0], "SHARKMAN") == 0);
     cok_adventure_close(&dqk);
 }
 
@@ -2273,11 +2297,12 @@ static void test_dark_queen_six_loads(void)
     for (size_t i = 0; i < 6; ++i)
         DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, ids[i], 0, 1, 0, ids[i]);
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.icon_slot == 14);
+    memset(&at_setup, 0, sizeof at_setup);
+    dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
-    CHECK(dqk.party.count == 16 && dqk.monsters == 16 && dqk.icon_slot == 15);
-    CHECK(dqk.undead == 2);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(at_setup.count == 16 && at_setup.monsters == 16 && at_setup.icon_slot == 15);
+    CHECK(at_setup.undead == 2);
     cok_adventure_close(&dqk);
 }
 
@@ -2289,11 +2314,13 @@ static void test_dark_queen_undead_clear(void)
     if (!dq_open(&dqk)) return;
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 37, 0, 1, 0, 37);
+    memset(&at_setup, 0, sizeof at_setup);
+    dqk.hooks.battlefield = battlefield_copy;
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dqk.undead == 1);
+    CHECK(dqk.vm.status == COK_ECL_OK && at_setup.undead == 1);
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.undead == 0 && dqk.icon_slot == 8);
-    CHECK(dqk.party.count == 11); /* the ZOMBIE and 170e's ten GORGONs */
+    CHECK(dqk.party.count == 0); /* the battle's end removed the ZOMBIE and 170e's ten GORGONs */
     cok_adventure_close(&dqk);
 }
 /* One battle outside 3D from a fresh adventure's block: CLEARMONSTERS, LOAD MONSTER 64, with
@@ -2318,10 +2345,8 @@ static void test_dark_queen_open_ground_flags(void)
     static cok_adventure a, b, c;
     if (!dq_open(&a)) return;
     CHECK(dq_open(&b) && dq_open(&c));
-    CHECK(open_ground_fight(&a, 0) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&a, a.vm.status), "dqk 5045:0001") != NULL);
-    CHECK(open_ground_fight(&b, 1) == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&b, b.vm.status), "dqk 5045:0001") != NULL);
+    CHECK(open_ground_fight(&a, 0) == COK_ECL_OK);
+    CHECK(open_ground_fight(&b, 1) == COK_ECL_OK);
     CHECK(memcmp(a.combat.cells, b.combat.cells, sizeof a.combat.cells) != 0);
     CHECK(open_ground_fight(&c, 32) == COK_ECL_UNDEFINED);
     CHECK(strstr(cok_adventure_why(&c, c.vm.status), "var 0x1a2 is 32, past its flags") != NULL);
@@ -2601,6 +2626,33 @@ static void test_dark_queen_heal(void)
  * 1b8e), and the battle, with no party, is over before any round (5045:0001). Six
  * SHARKMEN are hostile and come first in the list; 170e's GORGONs (hostile 0) come after and
  * are placed by the search. */
+/* The jump table's checks at the battle's set-up (the battlefield hook, after 1abf's placement). */
+static void jump_checks(cok_adventure *dqk, void *context)
+{
+    (void)context;
+    static const int8_t at[6][2] = {{0x1e, 0x10}, {0x1d, 0x10}, {0x1e, 0x0e},
+                                    {0x1f, 0x0e}, {0x21, 0x0f}, {0x20, 0x0e}};
+    for (unsigned n = 1; n <= 6; ++n) {
+        CHECK(dqk->combat.combatant[n].x == at[n - 1][0]);
+        CHECK(dqk->combat.combatant[n].y == at[n - 1][1]);
+    }
+    /* 51c2:0920's 0x20 quirk (dqk's sides_ambush_0x20) takes one from side 1 on every count
+     * with the ambush byte at 0x20, and no other: Champions' count ignores the byte. */
+    uint8_t plain[2];
+    CHECK(cok_combat_count_sides(&dqk->combat, &dqk->party, &cok_rules_dark_queen, 0));
+    plain[0] = dqk->combat.sides[0];
+    plain[1] = dqk->combat.sides[1];
+    CHECK(plain[1] >= 1);
+    CHECK(cok_combat_count_sides(&dqk->combat, &dqk->party, &cok_rules_dark_queen, 0x20));
+    CHECK(dqk->combat.sides[0] == plain[0] && dqk->combat.sides[1] == plain[1] - 1);
+    uint8_t champions[2];
+    CHECK(cok_combat_count_sides(&game.combat, &game.party, &cok_rules_champions, 0));
+    champions[0] = game.combat.sides[0];
+    champions[1] = game.combat.sides[1];
+    CHECK(cok_combat_count_sides(&game.combat, &game.party, &cok_rules_champions, 0x20));
+    CHECK(game.combat.sides[0] == champions[0] && game.combat.sides[1] == champions[1]);
+}
+
 static void test_dark_queen_jump_table(void)
 {
     static cok_adventure dqk;
@@ -2608,30 +2660,30 @@ static void test_dark_queen_jump_table(void)
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 6, 0, 64);
     dqk.ambush = 0x20;
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
-    static const int8_t at[6][2] = {{0x1e, 0x10}, {0x1d, 0x10}, {0x1e, 0x0e},
-                                    {0x1f, 0x0e}, {0x21, 0x0f}, {0x20, 0x0e}};
-    for (unsigned n = 1; n <= 6; ++n) {
-        CHECK(dqk.combat.combatant[n].x == at[n - 1][0]);
-        CHECK(dqk.combat.combatant[n].y == at[n - 1][1]);
+    dqk.hooks.battlefield = jump_checks;
+    CHECK(dq_combat(&dqk) == COK_ECL_OK); /* the battle's end runs after the set-up's checks */
+}
+
+/* The GORGONS' cells at the battle's set-up (the battlefield hook): each consecutive pair differs. */
+static void gorgon_checks(cok_adventure *adv, void *context)
+{
+    (void)context;
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    /* The party's records are the combatants 1 on (the placement's d, from 1), none removed. */
+    unsigned gorgons = 0, previous = 0;
+    for (size_t i = 0; i < adv->party.count; ++i) {
+        char name[16];
+        CHECK(cok_field_name(L, adv->party.members[i]->record, name) > 0);
+        if (strcmp(name, "GORGON") != 0) continue;
+        ++gorgons;
+        unsigned n = (unsigned)i + 1;
+        if (previous != 0) {
+            const cok_combatant *a = &adv->combat.combatant[previous], *b = &adv->combat.combatant[n];
+            CHECK(a->x != b->x || a->y != b->y);
+        }
+        previous = n;
     }
-    /* 51c2:0920's 0x20 quirk (dqk's sides_ambush_0x20) takes one from side 1 on every count
-     * with the ambush byte at 0x20, and no other: Champions' count ignores the byte. */
-    uint8_t plain[2];
-    CHECK(cok_combat_count_sides(&dqk.combat, &dqk.party, &cok_rules_dark_queen, 0));
-    plain[0] = dqk.combat.sides[0];
-    plain[1] = dqk.combat.sides[1];
-    CHECK(plain[1] >= 1);
-    CHECK(cok_combat_count_sides(&dqk.combat, &dqk.party, &cok_rules_dark_queen, 0x20));
-    CHECK(dqk.combat.sides[0] == plain[0] && dqk.combat.sides[1] == plain[1] - 1);
-    uint8_t champions[2];
-    CHECK(cok_combat_count_sides(&game.combat, &game.party, &cok_rules_champions, 0));
-    champions[0] = game.combat.sides[0];
-    champions[1] = game.combat.sides[1];
-    CHECK(cok_combat_count_sides(&game.combat, &game.party, &cok_rules_champions, 0x20));
-    CHECK(game.combat.sides[0] == champions[0] && game.combat.sides[1] == champions[1]);
+    CHECK(gorgons == 10);
 }
 
 /* 170e's ten GORGONs (status 9, hostile 0, so all on the party's facing) are placed one after
@@ -2645,25 +2697,8 @@ static void test_dark_queen_ambush_gorgons(void)
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 6, 0, 64);
     dqk.ambush = 0x0f;
-    dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
-    const cok_character_layout *L = cok_rules_dark_queen.character;
-    /* The party's records are the combatants 1 on (the placement's d, from 1), none removed. */
-    unsigned gorgons = 0, previous = 0;
-    for (size_t i = 0; i < dqk.party.count; ++i) {
-        char name[16];
-        CHECK(cok_field_name(L, dqk.party.members[i]->record, name) > 0);
-        if (strcmp(name, "GORGON") != 0) continue;
-        ++gorgons;
-        unsigned n = (unsigned)i + 1;
-        if (previous != 0) {
-            const cok_combatant *a = &dqk.combat.combatant[previous], *b = &dqk.combat.combatant[n];
-            CHECK(a->x != b->x || a->y != b->y);
-        }
-        previous = n;
-    }
-    CHECK(gorgons == 10);
+    dqk.hooks.battlefield = gorgon_checks;
+    CHECK(dq_combat(&dqk) == COK_ECL_OK);
     cok_adventure_close(&dqk);
 }
 
