@@ -722,8 +722,10 @@ run, citing their handlers (`unported`). It holds:
   record past the party, or hostile word 1) sets DS:c7df, counts in var 0x15 when inactive, and is removed
   (`177e:1e31`, the count one less only for a record in the party); the other records lose their combat
   blocks; the selection ends on the first record. Then 135c (part 19d) sets flag 1 and runs `177e:0be2`
-  over the records; a lost party (b7a7) prints its three words and waits at the continue prompt (`1460`,
-  cited at the poll `2aa6:1586`, not verified); else fled frees the pool's items, otherwise flag 0 is set
+  over the records; a lost party (b7a7) prints its three words (slow while DS:ae65 is set: each character's
+  delay draws `random(1000)`, `1a62:0311`) and waits at the continue prompt (`1460`, `1bdb:0511`, answered by
+  Return or the button); then COMBAT's return (`5f07:0987`) and the adventure's menu, which waits with the
+  party empty and DS:b7a7 kept (`5f07:11f3`, cited: `adventure()` stops there, not ported); else fled frees the pool's items, otherwise flag 0 is set
   and flag 1 cleared (`1427`); the results (`091f`: "the party has fled." / "you have lost the fight." /
   "The party has won." with monsters, the share's "each character receives N experience points.", the
   treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with

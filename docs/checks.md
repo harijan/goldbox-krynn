@@ -568,7 +568,7 @@ none fled, `gentle` with var 0x1d; `fledmix`: fled, the survivors matched to the
 `enemy`: member 5 hostile; `enemyout`: member 5 hostile and inactive, var 0x15 set first; `enemyhigh`: its
 hostile word 0x0101). The original is trapped in two stages: `2093:0015` (the flags' clear, always
 resident) spins at the PRESS KEY before COMBAT; the flow's end is trapped too (`75cc:0e93` where the
-treasure menu is the stop, `2aa6:1586` for a lost party, else `5f07:0987`, COMBAT's return), and the
+treasure menu is the stop, else `5f07:0987`, COMBAT's return, which a lost party reaches after its continue prompt), and the
 game waits at its first key (the results' bar, or the continue prompt): its screen is compared with
 eclplay's last shot there (the keys ran out), the key typed, then the end's trap holds. Each flow's
 state where it holds is compared with eclplay's end (`--vars`, `--records`, `--state`, `--screen`): the 1 KB of variables (var 0x2e included), the records (pointers
@@ -578,7 +578,7 @@ share (DS:ae4f) and the pool's coins 4-6, the mode, RandSeed, and the 18 effect 
 experience gained and may-train, as the flow's arithmetic gives) are checked against the original
 too, so a mistake in a flow shows. eclplay runs `won`, `fled`, `rest`, `gentle`, `fledmix`, `zero`,
 `enemy*` to COMBAT's end; `pool`, `bonus` and `negative` stop at the treasure menu (`dqk 75cc:0e93`,
-part 20, cited); `lost` and `lost9` stop at the continue prompt's poll (`dqk 2aa6:1586`, not verified).
+part 20, cited); `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
 `lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
 hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);

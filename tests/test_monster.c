@@ -1251,12 +1251,23 @@ static void dq_keys(const char *keys)
     dq_quiet.length = strlen(keys);
 }
 
+/* The Dark Queen screen (320 by 200 pixels) when the last key was read, for the results' lines:
+ * dq_read copies dq_watch's screen at each read, as scripted does for watched. */
+static uint8_t dq_shown[320 * 200];
+static const cok_adventure *dq_watch;
+
+static int dq_read(void *context)
+{
+    if (dq_watch != NULL) memcpy(dq_shown, dq_watch->screen.pixels, sizeof dq_shown);
+    return scripted(context);
+}
+
 static bool dq_open(cok_adventure *adv)
 {
     static cok_keyboard keys;
     static cok_adventure_hooks hooks;
     dq_keys("");
-    keys = (cok_keyboard){scripted, &dq_quiet, NULL, NULL};
+    keys = (cok_keyboard){dq_read, &dq_quiet, NULL, NULL};
     hooks = (cok_adventure_hooks){.log = log_line, .context = &dq_quiet};
     FILE *f = fopen("DQKAssets/DISK2/MONCHA.GLB", "rb");
     if (f == NULL) return false;
@@ -1336,8 +1347,8 @@ static void test_dark_queen_no_monsters(void)
      * test adds one). */
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 2aa6:1586") != NULL); /* no party: lost */
+    CHECK(dqk.vm.status == COK_ECL_OK && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
+    CHECK(cok_dark_queen_end_state_of(&dqk).b7a7); /* no party: lost, the continue prompt answered */
     dqk.lost_weapons = calloc(1, sizeof *dqk.lost_weapons);
     dqk.lost_weapon_count = 1;
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
@@ -1424,7 +1435,6 @@ static void test_dark_queen_experience(void)
     cok_field_set8(L, a->record, COK_FIELD_CLASS, 0);
     cok_field_set8(L, b->record, COK_FIELD_CLASS, 0);
     cok_field_set8_at(L, a->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 0);
-    for (int k = 0; k < 2; ++k) dqk.pool.coins[4 + k] = 0;
     dqk.pool.coins[6] = 0;
 }
 
@@ -1676,8 +1686,7 @@ static void test_dark_queen_after_combat(void)
     cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
     dq_combat(&dqk);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 2aa6:1586") != NULL);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the continue prompt's key */
     CHECK(!st.standing && !st.fled && st.out == 2 && st.b7a7);
     CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
     a = dq_member(&dqk, 2, 0);
@@ -1712,8 +1721,7 @@ static void test_dark_queen_after_combat(void)
     a->record[0x67] = 1;
     dq_combat(&dqk);
     st = cok_dark_queen_end_state_of(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 2aa6:1586") != NULL);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the continue prompt's key */
     CHECK(!st.standing && st.b7a7 && st.out == 1); /* b is inactive: out; a is not */
 
     /* An effect that ends with the battle (0x03, the first of DS:631e) on a record stops at
@@ -1806,6 +1814,152 @@ static void test_dark_queen_enemies(void)
     cok_ecl_store(&dqk.vm, 0x1d, 0);
 }
 
+/* Whether cells x1-x2 of the text row of the snapshot hold ink: a pixel other than the window's
+ * grey (0x17), which full_window clears the cells to before a line is drawn on it. */
+static bool dq_ink(const uint8_t *snap, int row, int x1, int x2)
+{
+    for (int y = 8 * row; y < 8 * row + 8; ++y)
+        for (int x = 8 * x1; x < 8 * (x2 + 1); ++x)
+            if (snap[y * 320 + x] != 0x17) return true;
+    return false;
+}
+
+/* Whether the text row is the same pixel for pixel in two snapshots. */
+static bool dq_same_line(const uint8_t *a, const uint8_t *b, int row)
+{
+    for (int y = 8 * row; y < 8 * row + 8; ++y)
+        for (int x = 8; x < 8 * 39; ++x)
+            if (a[y * 320 + x] != b[y * 320 + x]) return false;
+    return true;
+}
+
+/* One results scene in adv (a new adventure: the screen keeps its lines): a member of status and
+ * active, a monster past the party (with the experience) when monster is set, the vars 0x1d and
+ * 0x1f, then COMBAT with keys. The screen when the last key is read is snap: the results' bar
+ * (or the lost party's continue prompt) waits for the first key, which keys does not give. */
+static void dq_results_scene(cok_adventure *adv, uint8_t status, uint8_t active, bool monster,
+                             uint16_t experience, uint16_t var1d, uint16_t var1f, uint8_t *snap)
+{
+    DQK_RUN(adv, DQK_CLEARMONSTERS);
+    cok_party_free(&adv->party);
+    dq_member(adv, status, active);
+    if (monster) {
+        cok_character *m = dq_past_party(adv, 0);
+        cok_field_set16(cok_rules_dark_queen.character, m->record, COK_FIELD_MONSTER_EXPERIENCE,
+                        experience);
+    }
+    cok_ecl_store(&adv->vm, 0x1d, var1d);
+    cok_ecl_store(&adv->vm, 0x1f, var1f);
+    cok_ecl_store(&adv->vm, 0x20, 2);
+    dq_keys("");
+    memset(dq_shown, 0, sizeof dq_shown);
+    dq_watch = adv;
+    DQK_RUN(adv, DQK_COMBAT);
+    dq_watch = NULL;
+    memcpy(snap, dq_shown, sizeof dq_shown);
+}
+
+/* A fled party (a status 3 member, nobody standing: a standing one would clear the fled flag,
+ * 694-6aa) with a killed monster of the given experience: the share is the experience over the
+ * party's count (var 0x20), which the results print. */
+static void share_scene(cok_adventure *adv, uint16_t experience, uint8_t *snap)
+{
+    DQK_RUN(adv, DQK_CLEARMONSTERS);
+    cok_party_free(&adv->party);
+    dq_member(adv, 3, 1);
+    cok_character *m = dq_past_party(adv, 2); /* a killed monster: its experience counts */
+    cok_field_set16(cok_rules_dark_queen.character, m->record, COK_FIELD_MONSTER_EXPERIENCE,
+                    experience);
+    cok_ecl_store(&adv->vm, 0x1d, 0);
+    cok_ecl_store(&adv->vm, 0x1f, 0);
+    cok_ecl_store(&adv->vm, 0x20, 1);
+    dq_keys("");
+    memset(dq_shown, 0, sizeof dq_shown);
+    dq_watch = adv;
+    DQK_RUN(adv, DQK_COMBAT);
+    dq_watch = NULL;
+    memcpy(snap, dq_shown, sizeof dq_shown);
+}
+
+/* COMBAT's results and the lost party's lines (75cc:091f, 1460), on the screen when the bar or
+ * the continue prompt waits for its key (dq_read). The rows: 3 the result, 5 and 7 "each
+ * character receives" and "experience points." (unless var 0x1f), 10 the treasure. The fled
+ * share is 0 whatever the monster's experience; the fled coins are cleared before the treasure
+ * menu. The vars and the monsters are cleared at the end (14eb-151b). */
+static void test_dark_queen_results(void)
+{
+    static cok_adventure won, won_1f, lost_fight, lost_party, all, share_a, share_b, coins;
+    static uint8_t snap[6][320 * 200];
+    cok_adventure *every[] = {&won, &won_1f, &lost_fight, &lost_party, &all, &share_a, &share_b,
+                              &coins};
+    for (size_t k = 0; k < sizeof every / sizeof every[0]; ++k)
+        if (!dq_open(every[k])) {
+            puts("monster: DQKAssets not found; Dark Queen's results not run");
+            return;
+        }
+
+    /* The won result: a standing member and a monster past the party (var 0x1d set: the member
+     * is standing, so the result is won). Rows 3, 5, 7 and 10. */
+    dq_results_scene(&won, 0, 1, true, 100, 1, 0, snap[0]);
+    CHECK(dq_ink(snap[0], 3, 1, 16) && dq_ink(snap[0], 5, 1, 16) && dq_ink(snap[0], 7, 1, 16));
+    CHECK(dq_ink(snap[0], 10, 1, 16));
+    /* Var 0x1f set: rows 5 and 7 are not printed, the result still is. */
+    dq_results_scene(&won_1f, 0, 1, true, 100, 1, 1, snap[1]);
+    CHECK(dq_ink(snap[1], 3, 1, 16) && !dq_ink(snap[1], 5, 1, 16) && !dq_ink(snap[1], 7, 1, 16));
+    CHECK(dq_same_line(snap[0], snap[1], 3));
+
+    /* The lost result: nobody standing (a status 2 and found by var 0x1d, so b7a7 is clear) and
+     * a monster past the party: "you have lost the fight." on row 3. */
+    dq_results_scene(&lost_fight, 2, 1, true, 100, 1, 0, snap[2]);
+    CHECK(dq_ink(snap[2], 3, 1, 16) && !cok_dark_queen_end_state_of(&lost_fight).b7a7);
+
+    /* The lost party (b7a7: the member out, no monster): the three words on rows 5 to 7, then
+     * the continue prompt, which waits. */
+    dq_results_scene(&lost_party, 2, 0, false, 0, 0, 0, snap[3]);
+    CHECK(dq_ink(snap[3], 5, 2, 16) && dq_ink(snap[3], 6, 2, 16) && dq_ink(snap[3], 7, 2, 16));
+    CHECK(cok_dark_queen_end_state_of(&lost_party).b7a7);
+
+    /* The end of the results with the key: vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f are
+     * cleared (14eb-150d), and 151b clears the monsters: the undead, the loaded flag and count,
+     * and the next icon slot (8). */
+    static const uint16_t vars[] = {0x01, 0x2f, 0x1c, 0x1e, 0x1d, 0x1f};
+    DQK_RUN(&all, DQK_CLEARMONSTERS);
+    cok_party_free(&all.party);
+    dq_member(&all, 0, 1);
+    dq_past_party(&all, 0);
+    for (size_t k = 0; k < sizeof vars / sizeof vars[0]; ++k) cok_ecl_store(&all.vm, vars[k], 1);
+    all.undead = 3;
+    all.icon_slot = 12;
+    cok_ecl_store(&all.vm, 0x20, 2);
+    dq_combat(&all);
+    CHECK(all.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the result's key, no more */
+    for (size_t k = 0; k < sizeof vars / sizeof vars[0]; ++k)
+        CHECK(cok_ecl_load_var(&all.vm, vars[k]) == 0);
+    CHECK(all.undead == 0 && all.icon_slot == 8);
+
+    /* The fled party with a monster's experience (100) and with none: the line "each character
+     * receives" is the same pixel for pixel, the share is 0 when fled. */
+    share_scene(&share_a, 100, snap[4]);
+    share_scene(&share_b, 0, snap[5]);
+    CHECK(dq_ink(snap[4], 5, 1, 16) && dq_ink(snap[5], 5, 1, 16));
+    CHECK(dq_same_line(snap[4], snap[5], 5));
+
+    /* The fled coins (4-6) and items go before the treasure menu (091f's 934 and 13e7): with
+     * the key, the run goes on past the results (no 0e93 stop), and the coins are 0 at the end. */
+    DQK_RUN(&coins, DQK_CLEARMONSTERS);
+    cok_party_free(&coins.party);
+    dq_member(&coins, 3, 1);
+    dq_past_party(&coins, 2);
+    coins.pool.coins[4] = 5;
+    coins.pool.coins[6] = 7;
+    dq_combat(&coins);
+    CHECK(coins.vm.status == COK_ECL_OK && dq_quiet.at == 1);
+    CHECK(coins.pool.coins[4] == 0 && coins.pool.coins[5] == 0 && coins.pool.coins[6] == 0);
+    CHECK(coins.pool.items == NULL);
+
+    for (size_t k = 0; k < sizeof every / sizeof every[0]; ++k) cok_adventure_close(every[k]);
+}
+
 /* 75cc:0736's loop A with no load asked (DS:b7a7 clear), as 0593 leaves the party: a standing
  * member (a) keeps b7a7 clear, so the loop walks the party. Status 4 is revived (7bb) when its hit
  * points (+0x198) are above 0, or with var 0x1d (777: hit points 1), else it stays 4; status 5
@@ -1886,8 +2040,7 @@ static void test_dark_queen_rest(void)
     b = dq_member(&dqk, 2, 0);
     cok_ecl_store(&dqk.vm, 0x20, 9);
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED && dq_quiet.at == 1 &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 2aa6:1586") != NULL);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the continue prompt's key */
     CHECK(dqk.party.count == 0 && cok_ecl_var(&dqk.vm, COK_VAR_PARTY_SIZE) == 0);
     CHECK(cok_dark_queen_end_state_of(&dqk).b7a7);
     cok_party_free(&dqk.party);
@@ -1985,14 +2138,13 @@ static void test_dark_queen_appends(void)
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
     CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
     dq_combat(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED);
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 1); /* the lost party's continue prompt */
     /* The records are past the empty party, so loops 1 and 3 take none (59c7:0f7b, 0fec):
      * the blocks are the first COMBAT's, left by the battle that stopped at 5045:0001. Loop 2
      * has no such test: it finds record 0 (active), and var 0x1d is 0, so b7a7 stays set
      * (59e, 633). Then 11b0 removes the 13 monsters (part 19d): the party is empty, DS:c7df
      * is set, and 135c's lost party (b7a7: 1460) prints its words and waits at the continue
-     * prompt, cited at 2aa6:1586. */
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 2aa6:1586") != NULL);
+     * prompt, which the key answers; 135c and COMBAT's ending then run to their end. */
     cok_dark_queen_end_state st = cok_dark_queen_end_state_of(&dqk);
     CHECK(!st.standing && !st.fled && st.out == 0 && st.b7a7);
     CHECK(dqk.party.count == 0 && st.monsters_present);
@@ -2505,6 +2657,7 @@ int main(void)
     test_dark_queen_no_monsters();
     test_dark_queen_after_combat();
     test_dark_queen_enemies();
+    test_dark_queen_results();
     test_dark_queen_rest();
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();

@@ -1336,9 +1336,11 @@ class DarkQueenTests(unittest.TestCase):
         self.assertEqual(moves[:3], ["step: 4,2 facing 2", "step: 5,2 facing 2",
                                      "step: 6,2 facing 2"])
         self.assertEqual(moves[-2], "step: 13,8 facing 2")
-        # The first turn: TIMASALIN (initiative 9, the turn list's first) draws the side panel and
-        # reads the command menu; the keys run out there.
-        self.assertEqual(moves[-1], "turn: TIMASALIN (initiative 9)")
+        # The first turn: BALTHIR NOMOON (record 1, initiative 9, the turn list's first: dqk_fight's
+        # turn list agrees with the original's 5045:0447) draws the side panel and reads the
+        # command menu; the keys run out there. The per-character draws of the text (1a62:0311's
+        # delay) move RandSeed, which breaks the tie of initiative 9.
+        self.assertEqual(moves[-1], "turn: BALTHIR NOMOON (initiative 9)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)
         # End at that menu: the turn's tail is the next stop (148f:2ab8, the pending lists).

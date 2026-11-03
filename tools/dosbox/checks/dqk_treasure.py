@@ -20,11 +20,12 @@ calls 11b0 (the enemies removed, part 19d), and finishes (part 19d, ported): the
 of each record, the lost party's words (b7a7, 1460) or the results (091f: the texts, the share's
 line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75cc:151b), and back
 to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93, part
-20) is the stop; a lost party stops at its continue prompt's poll (2aa6:1586, unverified).
+20) is the stop; a lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu
+after it (5f07:11f3, no b7a7 test) is the stop.
 
 The original is trapped in two stages (dqk_fight_lib): 2093:0015 (the flags' clear, in the root image,
 so it is always resident) spins at the PRESS KEY before COMBAT's key; while it spins, the flow's end
-(75cc:0e93, 2aa6:1586 or 5f07:0987, COMBAT's return after 135c) is trapped too, then 2093:0015 is
+(75cc:0e93 or 5f07:0987, COMBAT's return after 135c) is trapped too, then 2093:0015 is
 given back. The game then waits at its first key (the results' bar, or the lost party's continue
 prompt): its screen is read there, the key is typed, and the end's trap holds. Its state is read
 where the spin holds: the 1 KB of variables, the records (pointers masked), the flags, DS:af3f, c7de,
@@ -221,7 +222,8 @@ def read_state(box):
         pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xb1db, 0xb1df, 0xb1e3)))
 
 
-END_STOPS = {"treasure": (0x75CC, 0x0E93), "lost": (0x2AA6, 0x1586), "end": (0x5F07, 0x0987)}
+# lost: 5f07:0987 is COMBAT's return after the lost party (the continue prompt answered first)
+END_STOPS = {"treasure": (0x75CC, 0x0E93), "lost": (0x5F07, 0x0987), "end": (0x5F07, 0x0987)}
 TYPED_TO_WAIT = "\\r"            # the PRESS KEY before COMBAT (eclplay's entry key comes first)
 TYPED_TO_END = "\\r\\r\\r"       # that, the results' key (or the continue prompt's) and one more
 
@@ -270,6 +272,9 @@ def original(work, name, changes, patched, verbose, end):
         state = read_state(box)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
+        if end == "end":  # 5f07:0987 is before the adventure loop draws its bar: its next wait
+            L.untrap(box, hold)
+            box.wait_input()
         end_shot = box.settled(tolerance=64)
         return state, qsv, wait_shot, end_shot
 
@@ -328,9 +333,9 @@ def run_flow(v, work, patched, name, verbose):
     v.check(orig["effects"] == EFFECTS, "the 18 effect ids at DS:631e are as the port's table "
             f"({name})", orig["effects"].hex())
     v.check(orig["demo"] == 0, f"the original is not the demonstration ({name})")
-    # The mode: 6 where the flow stops in 135c (the treasure menu, the lost party's poll), else
-    # COMBAT's ending has set it (3 or 4: monster.c's overland).
-    if end == "end":
+    # The mode: 6 where the flow stops in 135c (the treasure menu), else COMBAT's ending has set
+    # it (3 or 4: monster.c's overland, at 5f07:0987 for the lost party too).
+    if end in ("end", "lost"):
         v.check(orig["mode"] in (3, 4), f"the mode is 3 or 4 after COMBAT's ending ({name})",
                 f"mode {orig['mode']}")
     else:
@@ -364,7 +369,7 @@ def run_flow(v, work, patched, name, verbose):
 
     variables, ported, lines, transcript, end_screen = port(work, name, patched, qsv,
                                                            typed=TYPED_TO_END)
-    stop = {"treasure": "dqk 75cc:0e93", "lost": "dqk 2aa6:1586", "end": None}[end]
+    stop = {"treasure": "dqk 75cc:0e93", "lost": "dqk 5f07:11f3", "end": None}[end]
     if stop is not None:
         v.check(stop in transcript and "error:" in transcript,
                 f"eclplay stops at {stop}, cited ({name})", transcript.strip()[-200:])

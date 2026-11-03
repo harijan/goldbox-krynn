@@ -137,6 +137,9 @@ typedef struct {
      * too, not ported. Cleared at the adventure's end (5f07:1338). Read by
      * 5f07:0940, not ported. */
     bool b7a7;
+    /* DS:ae65: the text's delay (1a62:0476), which 0311 reads while it is set. It starts set and
+     * 14eb sets it again; the battle's clears (59c7:1de2, 6c70:1d84 and 3323) are not ported. */
+    bool text_delay;
     /* The end of combat's flags (75cc:135c, 0593): DS:af3f, a member standing (0593 calls 01fb,
      * the experience, when it is set); DS:c7de, a member fled; DS:c7df, monsters present (11b0
      * sets it, 135c clears it); DS:b1da, the members out. */
@@ -765,7 +768,7 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
                 for (; di <= si; ++di, ++c->x) {
                     char one[2] = {s[di], '\0'};
                     text(game, 8 * c->y, 8 * c->x, one, attribute);
-                    if (slow) wait_cycles(game, ms);
+                    if (slow) pass(game, ms);
                 }
             }
             c->x = x1;
@@ -781,7 +784,7 @@ static bool print_window(cok_adventure *game, const char *s, int x1, int y1, int
         for (; di <= si; ++di, ++c->x) {
             char one[2] = {s[di], '\0'};
             text(game, 8 * c->y, 8 * c->x, one, attribute);
-            if (slow) wait_cycles(game, ms);
+            if (slow) pass(game, ms);
         }
     }
     if (c->x > x2) {
@@ -853,6 +856,11 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
                           const rect *areas, const uint8_t *area_cursors, size_t area_count,
                           int split, bool space)
 {
+    /* 1e3d-1e5a: the prompt DS:3aee (10d7:2543: equal strings) is no menu: 1bdb:0521 draws
+     * 0495's continue prompt and waits for its Return (141e(2), 1206 with no items and anim),
+     * and 1e29 gives 0x0d with DS:c2f5 clear. */
+    if (strcmp(prompt, "Press button or enter to continue") == 0)
+        return continue_prompt(game, false, anim) ? 0x0d : -1;
     char box[96];
     snprintf(box, sizeof box, "%s", prompt);
     size_t n = strlen(box);
@@ -2810,6 +2818,7 @@ static bool queen_open(cok_adventure *game)
     q->picture_id = 0xff;
     q->state = STATE_VIEW;
     q->cursor_shown = true;
+    q->text_delay = true;
     if (cok_picture_create_vga(&game->screen, 40, 200, 1,
                                (const uint8_t (*)[3])q->palette.rgb) != COK_PICTURE_OK) {
         snprintf(game->error, sizeof game->error, "out of memory");
@@ -4738,6 +4747,15 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block, bool begun)
     cok_ecl_status status = cok_adventure_enter(game, block != 0 ? block : 4);
     own(game)->loaded_game = false;
     vm->keep_vars = false;
+    /* 5f07:1164-11ed: the entry's run is followed by no DS:b7a7 test. After a lost party the
+     * menu (11f3, 1d99:1369) waits with the party empty and b7a7 kept; the run goes on only
+     * after that command (not ported). */
+    if (status == COK_ECL_OK && !vm->abort && own(game)->b7a7) {
+        cok_adventure_not_yet(game, "the adventure's menu after a lost party (the party "
+                                    "empty, DS:b7a7 kept)", "dqk 5f07:11f3 (1164-11ed: no b7a7 "
+                                                            "test after the entry's run)");
+        return vm->status;
+    }
     /* DS:b7a7 ends the run and the commands: nothing after it runs here (5f07:126c skips
      * the next command). */
     while (status == COK_ECL_OK && !vm->abort && !ended(game)) {
@@ -5649,26 +5667,25 @@ static bool results(cok_adventure *game, uint32_t share, bool *money, bool *item
 
 /* 75cc:1460-14e8, the lost party (DS:b7a7 set at 13d6): the full window, then "The Dark Queen
  * sneers with pleasure" / "at your meaningless demise." / "Nothing can stop her now... NOTHING!"
- * in the window from cell 2 by rows 5-7 (the text's cursor at 2, 6 first), then the continue
- * prompt (1bdb:0511: 1bdb:0495, then 2aa6:1586 with 0, 0, not verified: a cited stop). The
- * text's delay is off here (DS:ae65 is clear in a battle: 1a62:0476), so the words come at once.
- * False where the keys ran out or the stop is taken. */
+ * in the window from cell 2 by rows 5-7 (the text's cursor at 2, 6 first), each word slow while
+ * DS:ae65 is set (its delay draws random(1000) per character: 1a62:0311's 052a), then the
+ * continue prompt (1bdb:0511: 1bdb:0495, then 2aa6:1586's wait for Return or the button). False
+ * where the keys ran out. */
 static bool lost_party(cok_adventure *game)
 {
+    queen *q = own(game);
     full_window(game); /* 1460 */
     game->vm.cursor = (cok_text_cursor){2, 6}; /* 1465-146a: DS:ae4d, ae4e */
-    if (!print_window(game, "The Dark Queen sneers with pleasure", 2, 5, 0x25, 0x16, 7, false,
-                      false))
+    if (!print_window(game, "The Dark Queen sneers with pleasure", 2, 5, 0x25, 0x16, 7, true,
+                      q->text_delay))
         return false;
-    if (!print_window(game, "at your meaningless demise.", 2, 6, 0x25, 0x16, 7, false, false))
+    if (!print_window(game, "at your meaningless demise.", 2, 6, 0x25, 0x16, 7, true,
+                      q->text_delay))
         return false;
-    if (!print_window(game, "Nothing can stop her now... NOTHING!", 2, 7, 0x25, 0x16, 7, false,
-                      false))
+    if (!print_window(game, "Nothing can stop her now... NOTHING!", 2, 7, 0x25, 0x16, 7, true,
+                      q->text_delay))
         return false;
-    if (!continue_prompt(game, false, false)) return false; /* 093f -> 1bdb:0511 */
-    cok_adventure_not_yet(game, "the treasure", "dqk 2aa6:1586 (the dialog's poll after the "
-                                               "continue prompt, unverified: part 19d's end)");
-    return false;
+    return continue_prompt(game, false, false); /* 093f -> 1bdb:0511 */
 }
 
 /* 75cc:135c after 11b0 (the mode 6 is set): 13ae sets flag 1 (<>), each record's stats are
@@ -5710,7 +5727,8 @@ static bool treasure_end(cok_adventure *game)
         }
         cok_pool_free(&game->pool); /* 1458: 63ee:0002 */
     }
-    cok_ecl_store(vm, 0x01, 0); /* 14eb-150d: DS:ae65 is set by 14eb (the text's delay, timing only) */
+    q->text_delay = true; /* 14eb: DS:ae65 */
+    cok_ecl_store(vm, 0x01, 0);
     cok_ecl_store(vm, 0x2f, 0);
     cok_ecl_store(vm, 0x1c, 0);
     cok_ecl_store(vm, 0x1e, 0);
