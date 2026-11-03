@@ -2741,9 +2741,9 @@ static cok_ecl_status dq_menu(cok_adventure *adv, const char *keys)
 }
 
 /* The treasure menu's items by the pool (View; Take with money or items; Pool; Share with
- * money; Detect with a spell found; Exit), Exit's question with Yes and No, Escape, the stops
- * of Take, Pool and Share (part 20b) and of Detect (part 28), and the member keys (Down and Up
- * wrap, 5e22:067c). */
+ * money; Detect with a spell found; Exit), Exit's question with Yes and No, Escape, the stop of
+ * Take's items (part 21) and of Detect (part 28), and the member keys (Down and Up wrap,
+ * 5e22:067c). Take's money, Pool and Share are test_dark_queen_treasure_take and its neighbours. */
 static void test_dark_queen_treasure_menu(void)
 {
     static cok_adventure dqk;
@@ -2787,22 +2787,13 @@ static void test_dark_queen_treasure_menu(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 3);
     CHECK(dq_count(dq_quiet.log, items_menu) == 1);
 
-    /* Take, Pool and Share stop, cited. */
+    /* Take with items and no money stops at the items (75cc:0bbe, part 21). */
     dq_clear_pool(&dqk);
-    dqk.pool.coins[4] = 1000;
+    dq_pool_item(&dqk, 3);
     dq_menu(&dqk, "t");
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0d01 (part 20b)") != NULL);
-    dq_clear_pool(&dqk);
-    dqk.pool.coins[4] = 1000;
-    dq_menu(&dqk, "p");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 74b9:00f6 (part 20b)") != NULL);
-    dq_clear_pool(&dqk);
-    dqk.pool.coins[4] = 1000;
-    dq_menu(&dqk, "s");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 74b9:01ee (part 20b)") != NULL);
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe (Take's items, part 21)")
+              != NULL);
 
     /* Detect is listed with an item and a spell found: 0x3c at +0xce+i with +0x18b set. Its stop
      * is cited (part 28). Without +0x18b, or with the byte 0x67, it is not listed. */
@@ -2853,6 +2844,175 @@ static void test_dark_queen_treasure_menu(void)
     dqk.vm.character = first->record;
     dq_menu(&dqk, "\x01G" "en");
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.vm.character == first->record);
+}
+
+/* The treasure menu's Take with money (part 20b, 75cc:0d01 and 74b9:0683): the coin list (Jewelry
+ * first), Return takes the first row, an amount past the count takes the count, and the list
+ * ends on Escape. Then the overload: 1600 more than a weight of 64000 is 65600, past 0xffff (the
+ * 16-bit sum would be 64 and let it through), so "Overloaded" and nothing is taken. Take's bar
+ * with money and items: Items stops (part 21), Money takes, Escape leaves it. */
+static void test_dark_queen_treasure_take(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's treasure take not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *a = dq_member(&dqk, 0, 1);
+    dq_member(&dqk, 0, 1);
+
+    /* Jewelry by Return; the amount 5 is past the count 1 and takes 1. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.pool.coins[6] = 1;
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\r" "5\r" "\x1b" "en");
+    /* No is the claim's answer: the pool is freed on leaving (treasure_end), so its counts are
+     * not looked at after the menu; the member's jewelry is. */
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 6) == 1);
+
+    /* The last row taken whole leaves the cursor past the list's end: cited (1bdb:1f25, not
+     * checked: the original draws that list blank). Gems then Steel (Down selects Steel), 1000
+     * all of it. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.pool.coins[5] = 3;
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\x01P\r" "1000\r");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 1bdb:1f25") != NULL);
+
+    /* Overloaded: nothing is taken and the list comes again (Escape ends it). */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 2000;
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 64000);
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\r" "1600\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 64000);
+
+    /* With items too, Take asks Money or Items: Money takes (the list, Escape, then Take's bar,
+     * Escape), Items stops at 0bbe. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "tm\x1b\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "ti");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe (Take's items, part 21)")
+              != NULL);
+}
+
+/* Share (part 20b, 74b9:01ee) over six standing members with 200 steel each, the pool 1000 steel,
+ * 3 gems, 1 jewelry: the probe's shares (steel 367 four times, 366 twice; gems 1 for the first
+ * three; jewelry 1 for the first), the pool empty. */
+static void test_dark_queen_treasure_share(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's treasure share not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *m[6];
+    for (int i = 0; i < 6; ++i) {
+        m[i] = dq_member(&dqk, 0, 1);
+        cok_field_set16_at(L, m[i]->record, COK_FIELD_COINS, 4, 200);
+    }
+    CHECK(dqk.party.count == 6);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.pool.coins[5] = 3;
+    dqk.pool.coins[6] = 1;
+    dqk.vm.character = m[0]->record;
+    dq_menu(&dqk, "se");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    for (int i = 0; i < 6; ++i) {
+        CHECK(cok_field_u16_at(L, m[i]->record, COK_FIELD_COINS, 4) == (i < 4 ? 367 : 366));
+        CHECK(cok_field_u16_at(L, m[i]->record, COK_FIELD_COINS, 5) == (i < 3 ? 1 : 0));
+        CHECK(cok_field_u16_at(L, m[i]->record, COK_FIELD_COINS, 6) == (i == 0 ? 1 : 0));
+    }
+    CHECK(dqk.pool.coins[4] == 0 && dqk.pool.coins[5] == 0 && dqk.pool.coins[6] == 0);
+}
+
+/* Share with no counted member (NPC 0x01: it takes a share but is not counted, so n is 0): each
+ * share is 0xffff, and each record over the cap takes the fit (the cap 1500 less its weight, which
+ * holds its 200 steel: 1300), not a divide by zero. The rest is not given (no room is left) and the
+ * pool is lost on leaving (treasure_end's free). */
+static void test_dark_queen_treasure_share_none_counted(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's share with none counted not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *m[2];
+    for (int i = 0; i < 2; ++i) {
+        m[i] = dq_member(&dqk, 0, 1);
+        cok_field_set8(L, m[i]->record, COK_FIELD_NPC, 0x01);
+        cok_field_set16_at(L, m[i]->record, COK_FIELD_COINS, 4, 200);
+    }
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.vm.character = m[0]->record;
+    dq_menu(&dqk, "sen");
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.party.count == 2);
+    CHECK(cok_field_u16_at(L, m[0]->record, COK_FIELD_COINS, 4) == 1500);
+    CHECK(cok_field_u16_at(L, m[1]->record, COK_FIELD_COINS, 4) == 1500);
+}
+
+/* A 0xb3 member is counted in the shares but takes none: six members, five normal and one 0xb3,
+ * 1000 steel: the five take 166 each (the first four one more), the 0xb3 keeps its 200. Then Pool
+ * and Share: the pool gathers the members' steel, and the 1201 over six is 200 each and 1 more for
+ * the first. */
+static void test_dark_queen_treasure_pool_and_share(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's pool and share not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *m[6];
+    for (int i = 0; i < 6; ++i) {
+        m[i] = dq_member(&dqk, 0, 1);
+        cok_field_set16_at(L, m[i]->record, COK_FIELD_COINS, 4, 200);
+    }
+    cok_field_set8(L, m[5]->record, COK_FIELD_NPC, 0xb3);
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1000;
+    dqk.vm.character = m[0]->record;
+    dq_menu(&dqk, "se");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    for (int i = 0; i < 5; ++i)
+        CHECK(cok_field_u16_at(L, m[i]->record, COK_FIELD_COINS, 4) == (i < 4 ? 367 : 366));
+    CHECK(cok_field_u16_at(L, m[5]->record, COK_FIELD_COINS, 4) == 200);
+    CHECK(dqk.pool.coins[4] == 0);
+
+    /* Pool then Share: the pool holds 1 steel to start (money, so the menu offers Share), the
+     * members' 1200 come in with it: 1201 over six is 200 each and 1 more for the first. Share
+     * again after the pool, Exit with no money leaves without a question. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 1;
+    for (int i = 0; i < 6; ++i) cok_field_set16_at(L, m[i]->record, COK_FIELD_COINS, 4, 200);
+    cok_field_set8(L, m[5]->record, COK_FIELD_NPC, 0);
+    dqk.vm.character = m[0]->record;
+    dq_menu(&dqk, "pse");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u16_at(L, m[0]->record, COK_FIELD_COINS, 4) == 201);
+    for (int i = 1; i < 6; ++i) CHECK(cok_field_u16_at(L, m[i]->record, COK_FIELD_COINS, 4) == 200);
+    CHECK(dqk.pool.coins[4] == 0);
 }
 
 /* The claim question's Yes/No bar animates the small picture by DS:ae64 (1bdb:0424 passes it):
@@ -2978,6 +3138,10 @@ int main(void)
     test_dark_queen_experience();
     test_dark_queen_pool_and_past_party();
     test_dark_queen_treasure_menu();
+    test_dark_queen_treasure_take();
+    test_dark_queen_treasure_share();
+    test_dark_queen_treasure_share_none_counted();
+    test_dark_queen_treasure_pool_and_share();
     test_dark_queen_claim_animation();
     test_dark_queen_picture_frame_kept();
     test_dark_queen_temple_member_keys();

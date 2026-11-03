@@ -5840,6 +5840,213 @@ static bool treasure_detect(const uint8_t *c)
     return false;
 }
 
+/* 10d7:2a7b, Borland C's LMOD@ (signed), with ldiv_borland's magnitudes and signs: the
+ * remainder's sign is the dividend's, flipped for a negative divisor. A divisor of 0 gives the
+ * dividend (no subtraction). */
+static uint32_t lmod_borland(uint32_t a, uint32_t b)
+{
+    bool negative = (a & 0x80000000u) != 0, divisor_negative = (b & 0x80000000u) != 0;
+    if (negative) a = 0u - a;
+    if (divisor_negative) b = 0u - b;
+    uint32_t r = b == 0 ? a : a % b;
+    return negative != divisor_negative ? 0u - r : r;
+}
+
+/* The carry cap: cok_character_allowance + 1500 as a word (86b8:277c, 177e:1273 + 1500). */
+static bool treasure_cap(cok_adventure *game, const uint8_t *c, uint16_t *cap)
+{
+    int16_t allowance;
+    char error[300];
+    if (!cok_character_allowance(c, cok_game_rules(game), &allowance, error, sizeof error)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+        return false;
+    }
+    *cap = (uint16_t)((uint16_t)allowance + 0x5dc);
+    return true;
+}
+
+/* 74b9:0000, the overload test: the weight (+0x56) and the amount as one 32-bit sum against the
+ * cap. *fit is the room left when it is over and the weight is within the cap, else 0. Unlike
+ * cok_pool_overloaded's 16-bit sum, a sum past 0xffff is over. False where the run stopped. */
+static bool treasure_overloaded(cok_adventure *game, const uint8_t *c, uint32_t amount, bool *over,
+                                uint16_t *fit)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint16_t cap;
+    if (!treasure_cap(game, c, &cap)) return false;
+    uint16_t weight = cok_field_u16(L, c, COK_FIELD_WEIGHT);
+    *over = (uint32_t)weight + amount > cap;
+    *fit = *over && weight <= cap ? (uint16_t)(cap - weight) : 0;
+    return true;
+}
+
+/* 58e7:0053: a word of coin j and the weight (+0x56) more, as words. */
+static void treasure_give(const cok_character_layout *L, uint8_t *c, size_t j, uint16_t amount)
+{
+    cok_field_set16_at(L, c, COK_FIELD_COINS, (int)j,
+                       (uint16_t)(cok_field_u16_at(L, c, COK_FIELD_COINS, (int)j) + amount));
+    cok_field_set16(L, c, COK_FIELD_WEIGHT,
+                    (uint16_t)(cok_field_u16(L, c, COK_FIELD_WEIGHT) + amount));
+}
+
+/* The pool's coins 4-6 by name (74b9:0683's DS:3bd2: steel, gems, jewelry). */
+static const char *const pool_coin_names[3] = {"Steel", "Gems", "Jewelry"};
+
+/* 74b9:01ee, Share. n is the count of records with NPC 0 or 0xb3 (a byte, 74b9:01a1). Each coin
+ * with a positive count gives each share (LDIV@, a word) and rest (LMOD@, a word); with n 0 the
+ * share is 0xffff and the rest the count. Then each record with NPC below 0x80 (a 0xb3 record is
+ * counted but takes nothing, a 0x01-0x7f one takes without being counted) takes its share, jewelry
+ * down to steel, and one more from the rest while it fits. What is left goes to every record in turn,
+ * as much as each has room for (the room wraps for one carrying more than it may). The pool keeps
+ * what is left. False where the run stopped. */
+static bool treasure_share(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    size_t first = cok_field_first(L, COK_FIELD_COINS);
+    size_t end = first + cok_field_count(L, COK_FIELD_COINS);
+    uint8_t n = 0;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        uint8_t kind = cok_field_u8(L, game->party.members[i]->record, COK_FIELD_NPC);
+        if (kind == 0 || kind == 0xb3) ++n;
+    }
+    uint16_t share[COK_COINS] = {0}, rest[COK_COINS] = {0};
+    for (size_t j = first; j < end; ++j) {
+        int32_t coins = (int32_t)game->pool.coins[j];
+        if (coins <= 0) continue;
+        share[j] = (uint16_t)ldiv_borland((uint32_t)coins, n);
+        rest[j] = (uint16_t)lmod_borland((uint32_t)coins, n);
+    }
+    for (size_t i = 0; i < game->party.count; ++i) {
+        uint8_t *c = game->party.members[i]->record;
+        if (cok_field_u8(L, c, COK_FIELD_NPC) >= 0x80) continue;
+        for (size_t j = end; j-- > first;) {
+            bool over;
+            uint16_t fit;
+            if (!treasure_overloaded(game, c, share[j], &over, &fit)) return false;
+            if (over) {
+                treasure_give(L, c, j, fit);
+                rest[j] = (uint16_t)(rest[j] + share[j] - fit);
+                continue;
+            }
+            treasure_give(L, c, j, share[j]);
+            if (rest[j] == 0) continue;
+            if (!treasure_overloaded(game, c, 1, &over, &fit)) return false;
+            if (over) continue;
+            treasure_give(L, c, j, 1);
+            --rest[j];
+        }
+    }
+    for (size_t j = end; j-- > first;) {
+        if (rest[j] == 0) continue;
+        for (size_t i = 0; i < game->party.count; ++i) {
+            uint8_t *c = game->party.members[i]->record;
+            uint16_t cap;
+            if (!treasure_cap(game, c, &cap)) return false;
+            uint16_t room = (uint16_t)(cap - cok_field_u16(L, c, COK_FIELD_WEIGHT));
+            if (room == 0) continue;
+            uint16_t amount = rest[j] > room ? room : rest[j];
+            treasure_give(L, c, j, amount);
+            rest[j] = (uint16_t)(rest[j] - amount);
+        }
+    }
+    for (size_t j = first; j < end; ++j) game->pool.coins[j] = rest[j];
+    return true;
+}
+
+/* 75cc:0683 with 74b9:05c0: the pool's coins (those with a positive count) as a list, Jewelry,
+ * Gems, Steel (the list is built by prepending), under "select type of coin " with Select and
+ * Exit. Select gives the coin of the row (*at kept across passes): "How many Gems will you take? "
+ * or "How much ... will you take? ", the amount (queen_amount_input, past the pool's count it is
+ * the count). Over (the overload test on the amount as a word) says "Overloaded" on the bar and
+ * waits 100 ms times var 0x12, the keys are flushed, and nothing is taken. Otherwise the coin
+ * moves from the pool to the selected member's coins and weight. Until no coin is left, or Exit
+ * or Escape. False where the run stopped. */
+static bool treasure_take_money(cok_adventure *game)
+{
+    cok_ecl *vm = &game->vm;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    size_t first = cok_field_first(L, COK_FIELD_COINS);
+    size_t end = first + cok_field_count(L, COK_FIELD_COINS);
+    static const char *const bar[] = {"Select", "Exit"};
+    full_window(game); /* 20b2:0030, once */
+    size_t at = 0;
+    for (;;) {
+        char rows[3][32];
+        const char *shown[3];
+        size_t which[3], n = 0;
+        for (size_t j = end; j-- > first;) {
+            int32_t coins = (int32_t)game->pool.coins[j];
+            if (coins <= 0) continue;
+            snprintf(rows[n], sizeof rows[n], "%s %ld", pool_coin_names[j - first], (long)coins);
+            shown[n] = rows[n];
+            which[n++] = j;
+        }
+        if (n == 0) return true;
+        /* A row taken whole can leave the cursor past the last row. The original draws that list
+         * blank (the check, dqk_treasure's overload flow: its rows gone, cursor 2 of 2); list_menu
+         * resets the cursor instead, so this stops, cited, until the list is checked. */
+        if (at >= n)
+            return cok_adventure_not_yet(game, "Take's list with the cursor past its last row",
+                                         "dqk 1bdb:1f25 (the list's cursor past its last row: "
+                                         "the original draws it blank)");
+        int picked = queen_list_menu(game, "select type of coin ", bar, 2, shown, n, &at, 2, 2, 8,
+                                     0x12);
+        if (picked < 0) return false;
+        if (picked != 0) return true; /* Exit (1) or Escape */
+        size_t j = which[at < n ? at : 0];
+        char prompt[64];
+        snprintf(prompt, sizeof prompt, "How %s %s will you take? ",
+                 j == first + 1 ? "many" : "much", pool_coin_names[j - first]);
+        long amount = queen_amount_input(game, prompt, (long)game->pool.coins[j]);
+        if (amount < 0) return false;
+        uint8_t *c = vm->character;
+        bool over;
+        uint16_t fit;
+        if (!treasure_overloaded(game, c, (uint16_t)amount, &over, &fit)) return false;
+        if (over) {
+            queen_bar_message(game, "Overloaded");
+            cok_dark_queen_wait(game, 100u * cok_ecl_load_var(vm, 0x12));
+            cok_adventure_flush(game);
+            continue;
+        }
+        uint32_t take = (uint16_t)amount;
+        if ((int32_t)take > (int32_t)game->pool.coins[j]) take = game->pool.coins[j];
+        game->pool.coins[j] -= take;
+        treasure_give(L, c, j, (uint16_t)take);
+    }
+}
+
+/* 75cc:0d01, Take, with the pool's money and items: with no money the items (0bbe, a stop); with
+ * no items the money (0683) and the mode-6 screen; with both, the bar "Take:" (Money, Items, Exit)
+ * again after each money pass (the items stay: only Items' stop leaves them). Escape or Exit
+ * ends it. False where the run stopped. */
+static bool treasure_take(cok_adventure *game)
+{
+    bool money, items;
+    pool_flags(game, &money, &items);
+    if (!money)
+        return cok_adventure_not_yet(game, "Take's items", "dqk 75cc:0bbe (Take's items, part 21)");
+    if (!items) {
+        if (!treasure_take_money(game)) return false;
+        return screen_as_it_was(game);
+    }
+    static const char *const words[] = {"Money", "Items", "Exit"};
+    for (;;) {
+        int choice = bar_menu(game, "Take:", words, 3, true, true, 0, 0);
+        if (choice < 0) return false;
+        if (choice == 0x1b || choice == 2) return true;
+        if (choice == 0) {
+            if (!treasure_take_money(game)) return false;
+            if (!screen_as_it_was(game)) return false;
+        } else if (choice == 1) {
+            return cok_adventure_not_yet(game, "Take's items",
+                                         "dqk 75cc:0bbe (Take's items, part 21)");
+        } else if (choice == 0x84 || choice == 0x88) {
+            member_key(game, choice);
+        }
+    }
+}
+
 enum { TM_VIEW, TM_TAKE, TM_POOL, TM_SHARE, TM_DETECT, TM_EXIT, TM_ITEMS };
 static const char *const treasure_words[TM_ITEMS] = {"View", "Take", "Pool", "Share", "Detect",
                                                      "Exit"};
@@ -5849,9 +6056,10 @@ static const char *const treasure_words[TM_ITEMS] = {"View", "Take", "Pool", "Sh
  * or items; Pool; Share with money; Detect when treasure_detect finds a spell; Exit (the
  * jump table at 75cc:109b). View shows the sheet and the screen again. Exit with money or
  * items says "there is still treasure left." and asks whether to go back and claim it: Yes
- * clears the window and the menu comes again, No (or Escape) leaves. Take, Pool, Share and
- * Detect stop, cited (part 20b; Detect's cast is part 28). Escape is Exit; Up and Down pick a
- * member (member_key, 5e22:067c); End and Home do nothing (75cc:103e); other codes do nothing. DS:c6e4 (the saved item),
+ * clears the window and the menu comes again, No (or Escape) leaves. Take, Pool and Share are
+ * treasure_take, cok_pool_gather and treasure_share; Take's items and Detect's cast stop, cited
+ * (part 21; part 28). Escape is Exit; Up and Down pick a member (member_key, 5e22:067c);
+ * End and Home do nothing (75cc:103e); other codes do nothing. DS:c6e4 (the saved item),
  * DS:ae5a (the pool's flag: no reader found) and the party list's mouse area (1bdb:0c00,
  * 0a33, DS:1d0f) are not modelled; with the mouse on a click outside the buttons beeps. The
  * ECL's song call (2023:0006) at the end is not played (as at PROGRAM's songs). False where
@@ -5895,15 +6103,15 @@ static bool treasure_menu(cok_adventure *game)
             if (!view_character(game)) return false;
             if (!screen_as_it_was(game)) return false;
             break;
-        case TM_TAKE:
-            return cok_adventure_not_yet(game, "Take in the treasure menu", "dqk 75cc:0d01 "
-                                                                            "(part 20b)");
-        case TM_POOL:
-            return cok_adventure_not_yet(game, "Pool in the treasure menu", "dqk 74b9:00f6 "
-                                                                            "(part 20b)");
-        case TM_SHARE:
-            return cok_adventure_not_yet(game, "Share in the treasure menu", "dqk 74b9:01ee "
-                                                                             "(part 20b)");
+        case TM_TAKE: /* 10b6: 75cc:0d01 */
+            if (!treasure_take(game)) return false;
+            break;
+        case TM_POOL: /* 10ca: 74b9:00f6 (cok_pool_gather: the same routine) */
+            cok_pool_gather(game);
+            break;
+        case TM_SHARE: /* 10d2: 74b9:01ee */
+            if (!treasure_share(game)) return false;
+            break;
         case TM_DETECT:
             return cok_adventure_not_yet(game, "Detect in the treasure menu", "dqk 849a:145b "
                                                                               "(Detect's "

@@ -28,6 +28,9 @@ bool queen_item_unready(cok_adventure *game, uint8_t *item);
 int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
                     size_t bar_count, const char *const *items, size_t count, size_t *at,
                     int x1, int y1, int y2, int x2);
+/* 86b8:2586: a number typed after its prompt on the bar, past max it is max; Return gives it,
+ * Escape 0. -1 where the keys ran out. */
+long queen_amount_input(cok_adventure *game, const char *prompt, long max);
 /* 177e:153c: a message on the bar for the speed's time. */
 void queen_bar_message(cok_adventure *game, const char *s);
 /* 1a62:0311: text in cells x1-x2 by y1-y2, a character at a time while DS:ae65 is set. */

@@ -22,7 +22,8 @@ line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75
 to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93) runs:
 its waits are read one at a time (POOL_STEPS and the others: the screen, the variables, the records,
 the pool's coins, and the selected record by name), and its last keys lead to COMBAT's return
-(5f07:0987), the end. Take, Pool, Share and Detect are not typed (cited stops, part 20b and 28). A
+(5f07:0987), the end. Detect's cast (part 28) and Take's items (part 21) are not typed: cited stops. Take, Pool and
+Share are typed in the flows below. A
 lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
 b7a7 test) is the stop.
 
@@ -74,6 +75,11 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
 - `enemyout`: member 5 hostile 1 and inactive (SAVE 5 -> var 0x15 first): 11ba clears var 0x15, 11f4
   counts it (1), and var 0x20 is one less.
 - `enemyhigh`: member 5's hostile word is 0x0101: not 1, so 11b0 keeps it (six records stay).
+- `take`: the pool 1000 3 1 0 (as `pool`): Take's list (t), Down twice and Select (the prompt), 500
+  (Roland's steel 700, the pool's steel 500), the list again, Escape, Exit's question (e), No (n).
+- `share`: `pool`'s pool, Share (s): the probe's shares (steel 367 four times, 366 twice; gems 1 for
+  the first three; jewelry 1 for the first), the pool empty, Exit (e) with no question.
+- `gather`: the pool 1000 3 1 0, Pool (p: the pool 2200 3 1), Share (s), Exit (e).
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -124,6 +130,22 @@ POOL_STEPS = [("the treasure menu after the results", ""), ("View's sheet", "v")
               ("Down: the next member selected", "\\v"), ("Exit's question", "e"),
               ("the menu after Yes (the window cleared)", "y"), ("Exit's question again", "e"),
               ("the adventure after No", "n")]
+# Take, Pool and Share (part 20b): each step's keys as the probe typed them (saved game A, pool
+# 1000 3 1 0): Take's list (Jewelry 1, Gems 3, Steel 1000), Down twice to Steel and Select (the
+# prompt), 500 (Roland's steel 700, the pool's 500), the list again and Escape (the menu).
+TAKE_STEPS = [("the treasure menu after the results", ""),
+              ("Take's coin list (Jewelry 1, Gems 3, Steel 1000)", "t"),
+              ("the prompt for Steel (Down twice, Select)", "\\v\\v\\r"),
+              ("the coin list after 500 (Steel 500)", "500\\r"),
+              ("the menu after the list (Escape)", "\\e"), ("Exit's question", "e"),
+              ("the adventure after No", "n")]
+SHARE_STEPS = [("the treasure menu after the results", ""),
+               ("the menu after Share (View Pool Exit)", "s"),
+               ("the adventure after Exit (no question: the pool is empty)", "e")]
+GATHER_STEPS = [("the treasure menu after the results", ""),
+                ("the menu after Pool (the pool 2200 3 1)", "p"),
+                ("the menu after Share", "s"),
+                ("the adventure after Exit (no question)", "e")]
 BONUS_STEPS = [("the treasure menu after the results", ""), ("Escape is Exit: the question", "\\e"),
                ("the adventure after No", "n")]
 NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
@@ -175,6 +197,17 @@ FLOWS = {
     "enemyhigh": dict(changes=[{}, {}, {}, {}, {}, {0x66: 1, 0x67: 1}], extra=[],
                       end="end", expect=(True, False, False, 0), share=0, pool=NO_POOL,
                       gained=ZERO, may=ZERO),
+    # The coins flows (part 20b): the pool 1000 3 1 0 as "pool" (the share 825 and the same
+    # experience), with the treasure menu's Take, Overload, Share and Pool.
+    "take": dict(changes=None, extra=[TREASURE], end="end", steps=TAKE_STEPS,
+                 expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                 gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    "share": dict(changes=None, extra=[TREASURE], end="end", steps=SHARE_STEPS,
+                  expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                  gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
+    "gather": dict(changes=None, extra=[TREASURE], end="end", steps=GATHER_STEPS,
+                   expect=(True, False, False, 0), share=825, pool=NO_POOL,
+                   gained=[825, 275, 275, 412, 412, 412], may=[0, 0, 0, 0, 1, 0]),
     "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
                   extra=[("SAVE", (imm(9), var(0x20)))], end="lost",
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],

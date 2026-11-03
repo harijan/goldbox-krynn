@@ -734,8 +734,11 @@ run, citing their handlers (`unported`). It holds:
   "The party has won." with monsters, the share's "each character receives N experience points.", the
   treasure line and the bar's "Press button or enter to continue", whose wait ends on Return) run; with
   money or items the treasure menu runs (`75cc:0e93`: View, the sheet and the screen again; Exit's claim
-  question, Yes or No; Escape is Exit; Up and Down pick a member (`5e22:067c`), End and Home do nothing (`75cc:103e`); Take, Pool, Share
-  and Detect are cited stops, parts 20b and 28); the pool is emptied (`63ee:0002`),
+  question, Yes or No; Escape is Exit; Up and Down pick a member (`5e22:067c`), End and Home do nothing (`75cc:103e`);
+  Take (`75cc:0d01`: the coins' list, the amount, the "Take:" bar with items), Pool (`74b9:00f6`) and Share
+  (`74b9:01ee`, the 32-bit overload test `74b9:0000`, n = 0 gives 0xffff each) are ported; Take's items
+  (`75cc:0bbe`, part 21), a Take list whose cursor is past its last row (`1bdb:1f25`: the original draws it
+  blank, not ported) and Detect's cast (`849a:145b`, part 28) are cited stops); the pool is emptied (`63ee:0002`),
   vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
   clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
