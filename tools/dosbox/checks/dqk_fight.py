@@ -231,7 +231,7 @@ def saved_entry(work):
 
 
 def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
-         field=None, at=None):
+         field=None, at=None, blocks=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -242,6 +242,8 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
     extra = ["--load", str(saved_entry(work)), "--play"]
     if records is not None:
         extra += ["--records", str(records)]
+    if blocks is not None:
+        extra += ["--blocks", str(blocks)]
     if difficulty is not None:
         extra += ["--set", f"27={difficulty:x}"]
     if screen is not None:
@@ -350,11 +352,18 @@ SIX_IDS = (64, 49, 41, 37, 36, 64)
 CALL_BATTLE = (0x5F07, 0x08F0)
 # How long COMBAT may take to reach that call after the LOAD MONSTERs (wall clock).
 COMBAT_SECONDS = 300
-# The battle's stop (step 4, part 7): the battle starts and builds its battlefield, then stops at
-# the placement (59c7:0f7b), which is not ported yet.
-PLACEMENT = (0x59C7, 0x0F7B)
+# The battle's stop (step 4, part 9a): the battle starts, builds its battlefield and makes its
+# combat records (59c7:0f7b, ported), then stops at the placement (59c7:1864), not ported yet.
+PLACEMENT = (0x59C7, 0x1864)
 BATTLE_STOP = ("error: not yet ported: The Dark Queen of Krynn's battle's placement "
-               "(dqk 59c7:0f7b)")
+               "(dqk 59c7:1864)")
+# The record bytes the combat records recompute between the battle's call (5f07:08f0, read by the
+# battle-start checks) and the stop (59c7:1864, which the port stops at after 0f7b): 0f7b gives
+# every record its stats (177e:0be2, cok_character_stats), which rewrite these bytes (the load,
+# the sheet's and the combat's values, with their hands and encumbrance). The placement check
+# (field) reads the records whole at 1864 and agrees with the port there, so the battle-start
+# checks allow these bytes to differ and no others.
+RECOMPUTED = frozenset((0x56, 0x57, 0xCA, 0x18D, 0x18E, 0x18F, 0x192, 0x194, 0x196, 0x199))
 # The party's records as eclplay imports them from the saved game (--load) are the
 # original's, byte for byte: none differs. With --character they differed for four
 # members (the known spells at 0x159, the saving throws and thief skills at 0x8b and
@@ -367,6 +376,7 @@ EXTRAS = 10
 # the readied items' slots (0xc-0x3f) and the combat record (0x40-0x43).
 POINTER_BYTES = range(0, 0x44)
 HIT_POINTS = 0x198             # a record's hit points (dqk_fight_lib's layout)
+COMBAT_BLOCK = 0x18            # a record's combat block (59c7:0f7b; dqk_fight_lib.COMBAT_RECORD)
 
 
 class Flow:
@@ -532,14 +542,15 @@ def load_run(v, work, opts, flow, difficulty):
     # The records' bytes, pointers masked: the monsters' must agree, and the party's
     # must agree at PARTY_GAPS (the import's bytes, before any monster is looked at).
     where = {i: tuple(k for k in range(L.RECORD)
-                      if at_start(ported[i])[k] != at_start(r["records"][i])[k])
+                      if at_start(ported[i])[k] != at_start(r["records"][i])[k] and
+                      k not in RECOMPUTED)
              for i in range(min(len(ported), len(r["records"])))}
     where = {i: ks for i, ks in where.items() if ks}
     v.check(len(ported) == len(r["records"]) and
             all(not ks for i, ks in where.items() if i >= PARTY) and
             where == PARTY_GAPS,
-            f"every monster's record agrees at the battle's start (pointers masked), and the "
-            f"party's agree at PARTY_GAPS (none){tag}",
+            f"every monster's record agrees at the battle's start (pointers masked; RECOMPUTED "
+            f"aside), and the party's agree at PARTY_GAPS (none){tag}",
             "; ".join(f"{i}: " + " ".join(f"{k:#x}" for k in ks) for i, ks in sorted(where.items())))
     return r, ported
 
@@ -812,9 +823,10 @@ def encounter(v, work, opts):
             "eclplay's party list at the battle's start has the original's records, c6f1, ad6b "
             "and undead", f"{len(ported)} records, c6f1 {count}, ad6b {icon_slot}, undead {undead}")
     where = [i for i in range(min(len(ported), len(battle["records"])))
-             if at_start(ported[i]) != at_start(battle["records"][i])]
+             if any(at_start(ported[i])[k] != at_start(battle["records"][i])[k] and
+                    k not in RECOMPUTED for k in range(L.RECORD))]
     v.check(not where and len(ported) == len(battle["records"]),
-            "every record agrees at the battle's start (pointers masked, the computer flag as 0; "
+            "every record agrees at the battle's start (pointers masked, the computer flag as 0, RECOMPUTED aside; "
             "the party's too)",
             " ".join(str(i) for i in where))
     v.check(battle["count"] == ENCOUNTER.appended and battle["icon_slot"] == ENCOUNTER.icon_slot
@@ -825,13 +837,15 @@ def encounter(v, work, opts):
             " ".join(battle["names"][PARTY:]))
 
 
-# The battlefield (step 4, part 7): the battle's setup builds the battlefield (59c7:1dd7: the
-# tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b) and stops at the
-# placement, 59c7:0f7b. The original is trapped at its entry, after the builders: the view's
-# origin (far DS:bedb +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9) and RandSeed, and
-# eclplay --field, at its stop, must hold the same. The dungeon draws no dice, and the memory
-# cache's purges draw none in the box (dqk_fight_lib.freeze_purges), so RandSeed is the seed the
-# battle began with, as in eclplay. The fixture's battle is in 3D (var 0x22 set), asserted; the
+# The battlefield (step 4, parts 7 and 9a): the battle's setup builds the battlefield (59c7:1dd7:
+# the tiles, then 06a7's dungeon from the 3D map; a battle outside 3D stops at 0e3b), makes the
+# combat records (59c7:0f7b: each record's combat block, checked at every offset) and stops at
+# the placement, 59c7:1864. The original is trapped at its entry, after those: the view's origin
+# (far DS:bedb +2, +4), the header (+6, +7, +8), the 50 by 25 cells (+9), each record's combat
+# block (0x18 bytes at +0x40) and RandSeed; eclplay --field and --blocks, at its stop, must hold
+# the same. The trap moved from 0f7b to 1864 when 0f7b was ported (9a): the stop is after it.
+# The dungeon draws no dice, and the memory cache's purges draw none in the box
+# (dqk_fight_lib.freeze_purges), so RandSeed is the seed the battle began with, as in eclplay. The fixture's battle is in 3D (var 0x22 set), asserted; the
 # origin is written after the placement (1dd7's 4837:0aea), so it is what the battle before left,
 # and is compared as read.
 FIELD_CELLS = 50 * 25
@@ -875,10 +889,13 @@ def field_original(work, patched, verbose, square=None, tag="field"):
         L.frozen_at_trap(box)
         box.settled(tolerance=64)
         held, polls, polls_held = L.held(box, handle)
+        listed = L.records(box)
         result = dict(traps=len(handle), held=held, polls=(polls, polls_held),
                       field=L.battlefield(box), seed=box.ds_dword(L.DS_SEED),
                       purges=purges(box) - purges_at_seed,
-                      records=[raw.hex() for _, raw in L.records(box)],
+                      records=[raw.hex() for _, raw in listed],
+                      blocks=[None if cb is None else cb[1].hex()
+                              for cb in (L.combat_record(box, raw) for _, raw in listed)],
                       mode=box.ds_word(L.DS_MODE), variables=block_vars(box))
         L.untrap(box, handle)
         return result
@@ -907,7 +924,7 @@ def field_one(v, work, opts, square, tag):
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     where = "the fixture's square" if square is None else f"the square {square}"
     r = field_original(work, patched, opts.verbose, square, tag)
-    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:0f7b)",
+    v.check(r["traps"] >= 1 and r["held"], "the original spins at the placement (59c7:1864)",
             f"{r['traps']} copies, polls {r['polls'][0]} -> {r['polls'][1]}")
     v.check(r["mode"] == 5, "the battle's mode is 5 at the placement", f"mode {r['mode']}")
     three_d = r["variables"][0x22 - 1]
@@ -917,12 +934,19 @@ def field_one(v, work, opts, square, tag):
     cells = bytes.fromhex(original["cells"])
     path = work / f"port-{tag}.field"
     records = work / f"port-{tag}.records"
+    blocks = work / f"port-{tag}.blocks"
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
-                                records=records)
+                                records=records, blocks=blocks)
     v.check(port_last == BATTLE_STOP, "eclplay stops at the placement (not yet ported)", port_last)
     if not path.exists():
         v.check(False, "eclplay writes its battlefield at the stop", port_last)
         return
+    # Var 0x3c gates the records' effect 0x95 (59c7:0f7b:10cf): its value agrees, and the
+    # records' effects (masked in the record compare) follow it; 0 at every square here.
+    gate = r["variables"][0x3C - 1]
+    got = port_vars[0x3C - 1] if len(port_vars) == dqk_ecl.VARIABLES else -1
+    v.check(got == gate, f"var 0x3c (the records' effect gate) agrees at the placement at {where}",
+            f"eclplay {got}, the original {gate}")
     seed, view, header, ported = parse_field(path)
     draws = L.draws(SEED, r["seed"], 1000)
     v.check(seed == SEED and draws == 0,
@@ -941,6 +965,19 @@ def field_one(v, work, opts, square, tag):
             "every record agrees at the placement (pointers masked; the computer flag set by "
             "the leadership)", f"{len(ported_records)} against {len(r['records'])}; differ: "
             f"{' '.join(map(str, where_records))}")
+    # Each record's combat block (0x18 bytes at +0x40, 59c7:0f7b), in the layout's named bytes
+    # (facing +0x0a, not_party +0x14, +0x17) and the rest, which the port reads as 0: the
+    # original's must be 0 there too (eclplay --blocks dumps what the port holds).
+    data = blocks.read_bytes() if blocks.exists() else b""
+    ported_blocks = [data[i:i + COMBAT_BLOCK].hex() for i in range(0, len(data), COMBAT_BLOCK)]
+    where_blocks = [i for i, b in enumerate(r["blocks"])
+                    if i >= len(ported_blocks) or b is None or ported_blocks[i] != b]
+    v.check(not where_blocks and len(ported_blocks) == len(r["blocks"]) and
+            len(data) % COMBAT_BLOCK == 0,
+            f"every record's combat block agrees at the placement (0x18 bytes at +0x40, the "
+            f"unnamed bytes 0 in both) at {where}",
+            f"{len(ported_blocks)} against {len(r['blocks'])}; differ: "
+            f"{' '.join(map(str, where_blocks))}")
     v.check(begun == 1, "eclplay prints \"A battle begins...\" once (no setup prelude: 59c7:1dd7 "
             "prints nothing)", f"{begun} times")
     v.check(header == original["header"],

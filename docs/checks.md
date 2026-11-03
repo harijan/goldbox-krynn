@@ -676,10 +676,10 @@ by 18: the front end draws it, not the screen the port's BMP holds). At the batt
 squares in both (COMBAT's lowering of 9), the party and the monsters' records, c6f1, ad6b and the undead count agree as in
 `load`, and eclplay stops at the battle. The close-up is one frame (PICA 21), so its screen at distance 0 agrees; PIC 14
 is not used: it animates during PRESS KEY (`63ae:0269`), so a settled screen catches a later frame than eclplay's.
-Flow `field` (step 4, part 7: the battle's setup and the dungeon builder, `59c7:1dd7` to the placement). For two
+Flow `field` (step 4, parts 7 and 9a: the battle's setup, the dungeon builder, and the combat records, `59c7:1dd7` to the placement). For two
 party squares, the fixture's (saved game A's, 7, 13, facing 0) and the west edge's (0, 3, 2, written at DS:c9f0 and
-eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:0f7b` (the placement's
-entry, after the tiles and the dungeon builder), where the 50 by 25 cells, RandSeed and the mode are read (the original's
+eclplay's `--at`): the block as `encounter` gives it to COMBAT, the original trapped at `59c7:1864` (the placement's
+entry, after the tiles, the dungeon builder and the combat records `59c7:0f7b`), where the 50 by 25 cells, each record's combat block, RandSeed and the mode are read (the original's
 spin holds, and the battle is in 3D: var 0x22 set). Four squares: the fixture's, the west edge (0, 3, 2), (12, 12, 0)
 (049e's door corner and the 17th column) and (4, 14, 0) (the 17th row, 0285's door again); each catches a mutation the
 others do not: 049e's door corner off and its tile 8 -> 9 fail at (12, 12) only, and side_kind on the 16 by 16

@@ -86,7 +86,9 @@ uint32_t cok_effects_made(void);
  * setup (3cb2:10d9) allocates zeroed for every record in the list and the
  * end of combat (351b:1493) frees; outside combat the pointer is NULL,
  * which the port reads as all zero (cok_character_combat), as the
- * original's end of combat reads 0000:0013 for +0x13 when no battle ran. */
+ * original's end of combat reads 0000:0013 for +0x13 when no battle ran.
+ * Dark Queen's block (0x18 bytes at +0x40, 59c7:0f7b) has the same fields
+ * at its own offsets (rules.h's cok_combat_block) and one more, in_battle. */
 typedef struct {
     uint8_t spell;       /* +0x00: a spell being cast, cast at its next turn. */
     uint8_t may_cast;    /* +0x01: may cast this round. */
@@ -107,6 +109,9 @@ typedef struct {
     uint8_t not_party;   /* +0x13: set past the party's size (0x7f3e) in the list. */
     uint8_t fleeing;     /* +0x14. */
     uint8_t pattern;     /* +0x15: the AI's way of moving. */
+    uint8_t in_battle;   /* Dark Queen's block +0x17 only: set to 1 for every record
+                          * by its records (59c7:0f7b:10ca); 0 where the game has no
+                          * such byte. Its readers are not yet found. */
 } cok_combat_record;
 
 typedef struct {

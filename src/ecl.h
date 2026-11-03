@@ -147,6 +147,9 @@ typedef enum {
     COK_VAR_VAULT,         /* dkk 0x4d00: COMBAT opens the vault's menu (3632:16ec); Champions none */
     COK_VAR_RIVER,         /* dkk 0x4bf3: a river crosses the open ground (410b:0a4c); Champions none */
     COK_VAR_TURNING,       /* dkk 0x4cff: turning undead's level less (5340:119b); Champions none */
+    COK_VAR_RECORD_EFFECT, /* dqk 0x3c: when set, the battle's records (59c7:0f7b:10cf) give
+                            * each record that is not hostile effect 0x95; Champions and Death
+                            * Knights none */
     COK_VARS
 } cok_var;
 

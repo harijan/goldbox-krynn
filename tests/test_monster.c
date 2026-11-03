@@ -1227,7 +1227,7 @@ static void test_dark_queen_monsters(void)
 }
 
 /* Dark Queen's blocks (6c70:29a3's LOAD MONSTER registers, 5f07:081b's
- * COMBAT appends and stops at the battle (open ground: 59c7:0e3b; a 3D battle, 0f7b); 5f07:07fe's CLEARMONSTERS
+ * COMBAT appends and stops at the battle (open ground: 59c7:0e3b; a 3D battle, 1864); 5f07:07fe's CLEARMONSTERS
  * (75cc:151b, 63ee:0002) forgets the slots). Each test opens its own
  * adventure from DQKAssets, and skips without it. */
 #define DQK_LOAD_MONSTER 0x0b
@@ -1464,13 +1464,13 @@ static void test_dark_queen_encounter(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dqk.sprite_shown && dqk.closeup_id == 14);
     CHECK(dqk.error[0] == '\0');
     /* COMBAT lowers the distance to the open squares (2) before its text, and the
-     * battle is still not carried out (dqk 59c7:0f7b). */
+     * battle's records are made (59c7:0f7b), and the battle stops at its placement (1864). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     DQK_RUN(&dqk, DQK_LOAD_MONSTER, 0, 64, 0, 1, 0, 64);
     cok_ecl_set_var(&dqk.vm, COK_VAR_DISTANCE, 5);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:0f7b") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 59c7:1864") != NULL);
     CHECK(cok_ecl_var(&dqk.vm, COK_VAR_DISTANCE) == 2);
     cok_adventure_close(&dqk);
 }

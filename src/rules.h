@@ -1050,6 +1050,24 @@ typedef enum {
     COK_WILDERNESS_DEATH_KNIGHTS,
 } cok_wilderness_routine;
 
+/* Dark Queen's combat block (59c7:0f7b): the 0x18 bytes a record's far pointer
+ * +0x40 keeps, beside the port's cok_combat_record (party.h), which holds the same
+ * meanings at its own offsets. Its named bytes, by their offset in the block; the
+ * others are unnamed (0x00-0x09, 0x0b-0x13, 0x15, 0x16: read as 0 by eclplay's
+ * --blocks, and checked as 0 at the placement by dqk_fight). The records' differences
+ * from cok_combat_records (59c7:0f7b) are here too: a record with the effect
+ * facing_effect faces 2, and a record that is not hostile gets gate_effect when
+ * gate_var is set. */
+typedef struct {
+    uint8_t facing;        /* +0x0a: the facing (0f7b:1019, 1031; no reader found yet). */
+    uint8_t not_party;     /* +0x14: set past the party's size (0f7b:0fec; read by the
+                            * placement's unlinking, 59c7:1d34-1d94). */
+    uint8_t in_battle;     /* +0x17: set to 1 for every record (0f7b:10ca); no reader yet. */
+    uint8_t facing_effect; /* 0xd5 (0f7b:0ff6, 103f): facing 2 at once. */
+    uint8_t gate_effect;   /* 0x95, added by 148f:19c2 (0f7b:10f4). */
+    uint8_t gate_var;      /* a cok_var (ecl.h): 0x3c, which gates gate_effect (0f7b:10cf). */
+} cok_combat_block;
+
 /* The encounter and the battle's frame where the games differ (monster.c,
  * combat.c, round.c, treasure.c's end of combat): COMBAT's branches, the
  * show at distance, the battle around its rounds, the battlefield's setup
@@ -1108,7 +1126,7 @@ typedef struct {
      * is drawn as a wall's corner is; whether the dungeon has tables and
      * chairs in its rooms (dungeon_no_tables: dqk 59c7:06a7 places none,
      * and draws no dice there); the wilderness and placement the port does
-     * not carry out yet (dqk 59c7:0e3b, 0f7b: the stops' citations; NULL
+     * not carry out yet (dqk 59c7:0e3b, 1864: the stops' citations; NULL
      * for none); whether the setup clears Magic On (DS:7198) and the dead
      * that explode (DS:6b45, 6b95; dkk neither). */
     const char *begins;
@@ -1194,6 +1212,9 @@ typedef struct {
      * and the battle's routine the port does not carry out yet (dqk 5045:059d;
      * NULL where the rounds are run). */
     const char *no_monsters_unported, *battle_unported;
+    /* Dark Queen's combat block and the records that differ (59c7:0f7b), or NULL where
+     * cok_combat_records is the records (3cb2:10d9, dkk 410b's). */
+    const cok_combat_block *combat_block;
 } cok_rules_combat;
 
 /* The fight's words that differ (round.c, ai.c, attack.c, arena.c,
