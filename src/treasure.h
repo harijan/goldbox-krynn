@@ -37,11 +37,6 @@ void cok_treasure_item(const cok_rules *rules, uint32_t *seed, uint8_t type,
  * out. */
 void cok_treasure_end_of_combat(cok_adventure *game);
 
-/* The end of combat with no monsters where the game's treasure is not ported yet (the
- * Dark Queen's 75cc:135c): its first steps (1297, var 0x2e), then the unported stop with the
- * citation given. */
-void cok_treasure_no_monsters_start(cok_adventure *game, const char *unported);
-
 /* The vault's menu (dkk 3948:000e), which COMBAT opens where the game has a
  * vault and var COK_VAR_VAULT is 1: mode 7 and its screen (65cd:2db0), the
  * pool's items freed and the vault read into the pool (46b2:2e1d), then

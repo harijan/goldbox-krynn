@@ -1,4 +1,5 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp, symlink */
+#include "dark_queen.h"
 #include "hlib.h"
 #include "monster.h"
 #include "queen.h"
@@ -1274,8 +1275,9 @@ static cok_ecl_status dq_run(cok_adventure *adv, const uint8_t *code, size_t siz
 /* COMBAT with no monsters (dqk 5f07:081b's branches, in its order): the vault (var 0x31 1)
  * stops, cited (771f:09a0); the temple (var 0x14 1) runs its menu, with no key the run goes on
  * (the variable cleared, the mode 4 with no 3D area and variable 0x24 not 1, 3 where it is 1);
- * with none wanted the treasure's start runs (75cc:135c's 1297, var 0x2e) and stops at its
- * overlay call (75cc:1093:0015). */
+ * with none wanted the treasure's start runs (75cc:135c's 1297, var 0x2e, the flags) and 0593
+ * (the party's after combat) stops at its call of the experience or its rest (test_dark_queen_
+ * after_combat). */
 static void test_dark_queen_no_monsters(void)
 {
     static cok_adventure dqk;
@@ -1308,12 +1310,13 @@ static void test_dark_queen_no_monsters(void)
     cok_ecl_store(&dqk.vm, 0x24, 0);
 
     /* The treasure: nothing wanted. 75cc:135c's start clears the surprise byte (var 0x2e),
-     * then the overlay call at 1093:0015 stops, cited. A weapon lost in combat stops at 1297
-     * first (no battle runs here, so the list is empty unless the test adds one). */
+     * then 0593 runs over the party (none here) and stops at its rest, cited. A weapon lost
+     * in combat stops at 1297 first (no battle runs here, so the list is empty unless the
+     * test adds one). */
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED && cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1093:0015") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
     dqk.lost_weapons = calloc(1, sizeof *dqk.lost_weapons);
     dqk.lost_weapon_count = 1;
     cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
@@ -1323,6 +1326,102 @@ static void test_dark_queen_no_monsters(void)
     free(dqk.lost_weapons);
     dqk.lost_weapons = NULL;
     dqk.lost_weapon_count = 0;
+}
+
+/* Adds a party member with status and active, as the temple's test does. */
+static cok_character *dq_member(cok_adventure *adv, uint8_t status, uint8_t active)
+{
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    cok_character *m = calloc(1, sizeof *m);
+    CHECK(m != NULL && cok_party_add(&adv->party, &cok_rules_dark_queen, m));
+    cok_field_set8(L, m->record, COK_FIELD_STATUS, status);
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, active);
+    return m;
+}
+
+/* 75cc:135c's treasure branch with no monsters, through 0593 (the party's after combat). The
+ * flags = <> < > are cleared and <= >= kept (2093:0015 with DS:b2f5 and 4), var 0x2e is cleared;
+ * 0593 sets b7a7, c7de, af3f and b1da from the records (its loops 1 to 3), removes the effects that
+ * end with the battle (DS:631e; a record holding one stops, cited, part 27), and stops at its
+ * call of the experience (75cc:01fb, when a member stands) or its rest (75cc:0736). The
+ * demonstration (DS:ae59) skips 0593 (1390 on, cited). */
+static void test_dark_queen_after_combat(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen'st after combat not run");
+        return;
+    }
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    cok_character *a = dq_member(&dqk, 0, 1), *b = dq_member(&dqk, 0, 1);
+    cok_dark_queen_end_state st;
+
+    /* Standing (status 0): 01fb; the flags: four cleared, [4] and [5] kept. */
+    for (int k = 0; k < 6; ++k) dqk.vm.flags[k] = true;
+    cok_ecl_set_var(&dqk.vm, COK_VAR_SURPRISE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:01fb") != NULL);
+    CHECK(!dqk.vm.flags[0] && !dqk.vm.flags[1] && !dqk.vm.flags[2] && !dqk.vm.flags[3]);
+    CHECK(dqk.vm.flags[4] && dqk.vm.flags[5]);
+    CHECK(cok_ecl_var(&dqk.vm, COK_VAR_SURPRISE) == 0);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(st.standing && !st.fled && st.out == 0 && !st.b7a7 && !st.monsters_present);
+
+    /* Fled (status 3): 0736; c7de from loop 1, b7a7 cleared by loop 3 (67d-68f). */
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 3);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 3);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(!st.standing && st.fled && st.out == 0 && !st.b7a7);
+
+    /* Lost (status 2, inactive): nobody found, b7a7 stays set, both count out. */
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 2);
+    cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 2);
+    cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 0);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL);
+    CHECK(!st.standing && !st.fled && st.out == 2 && st.b7a7);
+
+    /* The gentle variable (0x1d) clears b7a7 when a member is found (active, status 2). */
+    cok_field_set8(L, a->record, COK_FIELD_ACTIVE, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(st.b7a7 && st.out == 1);
+    cok_ecl_store(&dqk.vm, 0x1d, 1);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    st = cok_dark_queen_end_state_of(&dqk);
+    CHECK(!st.b7a7 && st.out == 1 && strstr(cok_adventure_why(&dqk, dqk.vm.status), "0736") != NULL);
+    cok_ecl_store(&dqk.vm, 0x1d, 0);
+
+    /* An effect that ends with the battle (0x03, the first of DS:631e) on a record stops at
+     * 148f:017d (part 27); one that does not (0x01) runs on to 0593'st stop. */
+    cok_field_set8(L, a->record, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, b->record, COK_FIELD_STATUS, 0);
+    cok_field_set8(L, b->record, COK_FIELD_ACTIVE, 1);
+    CHECK(cok_character_add_effect(b, 0x01, 0, 0, false) != NULL);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:01fb") != NULL);
+    CHECK(cok_character_add_effect(a, 0x03, 0, 0, false) != NULL);
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 148f:017d") != NULL);
+
+    /* The demonstration skips 0593: the stop is at 1390 (19c), and 0593'st state stays. */
+    st = cok_dark_queen_end_state_of(&dqk);
+    dqk.demo = true;
+    for (int k = 0; k < 6; ++k) dqk.vm.flags[k] = true;
+    DQK_RUN(&dqk, DQK_COMBAT);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1390") != NULL);
+    CHECK(!dqk.vm.flags[0] && !dqk.vm.flags[3] && dqk.vm.flags[4] && dqk.vm.flags[5]);
+    CHECK(cok_dark_queen_end_state_of(&dqk).b7a7 == st.b7a7 &&
+          cok_dark_queen_end_state_of(&dqk).out == st.out);
+    dqk.demo = false;
+    cok_party_free(&dqk.party);
 }
 
 /* LOAD MONSTER 64 x2 and 49 x1 register, COMBAT appends the SHARKMEN and the
@@ -1374,13 +1473,15 @@ static void test_dark_queen_appends(void)
     /* CLEARMONSTERS (75cc:151b): the flag and the count, the undead count, and the
      * next icon slot back to 8 (the block's start, 6c70:0001, does the same). The
      * records stay in the list. The next COMBAT with none loaded and no vault or
-     * temple wanted: the treasure stops, cited (5f07:081b's last branch, 75cc:1093:0015). */
+     * temple wanted: the treasure runs, and 0593 stops at its rest or its experience, cited
+     * (5f07:081b's last branch, 75cc:135c). */
     DQK_RUN(&dqk, DQK_CLEARMONSTERS);
     CHECK(dqk.vm.status == COK_ECL_OK && !dqk.monsters_loaded && dqk.monsters == 0);
     CHECK(dqk.icon_slot == 8 && dqk.undead == 0 && dqk.party.count == 13);
     DQK_RUN(&dqk, DQK_COMBAT);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:1093:0015") != NULL);
+    CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0736") != NULL ||
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:01fb") != NULL);
 
     /* A new block's LOAD MONSTER takes slot 8 again, one SHARKMAN and 170e's ten
      * GORGONs: the difficulty scales the hostile SHARKMAN's hit points by
@@ -1888,6 +1989,7 @@ int main(void)
     test_dark_queen_monsters();
     test_dark_queen_appends();
     test_dark_queen_no_monsters();
+    test_dark_queen_after_combat();
     test_dark_queen_heal();
     test_dark_queen_jump_table();
     test_dark_queen_ambush_gorgons();

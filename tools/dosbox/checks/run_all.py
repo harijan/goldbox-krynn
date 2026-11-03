@@ -192,7 +192,7 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
         "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5,
         "dqk_boot": 1, "dqk_views": 1, "dqk_menus": 1, "dqk_party": 1, "dqk_view_mouse": 1,
-        "dqk_ecl": 1, "dqk_ecl_input": 3, "dqk_ecl_text": 1, "dqk_ecl_flow": 2, "dqk_ecl_misc": 1, "dqk_ecl_party": 1, "dqk_ecl_items": 1, "dqk_fight": 1, "dqk_program0": 1, "dqk_camp": 1, "dqk_shops": 1, "dqk_treasure": 1,
+        "dqk_ecl": 1, "dqk_ecl_input": 3, "dqk_ecl_text": 1, "dqk_ecl_flow": 2, "dqk_ecl_misc": 1, "dqk_ecl_party": 1, "dqk_ecl_items": 1, "dqk_fight": 1, "dqk_program0": 1, "dqk_camp": 1, "dqk_shops": 1, "dqk_treasure": 3,
         "dqk_items": 2, "dqk_train": 2, "dqk_add": 4, "dqk_modify": 3, "dqk_stats": 1,
         "dqk_create-fighter": 2, "dqk_create-cleric": 2, "dqk_create-dwarf": 2,
         "dqk_create-kender": 3, "dqk_create-multi": 2, "dqk_create-modify": 2, "dqk_create-knights": 4,

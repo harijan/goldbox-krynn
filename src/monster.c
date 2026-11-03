@@ -2,6 +2,7 @@
 
 #include "arena.h"
 #include "camp.h"
+#include "dark_queen.h"
 #include "effect.h"
 #include "items.h"
 #include "round.h"
@@ -1190,8 +1191,8 @@ static void combat(cok_adventure *game)
         if (R->temple_var_after) cok_ecl_set_var(vm, COK_VAR_TEMPLE, 0);
         if (vm->status == COK_ECL_OK && !vm->abort) cok_adventure_overlay(game);
         fought = area;
-    } else if (R->no_monsters_treasure_unported != NULL) {
-        cok_treasure_no_monsters_start(game, R->no_monsters_treasure_unported);
+    } else if (R->no_monsters_treasure == COK_NO_MONSTERS_TREASURE_DARK_QUEEN) {
+        cok_dark_queen_no_monsters_treasure(game);
     } else {
         cok_adventure_overlay(game); /* 351b */
         cok_treasure_end_of_combat(game);

@@ -542,7 +542,6 @@ not checked. The variables the original changed agree (0x30 and the marker; in t
 fresh game, not saved game A (its `--load` is not ported). All agree (2026-11-02).
 
 `dqk_shops.py` (flows `temple`, `wounded` and `stoned`, about a minute each; in `make dqk-checks`)
-`dqk_treasure.py` (flow `start`: the variables and records before COMBAT with no monsters agree with the stop at the treasure's overlay call, var 0x2e left out; in `make dqk-checks`)
 runs the temple: a test block (`tools/dqkecl.py`) runs LOAD FILES 2 1 (the jumper's, as
 `dqk_ecl_text.py`'s start), sets var 0x14 and calls COMBAT with no monsters, from a saved game (the
 original's entry as `dqk_fight.py`'s). `temple` is saved game A: the menu, View's sheet, the menu
@@ -558,7 +557,20 @@ The wounded hit points are drawn by the original's colour byte 0x00 (`7825:0737-
 window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black background the Heal screen
 differs by 121 pixels.
 
-`dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
+`dqk_treasure.py` (flows `won`, `fled` and `lost`, a few minutes each; in `make dqk-checks`) runs
+the end of combat with no monsters from the treasure's start: a test block (`tools/dqkecl.py`)
+runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01 01), SAVE 1 to
+var 0x2e, and COMBAT, from saved game A (`won`), or from copies with every member's status 3 (`fled`)
+or status 2 and inactive (`lost`). The original is trapped in two stages: `2093:0015` (the flags'
+clear, always resident) spins at the PRESS KEY before COMBAT, then `75cc:0723` and `75cc:0736` are
+spun while it does, and it is given back. Each flow's state where the spin holds is compared with
+eclplay's stop (`--vars`, `--records`, `--state`): the 1 KB of variables (var 0x2e included), the
+records (pointers masked), the flags, DS:af3f, c7de, c7df, b1da and b7a7, the mode, RandSeed, and the
+18 effect ids at DS:631e (checked against the table). The expected values of each flow are checked
+against the original too. eclplay stops at `dqk 75cc:01fb` (`won`) or `dqk 75cc:0736` (`fled`,
+`lost`), cited for part 19b.
+
+`dqk_camp.py` (about a minute; in `make dqk-checks`)  (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's
 party on both sides: the camp's menu, View's sheet (`v`) and the menu again (Escape), the adventure
 after Exit (Escape), each with the screen in RGB (the mouse's pointer left out) and the variables

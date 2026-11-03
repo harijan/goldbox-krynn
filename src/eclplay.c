@@ -4,6 +4,7 @@
 #include "adventure.h"
 #include "arena.h"
 #include "config.h"
+#include "dark_queen.h"
 #include "queen.h"
 #include "crt.h"
 #include "keyscript.h"
@@ -206,6 +207,24 @@ static void save_field(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --state: the end of combat's flags the Dark Queen's checks read (DS:af3f, c7de, c7df, b1da,
+ * b7a7), the mode (DS:ae57), the flags of the last COMPARE (vm->flags: =, <>, <, >, <=, >=) and
+ * RandSeed. One "name value" line each. */
+static void save_state(cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    cok_dark_queen_end_state s = cok_dark_queen_end_state_of(game);
+    fprintf(f, "mode %u\nseed %08lx\nflags", game->vm.mode, (unsigned long)game->vm.seed);
+    for (int k = 0; k < 6; ++k) fprintf(f, " %d", game->vm.flags[k] ? 1 : 0);
+    fprintf(f, "\nstanding %d\nfled %d\nmonsters %d\nout %u\nb7a7 %d\n", s.standing,
+            s.fled, s.monsters_present, s.out, s.b7a7);
+    fclose(f);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
@@ -281,6 +300,8 @@ static void usage(const char *program)
           "                  bytes, the named ones at their offsets, the rest 0), in list order\n"
           "  --turns FILE    save the turn list (Dark Queen's: n, the record's place in the\n"
           "                  list, its initiative) as the round's start left it\n"
+          "  --state FILE    save the end of combat's flags (Dark Queen's DS:af3f, c7de, c7df,\n"
+          "                  b1da, b7a7), the mode, the COMPARE flags and RandSeed\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
           "                  origin, the 50 by 25 cells and occupants in hex, the combatants\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
@@ -913,6 +934,7 @@ static int run(int argc, char **argv)
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
     const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
+    const char *state = NULL;
     const char *icons = NULL;
     const char *turns = NULL;
     const char *ground = NULL, *ground_set = NULL;
@@ -1038,6 +1060,8 @@ static int run(int argc, char **argv)
             blocks = argv[++i];
         } else if (strcmp(option, "--turns") == 0 && has_value) {
             turns = argv[++i];
+        } else if (strcmp(option, "--state") == 0 && has_value) {
+            state = argv[++i];
         } else if (strcmp(option, "--field") == 0 && has_value) {
             field = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -1400,6 +1424,7 @@ static int run(int argc, char **argv)
     if (blocks != NULL) save_blocks(&game, blocks);
     if (icons != NULL) save_icons(&game, icons);
     if (field != NULL) save_field(&game, field);
+    if (state != NULL) save_state(&game, state);
     if (turns != NULL) save_turns(&game, turns);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */

@@ -1860,24 +1860,6 @@ static bool treasure_menu(cok_adventure *game)
     return ok;
 }
 
-/* Dark Queen's end of combat with no monsters, as far as it is ported (75cc:135c's start).
- * 1297 walks the weapons lost in combat (DS:b415) back to their owners; that list is only
- * added to by the effect that loses a weapon (78e4:2949, 78e4:3f58), which a battle applies,
- * and no battle runs here, so it is empty and the walk does nothing. A list that is not
- * empty stops, cited. Then the surprise byte (var 0x2e) is cleared, and the call at
- * 1093:0015 (an overlay manager's entry, not identified yet; it takes a far pointer to
- * DS:b2f5 and 4) stops the end of combat, cited by unported. */
-void cok_treasure_no_monsters_start(cok_adventure *game, const char *unported)
-{
-    if (game->lost_weapon_count != 0) {
-        cok_adventure_not_yet(game, "the treasure", "dqk 75cc:1297 (a weapon lost in combat "
-                                                    "goes back)");
-        return;
-    }
-    cok_ecl_set_var(&game->vm, COK_VAR_SURPRISE, 0); /* 75cc:135c's movb 0 to var 0x2e */
-    cok_adventure_not_yet(game, "the treasure", unported);
-}
-
 void cok_treasure_end_of_combat(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
