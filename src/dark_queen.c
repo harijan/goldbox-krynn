@@ -24,18 +24,20 @@
 enum {
     LIB_ALWAYS, LIB_FRAME, LIB_TITLE, LIB_BACK, LIB_WALLS_B, LIB_WALLS_C, LIB_PIC_A, LIB_PIC_B,
     LIB_PIC_C, LIB_BIGPIC, LIB_GEN, LIB_FINAL, LIB_DUNGCOM, LIB_CBODY, LIB_WILDCOM, LIB_SPRIT,
+    LIB_CPIC, LIB_COMSPR,
     LIBS
 };
 static const char *const lib_names[LIBS] = {
     "ALWAYS.TLB", "FRAME.TLB", "TITLE.TLB", "BACK.TLB",   "8X8DB.TLB", "8X8DC.TLB",
     "PICA.TLB",   "PICB.TLB",  "PICC.TLB",  "BIGPIC.TLB", "GEN.TLB",   "FINAL.TLB",
-    "DUNGCOM.TLB", "CBODY.TLB",  "WILDCOM.TLB", "SPRIT.TLB",
+    "DUNGCOM.TLB", "CBODY.TLB",  "WILDCOM.TLB", "SPRIT.TLB", "CPIC.TLB", "COMSPR.TLB",
 };
 _Static_assert((int)LIB_DUNGCOM == (int)QUEEN_LIB_DUNGCOM && (int)LIB_CBODY == (int)QUEEN_LIB_CBODY &&
                (int)LIB_WILDCOM == (int)QUEEN_LIB_WILDCOM,
                "queen.h numbers the libraries");
 
 enum {
+    ICON_SLOTS = 0x26,       /* the combat icons' slots (DS:b17d, 0x26 a slot's two images) */
     FONT_SIZE = 96 * 12,     /* GAME.FON: 0x20-0x7f, 12 rows each (dqk 25a7:04b5) */
     WINDOW = 0x17,           /* the window's grey, colour 8 through DS:9d86 */
     WALL_SETS = 3,
@@ -70,6 +72,12 @@ typedef struct {
     hlib_library library;
     bool loaded;
 } queen_lib;
+
+/* A combat icon's picture record (19a4:0881's copy, header included); NULL bytes for empty. */
+typedef struct {
+    uint8_t *bytes;
+    size_t size;
+} queen_icon_record;
 
 typedef struct {
     cok_vga_palette palette;
@@ -139,6 +147,11 @@ typedef struct {
     /* The battlefield's tile set (DUNGCOM's or WILDCOM's nested library, the
      * combat ground's; queen_arena.c), set by arena_tiles. */
     hlib_library arena;
+    /* The combat icons (DS:b17d): image 0 (ready) and 1 (attacking) of each slot, the slot
+     * + 0x26 * image of the original's table; the monsters' (CPIC), the party's (CBODY, or
+     * CPIC for an NPC) and the missiles' and cursor's (COMSPR). Loaded by icon_load and
+     * icon_pair; the battle's end frees 0x0f-0x25 in the original (5045:0001), not here. */
+    queen_icon_record icons[2][ICON_SLOTS];
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -183,6 +196,130 @@ static bool sub_library(cok_adventure *game, unsigned which, unsigned id, hlib_l
         fail(game, "%s has no library %s", lib_names[which], what);
         return false;
     }
+    return true;
+}
+
+/* The combat icons (DS:b17d, 19a4:0881). A record of library which, copied (header included;
+ * an empty record, NULL). A record that is not there stops, citing 19a4:004b (the original's
+ * disk loader fails there too; untraced, DARK-QUEEN.md's icons scope Q1). */
+static bool icon_copy(cok_adventure *game, unsigned which, unsigned record, uint8_t **copy,
+                      size_t *size)
+{
+    const hlib_library *l = lib(game, which);
+    const uint8_t *data;
+    *copy = NULL;
+    *size = 0;
+    if (l == NULL) return false;
+    if (hlib_record(l, record, &data, size) != HLIB_OK) {
+        snprintf(game->error, sizeof game->error, "%s has no record %u (19a4:004b)",
+                 lib_names[which], record);
+        return false;
+    }
+    if (*size == 0) return true;
+    *copy = malloc(*size);
+    if (*copy == NULL) {
+        snprintf(game->error, sizeof game->error, "out of memory");
+        return false;
+    }
+    memcpy(*copy, data, *size);
+    return true;
+}
+
+/* 19a4:0881 for a pair: record rec0 of library which into image 0 of slot and rec1 into image
+ * 1 (the callback 004b, then 0881 with flag 1: the record by its id). Both are copied before
+ * either is stored, so a missing record stores neither (004b fails at 0193 before 0881). */
+static bool icon_pair(cok_adventure *game, unsigned which, unsigned rec0, unsigned rec1,
+                      unsigned slot)
+{
+    queen *q = own(game);
+    if (slot >= ICON_SLOTS) {
+        snprintf(game->error, sizeof game->error, "icon slot %u is past the table (DS:b17d)",
+                 slot);
+        return false;
+    }
+    uint8_t *copy[2] = {NULL, NULL};
+    size_t size[2] = {0, 0};
+    bool ok = icon_copy(game, which, rec0, &copy[0], &size[0]) &&
+              icon_copy(game, which, rec1, &copy[1], &size[1]);
+    if (!ok) {
+        free(copy[0]);
+        free(copy[1]);
+        return false;
+    }
+    for (unsigned image = 0; image < 2; ++image) {
+        queen_icon_record *icon = &q->icons[image][slot];
+        free(icon->bytes);
+        icon->bytes = copy[image];
+        icon->size = size[image];
+    }
+    return true;
+}
+
+/* 204c:004d: the slot and its image 1 emptied (19a4:0881 with no record: 0x26 + slot). */
+static void icon_clear(cok_adventure *game, unsigned slot)
+{
+    queen *q = own(game);
+    if (slot >= ICON_SLOTS) return;
+    for (unsigned image = 0; image < 2; ++image) {
+        free(q->icons[image][slot].bytes);
+        q->icons[image][slot].bytes = NULL;
+        q->icons[image][slot].size = 0;
+    }
+}
+
+/* The loader 204c:00df for a library (CPIC or CBODY), record id into slot: image 0 is record
+ * id, or 100 + id where id is missing (19a4:004b, 004b:0056-0087); image 1 is id + 0x80
+ * (004b:0140-0191). A slot past the table stops (DS:b17d). Not ported: the head layer of a
+ * "CH" name (204c:00e5-0157, 0232, 030f:03a2): the game has no CHEAD, so DS:a848 is 0 and it
+ * is dead; the CBODY whole-library path (DS:a6b4, 01d8) is creation's only (6523, 65fa). */
+static bool icon_load(cok_adventure *game, unsigned which, unsigned id, unsigned slot)
+{
+    const hlib_library *l = lib(game, which);
+    const uint8_t *data;
+    size_t size;
+    if (l == NULL) return false;
+    unsigned record = hlib_record(l, id, &data, &size) == HLIB_OK ? id : 100 + id;
+    return icon_pair(game, which, record, id + 0x80, slot);
+}
+
+/* 604b:05d7: CBODY +0xc4 into slot +0xc5 (00df("CBODYS", +0xc4, +0xc5), with no NPC test). The
+ * other callers of 05d7: creation's icon editor (66e5, which draws CBODY itself, queen_create.c)
+ * and the camp's Alt Icon (7070:1ce2, not ported: whoever ports it calls this). */
+static bool body_icon(cok_adventure *game, const uint8_t *r)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    return icon_load(game, LIB_CBODY, cok_field_u8(L, r, COK_FIELD_ICON_BODY),
+                     cok_field_u8(L, r, COK_FIELD_ICON));
+}
+
+/* A party member's combat icon (604b:2ab4's loop, 2ade-2b26): CBODY by body_icon, or an NPC
+ * (+0x9b >= 0x80, 2af4-2b09) CPIC +0xbd (604b:2886 sets it) into +0xc5. Used by loaded() and
+ * the import, where the loop is. */
+static bool member_icon(cok_adventure *game, const uint8_t *r)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80) return body_icon(game, r);
+    return icon_load(game, LIB_CPIC, cok_field_u8(L, r, COK_FIELD_MONSTER_ID),
+                     cok_field_u8(L, r, COK_FIELD_ICON));
+}
+
+bool queen_added_icons(cok_adventure *game, const uint8_t *record)
+{
+    return body_icon(game, record);
+}
+
+void queen_remove_icons(cok_adventure *game, const uint8_t *record)
+{
+    icon_clear(game, cok_field_u8(cok_game_rules(game)->character, record, COK_FIELD_ICON));
+}
+
+bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const uint8_t **record,
+                size_t *size)
+{
+    const queen *q = game->own;
+    if (q == NULL || slot >= ICON_SLOTS || image > 1) return false;
+    *record = q->icons[image][slot].bytes;
+    *size = q->icons[image][slot].size;
     return true;
 }
 
@@ -2550,6 +2687,8 @@ static void queen_close(cok_adventure *game)
     queen *q = own(game);
     if (q == NULL) return;
     for (unsigned i = 0; i < LIBS; ++i) free(q->libs[i].bytes);
+    for (unsigned image = 0; image < 2; ++image)
+        for (unsigned slot = 0; slot < ICON_SLOTS; ++slot) free(q->icons[image][slot].bytes);
     free(q);
     game->own = NULL;
 }
@@ -3260,10 +3399,12 @@ static int letter_menu(cok_adventure *game, const char *prompt, const char *lett
  * variable 0x3a changed; on the overland (variables 0x22 0, 0x24 1) its
  * big picture loaded (63ae:0321: variable 0x3e's), else the map again
  * (8a8b:12e3, variable 0x13's) where a wall set was loaded (DS:ca03 above
- * 0). The members' combat icons (604b:05d7, 204c:00df) are not loaded. */
+ * 0). The members' combat icons come first, each in list order (member_icon). */
 static bool loaded(cok_adventure *game, uint8_t frame_was)
 {
     cok_ecl *vm = &game->vm;
+    for (size_t i = 0; i < game->party.count; ++i)
+        if (!member_icon(game, game->party.members[i]->record)) return false;
     if (cok_ecl_load_var(vm, 0x22) == 0 && cok_ecl_load_var(vm, 0x24) == 1) {
         queen *q = own(game);
         unsigned n = cok_ecl_load_var(vm, 0x3e);
@@ -3346,6 +3487,11 @@ static bool import_game(cok_adventure *game, const char *dir, char letter)
         }
         cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
     }
+    for (size_t i = 0; i < game->party.count; ++i)
+        if (!member_icon(game, game->party.members[i]->record)) {
+            cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+            return false;
+        }
     vm->character = cok_party_record(&game->party, 0);
     bottom_bar(game);
     vm->mode = 0;
@@ -3543,6 +3689,10 @@ static bool add_character(cok_adventure *game)
             if (((!npc && others < 6) || (npc && cok_ecl_load_var(vm, 0x20) < 8)) &&
                 (!ranger || rangers < 3) && cok_party_add(&game->party, rules, c)) {
                 cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, 1);
+                if (!queen_added_icons(game, c->record)) {
+                    cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "%s", game->error);
+                    return false;
+                }
                 vm->character = c->record; /* 604b:3491: DS:ad67 */
             } else {
                 if (ranger && rangers > 2) bar_message(game, "too many rangers in party");
@@ -3774,6 +3924,7 @@ static void remove_selected(cok_adventure *game)
     cok_ecl *vm = &game->vm;
     size_t i = cok_party_index(&game->party, vm->character);
     if (i >= game->party.count) return;
+    queen_remove_icons(game, vm->character); /* 177e:1e9d's flag 1 (204c:004d) */
     cok_party_remove(&game->party, i);
     vm->character = cok_party_record(&game->party, i > 0 ? i - 1 : 0);
     cok_ecl_add_var(vm, COK_VAR_PARTY_SIZE, -1);
@@ -4812,6 +4963,11 @@ bool queen_sheet(cok_adventure *game, cok_character *character)
 static bool arena_tiles(cok_adventure *game, bool wild, unsigned set)
 {
     queen *q = own(game);
+    /* The missiles' and cursor's icons first (59c7:0e80-0f06): COMSPR records k - 15 and
+     * k - 15 + 0x80 into slots k = 0x0f-0x25, no fallback (flag 1). The free at the battle's
+     * end (5045:0001) is not reached by the port. */
+    for (unsigned k = 0x0f; k <= 0x25; ++k)
+        if (!icon_pair(game, LIB_COMSPR, k - 15, k - 15 + 0x80, k)) return false;
     if (!sub_library(game, wild ? LIB_WILDCOM : LIB_DUNGCOM, set, &q->arena)) return false;
     set_palette(game, &q->arena, 0, 0);
     return true;
@@ -4836,6 +4992,19 @@ static bool arena_cell(cok_adventure *game, int x, int y)
     return arena_ready(game) &&
            cok_queen_arena_cell(&game->screen, &own(game)->arena, cok_game_rules(game),
                                 &game->combat, x, y, game->error, sizeof game->error);
+}
+
+/* A monster's icon, the monsters' loads (204c:00df with DS:778c, "CPIC": 29fc:2b0b and
+ * 170e:17d3, monster.c's load_icons): the name is the rules' archives.icons. Any other name
+ * stops, cited. The party's icons are loaded by member_icon, not here. */
+static bool arena_load_icon(cok_adventure *game, const char *name, uint8_t id, uint8_t slot)
+{
+    if (strcmp(name, cok_game_rules(game)->archives.icons) != 0) {
+        snprintf(game->error, sizeof game->error, "%s is not the monsters' icons (204c:00df)",
+                 name);
+        return false;
+    }
+    return icon_load(game, LIB_CPIC, id, slot);
 }
 
 /* The combatants' icons (dqk 204c:030f, the icons' blit from 5837:025d) are part 11's: for
@@ -4871,6 +5040,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_view = arena_view,
     .arena_cell = arena_cell,
     .arena_icon = arena_icon,
+    .arena_load_icon = arena_load_icon,
     .encounter = encounter,
 };
 

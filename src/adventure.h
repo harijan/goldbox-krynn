@@ -229,6 +229,11 @@ typedef struct {
      * game with arena_cell has this too. */
     bool (*arena_icon)(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, uint8_t image,
                        uint8_t slot);
+    /* A combat icon's load (arena.c's cok_arena_load_icon, which the monsters' icons take:
+     * name is the rules' archives.icons, id the record, slot the icon slot), in place of
+     * the DAX loader (6d21:01d0). Dark Queen's loads its CPIC (204c:00df). NULL: the DAX
+     * loader. */
+    bool (*arena_load_icon)(cok_adventure *game, const char *name, uint8_t id, uint8_t slot);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',

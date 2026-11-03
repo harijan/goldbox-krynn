@@ -245,16 +245,12 @@ static cok_character *copy_monster(const cok_character *first)
     return copy;
 }
 
-/* Load the combat icons of id into slot (6d21:01d0): CPIC<file> records id
- * and id + 0x80, colour 0 transparent and colour 8 drawn black (see
- * arena.h). */
+/* Load the combat icons of id into slot (6d21:01d0; Dark Queen's 204c:00df):
+ * CPIC<file> records id and id + 0x80, colour 0 transparent and colour 8 drawn
+ * black (see arena.h). */
 static bool load_icons(cok_adventure *game, uint8_t id, uint8_t slot)
 {
-    const cok_rules *rules = cok_game_rules(game);
-    /* Dark Queen's loader, 204c:00df, is not ported yet: its slot is taken, and
-     * nothing is read or logged (rules.h's monster_icons_unported). */
-    if (rules->combat.monster_icons_unported) return true;
-    return cok_arena_load_icon(game, rules->archives.icons, id, slot);
+    return cok_arena_load_icon(game, cok_game_rules(game)->archives.icons, id, slot);
 }
 
 /* LOAD MONSTER where COMBAT appends the monsters (dqk 6c70:29a3): unless

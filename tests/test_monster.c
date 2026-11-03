@@ -1,5 +1,7 @@
 #define _POSIX_C_SOURCE 200809L /* mkdtemp, symlink */
+#include "hlib.h"
 #include "monster.h"
+#include "queen.h"
 
 #include "camp.h"
 
@@ -1390,6 +1392,23 @@ static void test_dark_queen_appends(void)
     cok_adventure_close(&dqk);
 }
 
+/* Whether queen_icon's slot and image hold record id of the CPIC file, byte for byte. */
+static bool cpic_holds(const cok_adventure *adv, unsigned slot, unsigned image, unsigned id)
+{
+    uint8_t *bytes = NULL;
+    size_t n = 0;
+    hlib_library lib;
+    const uint8_t *want = NULL, *got = NULL;
+    size_t want_size = 0, got_size = 0;
+    bool ok = hlib_read_file("DQKAssets/DISK2/CPIC.TLB", &bytes, &n) == HLIB_OK &&
+              hlib_parse(bytes, n, &lib) == HLIB_OK &&
+              hlib_record(&lib, id, &want, &want_size) == HLIB_OK &&
+              queen_icon(adv, slot, image, &got, &got_size) && got_size == want_size &&
+              memcmp(got, want, want_size) == 0;
+    free(bytes);
+    return ok;
+}
+
 /* The block of the load check (dqk_fight.py's flow clear): LOAD MONSTER 49 x1,
  * CLEARMONSTERS, LOAD MONSTER 64 x1, COMBAT. The first monster's slot and record
  * are forgotten, so the SHARKMAN takes slot 8, and 170e's icon takes slot 9 (the
@@ -1409,6 +1428,8 @@ static void test_dark_queen_clear_between(void)
     CHECK(dqk.vm.status == COK_ECL_UNPORTED);
     CHECK(strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 5045:0001") != NULL);
     CHECK(dqk.party.count == 11 && dqk.monsters == 11 && dqk.icon_slot == 10);
+    /* LOAD MONSTER 64 loaded its icon into slot 8 (29fc:2b0b): CPIC 64 and 64 + 0x80. */
+    CHECK(cpic_holds(&dqk, 8, 0, 64) && cpic_holds(&dqk, 8, 1, 64 + 0x80));
     char name[16];
     CHECK(cok_field_name(cok_rules_dark_queen.character, dqk.party.members[0]->record, name) > 0);
     CHECK(strcmp(name, "SHARKMAN") == 0);
@@ -1417,7 +1438,7 @@ static void test_dark_queen_clear_between(void)
 
 /* Six LOAD MONSTERs (slots 8 to 13), then COMBAT: 170e's icon takes slot 14, so
  * the icon slots are 15 (the original's 22 records, c6f1 16, ad6b 15). The
- * monsters' icons are not loaded yet (204c:00df): no icon slot error. The ZOMBIE
+ * monsters' icons load as they register (204c:00df, CPIC): no icon slot error. The ZOMBIE
  * and the WRAITH are undead, one count each (29fc's 2ad6, once per slot). */
 static void test_dark_queen_six_loads(void)
 {
