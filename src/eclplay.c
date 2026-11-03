@@ -114,6 +114,25 @@ static void save_records(const cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --effects: each record's effect chain in list order (the party, then the monsters), one line a
+ * record: its index, then each node in chain order as id,minutes,value,flag in hex (the flag is
+ * the node's on-remove byte, 0 or 1); a record with none is its index alone. */
+static void save_effects(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    for (size_t i = 0; i < game->party.count; ++i) {
+        fprintf(f, "%zu", i);
+        for (const cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next)
+            fprintf(f, " %02x,%x,%x,%x", e->id, e->duration, e->value, e->on_remove ? 1 : 0);
+        fputc('\n', f);
+    }
+    fclose(f);
+}
+
 /* --blocks: each party record's combat block (cok_combat_record, read in the game's
  * layout: the block's 0x18 bytes, the named ones at their offsets and the rest 0), in
  * list order, as --records lists the records. Only a game with a combat block
@@ -308,6 +327,8 @@ static void usage(const char *program)
           "                  at the end\n"
           "  --blocks FILE   save each party record's combat block (Dark Queen's 0x18\n"
           "                  bytes, the named ones at their offsets, the rest 0), in list order\n"
+          "  --effects FILE  save each record's effect chain in list order: a line a record,\n"
+          "                  its index, then each node as id,minutes,value,flag in hex\n"
           "  --turns FILE    save the turn list (Dark Queen's: n, the record's place in the\n"
           "                  list, its initiative) as the round's start left it\n"
           "  --state FILE    save the end of combat's flags (Dark Queen's DS:af3f, c7de, c7df,\n"
@@ -945,6 +966,7 @@ static int run(int argc, char **argv)
     cok_display display = COK_DISPLAY_TANDY;
     bool display_given = false;
     const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
+    const char *effect_chains = NULL;
     const char *state = NULL;
     const char *icons = NULL;
     const char *turns = NULL;
@@ -1069,6 +1091,8 @@ static int run(int argc, char **argv)
             records = argv[++i];
         } else if (strcmp(option, "--blocks") == 0 && has_value) {
             blocks = argv[++i];
+        } else if (strcmp(option, "--effects") == 0 && has_value) {
+            effect_chains = argv[++i];
         } else if (strcmp(option, "--turns") == 0 && has_value) {
             turns = argv[++i];
         } else if (strcmp(option, "--state") == 0 && has_value) {
@@ -1352,6 +1376,7 @@ static int run(int argc, char **argv)
         if (vars != NULL) save_vars(&game, vars);
         if (records != NULL) save_records(&game, records);
         if (blocks != NULL) save_blocks(&game, blocks);
+        if (effect_chains != NULL) save_effects(&game, effect_chains);
         if (icons != NULL) save_icons(&game, icons);
         if (turns != NULL) save_turns(&game, turns);
         int result = 0;
@@ -1433,6 +1458,7 @@ static int run(int argc, char **argv)
     if (vars != NULL) save_vars(&game, vars);
     if (records != NULL) save_records(&game, records);
     if (blocks != NULL) save_blocks(&game, blocks);
+    if (effect_chains != NULL) save_effects(&game, effect_chains);
     if (icons != NULL) save_icons(&game, icons);
     if (field != NULL) save_field(&game, field);
     if (state != NULL) save_state(&game, state);

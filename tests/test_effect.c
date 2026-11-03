@@ -1718,6 +1718,108 @@ static void test_dkk_handlers(void)
     reset();
 }
 
+/* Dark Queen's effects section (dqk 148f): the event lists (148f:0512's cases, a0512.txt), 02ed's
+ * resistance (its condition, MR at +0xcc, and the caster level's stop), 2a6d's immunity after
+ * event 6, and 017d's stat recompute (1dfc, not ported) and removal with no handler. */
+static void test_dark_queen(void)
+{
+    static const uint8_t ev2[] = {0x56, 0x65, 0x66, 0x79, 0x41, 0x73, 0x20, 0x58, 0xaa, 0xb0,
+                                  0x84, 0x81, 0x8b, 0xb8, 0xce, 0xd0, 0xd3, 0xd4, 0xc7, 0};
+    static const uint8_t ev4[] = {0x1d, 0x69, 0x78, 0x4b, 0x74, 0x95, 0x83, 0x93, 0xba, 0xc8,
+                                  0xc9, 0xd6, 0};
+    static const uint8_t shared[] = {0x15, 0x2d, 0x2e, 0x31, 0};
+    const cok_rules_effects *E = &cok_rules_dark_queen.effects;
+    CHECK(E->event_count == 0x19 && E->events[1] != NULL && E->events[0x16] == NULL);
+    CHECK(E->events[2] != NULL && memcmp(E->events[2], ev2, sizeof ev2) == 0);
+    CHECK(E->events[4] != NULL && memcmp(E->events[4], ev4, sizeof ev4) == 0);
+    CHECK(E->events[0x18] != NULL && E->events[0x18][0] == 0x64 && E->events[0x18][1] == 0);
+    CHECK(memcmp(E->shared, shared, sizeof shared) == 0 && E->shared_far_id == 0x31 &&
+          E->shared_far == 6);
+    CHECK(E->damage_flags_at == 0xc8 && E->acting_id == 0xd4 && E->pool_size == 400);
+
+    cok_ecl dvm;
+    cok_item_types item_types = {0};
+    cok_party dq_party = {0};
+    cok_effects dfx;
+    memset(&dvm, 0, sizeof dvm);
+    dvm.rules = &cok_rules_dark_queen;
+    dvm.mode = 5;
+    cok_effects_init(&dfx, &cok_rules_dark_queen, &dvm, &dq_party, &item_types);
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL);
+    dq_party.members[0] = c;
+    dq_party.count = 1;
+    /* 02ed: no resistance, no roll; resistance with an effect pending, the stop (177e:1900). */
+    dfx.rolls.pending = 0x33;
+    dfx.rolls.amount = 7;
+    CHECK(cok_effects_dispatch(&dfx, c, 6) && dfx.rolls.amount == 7);
+    c->record[0xcc] = 5;
+    CHECK(!cok_effects_dispatch(&dfx, c, 6) && strstr(dfx.error, "177e:1900") != NULL);
+    /* No pending, no magic: no roll. */
+    c->record[0xcc] = 5;
+    dfx.rolls.pending = 0;
+    dfx.rolls.damage_type = 0;
+    CHECK(cok_effects_dispatch(&dfx, c, 6) && dfx.rolls.amount == 7);
+    /* 2a6d: the damage type 0x80 with the record's +0xc8 0x10 clears the damage and the effect. */
+    c->record[0xcc] = 0;
+    c->record[0xc8] = 0x10;
+    dfx.rolls.damage_type = 0x80;
+    dfx.rolls.pending = 0x33;
+    CHECK(cok_effects_dispatch(&dfx, c, 6) && dfx.rolls.amount == 0 && dfx.rolls.pending == 0);
+    dfx.rolls.amount = 7;
+    dfx.rolls.pending = 0x33;
+    c->record[0xc8] = 0x08;
+    CHECK(cok_effects_dispatch(&dfx, c, 6) && dfx.rolls.amount == 7 && dfx.rolls.pending == 0x33);
+    /* 017d: Enlarge (0x0c) recomputes the stats (148f:1dfc, not ported) and stops there; a
+     * removal with no flag of an id with no handler (0x03) ends. */
+    cok_effect *enlarged = add(c, 0x0c, 0, 0, false);
+    CHECK(!cok_effects_remove(&dfx, c, enlarged, 0x0c) && strstr(dfx.error, "148f:1dfc") != NULL);
+    add(c, 0x03, 0, 0, false);
+    CHECK(cok_effects_remove(&dfx, c, NULL, 0x03) && cok_character_find_effect(c, 0x03) == NULL);
+    cok_character_free(c);
+    free(c);
+
+    /* 0x64 (78e4:14d1) at event 8: each record of the list on the other side (+0x66, a word) of
+     * status 0 (+0x64, a word) below level 7 (+0x91) without 0x78 or 0x5c "is terrified" and gets
+     * 0x78 (0 minutes, value 0, flag 1); 0xc3 (4949) gives its holder one 0xcb (255 minutes,
+     * value 4, flag 0). */
+    cok_character *m[6];
+    for (unsigned i = 0; i < 6; ++i) {
+        m[i] = calloc(1, sizeof *m[i]);
+        CHECK(m[i] != NULL);
+        dq_party.members[i] = m[i];
+        m[i]->record[0x91] = 6;
+    }
+    dq_party.count = 6;
+    m[0]->record[0x66] = 1;    /* the holder */
+    m[1]->record[0x91] = 7;    /* level 7 */
+    add(m[2], 0x5c, 0, 0, false);
+    m[3]->record[0x65] = 1;    /* status 0x100 */
+    m[4]->record[0x67] = 1;    /* side 0x100: another side */
+    add(m[0], 0x64, 0, 0, false);
+    said_text[0] = '\0';
+    dfx.say = said;
+    dfx.rolls.pending = 0;
+    dfx.rolls.damage_type = 0;
+    CHECK(cok_effects_dispatch(&dfx, m[0], 8));
+    const cok_effect *t = cok_character_find_effect(m[4], 0x78);
+    CHECK(t != NULL && t->duration == 0 && t->value == 0 && t->on_remove);
+    t = cok_character_find_effect(m[5], 0x78);
+    CHECK(t != NULL && t->duration == 0 && t->value == 0 && t->on_remove);
+    for (unsigned i = 0; i < 4; ++i) CHECK(cok_character_find_effect(m[i], 0x78) == NULL);
+    CHECK(strcmp(said_text, "is terrified;is terrified;") == 0);
+    add(m[1], 0xc3, 0, 0, false);
+    CHECK(cok_effects_dispatch(&dfx, m[1], 8) && cok_effects_dispatch(&dfx, m[1], 8));
+    t = cok_character_find_effect(m[1], 0xcb);
+    CHECK(t != NULL && t->duration == 0xff && t->value == 4 && !t->on_remove && t->next == NULL);
+    dfx.say = NULL;
+    for (unsigned i = 0; i < 6; ++i) {
+        cok_character_free(m[i]);
+        free(m[i]);
+    }
+    cok_effects_free(&dfx);
+}
+
 int main(void)
 {
     char error[300];
@@ -1741,6 +1843,7 @@ int main(void)
     test_other_game();
     test_haste_aging();
     test_dkk_handlers();
+    test_dark_queen();
     reset();
     cok_party_free(&party);
     cok_effects_free(&fx);

@@ -765,6 +765,22 @@ const cok_rules cok_rules_dark_queen = {
         {
             .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */
             .handlers = cok_dark_queen_effect_handlers,
+            /* 148f:0512's lists (events 1-0x18), 0369's shared ids (Prayer in 6 squares),
+             * 02ed's pending list, 2a6d's immunity (the record's +0xc8), 0369's 0xd4 (the
+             * selected record), 017d's stat ids, and 19c2's pool of 400 nodes (DS:bd51). */
+            .events = cok_dark_queen_event_lists,
+            .event_count = 0x19,
+            .shared = cok_dark_queen_shared,
+            .shared_far_id = 0x31,
+            .shared_far = 6,
+            .resisted_pending = cok_dark_queen_resisted_pending,
+            .resist_unported = "dqk 177e:1900 (Dark Queen's caster level, not ported)",
+            .damage_flags_at = 0xc8,
+            .acting_id = 0xd4,
+            .stat_ids = cok_dark_queen_stat_ids,
+            .stat_unported = "dqk 148f:1dfc (Dark Queen's ability, part 27c)",
+            .pool_size = 400,
+            .pool_unported = "dqk 19c2 links NULL and writes 0000:0000",
             .ids = cok_dark_queen_effect_ids, /* rules_dark_queen_magic.c */
         },
 };

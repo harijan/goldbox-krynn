@@ -728,6 +728,27 @@ typedef struct {
      * Champions. */
     const cok_rules_breath *breaths;
     unsigned breath_count;
+    /* Dark Queen (dqk 0369's and 02ed's differences; 0 or NULL in the others). The
+     * id whose handler gets the selected character's record (DS:ad67, the one acting)
+     * in place of the caller's, when the target holds it (0369's 0xd4). */
+    uint8_t acting_id;
+    /* 02ed's magic resistance is run whenever an effect is pending or the damage is
+     * magic, with no test of the amount; its roll needs the caster level, which is not
+     * ported (dqk 177e:1900): where resist_unported is set, a holder of resistance rolls
+     * stops there, cited. */
+    const char *resist_unported;
+    /* 2a6d: after event 6's list, the record's byte at this offset (0 none) makes it
+     * immune to the damage with 0x80 (bit 0x10) or 0x40 (bit 8): the damage and the
+     * effect pending are cleared. */
+    uint16_t damage_flags_at;
+    /* 017d: the ids whose removal recomputes the stats (0-ended). Where stat_unported is
+     * set, the recompute is not ported (its cite) and the removal stops there. */
+    const uint8_t *stat_ids;
+    const char *stat_unported;
+    /* 19c2: an effect of id 0 adds nothing, and the effects' pool holds pool_size nodes
+     * (0 unlimited); past it the add stops, cited by pool_unported. */
+    unsigned pool_size;
+    const char *pool_unported;
 } cok_rules_effects;
 
 /* The three moons (57e4:001e, 0143): the days each stays in a phase, and

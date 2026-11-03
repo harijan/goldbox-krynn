@@ -147,6 +147,9 @@ typedef struct {
      * sets it, 135c clears it); DS:b1da, the members out. */
     bool standing, fled, monsters_present;
     uint8_t out;
+    /* DS:a260: the timers' flags, by the record's list index (1-based; 0x35 bytes, 1396:019f):
+     * set outside camp by the memset, and in camp left by the last pass. */
+    uint8_t timed[0x35];
     /* DS:ae4f: the share of the experience (01fb's, 414-41c), which 0427 gives out. */
     uint32_t share;
     /* DS:acc4: a load asked from the adventure's camp (5f07:0004 sets it to 1;
@@ -4436,6 +4439,15 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
  * as Champions' clock does; that is the difference Encamp will need. */
 static bool moon(cok_adventure *game, uint16_t at, uint8_t days, unsigned base);
 
+/* Whether node is still in c's chain (NULL, the head, always is). */
+static bool linked(const cok_character *c, const cok_effect *node)
+{
+    if (node == NULL) return true;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e == node) return true;
+    return false;
+}
+
 static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
 {
     static const uint16_t limits[7] = {10, 10, 6, 24, 30, 12, 100}; /* DS:634b */
@@ -4471,18 +4483,63 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit)
     for (unsigned i = 0; i < 7; ++i) cok_ecl_store(vm, (uint16_t)(5 + i), (uint16_t)(uint8_t)units[i]);
     uint16_t minutes = (uint16_t)count; /* 019f multiplies words */
     for (unsigned k = 1; k < unit; ++k) minutes = (uint16_t)(minutes * limits[k]);
+    queen *q = own(game);
+    if (vm->mode == 2) {
+        /* 019f's scan: a260[2] to a260[party + 1] (the scan stops at the first flag set). */
+        unsigned party = cok_ecl_var(vm, COK_VAR_PARTY_SIZE);
+        unsigned last = party + 1 > 2 ? party + 1 : 2;
+        if (last >= sizeof q->timed)
+            return cok_adventure_not_yet(game, "the camp's timers past DS:a260", "dqk 1396:019f");
+        bool any = false;
+        for (unsigned i = 2; i <= last && !any; ++i) any = q->timed[i] != 0;
+        if (!any) return true;
+    } else {
+        memset(q->timed, 1, sizeof q->timed);
+    }
     while (minutes > 0) {
         uint16_t step = (uint16_t)(minutes < 11 ? minutes : 10);
-        for (size_t i = 0; i < game->party.count; ++i)
-            for (cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next) {
-                if (e->duration == 0) continue;
-                if (step < e->duration) {
-                    e->duration = (uint16_t)(e->duration - step);
+        for (size_t r = 0; r < game->party.count; ++r) {
+            unsigned i = (unsigned)r + 1;
+            if (i >= sizeof q->timed)
+                return cok_adventure_not_yet(game, "the timers past DS:a260", "dqk 1396:019f");
+            if (q->timed[i] == 0) continue;
+            q->timed[i] = 0;
+            cok_character *c = game->party.members[r];
+            /* The last node the walk kept (NULL: the chain's head), its safe place to go on
+             * from. */
+            cok_effect *kept = NULL;
+            cok_effect *e = c->effects;
+            while (e != NULL) {
+                if (e->duration == 0) {
+                    kept = e;
+                    e = e->next;
                     continue;
                 }
-                cok_adventure_not_yet(game, "an effect's end", "dqk 148f:017d");
-                return false;
+                if (step < e->duration) {
+                    e->duration = (uint16_t)(e->duration - step);
+                    q->timed[i] = 1;
+                    kept = e;
+                    e = e->next;
+                    continue;
+                }
+                uint8_t id = e->id;
+                if (!cok_effects_remove(&game->effects, c, e, id))
+                    return cok_adventure_effect_failed(game);
+                if (id == 0xc4 && vm->mode != 5 && vm->mode != 3 && vm->mode != 0 && vm->mode != 10)
+                    return cok_adventure_not_yet(game, "the effect 0xc4's call (5e22:0065)",
+                                                 "dqk 5e22:0065");
+                q->timed[i] = 1;
+                /* The removal may have run a handler that removed other nodes, the next one
+                 * among them, and freed it (e is freed too), so the walk does not follow the
+                 * next read before the removal. It goes on from the kept node's link as it
+                 * is now; a kept node the handler removed has no place to go on from, cited. */
+                if (!linked(c, kept))
+                    return cok_adventure_not_yet(game, "an effect's removal that removes the "
+                                                 "timers' kept node (1396:019f's walk)",
+                                                 "dqk 1396:019f");
+                e = kept != NULL ? kept->next : c->effects;
             }
+        }
         minutes = (uint16_t)(minutes - step);
     }
     return true;
@@ -5615,10 +5672,9 @@ static void destroyed_party(cok_adventure *game)
 
 /* 75cc:0593, the party's after combat (135c calls it unless the demonstration runs). It sets
  * b1da, b7a7, c7de and af3f from the records (loops 1 to 3, as the original's), removes the
- * effects that end with the battle (cok_dark_queen_end_effects) from each record, runs 01fb and
- * 0427 (the experience and the award) when a member stands, then its rest (0736: standing_rest
- * or destroyed_party) and the exit (091b). A record holding one of the effects stops first,
- * cited (148f:017d, part 27). The demonstration's branch (087a-091b, DS:ae59) is not run: 135c
+ * effects that end with the battle (cok_dark_queen_end_effects: eighteen 017d calls for each record)
+ * from each record, runs 01fb and 0427 (the experience and the award) when a member stands, then
+ * its rest (0736: standing_rest or destroyed_party) and the exit (091b). The demonstration's branch (087a-091b, DS:ae59) is not run: 135c
  * calls 0593 only when it is clear (1385). False where the run stopped. */
 static bool after_combat(cok_adventure *game)
 {
@@ -5655,12 +5711,9 @@ static bool after_combat(cok_adventure *game)
             q->fled = false;
         }
         if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || status == 1) ++q->out; /* 6af-6c1 */
-        for (size_t k = 0; k < COK_DARK_QUEEN_END_EFFECTS; ++k)
-            if (cok_character_find_effect(c, cok_dark_queen_end_effects[k]) != NULL) {
-                cok_adventure_not_yet(game, "the treasure",
-                                      "dqk 148f:017d (an effect's end, part 27)");
-                return false;
-            }
+        for (size_t k = 0; k < COK_DARK_QUEEN_END_EFFECTS; ++k) /* loop 3's 06cb: 017d */
+            if (!cok_effects_remove(&game->effects, c, NULL, cok_dark_queen_end_effects[k]))
+                return cok_adventure_effect_failed(game);
     }
     if (q->standing) { /* 0716-0731: 01fb, then 0427 (the award) */
         if (!experience(game) || !award(game)) return false;

@@ -363,6 +363,9 @@ typedef enum {
     COK_FX_DISPEL_EVIL,     /* 0x22: a hit target of creature flag 1 dispelled */
     COK_FX_BARKSKIN,        /* 0x30: the AC and saves 1 better */
     COK_FX_MIND_BLANK,      /* 0x3a: charms, confusion, paralysis and fear cancelled */
+    /* Dark Queen's own (dqk 78e4). */
+    COK_FX_PRESENCE,        /* 0x64: the low levels on the other side terrified (the entry's effect) */
+    COK_FX_KIN,             /* 0xc3: the entry's effect added while one holds the id */
     COK_FX_HANDLERS
 } cok_effect_handler;
 

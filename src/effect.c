@@ -104,6 +104,7 @@ static cok_character *selected(cok_effects *fx, uint8_t id)
 
 static bool remove_effect(cok_effects *fx, cok_character *character, cok_effect *effect,
                           uint8_t id);
+static bool listed(const uint8_t *ids, uint8_t id);
 
 static void log_text(cok_effects *fx, const char *kind, const char *text)
 {
@@ -207,10 +208,28 @@ bool cok_effects_caster_level(cok_effects *fx, uint8_t spell, uint8_t *level)
 }
 
 
-/* Add an effect, or fail when out of memory. */
+/* The nodes linked in the party's records (the effects' pool, DS:bd51, as 19c2 counts it:
+ * a removed node's bit is cleared at once). */
+static unsigned pooled(const cok_effects *fx)
+{
+    unsigned n = 0;
+    for (size_t i = 0; i < fx->party->count; ++i)
+        for (const cok_effect *e = fx->party->members[i]->effects; e != NULL; e = e->next) ++n;
+    return n;
+}
+
+/* Add an effect, or fail when out of memory. Where the game has a pool (19c2, Dark Queen),
+ * an id of 0 adds nothing, and a full pool stops, cited. */
 static bool add(cok_effects *fx, cok_character *c, uint8_t id, uint16_t duration, uint8_t value,
                 bool on_remove)
 {
+    const cok_rules_effects *E = &fx->rules->effects;
+    if (E->pool_size != 0) {
+        if (id == 0) return true;
+        if (pooled(fx) >= E->pool_size)
+            return fail(fx, "effect 0x%02x: the effects' pool is full (%u nodes; %s)", id,
+                        E->pool_size, E->pool_unported);
+    }
     if (cok_character_add_effect(c, id, duration, value, on_remove) != NULL) return true;
     return fail(fx, "out of memory adding effect 0x%02x", id);
 }
@@ -2595,6 +2614,50 @@ static bool h_item(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
                     "the 9-byte record, from whatever the heap holds there (dkk 0x79, 504d:28e6)");
 }
 
+/* Dark Queen's own handlers (dqk 78e4), each from its routine. */
+
+/* dqk 78e4:14d1, 0x64, a terrible presence, with either flag (the flag is not read): each record
+ * of the whole list (DS:c6e5, c among them) on the other side from c (+0x66, a word), of status 0
+ * (+0x64, a word), of level (+0x91) below 7 (unsigned) and holding neither the entry's effect
+ * (0x78) nor 0x5c is terrified: 252c(r, 0x78, 0 minutes, value 0, flag 1, kind 1, not saved, "is
+ * terrified", DS:83bc). No saving throw, unlike Champions' 0x48 and 0x52. The routine sets DS:c280
+ * across the walk; only 0x1c's handler (78e4:0580, not ported) reads it, which event 9 can reach. */
+static bool h_presence(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    const cok_rules_effect *h = &fx->rules->effects.handlers[fx->running];
+    (void)removing, (void)effect;
+    size_t status = cok_field_one_(L, COK_FIELD_STATUS, 1);
+    size_t side = cok_field_one_(L, COK_FIELD_HOSTILE, 1);
+    for (size_t i = 0; i < fx->party->count; ++i) {
+        cok_character *other = fx->party->members[i];
+        const uint8_t *r = other->record;
+        if (cok_field_get16_(r, side) == cok_field_get16_(c->record, side) ||
+            cok_field_get16_(r, status) != 0 ||
+            (uint8_t)cok_field_s8(L, r, COK_FIELD_HIGHEST_LEVEL) >= 7 ||
+            cok_character_find_effect(other, h->value) != NULL ||
+            cok_character_find_effect(other, 0x5c) != NULL)
+            continue;
+        if (!add_with_text(fx, other, h->value, 0, 0, true, 1, false, h->address, h->text))
+            return false;
+    }
+    return true;
+}
+
+/* dqk 78e4:4949, 0xc3, with either flag: for each record of the whole list (DS:c6e5) holding
+ * 0xc3 (c does, when in the list), c gets the entry's effect (0xcb: 255 minutes, value 4, flag 0;
+ * 19c2, no event 9) unless it holds one. */
+static bool h_kin(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    uint8_t id = fx->running, gives = entry_value(fx);
+    (void)removing, (void)effect;
+    for (size_t i = 0; i < fx->party->count; ++i)
+        if (cok_character_find_effect(fx->party->members[i], id) != NULL &&
+            cok_character_find_effect(c, gives) == NULL && !add(fx, c, gives, 0xff, 4, false))
+            return false;
+    return true;
+}
+
 /* The handler table the original fills at DS:6b94 (3f44:38ea), by effect
  * id: the handler's address in overlay 3f44 (or 5b04, which fills a few
  * at startup, 5b04:58ed), 0 for none, and the port. */
@@ -2718,6 +2781,8 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_DISPEL_EVIL] = h_dispel_evil,
     [COK_FX_BARKSKIN] = h_barkskin,
     [COK_FX_MIND_BLANK] = h_mind_blank,
+    [COK_FX_PRESENCE] = h_presence,
+    [COK_FX_KIN] = h_kin,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original
@@ -2931,6 +2996,10 @@ static bool remove_effect(cok_effects *fx, cok_character *c, cok_effect *effect,
     }
     *link = effect->next;
     fx->removed[fx->removed_count++] = (struct cok_removed){effect, cok_effects_made()};
+    const cok_rules_effects *E = &fx->rules->effects;
+    if (E->stat_unported != NULL && listed(E->stat_ids, id))
+        return fail(fx, "not yet ported: %s's effect 0x%02x recomputes the stats (%s)",
+                    fx->rules->text.name, id, E->stat_unported);
     if (IS_EFFECT(id, FRIENDLY)) return ability(fx, c, 5);
     if (IS_EFFECT(id, ENLARGED) || IS_EFFECT(id, STRENGTH)) return ability(fx, c, 0);
     return true;
@@ -2960,9 +3029,18 @@ static bool listed(const uint8_t *ids, uint8_t id)
  * restored, but not its count). */
 static bool dispatch_id(cok_effects *fx, cok_character *target, uint8_t id)
 {
-    cok_effect *effect = cok_character_find_effect(target, id);
-    if (effect != NULL) return call_handler(fx, id, false, effect, target);
     const cok_rules_effects *E = &fx->rules->effects;
+    cok_effect *effect = cok_character_find_effect(target, id);
+    if (effect != NULL) {
+        /* dqk 0369: a handler of acting_id gets the selected record (DS:ad67), with the
+         * target's node. */
+        cok_character *who = target;
+        if (E->acting_id != 0 && id == E->acting_id) {
+            who = selected(fx, id);
+            if (who == NULL) return false;
+        }
+        return call_handler(fx, id, false, effect, who);
+    }
     if (!listed(E->shared, id)) return true; /* 60f4:0332 */
     for (size_t i = 0; i < fx->party->count; ++i) {
         cok_character *holder = fx->party->members[i];
@@ -3020,7 +3098,12 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
         cok_rolls *r = &fx->rolls;
         uint8_t resistance = cok_field_u8(L, (*target)->record, COK_FIELD_MAGIC_RESISTANCE), level;
         bool magic = (r->damage_type & 8) != 0;
-        if (resistance != 0 &&
+        if (resistance != 0 && E->resist_unported != NULL) {
+            /* dqk 02ed: the condition has no amount test; the roll needs the caster level. */
+            if (r->pending != 0 || magic)
+                return fail(fx, "not yet ported: %s's magic resistance rolls (dqk 02ed) at the "
+                                "caster level (%s)", fx->rules->text.name, E->resist_unported);
+        } else if (resistance != 0 &&
             (r->pending != 0 || (fx->rules->casting.resist_damage && magic)) &&
             (r->amount == 0 || magic)) {
             if (!caster_level(fx, r->spell, &level)) return false;
@@ -3033,6 +3116,17 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
     }
     for (const uint8_t *id = E->events[event]; *id != 0; ++id)
         if (!dispatch_id(fx, *target, *id)) return false;
+    if (event == 6 && E->damage_flags_at != 0) {
+        /* dqk 2a6d: the record's immunity to the damage type clears it and the effect. */
+        const uint8_t *c = (*target)->record;
+        uint8_t flags = c[E->damage_flags_at];
+        cok_rolls *r = &fx->rolls;
+        if (((r->damage_type & 0x80) && (flags & 0x10)) ||
+            ((r->damage_type & 0x40) && (flags & 8))) {
+            r->amount = 0;
+            r->pending = 0;
+        }
+    }
     return true;
 }
 
