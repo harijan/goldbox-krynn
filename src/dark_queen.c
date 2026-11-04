@@ -4816,12 +4816,12 @@ static bool ended(cok_adventure *game)
 /* Begin Adventuring's start (5ebd:00ef after 7368:046f): the copy
  * protection (65cc:008b: a word from the journal, the game ending where
  * it is wrong; DARK-QUEEN.md's decision: logged and passed over, its
- * checks of DS:bec0-bec2 too), the adventure's screen (20b2:00e4), the
- * party's list and the status (or, on the overland, its frame), then the
- * game (5f07:10cd): the mode 4 (3 outside 3D, variable 0x22 0), the block
- * variable 0x16's or a new game's (4, its list drawn first), entered as
- * the ECL's NEWECL enters one (cok_adventure_enter); then its loop: a
- * command (6fea:0365); while it is Look (variable 0x19 above 1) or
+ * checks of DS:bec0-bec2 too, its two random draws made), the adventure's
+ * screen (20b2:00e4), the party's list and the status (or, on the overland,
+ * its frame), then the game (5f07:10cd): the mode 4 (3 outside 3D, variable
+ * 0x22 0), the block variable 0x16's or a new game's (4, its list drawn
+ * first), entered as the ECL's NEWECL enters one (cok_adventure_enter); then
+ * its loop: a command (6fea:0365); while it is Look (variable 0x19 above 1) or
  * Encamp, Look's: the view again and the location vector, searching or
  * not as before; Encamp (encamp) then the next command; then the
  * after-move vector; the last square in variables 0x17 and 0x18, the
@@ -4835,7 +4835,15 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block, bool begun)
     cok_ecl *vm = &game->vm;
     /* The copy protection is asked at Begin Adventuring (5ebd:00ef), not when main takes the
      * camp again after a load (5ebd:0331-033a). */
-    if (begun) cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
+    if (begun) {
+        /* The protection's two draws (65cc:00cb random(20) for the journal entry, 00d4-00de random(3)
+         * for the word). Its redraw of the word (00fa-00ff, while DS:6dd2 + 0x14*entry + 5 + word is
+         * 0xff) never fires with the shipped table, so it is not ported. The question and its check
+         * draw nothing; the question is logged and passed over (DARK-QUEEN.md decision 4). */
+        cok_tp_random(&game->vm.seed, 20);
+        cok_tp_random(&game->vm.seed, 3);
+        cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
+    }
     if (vm->mode == 3 && cok_ecl_load_var(vm, 0x24) == 1) {
         overland_screen(game);
     } else {

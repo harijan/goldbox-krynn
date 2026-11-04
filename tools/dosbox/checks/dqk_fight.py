@@ -95,10 +95,10 @@ and a monster (CPIC) drawn in the view in the square's run.
 
 Flow `walk`: tests/test_dark_queen.py's test_first_fight in the original, the shipped ECL: the start
 menu, plta, Begin, block 4's texts and the steps to the dragons, the first turn's menu (5045:08cf), End,
-the next turn's menu; RandSeed set at the start menu to eclplay's there, and again at block 4's first text
-after the copy protection's two draws (the port passes over it: the known gap, asserted exact); then the
-seed at THEY ATTACK!'s wait and the turn list and seed at both menus against eclplay's --load --seed route
-(walk_port; its --start-menu route's turn lists are the same). See the comment above walk_original.
+the next turn's menu; RandSeed set at the start menu to eclplay's there, and not set again: at block 4's
+first text it is eclplay's, the copy protection's two draws made in both; then the seed at THEY ATTACK!'s
+wait and the turn list and seed at both menus against eclplay's --load --seed route (walk_port; its
+--start-menu route's turn lists are the same). See the comment above walk_original.
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
@@ -2380,19 +2380,15 @@ def won(v, work, opts):
 # title's cycles), so it is set at the start menu to eclplay's there (WALK_TITLE_SEED: the title's
 # seven random(8) from 0, test_load_and_play), and the port is run as --load --play --seed of it, which
 # test_load_and_play holds equal to the --start-menu route (its turn list is checked equal too). Begin's
-# copy protection draws its entry and word (65cc:00cb random(20), 00d8 random(3), redrawn while
-# DS:6dd2's entry's word byte is 0xff, none in the shipped table: two draws), which the port passes
-# over without drawing (dark_queen.c's adventure): the known gap, WALK_PROTECTION_DRAWS, asserted
-# exact, and the original's seed set to eclplay's at block 4's first text (its 81bc wait), so that the
-# rest compares draw for draw (with the two draws, the original untouched from the start menu, the
-# first turn is TIMASALIN's, then 'CINDER''s, both initiative 7, as eclplay's --seed two draws on).
+# copy protection draws its entry and word (65cc:00cb random(20), 00d8 random(3): two draws, in the
+# original and in the port's adventure), so RandSeed is eclplay's at block 4's first text (81bc), and
+# from there the two agree draw for draw. Without those draws the first turn is BALTHIR NOMOON's.
 WALK_TITLE_SEED = 0x3E6298EB
 WALK_TO_FIGHT = "\\^" * 10 + "\\>\\^\\^\\^\\>\\^\\^\\<\\^\\^\\^\\>\\^\\^L\\r\\v\\^\\r\\^\\^\\^"
 WALK_CITY = "\\r\\r\\rP\\r\\r\\r\\r\\rL\\r"     # block 4's texts, the palace and Leave, to Caergoth
 WALK_TEXT_PC, WALK_ATTACK_PC = 0x81BC, 0x8C0E   # block 4's first text's wait, THEY ATTACK!'s
-WALK_PROTECTION_DRAWS = 2
 WALK_STOP = "(out of keys in block 4 at 8c20)"  # the turn's command menu (5045:08cf)
-WALK_TURNS = ("turn: BALTHIR NOMOON (initiative 7)", "turn: WALKER KEYS (initiative 6)")
+WALK_TURNS = ("turn: TIMASALIN (initiative 7)", "turn: 'CINDER' (initiative 7)")
 WALK_SAVE = ("SAVGAMA.QSV", "VAULTA.DAT")       # test_load_and_play's copy
 
 
@@ -2450,13 +2446,13 @@ def walk_wait(box, pc, seconds=120):
         time.sleep(0.05)
 
 
-def walk_original(work, text_seed, verbose):
+def walk_original(work, verbose):
     """The original along the walk (the shipped ECL, the sound off as every fight's: L.files), the
     title's cycles (dqk_menus.freeze_cycles) and the memory cache's purges (L.freeze_purges) frozen,
     RandSeed WALK_TITLE_SEED at the start menu; Begin and the copy protection answered; at block 4's
-    first text the seed read, then set to TEXT_SEED (eclplay's there); the walk typed (a key as the
-    game waits for it, Box.keys), THEY ATTACK!'s wait read, its Return, to_menu's traps at the first
-    turn (menu_from_turn), End, and the next combatant's menu (5045:08cf, arm)."""
+    first text the seed read (still while it waits); the walk typed (a key as the game waits for it,
+    Box.keys), THEY ATTACK!'s wait read, its Return, to_menu's traps at the first turn
+    (menu_from_turn), End, and the next combatant's menu (5045:08cf, arm)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     with cokbox.Box(workdir=work / "box-walk", game="dark-queen", verbose=verbose, timeout=900,
                     files=L.files(glb)) as box:
@@ -2480,7 +2476,6 @@ def walk_original(work, text_seed, verbose):
         r["text_seed"] = box.ds_dword(L.DS_SEED)
         box.settle(1.0)
         r["text_still"] = box.ds_dword(L.DS_SEED) == r["text_seed"]
-        box.set_seed(text_seed)
         box.keys((WALK_CITY + WALK_TO_FIGHT).lower())
         r["attack_pc"] = walk_wait(box, WALK_ATTACK_PC)
         r["attack_seed"] = box.ds_dword(L.DS_SEED)
@@ -2515,15 +2510,14 @@ def walk(v, work, opts):
                 and bool(turns) and start_turns == turns,
                 f"eclplay's walk ({typed}) stops at the turn's menu, {line[6:]}, its --start-menu "
                 "route's turn list the --load --seed route's", f"{lines[-1:]} {moves[-1:]}")
-    o = walk_original(work, text_seed, opts.verbose)
+    o = walk_original(work, opts.verbose)
     v.check(o["loaded_seed"] == WALK_TITLE_SEED, "the original's Load draws nothing (RandSeed at the "
             "start menu after plta)", f"{o['loaded_seed']:#x}")
-    gap = L.draws(text_seed, o["text_seed"]) if text_seed is not None else None
-    v.check(o["text_pc"] == WALK_TEXT_PC and o["text_still"] and gap == WALK_PROTECTION_DRAWS,
-            f"at block 4's first text ({WALK_TEXT_PC:04x}) the original's RandSeed is eclplay's after "
-            f"{WALK_PROTECTION_DRAWS} more draws: the copy protection's entry and word (65cc:00cb, 00d8; "
-            "the port passes over it), still while it waits",
-            f"pc {o['text_pc']:04x}, {gap} draws, protection {o['protection']}")
+    v.check(o["text_pc"] == WALK_TEXT_PC and o["text_still"] and o["text_seed"] == text_seed,
+            f"at block 4's first text ({WALK_TEXT_PC:04x}) the original's RandSeed is eclplay's (the copy "
+            "protection's entry and word, 65cc:00cb and 00d8, drawn in both), still while it waits",
+            f"pc {o['text_pc']:04x}, the original {o['text_seed']:#x}, eclplay {walk_hex(text_seed)}, "
+            f"protection {o['protection']}")
     v.check(o["attack_pc"] == WALK_ATTACK_PC and o["attack_seed"] == attack_seed,
             f"at THEY ATTACK!'s wait ({WALK_ATTACK_PC:04x}) RandSeed agrees (the texts' delays, "
             "the steps)", f"pc {o['attack_pc']:04x}, the original {o['attack_seed']:#x}, eclplay "

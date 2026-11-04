@@ -356,7 +356,8 @@ def port(work, name, patched, typed="", extra=(), block=JUMP):
     eclplay reports keys left unread (TYPED are the keys the block reads after
     its PRESS KEY, eclplay --keys escapes; EXTRA are more eclplay arguments;
     BLOCK is the block eclplay enters, None for none: the entry of --load's
-    saved game, whose variable 0x16 names it)."""
+    saved game, whose variable 0x16 names it). A --play run's --seed is two draws back
+    (dqk_lib.seed_before_begin): its Begin Adventuring draws the copy protection's two."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -371,7 +372,10 @@ def port(work, name, patched, typed="", extra=(), block=JUMP):
                 (assets / "DISK3" / f.name).symlink_to(f)
     (assets / "DISK3" / "ECL.GLB").write_bytes(patched)
     vars_path = work / f"port-{name}.vars"
-    result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--seed", str(SEED), "--vars",
+    # A --play run's Begin Adventuring draws the copy protection's two numbers after --seed. The
+    # original sets SEED at the PRESS KEY, after its own, so eclplay's --seed is two draws back.
+    seed = dqk_lib.seed_before_begin(SEED) if "--play" in extra else SEED
+    result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--seed", str(seed), "--vars",
                              str(vars_path), "--keys", "\\r" + typed, *extra, str(assets),
                              *([str(block)] if block is not None else [])],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
