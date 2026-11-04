@@ -923,12 +923,12 @@ The yell run also checks that the two Ends before Y (TIMASALIN's and ROARK's) dr
 is the first menu's.
 
 `mouse` (`mouse_check`, last in `main`'s flows) is the command menu's mouse areas (`1bdb:1595`'s, with the mouse on,
-which the original has at the menu by default: DS:a6b5 1). A box with `sdl.mouse_emulation=always` reaches TIMASALIN's
+which the box gives with `sdl.mouse_emulation=always`, as eclplay's `--mouse` does). The box reaches TIMASALIN's
 menu (`to_menu`), and the pointer moves (`MouseBox.point`, xdotool) to a spot in each of the eight areas round her cell
 (3, 4 on the view), then to the cell and to the gap above it (no area). At each spot the whole screen (nothing masked:
 the game draws its cursor, whose shape is the area's) is compared with eclplay's `--mouse` run to the spot: its keys
 `\r\r\mX,Y,0.\e` (the pointer's move, then an Escape, which leaves the menu waiting, its last shot taken after the
-move). Space typed at the menu enters `1595` again with DS:a6b5 set and cleared (the menu takes Space either way; the
+move). Space typed at the menu enters `1595` again (the menu takes it and goes on: its controls are kept, and the
 type-7 control at `1810` answers with the same 0x20). Then the pointer is on area 4 and clicked: the original's
 Move routine (5045:1099) is trapped where the turn's copies start (`arm`) and reached, and eclplay stops at "not yet
 ported: ... Move with a direction key (dqk 5045:1099 ...)" after logging the code `code: 0x87`.

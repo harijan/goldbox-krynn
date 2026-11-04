@@ -76,10 +76,11 @@ int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *i
 /* The command menu of a Dark Queen party member's turn (dqk 5045:0cd7, 1bdb:1595): the items on
  * the bottom bar in one row (BAR_ROW) when split < 0, else in two, the items up to split (the index
  * of the '@' item) on row 178 and the rest from column 8 on row 190; no prompt, the extended keys,
- * Escape and '`' as codes, and Space as 0x20 (no beep). With the mouse on, the eight areas round
- * the combatant's cell (p, q: its row and column on the view, as bytes) give codes 0x81-0x88 on a
- * click. It returns the item's index, a filtered key's or an area's code, or -1 when the keys ran
- * out. */
+ * Escape and '`' as codes, and Space as 0x20 (no beep). With the mouse on (the port's gate: the
+ * original adds the areas to a fresh list with or without one, and no click comes without one), the
+ * eight areas round the combatant's cell (p, q: its row and column on the view, as bytes) give codes
+ * 0x81-0x88 on a click. It returns the item's index, a filtered key's or an area's code, or -1 when
+ * the keys ran out. */
 int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
                       int p, int q);
 /* The command menu taken off (1bdb:03d7): the bottom bar, then FRAME 6 over the whole window. */

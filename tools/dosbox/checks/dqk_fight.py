@@ -2751,12 +2751,11 @@ def view_check(v, work, patched, opts):
                    q["base"].with_suffix(".bmp"), MENU_POINTER)
 
 
-# The mouse areas of the command menu (step 4, part 22b; dqk 1bdb:1595, scope section 5). The original
-# has the mouse on at the menu (DS:a6b5, read at 1595's 15de and 1810), and so has eclplay with --mouse.
+# The mouse areas of the command menu (step 4, part 22b; dqk 1bdb:1595, scope section 5). The box has
+# the mouse on (sdl.mouse_emulation), and so has eclplay with --mouse.
 # TIMASALIN's cell is at 3, 4 on the view (P, Q): one spot in each of the eight areas, then the cell and
 # the gap above it (no area: the arrow). The original's whole screen with the pointer there, against
 # eclplay's (the game draws its cursor, so nothing is masked: the cursor's shape tells the area).
-MOUSE_ON = 0xA6B5                        # DS:a6b5 (game->mouse.on)
 MOUSE_CONF = {"sdl.mouse_emulation": "always"}
 MOUSE_SPOTS = [((50, 90), "area 0 (0x86)"), ((110, 30), "area 1 (0x88)"),
                ((150, 90), "area 2 (0x82)"), ((110, 130), "area 3 (0x84)"),
@@ -2789,34 +2788,27 @@ def freeze_frame(box):
 
 
 def mouse_original(work, patched, verbose):
-    """The original at the first turn's menu (to_menu) with the mouse on: DS:a6b5 there, the screen with
-    the pointer at each of MOUSE_SPOTS (`spots`, in order), then the click on area 4 with Move's routine
-    (5045:1099) trapped where the turn's copies start (arm): `reached`, whether its spin holds."""
+    """The original at the first turn's menu (to_menu) with the mouse on: the screen with the pointer at
+    each of MOUSE_SPOTS (`spots`, in order), Space at the menu (`space`: 1595 entered again), then the
+    click on area 4 with Move's routine (5045:1099) trapped where the turn's copies start (arm):
+    `reached`, whether its spin holds. The click reaches Move only if the menu's areas are there."""
     out = dict(spots=[])
     with MouseBox(workdir=work / "box-mouse", game="dark-queen", verbose=verbose, timeout=900,
                   files=L.files(patched), extra_conf=MOUSE_CONF) as box:
         enter(box)
         box.set_seed(SEED)
         menu = to_menu(box)
-        out["mouse"] = box.ds_byte(MOUSE_ON)
         for (x, y), _ in MOUSE_SPOTS:
             box.point(x, y)
             out["spots"].append(box.settled(tolerance=64))
-        # Space at the menu, with the mouse on and then cleared: 1595 is entered again either way (the
-        # type-7 control's message is Space, and the menu takes Space without the mouse too). Then the
-        # mouse on and Space once more, so that the menu's areas are built again for the click.
-        out["space"] = []
-        for mouse in (1, 0):
-            box.ds_write(MOUSE_ON, bytes([mouse]))
-            handle = L.trap(box, 0x1BDB, 0x1595, until=lambda: True, seconds=60)
-            box.keys(" ")
-            box.settle(3.0)
-            out["space"].append(L.held(box, handle, seconds=1.5)[0])
-            L.untrap(box, handle)
-            box.settle(1.0)
-        box.ds_write(MOUSE_ON, b"\x01")
+        # Space at the menu: 1595 is entered again (the menu takes Space and goes on). The menu's
+        # controls are kept, so the click below is on the areas built at to_menu.
+        handle = L.trap(box, 0x1BDB, 0x1595, until=lambda: True, seconds=60)
         box.keys(" ")
-        box.settled(tolerance=64)
+        box.settle(3.0)
+        out["space"] = L.held(box, handle, seconds=1.5)[0]
+        L.untrap(box, handle)
+        box.settle(1.0)
         box.point(*MOUSE_CLICK)
         t = arm(box, menu["handle"], MOVE)
         box.click(*MOUSE_CLICK)
@@ -2848,10 +2840,8 @@ def mouse_check(v, work, patched, opts):
     (5045:1099) in the original, and eclplay stops there: "not yet ported: ... Move with a direction key"
     after the code 0x87 is logged."""
     o = mouse_original(work, patched, opts.verbose)
-    v.check(o["mouse"] == 1, "the original's mouse is on at the command menu (DS:a6b5 is 1)",
-            f"{o['mouse']}")
-    v.check(o["space"] == [True, True], "Space at the command menu enters 1595 again with the mouse on "
-            "and cleared (the menu takes it either way)", f"{o['space']}")
+    v.check(o["space"] is True, "Space at the command menu enters 1595 again (the menu takes it)",
+            f"{o['space']}")
     for i, ((x, y), label) in enumerate(MOUSE_SPOTS):
         shot, _, _ = mouse_port(work, patched, f"spot-{i}", f"\\r\\r\\m{x},{y},0.\\e")
         if shot is None:

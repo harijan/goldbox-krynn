@@ -4800,11 +4800,13 @@ static const int view_codes[] = {0x86, 0x88, 0x82, 0x84};
  * draw the view and status again; Up checks the step (6fea:000a), the
  * status drawn, and ends it (giving 0xff); Escape nothing; another
  * filtered key picks a member (5e22:067c, not ported yet). With the mouse
- * on (DS:a6b5), a click on the view's areas gives the same codes as those
- * keys (view_areas). Encamp ends it (4); Search turns variable 0x19's bit
- * 0 and draws the status; Look sets its bit 1, draws the status, passes
- * ten minutes and ends it (6); Area, Cast, View and Inv are not ported yet
- * (the run stops). Then the text window cleared where text was shown
+ * on, a click on the view's areas gives the same codes as those keys
+ * (view_areas; 1aef adds them to a fresh list only: 1b3b tests DS:a6b5,
+ * the rebuilt flag of 1bdb:0d26, and the port's gate is mouse.on). Encamp
+ * ends it (4); Search turns variable 0x19's bit 0 and draws the status;
+ * Look sets its bit 1, draws the status, passes ten minutes and ends it
+ * (6); Area, Cast, View and Inv are not ported yet (the run stops). Then
+ * the text window cleared where text was shown
  * (DS:b2fb). Returns the command, -1 where the run stopped. */
 static int commands(cok_adventure *game)
 {
@@ -4813,7 +4815,7 @@ static int commands(cok_adventure *game)
     mouse_start(game);
     static const char *const items[] = {"Area", "Cast", "View", "Encamp", "Search", "Look",
                                         "Inv"};
-    /* 1aef adds the view's areas only with the mouse on (1b3b). */
+    /* 1aef adds the view's areas to a fresh list only (1b3b); the port adds them with the mouse on. */
     size_t area_count = game->mouse.on ? sizeof view_areas / sizeof view_areas[0] : 0;
     int result = -1;
     for (bool done = false; !done;) {
@@ -5238,12 +5240,16 @@ int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *co
                           -1, false);
 }
 
-/* 1bdb:1595's mouse areas (15de-1828, the mouse on: 2aa6:1294's records in 2-px units, read as
- * pixels here), in the control order (the first added wins): the cursor and the code of each (1206's
- * table at 126e: hit - buttons - 1). P and Q are 24 px times the combatant's row and column on the
- * view (0cd7's bytes); test_dark_queen.c has the areas' edges for P, Q = 3, 4 and 0, 0. The type-7
- * control at 1810 (message 0x20, Space) is not added: Space enters 1595 again with the mouse on and
- * off (the same 0x20, taken by 1206 either way), so the filter above stands. */
+/* 1bdb:1595's mouse areas (15de-1828: 2aa6:1294's records in 2-px units, read as pixels here), in
+ * the control order (the first added wins): the cursor and the code of each (1206's table at 126e:
+ * hit - buttons - 1). P and Q are 24 px times the combatant's row and column on the view (0cd7's
+ * bytes); test_dark_queen.c has the areas' edges for P, Q = 3, 4 and 0, 0. 1595 adds them, and the
+ * type-7 control at 1810 (message 0x20, Space), only to a fresh control list. DS:a6b5 there is the
+ * rebuilt flag 1bdb:0d26 leaves (its tail, e27-e2d, copies DS:1d13, which 0d1d or the bar's new text
+ * sets): a list not rebuilt keeps its areas and its Space control. So Space is taken either way, and
+ * the bar's filter (space = true) stands for the control. The port rebuilds the list on every call,
+ * so it adds the areas every time. The mouse.on gate below is the port's, not the original's: with no
+ * mouse no click arrives, so the areas cannot be seen without it. */
 static const uint8_t combat_cursors[8] = {9, 11, 5, 7, 10, 4, 6, 8};
 static const int combat_codes[8] = {0x86, 0x88, 0x82, 0x84, 0x87, 0x81, 0x83, 0x85};
 

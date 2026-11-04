@@ -1630,9 +1630,10 @@ static void menu_log(cok_adventure *game, const char *kind, const char *text, vo
     }
 }
 
-/* Opens Dark Queen's game with CINDER at (5, 5), her turn to act with initiative 5, no items,
- * no spells, no class levels, no weapon, not dying: the menu's defaults (Aim, Guard, Quick,
- * Delay, View, Speed, End). The keys are set by menu_keys(script.keys). */
+/* Opens Dark Queen's game with CINDER at (5, 5) as combatant 1 (the list's count is 1, as the round
+ * tests set it), her turn to act with initiative 5, no items, no spells, no class levels, no weapon,
+ * not dying: the menu's defaults (Aim, Guard, Quick, Delay, View, Speed, End). The keys are set by
+ * menu_keys(script.keys). */
 static void menu_open(void)
 {
     static cok_rules rules;
@@ -1664,7 +1665,7 @@ static void menu_open(void)
     menu_c->slots[0] = 0;
     cok_combat *k = &menu_game.combat;
     memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
-    k->count = 0;
+    k->count = 1; /* combatant 0 is no one's (cok_combat_index counts from 1) */
     place(&menu_game, menu_c, 5, 5);
     menu_game.vm.seed = 1;
     CHECK(cok_combat_round_start(&menu_game, menu_c));
@@ -1873,7 +1874,8 @@ static void test_command_menu_keys(void)
  * click in each of the eight areas round the cell at 3, 4 (and 0, 0) gives its code (0x81-0x88), the
  * cell's edges as the rects have them (the cell's own columns above and below it are in no area: the
  * menu waits on, -1); with the mouse off there are none. A first-row button over area 3 gives the
- * button. Space is 0x20 with the mouse on and off (the original's probe: 1595 entered again). */
+ * button. Space is 0x20 with the mouse on and off: the bar's filter (space = true) stands for the
+ * type-7 control at 1810, which 1595 adds to a fresh list with or without the mouse. */
 static int combat_bar(bool mouse, int p, int q, size_t count, int split, int16_t x, int16_t y,
                       const char *keys)
 {
@@ -1920,20 +1922,16 @@ static void test_combat_menu_areas(void)
     /* The first row's button "Delay" (cols 100-148, rows 176-188) over area 3 (rows 108-188). */
     CHECK(combat_bar(true, 3, 4, 4, 3, 110, 180, "\x01") == 2);
     CHECK(combat_bar(false, 3, 4, 4, 3, 110, 180, "\x01") == 2);
-    /* Space is 0x20 with the mouse on and off. */
+    /* Space is 0x20 with the mouse on and off (the filter; the control, see combat_bar). */
     CHECK(combat_bar(true, 3, 4, 4, 3, 0, 0, " ") == 0x20);
     CHECK(combat_bar(false, 3, 4, 4, 3, 0, 0, " ") == 0x20);
-    /* queen_commands passes the combatant's cell: CINDER at 5, 5 (her cell 3, 3 on the view), so
-     * a click at 90, 20 is area 1 (code 0x88: Move, not yet ported) with the mouse on. Her cell at
-     * 0, 0 would have no area there, and the run would wait on (the mouse off gives nothing). */
+    /* queen_commands passes the combatant's cell: CINDER at 5, 5 (her cell 3, 3 on the view, the view
+     * at 2, 2), so a click at 90, 20 is area 1 (code 0x88: Move, not yet ported) with the mouse on.
+     * Her cell at 0, 0 would have no area there, and the run would wait on (the mouse off gives
+     * nothing). */
     menu_open();
     menu_game.mouse.on = true;
-    /* place() put CINDER at entry 0, which is none (cok_combat_index counts from 1): moved to 1, with
-     * her cell in the occupants and the view at 2, 2 (her cell 3, 3). */
     cok_combat *k = &menu_game.combat;
-    k->combatant[1] = k->combatant[0];
-    memset(&k->combatant[0], 0, sizeof k->combatant[0]);
-    k->occupant[5][5] = 1;
     k->view_x = 2;
     k->view_y = 2;
     click_x = 90;
@@ -2137,7 +2135,7 @@ static void test_alt_x(void)
     place(&menu_game, monster, 9, 9);
     uint8_t *m = monster->record;
     uint8_t n = cok_combat_index(&menu_game.combat, m);
-    CHECK(n == 1);
+    CHECK(n == 2); /* CINDER is combatant 1 (menu_open) */
     m[0x64] = 1;   /* a status word of 1, not 6 */
     m[0x65] = 1;   /* its high byte, which the gods' word write clears */
     m[0x66] = 1;   /* the hostile word 1 */
