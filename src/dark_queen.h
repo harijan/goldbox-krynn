@@ -49,6 +49,10 @@ typedef struct {
 cok_dark_queen_end_state cok_dark_queen_end_state_of(cok_adventure *game);
 /* Sets DS:c7df, which 11b0 (part 19c) will set; the tests need it set before the end of combat. */
 void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool present);
+/* The camp's say of a member (member_say: its name line on row 18, the text from row 19), for the
+ * tests: the stoned and Order's texts reach it through the camp's menus only. */
+void cok_dark_queen_member_say_for_test(cok_adventure *game, const uint8_t *c, const char *text);
+
 /* The small picture's frame (DS:b20e) and whether the menu waiting now animates it. */
 unsigned cok_dark_queen_picture_frame(const cok_adventure *game);
 bool cok_dark_queen_picture_animating(const cok_adventure *game);

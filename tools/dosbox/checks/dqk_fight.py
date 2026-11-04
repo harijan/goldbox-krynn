@@ -2581,7 +2581,7 @@ def bandage_check(v, work, patched, opts):
     text = (work / "port-bandage.txt").read_text().splitlines()
     v.check("menu: Aim Use Guard Quick@Delay Bandage View Speed End" in text,
             "the first menu shows Bandage (member 0 dying, not hostile)",
-            [line for line in text if line.startswith("menu:")][:1])
+            [line for line in text if line.startswith("menu:") and "Aim" in line][:1])
     s = o["stop"]
     status = bytes.fromhex(s["records"][0])[BANDAGE_STATUS:BANDAGE_STATUS + 2]
     v.check(status == (4).to_bytes(2, "little"), "the original's member 0 is bandaged (status word "

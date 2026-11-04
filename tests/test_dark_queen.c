@@ -1950,6 +1950,10 @@ static void test_arena_say(void)
     char logged[160];
     snprintf(logged, sizeof logged, "%s;HELLO;", name);
     CHECK(strcmp(script.prints, logged) == 0);
+    /* A second say without wait starts at cell 0x17 of row 11 (1a62:0311's clear homes the
+     * cursor), not where the first one ended (cell 28). */
+    CHECK(cok_arena_say(&menu_game, menu_c, "HI", 10, false));
+    CHECK(row_has(&menu_game, 23, 24, 11, 0x07) && !row_has(&menu_game, 25, 38, 11, 0x07));
     want = menu_game.vm.seed;
     cok_tp_random(&want, 1000);
     memset(menu_game.screen.pixels, 0x00, 320 * 200);
@@ -1958,6 +1962,24 @@ static void test_arena_say(void)
     CHECK(menu_game.vm.seed == want);
     for (int row = 10; row <= 21; ++row) CHECK(!ink_row(&menu_game, row));
     CHECK(strcmp(script.prints, logged) == 0);
+    menu_close();
+}
+
+/* The camp's say of a member (member_say: 177e:156e's camp shape, the window cleared and the text
+ * from row 19 by 1a62:0311 with its bp+0x12 1): the text starts at cell 1 of row 19 though the
+ * cursor was left inside the window. Skipped without DQKAssets/. */
+static void test_member_say(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the camp's say not checked");
+        return;
+    }
+    menu_open();
+    memset(menu_game.screen.pixels, 0x00, 320 * 200);
+    menu_game.vm.cursor = (cok_text_cursor){10, 0x14};
+    cok_dark_queen_member_say_for_test(&menu_game, menu_c->record, "HI");
+    CHECK(row_has(&menu_game, 1, 2, 19, 0x07) && !row_has(&menu_game, 10, 11, 20, 0x07));
+    CHECK(menu_game.vm.cursor.x == 3 && menu_game.vm.cursor.y == 19);
     menu_close();
 }
 
@@ -2191,6 +2213,7 @@ int main(void)
     test_command_menu_keys();
     test_command_menu_quick_speed();
     test_arena_say();
+    test_member_say();
     test_bandage();
     test_alt_x();
     test_yell();
