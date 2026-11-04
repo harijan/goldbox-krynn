@@ -111,6 +111,21 @@ def protection(box):
     return box.ds_byte(DS_ENTRY), box.ds_byte(DS_WORD), cstr(box.ds_read(DS_ANSWER, 42))
 
 
+# The copy protection's draws at Begin Adventuring (dqk 65cc:00cb random(20), 00d8 random(3); the port
+# makes the same two in dark_queen.c's adventure, its redraw never firing with the shipped table).
+PROTECTION_DRAWS = 2
+
+
+def seed_before_begin(seed):
+    """The --seed of an eclplay --play run (Begin Adventuring, so its copy protection's draws) whose
+    RandSeed at the block is SEED: the seed PROTECTION_DRAWS draws back. seed * 0x6d25 + 1 (mod 2^32)
+    inverted; 0x6d25 is odd, so it has an inverse mod 2^32."""
+    inverse = pow(0x6D25, -1, 1 << 32)
+    for _ in range(PROTECTION_DRAWS):
+        seed = ((seed - 1) * inverse) & 0xFFFFFFFF
+    return seed
+
+
 def ecl_state(box):
     """The ECL's buffer (segment:offset), address and opcode."""
     buf = far(box, DS_ECL)

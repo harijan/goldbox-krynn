@@ -1453,8 +1453,9 @@ on row 13 unless variable 0x1a is set, the compass's needle, "camping" or
 "searching" on row 14; `CALL 1` draws it too (`6c70:1685`).
 
 Begin Adventuring (`5ebd:00ef`): the copy protection (`65cc:008b`, a word
-from the journal; DARK-QUEEN.md's decision) logged and passed over, the
-adventure's screen with the party's list and status, then the game
+from the journal; DARK-QUEEN.md's decision) logged and passed over, its two
+random draws (`65cc:00cb` random(20), `00d8` random(3)) made, the adventure's
+screen with the party's list and status, then the game
 (`5f07:10cd`): the block variable 0x16's, or a new game's 4, entered
 (`cok_adventure_enter`); then its loop: the adventure's commands
 (`6fea:0365`, in 3D, mode 4: "Area Cast View Encamp Search Look Inv" on

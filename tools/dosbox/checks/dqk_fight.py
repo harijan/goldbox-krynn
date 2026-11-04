@@ -93,6 +93,13 @@ cells not masked and only the mouse pointer (dqk_views.POINTER) masked, over the
 combat frame, 20b2:02fa, included). Gated: at least PARTY combatants drawn in the view in every run, no combatant at cell 0, 0,
 and a monster (CPIC) drawn in the view in the square's run.
 
+Flow `walk`: tests/test_dark_queen.py's test_first_fight in the original, the shipped ECL: the start
+menu, plta, Begin, block 4's texts and the steps to the dragons, the first turn's menu (5045:08cf), End,
+the next turn's menu; RandSeed set at the start menu to eclplay's there, and not set again: at block 4's
+first text it is eclplay's, the copy protection's two draws made in both; then the seed at THEY ATTACK!'s
+wait and the turn list and seed at both menus against eclplay's --load --seed route (walk_port; its
+--start-menu route's turn lists are the same). See the comment above walk_original.
+
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
 the field flow (below) checks it at each square and records the purges.
@@ -102,7 +109,8 @@ masked (dqk_fight_lib.portable): later parts compare the port's state with them.
 About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
-        [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons]
+        [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
+         turns,round,won,timer,walk]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -1633,6 +1641,12 @@ def to_menu(box):
     box.keys("\\r")                 # the 'loaded' PRESS KEY
     box.settled(tolerance=64)
     box.keys("\\r")                 # SETUP MONSTERS, APPROACH, COMBAT: the battle begins
+    return menu_from_turn(box, purges_at_seed)
+
+
+def menu_from_turn(box, purges_at_seed):
+    """to_menu's stop once the key that begins the battle is typed: 5045:078b trapped (at_placement),
+    then 08cf in its copies, as to_menu says. Shared with the walk flow."""
     handle = at_placement(box)      # the placement made (placed), the turn's spin held
     box.settled(tolerance=64)
     held, polls, polls_held = L.held(box, handle)
@@ -2359,6 +2373,172 @@ def won(v, work, opts):
                    WON_WAIT_MASKS)
     command_screen(v, "at the treasure menu", o["end_screen"], base.with_suffix(".bmp"), WON_SCREEN_MASK)
 
+# The walk flow: tests/test_dark_queen.py's test_first_fight in the original, the shipped block 4 (no
+# test block): from the start menu, Load saved game A (plta), Begin Adventuring, block 4's texts to
+# Caergoth, the steps along the ruins to the dragons (TO_FIGHT), THEY ATTACK!'s Return, the first
+# turn's menu, End, the next turn's menu. The original's RandSeed is not eclplay's at the start (its
+# title's cycles), so it is set at the start menu to eclplay's there (WALK_TITLE_SEED: the title's
+# seven random(8) from 0, test_load_and_play), and the port is run as --load --play --seed of it, which
+# test_load_and_play holds equal to the --start-menu route (its turn list is checked equal too). Begin's
+# copy protection draws its entry and word (65cc:00cb random(20), 00d8 random(3): two draws, in the
+# original and in the port's adventure), so RandSeed is eclplay's at block 4's first text (81bc), and
+# from there the two agree draw for draw. Without those draws the first turn is BALTHIR NOMOON's.
+WALK_TITLE_SEED = 0x3E6298EB
+WALK_TO_FIGHT = "\\^" * 10 + "\\>\\^\\^\\^\\>\\^\\^\\<\\^\\^\\^\\>\\^\\^L\\r\\v\\^\\r\\^\\^\\^"
+WALK_CITY = "\\r\\r\\rP\\r\\r\\r\\r\\rL\\r"     # block 4's texts, the palace and Leave, to Caergoth
+WALK_TEXT_PC, WALK_ATTACK_PC = 0x81BC, 0x8C0E   # block 4's first text's wait, THEY ATTACK!'s
+WALK_STOP = "(out of keys in block 4 at 8c20)"  # the turn's command menu (5045:08cf)
+WALK_TURNS = ("turn: TIMASALIN (initiative 7)", "turn: 'CINDER' (initiative 7)")
+WALK_SAVE = ("SAVGAMA.QSV", "VAULTA.DAT")       # test_load_and_play's copy
+
+
+def walk_save(work):
+    """Saved game A as test_load_and_play copies it (the QSV and the vault), for eclplay's --load."""
+    folder = work / "walk-save"
+    folder.mkdir(parents=True, exist_ok=True)
+    for name in WALK_SAVE:
+        shutil.copy(dqk_lib.ASSETS / "SAVE" / name, folder / name)
+    return folder / "SAVGAMA.QSV"
+
+
+def walk_port(work, name, typed, start_menu=False):
+    """eclplay's run of the walk: --load --play --seed WALK_TITLE_SEED and TYPED (or, START_MENU,
+    test_first_fight's --start-menu with \\k\\ePLTAB before TYPED). Returns the stdout's lines, the
+    --state's RandSeed (None for the start menu's route, which writes no state) and the --turns list."""
+    base = work / f"port-walk-{name}"
+    args = [str(cokbox.ECLPLAY), "--game", "dark-queen", "--turns", str(base.with_suffix(".turns"))]
+    if start_menu:
+        args += ["--start-menu", "--keys", "\\k\\ePLTAB" + typed]
+    else:
+        args += ["--load", str(walk_save(work)), "--play", "--seed", str(WALK_TITLE_SEED),
+                 "--state", str(base.with_suffix(".state")), "--keys", typed]
+    for path in (base.with_suffix(".turns"), base.with_suffix(".state")):
+        path.unlink(missing_ok=True)
+    result = subprocess.run([*args, str(dqk_lib.ASSETS)], capture_output=True, text=True, cwd=ROOT,
+                            timeout=300)
+    base.with_suffix(".txt").write_text(result.stdout + result.stderr)
+    seed = None
+    if base.with_suffix(".state").exists():
+        for line in base.with_suffix(".state").read_text().splitlines():
+            if line.startswith("seed "):
+                seed = int(line.split()[1], 16)
+    turns = []
+    if base.with_suffix(".turns").exists():
+        turns = [tuple(int(x) for x in line.split())
+                 for line in base.with_suffix(".turns").read_text().splitlines()]
+    return result.stdout.splitlines(), seed, turns
+
+
+def walk_hex(seed):
+    return "none" if seed is None else f"{seed:#x}"
+
+
+def walk_wait(box, pc, seconds=120):
+    """Until block 4's ECL (DS:b7f9) is at PC with the game waiting for a key there. Returns the pc
+    seen; after SECONDS, the last one seen (the caller's check reports it)."""
+    end = time.monotonic() + seconds
+    while True:
+        here = dqk_lib.ecl_state(box)["pc"]
+        if here == pc and box.waiting():
+            return here
+        if time.monotonic() > end:
+            return here
+        time.sleep(0.05)
+
+
+def walk_original(work, verbose):
+    """The original along the walk (the shipped ECL, the sound off as every fight's: L.files), the
+    title's cycles (dqk_menus.freeze_cycles) and the memory cache's purges (L.freeze_purges) frozen,
+    RandSeed WALK_TITLE_SEED at the start menu; Begin and the copy protection answered; at block 4's
+    first text the seed read (still while it waits); the walk typed (a key as the game waits for it,
+    Box.keys), THEY ATTACK!'s wait read, its Return, to_menu's traps at the first turn
+    (menu_from_turn), End, and the next combatant's menu (5045:08cf, arm)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    with cokbox.Box(workdir=work / "box-walk", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(glb)) as box:
+        dqk_ecl.wait_screen(box)
+        box.keys("\\e")
+        box.settled(tolerance=64)
+        freeze = L.code(box, 0x261B, 0x05BE)  # dqk_menus' freeze_cycles
+        if box.read(freeze, 1) != b"\x55":
+            raise cokbox.BoxError("261b:05be is not where it was expected")
+        box.write(freeze, b"\xcb")
+        L.freeze_purges(box)
+        box.set_seed(WALK_TITLE_SEED)
+        dqk_lib.load_saved_game(box)
+        r = dict(loaded_seed=box.ds_dword(L.DS_SEED))
+        box.keys("b")
+        box.settled(tolerance=64)
+        entry, word, answer = dqk_lib.protection(box)
+        r["protection"] = (entry, word, answer)
+        box.keys(answer + "\\r")
+        r["text_pc"] = walk_wait(box, WALK_TEXT_PC)
+        r["text_seed"] = box.ds_dword(L.DS_SEED)
+        box.settle(1.0)
+        r["text_still"] = box.ds_dword(L.DS_SEED) == r["text_seed"]
+        box.keys((WALK_CITY + WALK_TO_FIGHT).lower())
+        r["attack_pc"] = walk_wait(box, WALK_ATTACK_PC)
+        r["attack_seed"] = box.ds_dword(L.DS_SEED)
+        box.keys("\\r")                 # THEY ATTACK!'s Return: COMBAT
+        menu = menu_from_turn(box, purges(box))
+        menu["menu_screen"] = box.screenshot(path=str(work / "walk-menu.png"))
+        t = arm(box, menu["handle"], MENU)
+        box.keys("e")
+        wait_trap(box, t, "5045:08cf")
+        stop = snapshot(box)
+        stop["selected"] = selected(box)
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        box.screenshot(path=str(work / "walk-menu2.png"))
+        r.update(menu=menu, stop=stop)
+        return r
+
+
+def walk(v, work, opts):
+    """The walk flow: test_first_fight's turn order in the original (above)."""
+    _, text_seed, _ = walk_port(work, "text", "")
+    _, attack_seed, _ = walk_port(work, "attack", WALK_CITY + WALK_TO_FIGHT)
+    first_lines, first_seed, first_turns = walk_port(work, "menu", WALK_CITY + WALK_TO_FIGHT + "\\r")
+    next_lines, next_seed, next_turns = walk_port(work, "next", WALK_CITY + WALK_TO_FIGHT + "\\rE")
+    for name, typed, lines, turns, line in (
+            ("menu-start", "\\r", first_lines, first_turns, WALK_TURNS[0]),
+            ("next-start", "\\rE", next_lines, next_turns, WALK_TURNS[1])):
+        start_lines, _, start_turns = walk_port(work, name, WALK_CITY + WALK_TO_FIGHT + typed,
+                                                start_menu=True)
+        moves = [x for x in lines if x.startswith("turn: ") and not x[6].isdigit()]
+        v.check(lines[-1:] == [WALK_STOP] and moves[-1:] == [line] and start_lines[-1:] == [WALK_STOP]
+                and bool(turns) and start_turns == turns,
+                f"eclplay's walk ({typed}) stops at the turn's menu, {line[6:]}, its --start-menu "
+                "route's turn list the --load --seed route's", f"{lines[-1:]} {moves[-1:]}")
+    o = walk_original(work, opts.verbose)
+    v.check(o["loaded_seed"] == WALK_TITLE_SEED, "the original's Load draws nothing (RandSeed at the "
+            "start menu after plta)", f"{o['loaded_seed']:#x}")
+    v.check(o["text_pc"] == WALK_TEXT_PC and o["text_still"] and o["text_seed"] == text_seed,
+            f"at block 4's first text ({WALK_TEXT_PC:04x}) the original's RandSeed is eclplay's (the copy "
+            "protection's entry and word, 65cc:00cb and 00d8, drawn in both), still while it waits",
+            f"pc {o['text_pc']:04x}, the original {o['text_seed']:#x}, eclplay {walk_hex(text_seed)}, "
+            f"protection {o['protection']}")
+    v.check(o["attack_pc"] == WALK_ATTACK_PC and o["attack_seed"] == attack_seed,
+            f"at THEY ATTACK!'s wait ({WALK_ATTACK_PC:04x}) RandSeed agrees (the texts' delays, "
+            "the steps)", f"pc {o['attack_pc']:04x}, the original {o['attack_seed']:#x}, eclplay "
+            f"{walk_hex(attack_seed)}")
+    m, s = o["menu"], o["stop"]
+    spins_at_placement(v, m)
+    v.check(m["menu_traps"] >= 1 and m["menu_held"], "the original spins at the first turn's command "
+            "menu (5045:08cf)", f"{m['menu_traps']} copies")
+    v.check([tuple(t) for t in m["turns"]] == first_turns and m["seed"] == first_seed
+            and m["state"]["turn"] == 1 and m["selected"] == m["state"]["first"],
+            f"at the first turn's menu the turn list (5045:0447: each entry's record and initiative) and "
+            f"RandSeed agree, the turn entry 1's ({WALK_TURNS[0][6:]})",
+            f"the original {m['turns']} {m['seed']:#x}, eclplay {first_turns} {walk_hex(first_seed)}")
+    v.check([tuple(t) for t in s["turns"]] == next_turns and s["seed"] == next_seed
+            and s["state"]["turn"] == 2,
+            f"after End, at the next turn's menu, the turn list and RandSeed agree, the turn entry 2's "
+            f"({WALK_TURNS[1][6:]})",
+            f"the original {s['turns']} {s['seed']:#x} turn {s['state']['turn']}, eclplay {next_turns} "
+            f"{walk_hex(next_seed)}")
+
+
 def commands(v, work, patched, opts):
     """The command menu's four commands (step 4, part 22b) from the first turn's menu: Quick, Alt-Q,
     Alt-M and Speed (S, F, E), each run against eclplay's stop after its keys."""
@@ -2373,9 +2553,9 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,turns,round,won,timer",
+                                "keys,turns,round,won,timer,walk",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, turns, round, won, timer")
+                             "slots, icons, dispatch, keys, turns, round, won, timer, walk")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -2414,6 +2594,8 @@ def main():
         round_flow(v, work, opts)
     if "won" in flows:
         won(v, work, opts)
+    if "walk" in flows:
+        walk(v, work, opts)
     return v.finish()
 
 

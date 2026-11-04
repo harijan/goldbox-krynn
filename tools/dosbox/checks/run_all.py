@@ -3,7 +3,8 @@
 per script: docs/checks.md's checks it covers, its verdict, and whether that is
 the verdict recorded (docs/checks.md, "Checks against the original").
 
-    python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--out DIR]
+    python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--flows F]
+        [--out DIR]
     python3 tools/dosbox/checks/run_all.py --report [--set SET] [--out DIR]
 
 SET: champions (CHECKS, the default), dkk (DKK_CHECKS: Death Knights'
@@ -176,10 +177,15 @@ DQK_CHECKS = [(f"{script}-{flow}" if flow else script, "DQK", "") for script in 
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}
 
 
+# --flows FLOWS: passed to each script run that is not split (with --only, one script's flows).
+FLOWS = None
+
+
 def command(name):
     """A row's script and its arguments: NAME.py, or a split one's
-    SCRIPT.py --flows FLOW."""
+    SCRIPT.py --flows FLOW (else run_all's --flows, if given)."""
     script, _, flow = name.partition("-")
+    flow = flow or FLOWS
     return [str(HERE / f"{script}.py")] + (["--flows", flow] if flow else [])
 
 
@@ -286,8 +292,24 @@ def judge_log(text, code):
     return None
 
 
+def flows_problem(flows, only):
+    """The error for --flows FLOWS with --only ONLY, or None: the flows go to
+    one --only script that is not split (a split row has its own flow), since
+    every other script would get --flows it does not know."""
+    if not flows or (only and len(only) == 1 and "-" not in only[0]):
+        return None
+    return "--flows needs exactly one --only script, not split (e.g. --only dqk_fight --flows walk)"
+
+
 def self_test():
     """judge_log and recorded_as on made-up logs; no DOSBox-X needed."""
+    flow_cases = [
+        (None, None, True), ("", None, True), ("walk", None, False), ("walk", [], False),
+        ("walk", ["dqk_fight", "dqk_camp"], False), ("walk", ["dqk_fight-turns"], False),
+        ("walk", ["dqk_fight"], True), (None, ["dqk_fight", "dqk_camp"], True),
+    ]
+    flow_bad = sum((flows_problem(flows, only) is None) != ok for flows, only, ok in flow_cases)
+    print(f"run_all --flows self-test: {len(flow_cases) - flow_bad} of {len(flow_cases)} cases right")
     cases = [
         ("  agrees: x\nVERDICT: AGREES\n", 0, "AGREES", ""),
         ("DIFFERENCE: x\nVERDICT: DIFFERS new (1: x)\n", 1, "DIFFERS new (1: x)", "new"),
@@ -312,7 +334,7 @@ def self_test():
             print(f"self-test FAILS: status {code!r}, log {text!r}: {got!r}/{rec!r}, "
                   f"wanted {want!r}/{recorded!r}")
     print(f"run_all self-test: {len(cases) - bad} of {len(cases)} cases right")
-    bad += self_test_again()
+    bad += self_test_again() + flow_bad
     return 1 if bad else 0
 
 
@@ -440,6 +462,8 @@ def main():
                         help="Champions' scripts (the default), Death Knights' (dkk), both "
                              "(all) or Dark Queen's (dqk)")
     parser.add_argument("--only", nargs="*", help="these scripts (names without .py)")
+    parser.add_argument("--flows", help="the flows of the scripts run (their --flows; with --only "
+                                        "a script that has them, e.g. --only dqk_fight --flows walk)")
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
                         help="seconds a script may take (default three hours)")
@@ -450,6 +474,8 @@ def main():
     parser.add_argument("--report", action="store_true",
                         help="write OUT/telemetry.txt again from the last run's files")
     opts = parser.parse_args()
+    global FLOWS
+    FLOWS = opts.flows
     if opts.self_test:
         return self_test()
     if opts.report:
@@ -463,7 +489,10 @@ def main():
     unknown = set(opts.only or ()) - {c[0] for c in rows}
     if unknown:
         parser.error(f"no such check script: {', '.join(sorted(unknown))}")
-    out = pathlib.Path(opts.out).resolve()
+    problem = flows_problem(opts.flows, opts.only)
+    if problem:
+        parser.error(problem)
+    out =pathlib.Path(opts.out).resolve()
     out.mkdir(parents=True, exist_ok=True)
     # The port's builds the checks share (checklib.build), once here.
     sys.path.insert(0, str(HERE))
