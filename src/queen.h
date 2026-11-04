@@ -73,17 +73,26 @@ void queen_prompt_box(cok_adventure *game, int x, const char *s, unsigned fg, un
  * code (Escape; with dirs the extended keys and Alt's), or -1. */
 int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                    size_t count, bool dirs);
-/* The command menu of a Dark Queen party member's turn (1bdb:1595 without its mouse areas,
- * dqk 5045:0cd7): the items on the bottom bar in one row (BAR_ROW) when split < 0, else in two,
- * the items up to split (the index of the '@' item) on row 178 and the rest from column 8 on row
- * 190; no prompt, the extended keys, Escape and '`' as codes, and Space as 0x20 (no beep). It
- * returns the item's index, a filtered key's code, or -1 when the keys ran out. */
-int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split);
+/* The command menu of a Dark Queen party member's turn (dqk 5045:0cd7, 1bdb:1595): the items on
+ * the bottom bar in one row (BAR_ROW) when split < 0, else in two, the items up to split (the index
+ * of the '@' item) on row 178 and the rest from column 8 on row 190; no prompt, the extended keys,
+ * Escape and '`' as codes, and Space as 0x20 (no beep). With the mouse on (the port's gate: the
+ * original adds the areas to a fresh list with or without one, and no click comes without one), the
+ * eight areas round the combatant's cell (p, q: its row and column on the view, as bytes) give codes
+ * 0x81-0x88 on a click. It returns the item's index, a filtered key's or an area's code, or -1 when
+ * the keys ran out. */
+int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
+                      int p, int q);
 /* The command menu taken off (1bdb:03d7): the bottom bar, then FRAME 6 over the whole window. */
 void queen_combat_menu_close(cok_adventure *game);
 /* The command menu's Speed (dqk 5045:166c): "game speed: (N) " on the bar over Faster, Slower and
  * Exit, until Exit or Escape. False where the keys ran out. */
 bool queen_speed(cok_adventure *game);
+/* View in a battle (dqk 5045:0af8: 86b8:0b0c(&done), then the mode 5 tail): the sheet and its menu,
+ * as the camp's View. done is set where Items ends the turn (a readied item of 0x8c, 86b8:16bc),
+ * else false (Use, the other writer, is a stop here). False where the run stopped; true, with
+ * vm.abort set, where the keys ran out. */
+bool queen_view_combat(cok_adventure *game, bool *done);
 /* queen_bar_menu with areas of the screen after its buttons (1bdb:1429): a
  * click on one gives QUEEN_AREA + its index. */
 enum { QUEEN_AREA = 0x100 };

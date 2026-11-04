@@ -897,8 +897,51 @@ records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too
 initiative 9 after Quick, 0x13 after Alt-Q), the turn list, DS:bd2d (1 after Quick and after Alt-Q), DS:b1cb
 (0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
 bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
-(`dqk_views.POINTER`), the others with the menu's pointer masked. Yell, Bandage and the mouse areas have no flow
-(repo tests only).
+(`dqk_views.POINTER`), the others with the menu's pointer masked. Bandage and Yell have their runs
+below; the mouse areas have theirs in the `mouse` flow.
+
+Two more runs (step 4, part 22b's leftovers; `commands` after the four above). `altx` is `command_original`'s
+Alt-X (`\@X`) trapped at `5045:0cd7`, as Alt-M: the box has no "Gem" argument, so the original answers
+"That doesn't work" (`177e:153c`, one draw), the menu is built again and its screen is the check. Eclplay's run
+says "That doesn't work", builds the menu twice and ends at the menu. The gods (with the Helm) have no run: the
+box runs without "Gem", and the repo test (`test_alt_x`) checks them. `bandage` is a run on a patched saved
+game: `dqk_modify.modified({}, {0: {0x64: 5}})` makes ROLAND (member 0) dying, so TIMASALIN's first menu has
+Bandage; B is typed there (`keys_original` with `data`, the box's `SAVE/SAVGAMA.QSV`), the original is trapped at
+the next combatant's menu (`5045:08cf`), and eclplay runs from the same saved game (`saved_entry` with the same
+bytes). Checked: the first menu's text and placement, member 0 at status word 4 at the stop, the state there
+(records, blocks, turns, RandSeed one draw past the menu: the say's wait), eclplay's "is bandaged" logged, and the
+screen at the next menu (the pointer masked). `make dqk-checks ARGS="--only dqk_fight"` runs both as the rest.
+
+`yell` (`yell_check`, last in `commands`) is E at TIMASALIN's and at ROARK's menus (each as `turns`: the menu trapped at
+`5045:08cf`, the key, the trap held, given back, settled), then Y at WALKER KEYS' menu (a kender: the built text "Aim Use
+Guard Quick@Delay Yell View Speed End" in the original's memory, searched, and eclplay's menu line), the next menu (BALTHIR
+NOMOON's) trapped. Checked: RandSeed two draws past WALKER's menu (both SHARKMEN's saves, made), no record with 0x8c
+(the chains agree with eclplay's `--effects`), DS:b45b (the yelled record) is WALKER's record, the records, blocks, turns
+and variables at the stop, and the screen once given back (the pointer masked). eclplay's run is "EEY" from the first
+menu. A failed save (its flash, a stop) and "is Unaffected" have no run: the repo tests (`test_yell`) check them.
+The yell run also checks that the two Ends before Y (TIMASALIN's and ROARK's) draw nothing: RandSeed at WALKER's menu
+is the first menu's.
+
+`mouse` (`mouse_check`, last in `main`'s flows) is the command menu's mouse areas (`1bdb:1595`'s, with the mouse on,
+which the box gives with `sdl.mouse_emulation=always`, as eclplay's `--mouse` does). The box reaches TIMASALIN's
+menu (`to_menu`), and the pointer moves (`MouseBox.point`, xdotool) to a spot in each of the eight areas round her cell
+(3, 4 on the view), then to the cell and to the gap above it (no area). At each spot the whole screen (nothing masked:
+the game draws its cursor, whose shape is the area's) is compared with eclplay's `--mouse` run to the spot: its keys
+`\r\r\mX,Y,0.\e` (the pointer's move, then an Escape, which leaves the menu waiting, its last shot taken after the
+move). Space typed at the menu enters `1595` again (the menu takes it and goes on: its controls are kept, and the
+type-7 control at `1810` answers with the same 0x20). Then the pointer is on area 4 and clicked: the original's
+Move routine (5045:1099) is trapped where the turn's copies start (`arm`) and reached, and eclplay stops at "not yet
+ported: ... Move with a direction key (dqk 5045:1099 ...)" after logging the code `code: 0x87`.
+
+`view` (`view_check`, last in `commands`) is V at TIMASALIN's first menu (`view_original`: the menu trapped at `5045:0cd7`
+for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and
+steel, so no Trade in combat), eclplay out of keys there, and the sheet's screen agrees with the original's (its mouse
+pointer, the shield at the corner, is masked with `SHEET_POINTER`, the box the only pixels that differ). After Escape the original draws nothing
+past the menu (RandSeed unchanged, 0 draws), DS:ae27 is 1 at the menu before V and after the Escape (`177e:1ad1`; already 1 at the menu, so this does not show the store), and the command menu is built again: eclplay
+builds it twice, ends out of keys there, and the records, blocks and turns agree; the screen once the trap is given back
+agrees with the pointer masked (`MENU_POINTER`). That screen having no colour difference is what leaves `5837:00e4` (the
+mode 5 tail) unported. eclplay's runs are "V" and "V\\e" from the first menu. The keys running out in the sheet,
+the weapon attacks' value and Spells have no run: the repo tests (`test_view_combat`) check them.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

@@ -12,7 +12,12 @@
 /* View's start (86b8:0b1d): the member the pickers of Trade start on is the
  * one viewed. */
 void queen_view_start(cok_character *member);
-bool queen_view_items(cok_adventure *game, cok_character *character);
+/* Items (86b8:0f41). done is NULL outside a battle; in one (mode 5), where a readied item of 0x8c
+ * is held after a choice, it is set and the menu left (86b8:16bc). */
+bool queen_view_items(cok_adventure *game, cok_character *character, bool *done);
+/* 177e:1389: whether a readied item (+0x32 set) has type 0x8c (+0x37): Items' tail in a battle
+ * (86b8:16bc) and Stone to Flesh (7825:0524) read it. */
+bool queen_readied_8c(const cok_character *character);
 bool queen_view_trade(cok_adventure *game, cok_character *character);
 bool queen_view_drop(cok_adventure *game, cok_character *character);
 /* 86b8:1965's readied branch (Rdy off, DESTROY ITEMS and ROB): false where the

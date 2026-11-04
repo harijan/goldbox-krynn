@@ -761,6 +761,12 @@ const cok_rules cok_rules_dark_queen = {
              * which stops before the first turn (round.c). */
             .cursor_slot = 0x1e,
         },
+    .fight =
+        {
+            /* Bandaging (dqk 5045:0adb, 51c2:0d63's say at 177e:156e): the only fight word
+             * Dark Queen's combat says so far (DS:5a33). */
+            .words = {.bandaged = "is bandaged"},
+        },
     .effects =
         {
             .count = 0xe6, /* ids 0-0xe5; 0x80, 0x90 and 0x9d are never filled */
@@ -775,6 +781,7 @@ const cok_rules cok_rules_dark_queen = {
             .shared_far = 6,
             .resisted_pending = cok_dark_queen_resisted_pending,
             .resist_unported = "dqk 177e:1900 (Dark Queen's caster level, not ported)",
+            .unaffected = "is Unaffected", /* DS:01b5, 148f:2561 */
             .damage_flags_at = 0xc8,
             .acting_id = 0xd4,
             .ability_routine = COK_ABILITY_DARK_QUEEN, /* 148f:1dfc */

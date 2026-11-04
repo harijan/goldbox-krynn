@@ -118,8 +118,8 @@ static void quick_all(cok_adventure *game, cok_character *c)
 }
 
 /* The turn's command routine by its item (08cf's table at 0925's jump table). done is set
- * where the turn ends; out is set where the keys ran out in the middle of a command (Speed); the
- * stops are cited (part numbers for the ones still to port). */
+ * where the turn ends; out is set where the keys ran out in the middle of a command (Speed, View);
+ * the stops are cited (part numbers for the ones still to port). */
 static bool command(cok_adventure *game, cok_character *c, int item, int code, bool *done,
                     bool *out)
 {
@@ -127,8 +127,14 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
     *out = false;
     if (item < 0) {
         /* A key taken (0b3c's table): Move with a direction, Alt-A and Alt-Q, Alt-M, Alt-X. */
-        if (code >= 0x81 && code <= 0x88)
-            return cok_adventure_not_yet(game, "Move with a direction key", "dqk 5045:1099 (part 23)");
+        if (code >= 0x81 && code <= 0x88) {
+            /* The code a click on an area or an arrow key gives (its log: "code: 0x87"). */
+            char text[8];
+            snprintf(text, sizeof text, "0x%02x", code);
+            cok_adventure_log(game, "code", text);
+            return cok_adventure_not_yet(game, "Move with a direction key",
+                                         "dqk 5045:1099 (part 23)");
+        }
         if (code == 0xc0 || code == 0xd0) {
             quick_all(game, c); /* 0c0f */
             *done = true;
@@ -141,8 +147,18 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
             queen_bar_message(game, game->combat.magic_on ? "magic on" : "magic off");
             return true;
         }
-        if (code == 0xd7)
-            return cok_adventure_not_yet(game, "Alt-X (the gods)", "dqk 52db:3feb (part 22b)");
+        if (code == 0xd7) {
+            /* 5045:0c5d, 52db:3feb: the gods answer only to the Helm's password "Gem" (eclplay's
+             * --helm); else "That doesn't work" (177e:153c, DS:58f0) and the menu again (c8c).
+             * The gods: the turn ends and the arena is centred (5837:12f5(c, 3, 0)). */
+            if (!game->helm) {
+                queen_bar_message(game, "That doesn't work");
+                return true;
+            }
+            if (!cok_combat_gods(game) || !cok_arena_turn(game, c, 3, false)) return false;
+            *done = true;
+            return true;
+        }
         return true; /* 0x12: nothing, the arena again (c8c) */
     }
     switch (item) {
@@ -166,9 +182,13 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
          * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop.
          * The flush is the typed keys only. The original's 2093:0136 also drains them through
          * 2093:0078 (Alt-S and Alt-T toggle the sound, 2023:0247 and 2023:0272; Escape or '`'
-         * with DS:ae59 set sets DS:a890) and reads a pending mouse click (22b7:235f, DS:cb49).
-         * cok_adventure_flush drops the keys and leaves both alone. Not reached by eclplay's keys;
-         * to be done with the menu's mouse part (1bdb:1595). */
+         * with DS:ae59 set sets DS:a890), and then 22b7:235f(7) takes the pending press latch
+         * (DS:cb49, set by the driver's press, which the port's cok_mouse_driver does not keep:
+         * it holds the buttons' level). Nothing is left to drop in the port: Quick's own click
+         * was read by the menu, and eclplay applies a \m only at the game's next read or poll,
+         * so no click waits here. A press typed between Quick's read and this flush would be
+         * swallowed by the original and kept here (open: a human's double click, not reproducible
+         * by the keys). cok_adventure_flush drops the keys and leaves the sound and the latch. */
         cok_combat_auto(c, cok_game_rules(game));
         queen_bottom_bar(game);
         cok_adventure_flush(game);
@@ -182,9 +202,36 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         *done = true;
         return true;
     case ITEM_BANDAGE:
-        return cok_adventure_not_yet(game, "Bandage", "dqk 51c2:0d63 (its say 177e:156e, part 22b)");
-    case ITEM_YELL: return cok_adventure_not_yet(game, "Yell", "dqk 148f:0005 (part 22b)");
-    case ITEM_VIEW: return cok_adventure_not_yet(game, "View", "dqk 86b8:0b0c (part 22b)");
+        /* 0adb: 51c2:0d63(1) (cok_combat_bandage: the dying member bandaged, its say), then 0b29
+         * (End), whether one was bandaged or not. */
+        (void)cok_combat_bandage(game, true);
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
+    case ITEM_YELL:
+        /* 5045:0ae9: 148f:0005 (cok_combat_yell), with the damage type cleared first (148f:0020,
+         * DS:bebd, before the saves: their event 0x0c handlers test it), then 0b29 (End). */
+        game->effects.rolls.damage_type = 0;
+        if (!cok_combat_yell(game, c)) return false;
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
+    case ITEM_VIEW: {
+        /* 5045:0af8: 86b8:0b0c(&done) (queen_view_combat: the sheet, then its mode 5 tail), then
+         * 52db:0edf(c) (cok_combat_weapon_attacks), then 51c2:0c94 (cok_arena_redraw) unless done;
+         * the turn goes on (c8c). The original's 52db:0edf also stores DS:b7f5 = 0, read only by
+         * effect 0xb2's handler (7e76:0dc6, COK_FX_MISSING here): nothing is lost by not storing it.
+         * done (Items ended the turn) leaves the loop with no menu again, as the original's. */
+        bool viewed;
+        if (!queen_view_combat(game, &viewed)) return false;
+        if (game->vm.abort) {
+            *out = true; /* the keys ran out in the sheet: the turn not ended, no tail */
+            return true;
+        }
+        if (!cok_combat_weapon_attacks(game, c)) return false;
+        *done = viewed;
+        return viewed || cok_arena_redraw(game);
+    }
     case ITEM_SPEED:
         /* 166c: the speed menu (queen_speed); the turn goes on (c8c). */
         *out = !queen_speed(game);
@@ -214,9 +261,13 @@ bool queen_commands(cok_adventure *game, cok_character *c)
         cok_adventure_log(game, "menu", text);
         const char *names[ITEM_COUNT];
         for (size_t i = 0; i < count; ++i) names[i] = item_words[ids[i]];
+        /* 0cd7's p and q (5837:0b19, 0aea): the combatant's row and column less the view's corner,
+         * as the bytes the mouse's areas take (only with the mouse on). */
+        int p = cok_combat_y(&game->combat, c->record) - game->combat.view_y;
+        int q = cok_combat_x(&game->combat, c->record) - game->combat.view_x;
         int result;
         for (;;) {
-            result = queen_combat_menu(game, names, count, split);
+            result = queen_combat_menu(game, names, count, split, p, q);
             if (result < 0 || game->vm.abort) break;
             if ((size_t)result < count || taken_code(result)) break;
         }

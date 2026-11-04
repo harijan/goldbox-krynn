@@ -1260,10 +1260,11 @@ def menu_screen_agrees(v, original, path, where):
             f"{count} pixels differ in {box}")
 
 
-def placement(v, work, patched, tag, where, square, r):
+def placement(v, work, patched, tag, where, square, r, entry=None):
     """eclplay's run to the first turn (5045:078b) against the original's state r: the battlefield,
     RandSeed (the original's, after the draws the battle made: the builders' and the initiative's),
-    the records, blocks, turn list, the header and the view."""
+    the records, blocks, turn list, the header and the view. ENTRY: the saved game eclplay loads
+    (saved_entry's; the plain one by default)."""
     original = r["field"]
     cells = bytes.fromhex(original["cells"])
     path = work / f"port-{tag}.field"
@@ -1275,7 +1276,7 @@ def placement(v, work, patched, tag, where, square, r):
     screen = work / f"port-{tag}.bmp" if menu is not None else None
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
                                 records=records, blocks=blocks, turns=turns, screen=screen,
-                                effects=effects)
+                                effects=effects, entry=entry)
     v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
             "eclplay ends at the battle's command menu (out of keys)", port_last)
     if not path.exists():
@@ -1702,14 +1703,16 @@ def selected(box):
     return "%04x:%04x" % (box.ds_word(0xAD69), box.ds_word(0xAD67))
 
 
-def keys_original(work, patched, key, verbose):
+def keys_original(work, patched, key, verbose, tag=None, data=None):
     """The original at the first turn's menu (to_menu), the key typed there (step 4, part 22a: End,
     Guard or Delay) and the next combatant's command menu reached: 5045:08cf, trapped where the
     dispatch's copies start. The state there (`stop`, with DS:ad67 as `selected`) and the trap given
-    back, the menu drawn and waiting (`menu_screen2`), as the placement's menu."""
-    tag = f"keys{key}"
+    back, the menu drawn and waiting (`menu_screen2`), as the placement's menu. DATA, if given, is
+    the saved game the box runs (SAVGAMA.QSV; the plain one by default)."""
+    tag = tag or f"keys{key}"
+    files = L.files(patched) if data is None else {**L.files(patched), "SAVE/SAVGAMA.QSV": data}
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
-                    timeout=900, files=L.files(patched)) as box:
+                    timeout=900, files=files) as box:
         enter(box)
         box.set_seed(SEED)
         menu = to_menu(box)
@@ -1876,7 +1879,7 @@ def command_original(work, patched, flow, verbose):
                                  var12=var12(box))
             box.keys("E")
         else:
-            box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M"}[flow])
+            box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M", "AltX": "\\@X"}[flow])
         wait_trap(box, t, f"5045:{trap:04x}")
         out["stop"] = snapshot(box)
         out["stop_magic"] = box.ds_byte(MAGIC)
@@ -1894,15 +1897,16 @@ def command_original(work, patched, flow, verbose):
     return out
 
 
-def command_port(work, patched, name, typed):
-    """eclplay's run to the stop of NAME (the first turn's menu, then TYPED): its variables, its
-    last line, its text, and the files its state is read from (base: field, records, blocks,
-    turns, bmp)."""
+def command_port(work, patched, name, typed, entry=None, effects=False):
+    """eclplay's run to the stop of NAME (the first turn's menu, then TYPED; ENTRY the saved game as
+    placement's): its variables, its last line, its text, and the files its state is read from
+    (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
     base = work / f"cmd-{name}"
     variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
-                           screen=base.with_suffix(".bmp"))
+                           screen=base.with_suffix(".bmp"), entry=entry,
+                           effects=base.with_suffix(".effects") if effects else None)
     text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
     return dict(base=base, vars=variables, last=last, text=text)
 
@@ -2232,6 +2236,7 @@ def won_original(work, patched, verbose):
     with cokbox.Box(workdir=work / "box-won", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
         enter(box)
+        freeze_frame(box)  # the treasure menu's picture is compared exactly (as dqk_treasure's)
         v = box.far(box.ds * 16 + dqk_ecl.DS_VARS)
         box.set_seed(SEED)
         box.keys("\\r")
@@ -2539,13 +2544,341 @@ def walk(v, work, opts):
             f"{walk_hex(next_seed)}")
 
 
+def alt_x_check(v, work, patched, opts):
+    """Alt-X without the Helm (dqk 5045:0c5d, 52db:3feb: the password "Gem" is not given): "That
+    doesn't work" on the bar, one draw, and the menu built again (the turn not ended)."""
+    o = command_original(work, patched, "AltX", opts.verbose)
+    p = command_port(work, patched, "AltX", "\\@X")
+    m = o["menu"]
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys) after Alt-X", p["last"])
+    v.check("message: That doesn't work" in p["text"], "eclplay says \"That doesn't work\" (the "
+            "bar message) after Alt-X", [line for line in p["text"] if line.startswith("message:")])
+    menus = sum(1 for line in p["text"] if line.startswith("menu: Aim"))
+    v.check(menus == 2, "eclplay builds the command menu again after the refusal (its built text "
+            "logged twice)", f"{menus} times")
+    draws = command_state(v, "AltX", o["stop"], p, m["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after Alt-X is one draw (the bar "
+            "message's wait, 1df9:052a)", f"{draws} draws")
+    command_screen(v, "with the command menu again after Alt-X", o["menu_again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+BANDAGE_STATUS = 0x64                   # the member's status word (+0x64), 4 once bandaged
+
+
+def bandage_check(v, work, patched, opts):
+    """Bandage (dqk 5045:0adb: 51c2:0d63(1), then End): saved game A with member 0 dying (status 5,
+    dqk_modify.modified({}, {0: {0x64: 5}})), so the first menu (TIMASALIN's) has Bandage. B is
+    typed there; the original's next combatant's menu (08cf, trapped) and eclplay's run to the same
+    menu, its first menu's text and placement, the state there (member 0 at status 4, one draw
+    past the menu for the say's wait, the records, blocks and turns), the say logged, the screen."""
+    import dqk_modify  # noqa: E402
+    qsv = dqk_modify.modified({}, {0: {BANDAGE_STATUS: 5}})
+    o = keys_original(work, patched, "B", opts.verbose, tag="bandage", data=qsv)
+    spins_at_placement(v, o["menu"])
+    placement(v, work, patched, "bandage", "the first turn's menu with member 0 dying", None,
+              o["menu"], entry=saved_entry(work, qsv))
+    text = (work / "port-bandage.txt").read_text().splitlines()
+    v.check("menu: Aim Use Guard Quick@Delay Bandage View Speed End" in text,
+            "the first menu shows Bandage (member 0 dying, not hostile)",
+            [line for line in text if line.startswith("menu:") and "Aim" in line][:1])
+    s = o["stop"]
+    status = bytes.fromhex(s["records"][0])[BANDAGE_STATUS:BANDAGE_STATUS + 2]
+    v.check(status == (4).to_bytes(2, "little"), "the original's member 0 is bandaged (status word "
+            "4) after B", status.hex())
+    p = command_port(work, patched, "bandage", "B", entry=saved_entry(work, qsv))
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the next combatant's menu (out of keys) after B", p["last"])
+    v.check("print: is bandaged" in p["text"],
+            "eclplay says \"is bandaged\" (the say, logged) after B",
+            [line for line in p["text"] if line.startswith("print:")])
+    draws = command_state(v, "bandage", s, p, o["menu"]["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after B is one draw (the say's "
+            "wait, 1df9:052a)", f"{draws} draws")
+    command_screen(v, "with the command menu at the next combatant after B", o["menu_screen2"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+YELL_MENU = "Aim Use Guard Quick@Delay Yell View Speed End"
+YELL_SEED = 0x64E44872                  # RandSeed at BALTHIR NOMOON's menu: two draws past WALKER's
+YELL_DRAWS = 2                          # the two SHARKMEN's saves (intelligence 10, status 0, side 1)
+
+
+def yell_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu), E typed there (TIMASALIN's) and at the next
+    menu (ROARK's), each as turns' E: 5045:08cf trapped, the key, the trap held, given back, settled.
+    Then WALKER KEYS' menu (the trap held there: its record DS:ad67, RandSeed, the built text
+    searched once given back), Y typed there (a kender's Yell, 5045:0ae9) and the next menu trapped
+    (BALTHIR NOMOON's, 08cf): the state there (DS:b45b, the yelled record, as `yelled`), and its
+    screen once given back."""
+    with cokbox.Box(workdir=work / "box-yell", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / "yell-menu.png"))
+        out = dict(menu=menu)
+        for last in (False, True):
+            t = arm(box, menu["handle"], MENU)
+            box.keys("E")
+            wait_trap(box, t, "5045:08cf")
+            if last:
+                out["walker"] = dict(selected=selected(box), seed=box.ds_dword(L.DS_SEED))
+            L.untrap(box, t)
+            box.settled(quiet=1.0, tolerance=0)
+        # The built text is not at DS:af15 (a far pointer to an empty string there): search the
+        # original's first megabyte for it (the Yell line only exists once WALKER's menu is built).
+        out["walker"]["text_at"] = box.read(0, 0x100000).find(YELL_MENU.encode("latin-1"))
+        t = arm(box, menu["handle"], MENU)
+        box.keys("Y")
+        wait_trap(box, t, "5045:08cf")
+        out["stop"] = snapshot(box)
+        out["stop"].update(tail_state(box), selected=selected(box),
+                           yelled="%04x:%04x" % (box.ds_word(0xB45D), box.ds_word(0xB45B)))
+        out["stop_screen"] = box.screenshot(path=str(work / "yell-stop.png"))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        out["menu_screen2"] = box.screenshot(path=str(work / "yell-menu2.png"))
+        return out
+
+
+def yell_check(v, work, patched, opts):
+    """Yell (step 4, part 22b, dqk 5045:0ae9, 148f:0005): a kender's Y at WALKER KEYS' menu, after E at
+    the two before it (TIMASALIN's and ROARK's). Both SHARKMEN's saves are made (two rolls past
+    WALKER's menu, no 0x8c: the chains agree and none holds 0x8c), DS:b45b is WALKER's record, and
+    the next menu (BALTHIR NOMOON's) is the stop: the records, blocks, turns, variables and the
+    screen agree with eclplay's run of EEY."""
+    o = yell_original(work, patched, opts.verbose)
+    spins_at_placement(v, o["menu"])
+    v.check(o["walker"]["seed"] == o["menu"]["seed"], "the two Ends before Yell (TIMASALIN's and ROARK's) "
+            "draw nothing: RandSeed at WALKER KEYS' menu is the first menu's",
+            f"{o['walker']['seed']:#x} against {o['menu']['seed']:#x}")
+    s = o["stop"]
+    base = work / "cmd-yell"
+    p = command_port(work, patched, "yell", "EEY", effects=True)
+    text = (work / "port-cmd-yell.txt").read_text().splitlines()
+    menus = [line for line in text if line.startswith("menu:")]
+    aims = [line for line in menus if line.startswith("menu: Aim")]
+    v.check(len(aims) >= 3 and aims[2] == f"menu: {YELL_MENU}",
+            "eclplay's third command menu (WALKER KEYS') has Yell: \"Aim Use Guard Quick@Delay Yell "
+            "View Speed End\"", aims[:3])
+    v.check(o["walker"]["text_at"] >= 0, "the original's built menu at WALKER KEYS' is \"Aim Use "
+            "Guard Quick@Delay Yell View Speed End\" in its memory (a linear address)",
+            f"found at {o['walker']['text_at']:#x}" if o["walker"]["text_at"] >= 0 else "not found")
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at BALTHIR NOMOON's command menu (out of keys) after EEY", p["last"])
+    draws = command_state(v, "yell", s, p, o["menu"]["seed"])
+    v.check(draws == YELL_DRAWS and s["seed"] == YELL_SEED,
+            f"the original's RandSeed past the menu after Y is {YELL_DRAWS} draws (the two saves "
+            f"of SHARKMEN, both made), {YELL_SEED:#x}", f"{draws} draws, {s['seed']:#x}")
+    chains_agree(v, s["chains"], base.with_suffix(".effects"), " (yell)")
+    with_8c = [i for i, nodes in enumerate(s["chains"]) if any(n[0] == 0x8C for n in nodes)]
+    v.check(not with_8c, "no record holds 0x8c (yelled at) after Y: no save failed", with_8c)
+    v.check(s["yelled"] == o["walker"]["selected"], "DS:b45b (the yelled record) is WALKER KEYS' "
+            "record (DS:ad67 at its menu)", f"{s['yelled']} against {o['walker']['selected']}")
+    v.check(s["variables"] == p["vars"], "the variables agree at BALTHIR NOMOON's menu (the 1 KB)")
+    command_screen(v, "after the menu is given back after Y", o["menu_screen2"],
+                   base.with_suffix(".bmp"), MENU_POINTER)
+
+
+VIEW_SHEET = "menu: Items Drop Exit"    # the sheet's bar for TIMASALIN (items, steel; no Trade)
+SHEET_POINTER = (2, 2, 14, 15, "the mouse pointer on the sheet (the shield at the corner)")
+
+
+def view_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu), V typed there (TIMASALIN's View): the sheet
+    once settled, its bar's keys run out there. Then the command menu's build (5045:0cd7) trapped,
+    Escape typed on the sheet: the sheet's tail (5837:00e4, 177e:1ad1 with DS:ae27), the arena and
+    the panel again, and the menu built again. The state there, DS:ae27, and the screen once the
+    trap is given back."""
+    with cokbox.Box(workdir=work / "box-view", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / "view-menu.png"))
+        menu_redraw = box.ds_byte(0xAE27)
+        box.keys("V")
+        box.settled(quiet=1.0, tolerance=0)
+        out = dict(menu=menu, menu_redraw=menu_redraw,
+                   sheet_screen=box.screenshot(path=str(work / "view-sheet.png")))
+        t = arm(box, menu["handle"], (0x5045, MENU_TRAP))
+        box.keys("\\e")
+        wait_trap(box, t, f"5045:{MENU_TRAP:04x}")
+        out["stop"] = snapshot(box)
+        out["stop"].update(tail_state(box), selected=selected(box))
+        out["stop_redraw"] = box.ds_byte(0xAE27)
+        out["stop_screen"] = box.screenshot(path=str(work / "view-stop.png"))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        out["menu_screen2"] = box.screenshot(path=str(work / "view-menu2.png"))
+    return out
+
+
+def view_check(v, work, patched, opts):
+    """View in the battle (step 4, part 22b's leftovers; dqk 5045:0af8, 86b8:0b0c, the mode 5 tail
+    86b8:0d8b-0d97): V at TIMASALIN's menu, the sheet's bar "Items Drop Exit" (no Trade in combat),
+    its screen and eclplay's out of keys there; then Escape: no draw past the menu (the arena and
+    the panel again draw nothing), DS:ae27 1 at the menu before V and after it (177e:1ad1), the
+    command menu built again with its screen, and the records, blocks and turns agree with
+    eclplay's run of "V" then Escape."""
+    o = view_original(work, patched, opts.verbose)
+    p = command_port(work, patched, "view", "V")
+    text = (work / "port-cmd-view.txt").read_text().splitlines()
+    v.check(VIEW_SHEET in text, "eclplay's sheet's bar after V is \"Items Drop Exit\"",
+            [line for line in text if line.startswith("menu:")][-1:])
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay runs out of keys at the sheet's bar after V", p["last"])
+    command_screen(v, "with the sheet after V", o["sheet_screen"], p["base"].with_suffix(".bmp"),
+                   SHEET_POINTER)
+    q = command_port(work, patched, "view-esc", "V\\e")
+    text = (work / "port-cmd-view-esc.txt").read_text().splitlines()
+    menus = sum(1 for line in text if line.startswith("menu: Aim"))
+    v.check(menus == 2, "eclplay builds the command menu again after the sheet's Escape (its built "
+            "text logged twice)", f"{menus} times")
+    v.check(BATTLE_STOP.fullmatch(q["last"] or "") is not None,
+            "eclplay ends at the command menu (out of keys) after V and Escape", q["last"])
+    draws = command_state(v, "view", o["stop"], q, o["menu"]["seed"])
+    v.check(draws == 0, "the original's RandSeed past the menu after V and Escape is 0 draws (the "
+            "arena and the panel draw nothing)", f"{draws} draws")
+    # DS:ae27 is already 1 at the menu, so the 1 after the Escape does not show 177e:1ad1's store
+    # (test_view_combat does, from 0 to 1): both sides are recorded here.
+    v.check(o["menu_redraw"] == 1 and o["stop_redraw"] == 1, "the original's DS:ae27 (game->redraw) "
+            "is 1 at the command menu before V and after the sheet's Escape (177e:1ad1 leaves it 1)",
+            (o["menu_redraw"], o["stop_redraw"]))
+    command_screen(v, "with the command menu again after V and Escape", o["menu_screen2"],
+                   q["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+# The mouse areas of the command menu (step 4, part 22b; dqk 1bdb:1595, scope section 5). The box has
+# the mouse on (sdl.mouse_emulation), and so has eclplay with --mouse.
+# TIMASALIN's cell is at 3, 4 on the view (P, Q): one spot in each of the eight areas, then the cell and
+# the gap above it (no area: the arrow). The original's whole screen with the pointer there, against
+# eclplay's (the game draws its cursor, so nothing is masked: the cursor's shape tells the area).
+MOUSE_CONF = {"sdl.mouse_emulation": "always"}
+MOUSE_SPOTS = [((50, 90), "area 0 (0x86)"), ((110, 30), "area 1 (0x88)"),
+               ((150, 90), "area 2 (0x82)"), ((110, 130), "area 3 (0x84)"),
+               ((50, 40), "area 4 (0x87)"), ((150, 40), "area 5 (0x81)"),
+               ((150, 150), "area 6 (0x83)"), ((50, 150), "area 7 (0x85)"),
+               ((110, 90), "the cell (no area)"), ((110, 78), "the gap above the cell (no area)")]
+MOUSE_CLICK = (50, 40)                   # area 4 (0x87): Move, which 5045:1099 begins
+MOVE = (0x5045, 0x1099)
+MOVE_NOT_YET = re.compile(r".*Move with a direction key \(dqk 5045:1099.*")
+FRAME_ADVANCE = (0x1BDB, 0x1168)          # freeze_frame, as dqk_treasure's (which imports this module)
+FRAME_ADVANCE_BYTES = bytes.fromhex("fe060eb2")  # incb DS:b20e
+
+
+class MouseBox(cokbox.Box):
+    """A box whose pointer moves to pixel x, y of the 320x200 screen (no button), as dqk_view_mouse's."""
+
+    def point(self, x, y):
+        self._xdo("windowfocus", "--sync", self.window)
+        self._xdo("mousemove", "--window", self.window, 2 * x, 2 * y)
+        self.settle(0.4)
+
+
+def freeze_frame(box):
+    """The small picture's frame advance frozen in the box only (1bdb:1168's incb DS:b20e: four nops),
+    so the menu's screens are exact (dqk_treasure's freeze_frame). Call after the block's entry."""
+    at = L.code(box, *FRAME_ADVANCE)
+    if box.read(at, 4) != FRAME_ADVANCE_BYTES:
+        raise cokbox.BoxError(f"1bdb:1168 is not incb DS:b20e: {box.read(at, 4).hex()}")
+    box.write(at, b"\x90" * 4)
+
+
+def mouse_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu) with the mouse on: the screen with the pointer at
+    each of MOUSE_SPOTS (`spots`, in order), Space at the menu (`space`: 1595 entered again), then the
+    click on area 4 with Move's routine (5045:1099) trapped where the turn's copies start (arm):
+    `reached`, whether its spin holds. The click reaches Move only if the menu's areas are there."""
+    out = dict(spots=[])
+    with MouseBox(workdir=work / "box-mouse", game="dark-queen", verbose=verbose, timeout=900,
+                  files=L.files(patched), extra_conf=MOUSE_CONF) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        for (x, y), _ in MOUSE_SPOTS:
+            box.point(x, y)
+            out["spots"].append(box.settled(tolerance=64))
+        # Space at the menu: 1595 is entered again (the menu takes Space and goes on). The menu's
+        # controls are kept, so the click below is on the areas built at to_menu.
+        handle = L.trap(box, 0x1BDB, 0x1595, until=lambda: True, seconds=60)
+        box.keys(" ")
+        box.settle(3.0)
+        out["space"] = L.held(box, handle, seconds=1.5)[0]
+        L.untrap(box, handle)
+        box.settle(1.0)
+        box.point(*MOUSE_CLICK)
+        t = arm(box, menu["handle"], MOVE)
+        box.click(*MOUSE_CLICK)
+        try:
+            wait_trap(box, t, "5045:1099")
+            out["reached"] = True
+        except cokbox.BoxError:
+            out["reached"] = False
+    return out
+
+
+def mouse_port(work, patched, name, typed):
+    """eclplay's run with --mouse of the block from saved game A (dqk_fight.port's), TYPED after the
+    entry's keys: its last shot (the menu waiting, the pointer where the keys left it), its last output
+    line and its output."""
+    shots = work / f"mouse-{name}"
+    if shots.exists():
+        shutil.rmtree(shots)
+    extra = ["--load", str(saved_entry(work)), "--play", "--mouse", "--shots", str(shots)]
+    _, last, _ = dqk_ecl.port(work, f"mouse-{name}", patched, typed=typed, extra=extra, block=None)
+    shot = cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() else None
+    return shot, last, (work / f"port-mouse-{name}.txt").read_text()
+
+
+def mouse_check(v, work, patched, opts):
+    """The mouse areas (dqk_fight's `mouse` flow): the mouse on at the menu in both; each spot's screen
+    agrees with eclplay's run to the spot ("\\r\\r" then the pointer's move and an Escape, which
+    leaves the menu waiting, its last shot taken after the move); the click on area 4 reaches Move
+    (5045:1099) in the original, and eclplay stops there: "not yet ported: ... Move with a direction key"
+    after the code 0x87 is logged."""
+    o = mouse_original(work, patched, opts.verbose)
+    v.check(o["space"] is True, "Space at the command menu enters 1595 again (the menu takes it)",
+            f"{o['space']}")
+    for i, ((x, y), label) in enumerate(MOUSE_SPOTS):
+        shot, _, _ = mouse_port(work, patched, f"spot-{i}", f"\\r\\r\\m{x},{y},0.\\e")
+        if shot is None:
+            v.check(False, f"eclplay writes its screen with the pointer at {x},{y} ({label})")
+            continue
+        v.screen(f"the command menu with the pointer at {x},{y} ({label}), the whole screen",
+                 o["spots"][i], shot, work=work)
+    shot, last, text = mouse_port(work, patched, "click", f"\\r\\r\\m{MOUSE_CLICK[0]},"
+                                  f"{MOUSE_CLICK[1]},1.")
+    v.check(o["reached"], "the original reaches 5045:1099 (Move) after the click on area 4 (the spin "
+            "holds)", f"{o['reached']}")
+    v.check(MOVE_NOT_YET.match(last or "") is not None, "eclplay stops at Move, not yet ported, after "
+            "the click on area 4", last)
+    v.check("code: 0x87" in text.splitlines(), "eclplay logs the code 0x87 of the click on area 4",
+            [line for line in text.splitlines() if line.startswith("code:")])
+
+
+def mouse(v, work, opts):
+    """The command menu's mouse areas (step 4, part 22b): the pointer over each area of TIMASALIN's menu,
+    and a click on one (mouse_check)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    mouse_check(v, work, patched, opts)
+
+
 def commands(v, work, patched, opts):
-    """The command menu's four commands (step 4, part 22b) from the first turn's menu: Quick, Alt-Q,
-    Alt-M and Speed (S, F, E), each run against eclplay's stop after its keys."""
+    """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
+    E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
+    eclplay's stop after its keys; Yell and View (the same leftovers) last."""
     quick_check(v, work, patched, opts)
     alt_q_check(v, work, patched, opts)
     alt_m_check(v, work, patched, opts)
     speed_check(v, work, patched, opts)
+    alt_x_check(v, work, patched, opts)
+    bandage_check(v, work, patched, opts)
+    yell_check(v, work, patched, opts)
+    view_check(v, work, patched, opts)
 
 
 def main():
@@ -2553,9 +2886,9 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,turns,round,won,timer,walk",
+                                "keys,turns,round,won,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, turns, round, won, timer, walk")
+                             "slots, icons, dispatch, keys, turns, round, won, timer, walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -2596,6 +2929,8 @@ def main():
         won(v, work, opts)
     if "walk" in flows:
         walk(v, work, opts)
+    if "mouse" in flows:
+        mouse(v, work, opts)
     return v.finish()
 
 

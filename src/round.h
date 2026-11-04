@@ -196,7 +196,9 @@ bool cok_combat_leave(cok_adventure *game, cok_character *c, uint8_t status, con
 
 /* 432f:41e2, the Helm cheat, for the password given on the command line:
  * "The Gods intervene!", every record against the party (+0x18a 1) is
- * dead, cannot act and leaves the map, and every record's turn ends. */
+ * dead, cannot act and leaves the map, and every record's turn ends. Dark
+ * Queen's (dqk 52db:3feb) reads hostile and status as words and says the
+ * notice through its drawing hook. */
 bool cok_combat_gods(cok_adventure *game);
 
 /* 60f4:2375, after each turn: each of the dead that explode says

@@ -2100,7 +2100,7 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit);
 static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin);
 static void party_list(cok_adventure *game);
 static void status_line(cok_adventure *game);
-static bool view_character(cok_adventure *game);
+static bool view_character(cok_adventure *game, bool *done);
 static bool save_game(cok_adventure *game);
 static void say(cok_adventure *game, int x, int y, const char *s, unsigned fg);
 static cok_ecl_status encamp(cok_adventure *game);
@@ -2131,6 +2131,7 @@ static bool screen_as_it_was(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     queen *q = own(game);
+    game->redraw = true; /* 177e:1ad1's first store, DS:ae27 (no reader of it here) */
     switch (vm->mode) {
     case 0:
         full_window(game);
@@ -2231,13 +2232,19 @@ static void member_key(cok_adventure *game, int key)
 /* The selected member's name line and the text under it (177e:156e, the camp's shape:
  * 177e:1665's window cleared from row 17, the name on 18, the text on 19 in colour 7).
  * The Dark Queen camp is never resting, so the window starts at row 17. A NULL member
- * gives the text alone (its name line is skipped). */
+ * gives the text alone (its name line is skipped). The text's window is cleared and its cursor
+ * homed (1a62:0311's bp+0x12 is 1 at 177e:1631). */
 static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
 {
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     size_t i = cok_party_index(&game->party, c);
     if (i < game->party.count) queen_name_line(game, game->party.members[i], 1, 0x12, false);
-    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false);
+    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, true);
+}
+
+void cok_dark_queen_member_say_for_test(cok_adventure *game, const uint8_t *c, const char *text)
+{
+    member_say(game, c, text);
 }
 
 /* Set the speed: the variable 0x12 the Speed menu reads and the text's delay reads
@@ -2515,7 +2522,7 @@ static bool encamp_menu(cok_adventure *game)
         if (k == ENCAMP_EXIT) break;
         switch (k) {
         case ENCAMP_VIEW:
-            if (!view_character(game)) return false;
+            if (!view_character(game, NULL)) return false;
             encamp_screen(game); /* 86b8:0d97: the screen as it was (177e:1ad1), mode 2 */
             break;
         case ENCAMP_LOAD:
@@ -3384,10 +3391,12 @@ void queen_party_list(cok_adventure *game, const uint8_t *selected)
  * may not, Deposit with coins in the vault (mode 10), Drop with coins
  * elsewhere, Lay and Cure for a paladin who may (86b8:314e, 31af: +0x5a 3,
  * not in combat, status 0, Lay without effect 0x8c, Cure with +0x88 left;
- * a former paladin's, 177e:21bd, not ported), Exit always); Exit or
- * Escape leaves it; the others are not ported yet (the run stops).
- * False where the run stopped. */
-static bool view_character(cok_adventure *game)
+ * a former paladin's, 177e:21bd, not ported outside a battle (in one 314e and 31af give 0
+ * whatever 21bd says)), Exit always); Exit or Escape leaves it; the others are not ported yet
+ * (the run stops).
+ * done (NULL outside a battle) is set where Items ends the turn (queen_view_items), and the
+ * sheet is then not drawn again. False where the run stopped. */
+static bool view_character(cok_adventure *game, bool *done)
 {
     cok_ecl *vm = &game->vm;
     const uint8_t *c = vm->character;
@@ -3406,7 +3415,8 @@ static bool view_character(cok_adventure *game)
             if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
         bool items = member->item_count > 0;
         bool paladin = rec16(c, 0x5a) == 3;
-        if (!paladin && c[0xaf] > 0) {
+        /* In a battle (mode 5) 21bd does not matter: 314e and 31af give 0 there either way. */
+        if (!paladin && c[0xaf] > 0 && vm->mode != 5) {
             cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
             return false;
         }
@@ -3441,7 +3451,8 @@ static bool view_character(cok_adventure *game)
         log_choice(game, k);
         if (k == 7) return true;
         if (k == 0) {
-            if (!queen_view_items(game, member)) return false;
+            if (!queen_view_items(game, member, done)) return false;
+            if (done != NULL && *done) return true; /* 0b0c's d66 and d79: no sheet again */
             if (!queen_sheet(game, member)) return false;
             continue;
         }
@@ -3459,7 +3470,7 @@ static bool view_character(cok_adventure *game)
             queen_sheet_coins(game, member);
             continue;
         }
-        static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
+        static const char *const routines[] = {"dqk 86b8:0f41", "dqk 849a:2080",
                                                "dqk 86b8:286a", "dqk 86b8:2c32",
                                                "dqk 86b8:2c32", "dqk 86b8:3200",
                                                "dqk 86b8:3319"};
@@ -3468,6 +3479,22 @@ static bool view_character(cok_adventure *game)
         cok_adventure_not_yet(game, what, routines[k]);
         return false;
     }
+}
+
+/* View in a battle (dqk 5045:0af8's 86b8:0b0c(&done), then 86b8:0d8b-0d97). The sheet and its menu
+ * are view_character's: Items, Drop and Exit in combat (no Trade), the Use of Items a stop. done is
+ * set by Items where a readied item of 0x8c is held (86b8:16bc: the turn is over, no sheet, no
+ * arena again); Use is the other writer in a battle, a stop here (86b8:2175). The mode 5 tail
+ * is 86b8:0d92's 5837:00e4 (19a4:0630, DS:c5d4: the combat icons' page and palette made current
+ * again), not ported: combat_screen says why; then 177e:1ad1
+ * (screen_as_it_was), which draws nothing in mode 5. False where the run stopped; true, with
+ * vm.abort set, where the keys ran out in the sheet (the turn is not ended and the tail is not
+ * run). */
+bool queen_view_combat(cok_adventure *game, bool *done)
+{
+    *done = false;
+    if (!view_character(game, done)) return game->vm.abort && game->vm.status == COK_ECL_OK;
+    return screen_as_it_was(game);
 }
 
 /* The save path (604b:0073 and 000e with DS:ace0 0, DQK.CFG's: the
@@ -3774,16 +3801,22 @@ static bool in_party(cok_adventure *game, const char *name)
     return false;
 }
 
+/* The speed's wait (1a62:0960: DS:1cd8's time for variable 0x12): pass for it. */
+static void speed_pass(cok_adventure *game)
+{
+    static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
+    unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
+    pass(game, ms[speed < 10 ? speed : 9]);
+}
+
 /* A message on the bar for the speed's time (1a62:0960: DS:1cd8's,
  * variable 0x12's): boxed from cell x + 1 in fg on bg, the bar again. */
 static void message_at(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
 {
-    static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
     bottom_bar(game);
     cok_adventure_log(game, "message", s);
     prompt_box(game, x, s, fg, bg);
-    unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
-    pass(game, ms[speed < 10 ? speed : 9]);
+    speed_pass(game);
     bottom_bar(game);
 }
 
@@ -3797,6 +3830,41 @@ static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
 static void bar_message(cok_adventure *game, const char *s)
 {
     bar_message_colour(game, s, 0x0f);
+}
+
+/* A text said in the battle by c in the window at row (177e:156e in mode 5, the say's branch
+ * for the battle; the camp's is member_say's): the window cleared from row, c's name on it
+ * (177e:1697, light or dark by its state), the text under it in grey from row + 1 (1a62:0311,
+ * clear on: its bp+0x12 is 1, so the cursor is homed at x 0x17), then with wait the speed's time (1a62:0960) and the window cleared again from
+ * row 10 (177e:1665). The text is logged as the say's are (the name, then the text). c NULL:
+ * no name. */
+static bool arena_say(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
+                      bool wait)
+{
+    clear_cells(game, 0x17, row, 0x26, 0x15);
+    if (c != NULL) {
+        char name[17];
+        cok_field_name(cok_game_rules(game)->character, c->record, name);
+        queen_name_line(game, c, 0x17, row, false);
+        cok_adventure_log(game, "print", name);
+    }
+    cok_adventure_log(game, "print", text);
+    if (!print_window(game, text, 0x17, row + 1, 0x26, 0x15, 7, true)) return false;
+    if (!wait) return true;
+    speed_pass(game);
+    clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
+    return true;
+}
+
+/* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5: kind 1 is an effect's, the
+ * four-frame missile, its sound and passes, the draws of each frame), not ported: its own part. A
+ * kind 0 flash (a burst) is not checked against the original: it stops under the same citation. */
+static bool arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const char *text)
+{
+    (void)c;
+    (void)text;
+    return cok_adventure_not_yet(game, kind != 0 ? "an effect's flash" : "a flash",
+                                 "dqk 51c2:0731 (2d99:0f09)");
 }
 
 /* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
@@ -4388,7 +4456,7 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
             break;
         }
         case CAMP_VIEW:
-            if (!view_character(game)) return vm->status;
+            if (!view_character(game, NULL)) return vm->status;
             break;
         case CAMP_ADD:
             if (!add_character(game)) return vm->status;
@@ -4732,11 +4800,13 @@ static const int view_codes[] = {0x86, 0x88, 0x82, 0x84};
  * draw the view and status again; Up checks the step (6fea:000a), the
  * status drawn, and ends it (giving 0xff); Escape nothing; another
  * filtered key picks a member (5e22:067c, not ported yet). With the mouse
- * on (DS:a6b5), a click on the view's areas gives the same codes as those
- * keys (view_areas). Encamp ends it (4); Search turns variable 0x19's bit
- * 0 and draws the status; Look sets its bit 1, draws the status, passes
- * ten minutes and ends it (6); Area, Cast, View and Inv are not ported yet
- * (the run stops). Then the text window cleared where text was shown
+ * on, a click on the view's areas gives the same codes as those keys
+ * (view_areas; 1aef adds them to a fresh list only: 1b3b tests DS:a6b5,
+ * the rebuilt flag of 1bdb:0d26, and the port's gate is mouse.on). Encamp
+ * ends it (4); Search turns variable 0x19's bit 0 and draws the status;
+ * Look sets its bit 1, draws the status, passes ten minutes and ends it
+ * (6); Area, Cast, View and Inv are not ported yet (the run stops). Then
+ * the text window cleared where text was shown
  * (DS:b2fb). Returns the command, -1 where the run stopped. */
 static int commands(cok_adventure *game)
 {
@@ -4745,7 +4815,7 @@ static int commands(cok_adventure *game)
     mouse_start(game);
     static const char *const items[] = {"Area", "Cast", "View", "Encamp", "Search", "Look",
                                         "Inv"};
-    /* 1aef adds the view's areas only with the mouse on (1b3b). */
+    /* 1aef adds the view's areas to a fresh list only (1b3b); the port adds them with the mouse on. */
     size_t area_count = game->mouse.on ? sizeof view_areas / sizeof view_areas[0] : 0;
     int result = -1;
     for (bool done = false; !done;) {
@@ -4778,7 +4848,7 @@ static int commands(cok_adventure *game)
         case 2: cok_adventure_not_yet(game, "Cast", "dqk 6070:0688"); return -1;
         case 3:
             /* 2d99:0fef, then the screen as it was (177e:1ad1). */
-            if (!view_character(game)) return -1;
+            if (!view_character(game, NULL)) return -1;
             adventure_screen(game);
             party_list(game);
             status_line(game);
@@ -5170,9 +5240,39 @@ int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *co
                           -1, false);
 }
 
-int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split)
+/* 1bdb:1595's mouse areas (15de-1828: 2aa6:1294's records in 2-px units, read as pixels here), in
+ * the control order (the first added wins): the cursor and the code of each (1206's table at 126e:
+ * hit - buttons - 1). P and Q are 24 px times the combatant's row and column on the view (0cd7's
+ * bytes); test_dark_queen.c has the areas' edges for P, Q = 3, 4 and 0, 0. 1595 adds them, and the
+ * type-7 control at 1810 (message 0x20, Space), only to a fresh control list. DS:a6b5 there is the
+ * rebuilt flag 1bdb:0d26 leaves (its tail, e27-e2d, copies DS:1d13, which 0d1d or the bar's new text
+ * sets): a list not rebuilt keeps its areas and its Space control. So Space is taken either way, and
+ * the bar's filter (space = true) stands for the control. The port rebuilds the list on every call,
+ * so it adds the areas every time. The mouse.on gate below is the port's, not the original's: with no
+ * mouse no click arrives, so the areas cannot be seen without it. */
+static const uint8_t combat_cursors[8] = {9, 11, 5, 7, 10, 4, 6, 8};
+static const int combat_codes[8] = {0x86, 0x88, 0x82, 0x84, 0x87, 0x81, 0x83, 0x85};
+
+int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
+                      int p, int q)
 {
-    return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split, true);
+    if (!game->mouse.on)
+        return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split,
+                              true);
+    int P = 24 * (uint8_t)p, Q = 24 * (uint8_t)q;
+    const rect areas[8] = {
+        {P + 8, 0, P + 32, Q + 8},
+        {0, Q + 8, P + 4, Q + 32},
+        {P + 8, Q + 28, P + 32, 184},
+        {P + 36, Q + 4, 188, Q + 28},
+        {0, 0, P + 8, Q + 8},
+        {0, Q + 32, P + 8, 184},
+        {P + 32, Q + 32, 184, 184},
+        {P + 32, 0, 184, Q + 8},
+    };
+    int result = bar_menu_areas(game, "", items, count, true, false, 0, 0, areas, combat_cursors,
+                                8, split, true);
+    return result >= AREA_MENU ? combat_codes[result - AREA_MENU] : result;
 }
 
 void queen_combat_menu_close(cok_adventure *game)
@@ -5373,6 +5473,9 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_icon = arena_icon,
     .arena_load_icon = arena_load_icon,
     .arena_panel = combat_panel,
+    .arena_say = arena_say,
+    .arena_flash = arena_flash,
+    .notice = queen_bar_message,
     .encounter = encounter,
     .round_clock = cok_dark_queen_round_clock,
     .teammate_dying = cok_dark_queen_teammate_dying,
@@ -5453,8 +5556,8 @@ static bool heal(cok_adventure *game)
 
 /* Stone to Flesh (dqk 7825:0524): a member not stoned (status not 7) is asked "cast cure anyway? "
  * after "is not stoned." (0001: 177e:156e, 1bdb:0424), and nothing changes whatever the answer.
- * A stoned member with a readied item of type 0x8c (+0x37, 0x32 set; 177e:1389) is told "spell
- * dosn't work!" (no name line) and stays stoned. Otherwise its status is 0, it is active and has
+ * A stoned member with a readied item of type 0x8c (+0x37, 0x32 set; 177e:1389, queen_readied_8c)
+ * is told "spell dosn't work!" (no name line) and stays stoned. Otherwise its status is 0, it is active and has
  * 1 hit point. No money is taken. False where the keys ran out. */
 static bool stone_to_flesh(cok_adventure *game, cok_character *who)
 {
@@ -5466,12 +5569,9 @@ static bool stone_to_flesh(cok_adventure *game, cok_character *who)
         clear_cells(game, 1, 0x12, 0x26, 0x16); /* 0001's 177e:1665 (mode 1): rows 18-22 */
         return answer >= 0;
     }
-    for (size_t i = 0; i < who->item_count; ++i) {
-        const uint8_t *item = who->items[i];
-        if (item[0x37] == 0x8c && item[0x32] != 0) {
-            member_say(game, NULL, "spell dosn't work!");
-            return true;
-        }
+    if (queen_readied_8c(who)) {
+        member_say(game, NULL, "spell dosn't work!");
+        return true;
     }
     cok_field_set8(L, c, COK_FIELD_STATUS, 0);
     c[0x65] = 0; /* 7825:0588's movw: the status is a word, +0x64 and +0x65 */
@@ -6112,7 +6212,7 @@ static bool treasure_menu(cok_adventure *game)
         switch (code) {
         case TM_VIEW:
             /* 10a7: 2d99:0fef (86b8:0b0c), then 177e:1ad1 (86b8:0d97) */
-            if (!view_character(game)) return false;
+            if (!view_character(game, NULL)) return false;
             if (!screen_as_it_was(game)) return false;
             break;
         case TM_TAKE: /* 10b6: 75cc:0d01 */
@@ -6332,7 +6432,7 @@ void cok_dark_queen_temple(cok_adventure *game)
         case TEMPLE_VIEW:
             /* The sheet leaves the screen as it was (the original's: the adventure's
              * screen by the mode, 177e:1ad1, as the adventure's View does after 2d99:0fef). */
-            if (!view_character(game)) return;
+            if (!view_character(game, NULL)) return;
             cok_adventure_redraw(game);
             break;
         case TEMPLE_REPAIR:
