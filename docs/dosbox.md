@@ -254,7 +254,8 @@ different one each run. checklib compiles a patched build's files side by
 side, on half the cores.
 
 Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
-`make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`)
+`make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`, and `--flows F`
+passed to the scripts as theirs: `--only dqk_fight --flows walk`)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
 displays less two, else five eighths of the cores (10 of 16: 12 and 14
 are no faster, as the part side by side then lasts about as long as

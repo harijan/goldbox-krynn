@@ -1357,6 +1357,9 @@ class DarkQueenTests(unittest.TestCase):
         # the keys run out there. The per-character draws of the texts (1a62:0311's delay, while
         # DS:ae65 is set) move RandSeed, so the initiative (1d6 and dexterity) is 7. The "what do
         # you do?" after the PRINT before it draws none: PRINT clears DS:ae65 (6c70:1d84).
+        # dqk_fight's flow `walk` checks the walk against the original: it agrees from block 4's
+        # first text on; before it the original's copy protection draws two (65cc:00cb, 00d8),
+        # which the port passes over.
         self.assertEqual(moves[-1], "turn: BALTHIR NOMOON (initiative 7)")
         self.assertIn("print: HUGE SHADOWS SKIM OVER THE GROUND. GIANT SHAPES DISAPPEAR OVER "
                       "THE TREE TOPS.", result.stdout)

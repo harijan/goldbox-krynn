@@ -669,7 +669,7 @@ may also set `stop` (where its ECL rests, when that is not past its EXIT: NEWECL
 block 2) and `waits` (the count the original must wait); `dqk_ecl_flow.py`'s
 `newecl` shows both.
 
-The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load`, `clear`, `six` and `ground`,
+The Dark Queen's first fight (`tools/dosbox/checks/dqk_fight.py`, flows `setup`, `load`, `clear`, `six`, `ground` and the rest below,
 in `make dqk-checks`) is a test block of LOAD FILES 4 4, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD
 MONSTER 64 x2, a PRESS KEY labelled 'loaded', SETUP MONSTERS, APPROACH and COMBAT, from saved game A, with the
 sound off (below). The original's state (`dqk_fight_lib.py`: the records, combat records, combatants,
@@ -859,6 +859,24 @@ none 0xb0, 0xd0 or 0x0b). At the treasure menu: mode 6, the flags 1 0 0 0 0 0, s
 b7a7 0, share 1336, pool 8 0 0, RandSeed 0x3039 (the won path draws nothing). eclplay's `--combat won` run to the
 results' key wait (its screen, the mouse pointer and the bar masked: RETURN's cell blinks) and to the treasure menu
 (`--state`, `--records`, the variables, the screen) agrees with them.
+
+Flow `walk` (`make dqk-checks ARGS="--only dqk_fight --flows walk"`, about a minute): `tests/test_dark_queen.py`'s
+`test_first_fight` in the original, the shipped ECL (no test block): the start menu, Load's saved game A (plta),
+Begin, block 4's texts to Caergoth and the steps to the dragons (`TO_FIGHT`), THEY ATTACK!'s Return, the first
+turn's menu (`5045:08cf`, `menu_from_turn`: to_menu's traps), End, the next turn's menu (`arm`). The original's
+RandSeed at the start comes from its title's cycles, not eclplay's, so it is set at the start menu to eclplay's
+there (0x3e6298eb: the title's seven random(8) from 0), and eclplay runs as `--load --play --seed 1046649067`
+(`test_load_and_play` holds it equal to the `--start-menu` route; the two routes' turn lists are checked equal
+too). Load draws nothing in the original. Begin's copy protection draws two (`65cc:00cb` random(20), the entry;
+`00d8` random(3), the word, drawn again while the entry's word byte at DS:6dd2 + 0x14 entry + 5 is 0xff, which no
+entry of the shipped table is), which the port passes over without drawing: the known gap (`WALK_PROTECTION_DRAWS`,
+asserted exact at block 4's first text, `81bc`), after which the original's seed is set to eclplay's there.
+From there it agrees draw for draw: RandSeed at THEY ATTACK!'s wait (`8c0e`, after the texts' delays and the
+steps: 1850 draws), the turn list (5045:0447: each entry's record and initiative, all 19) and RandSeed at the first
+menu (BALTHIR NOMOON, initiative 7, DS:bd2d 1, the selected record the first) and after End (WALKER KEYS,
+initiative 6, DS:bd2d 2, End drawing nothing). With the protection's two draws (the original untouched from
+the start menu) the first turn is TIMASALIN's and then 'CINDER''s, both initiative 7, as eclplay's with `--seed`
+two draws on.
 
 The tail's screen is the original's after its own page flip: 078b's tail redraw of the cell (`5837:025d`: the
 ground by `172c` through `19a4:0515`, whose begin, `19a4:05ee`, copies the front page to the back, `22b7:0849`, and

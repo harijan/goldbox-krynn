@@ -3,7 +3,8 @@
 per script: docs/checks.md's checks it covers, its verdict, and whether that is
 the verdict recorded (docs/checks.md, "Checks against the original").
 
-    python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--out DIR]
+    python3 tools/dosbox/checks/run_all.py [--set SET] [--jobs N] [--only NAME ...] [--flows F]
+        [--out DIR]
     python3 tools/dosbox/checks/run_all.py --report [--set SET] [--out DIR]
 
 SET: champions (CHECKS, the default), dkk (DKK_CHECKS: Death Knights'
@@ -176,10 +177,15 @@ DQK_CHECKS = [(f"{script}-{flow}" if flow else script, "DQK", "") for script in 
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}
 
 
+# --flows FLOWS: passed to each script run that is not split (with --only, one script's flows).
+FLOWS = None
+
+
 def command(name):
     """A row's script and its arguments: NAME.py, or a split one's
-    SCRIPT.py --flows FLOW."""
+    SCRIPT.py --flows FLOW (else run_all's --flows, if given)."""
     script, _, flow = name.partition("-")
+    flow = flow or FLOWS
     return [str(HERE / f"{script}.py")] + (["--flows", flow] if flow else [])
 
 
@@ -440,6 +446,8 @@ def main():
                         help="Champions' scripts (the default), Death Knights' (dkk), both "
                              "(all) or Dark Queen's (dqk)")
     parser.add_argument("--only", nargs="*", help="these scripts (names without .py)")
+    parser.add_argument("--flows", help="the flows of the scripts run (their --flows; with --only "
+                                        "a script that has them, e.g. --only dqk_fight --flows walk)")
     parser.add_argument("--out", default=str(ROOT / "build" / "dosbox-checks"))
     parser.add_argument("--timeout", type=float, default=3 * 3600,
                         help="seconds a script may take (default three hours)")
@@ -450,6 +458,8 @@ def main():
     parser.add_argument("--report", action="store_true",
                         help="write OUT/telemetry.txt again from the last run's files")
     opts = parser.parse_args()
+    global FLOWS
+    FLOWS = opts.flows
     if opts.self_test:
         return self_test()
     if opts.report:
