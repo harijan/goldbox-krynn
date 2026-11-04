@@ -4839,7 +4839,9 @@ static cok_ecl_status adventure(cok_adventure *game, uint8_t block, bool begun)
         /* The protection's two draws (65cc:00cb random(20) for the journal entry, 00d4-00de random(3)
          * for the word). Its redraw of the word (00fa-00ff, while DS:6dd2 + 0x14*entry + 5 + word is
          * 0xff) never fires with the shipped table, so it is not ported. The question and its check
-         * draw nothing; the question is logged and passed over (DARK-QUEEN.md decision 4). */
+         * draw nothing. A wrong answer draws nothing more: 65cc:0298 is a plain jump past the retry
+         * (029a-02b0, which would ask again with new draws), so the question is logged and passed
+         * over (DARK-QUEEN.md decision 4). */
         cok_tp_random(&game->vm.seed, 20);
         cok_tp_random(&game->vm.seed, 3);
         cok_adventure_log(game, "protection", "the journal's word, passed over (dqk 65cc:008b)");
