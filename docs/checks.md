@@ -897,8 +897,8 @@ records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too
 initiative 9 after Quick, 0x13 after Alt-Q), the turn list, DS:bd2d (1 after Quick and after Alt-Q), DS:b1cb
 (0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
 bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
-(`dqk_views.POINTER`), the others with the menu's pointer masked. The mouse areas have no flow
-(repo tests only); Bandage and Yell have their runs below.
+(`dqk_views.POINTER`), the others with the menu's pointer masked. Bandage and Yell have their runs
+below; the mouse areas have theirs in the `mouse` flow.
 
 Two more runs (step 4, part 22b's leftovers; `commands` after the four above). `altx` is `command_original`'s
 Alt-X (`\@X`) trapped at `5045:0cd7`, as Alt-M: the box has no "Gem" argument, so the original answers
@@ -919,6 +919,19 @@ NOMOON's) trapped. Checked: RandSeed two draws past WALKER's menu (both SHARKMEN
 (the chains agree with eclplay's `--effects`), DS:b45b (the yelled record) is WALKER's record, the records, blocks, turns
 and variables at the stop, and the screen once given back (the pointer masked). eclplay's run is "EEY" from the first
 menu. A failed save (its flash, a stop) and "is Unaffected" have no run: the repo tests (`test_yell`) check them.
+The yell run also checks that the two Ends before Y (TIMASALIN's and ROARK's) draw nothing: RandSeed at WALKER's menu
+is the first menu's.
+
+`mouse` (`mouse_check`, last in `main`'s flows) is the command menu's mouse areas (`1bdb:1595`'s, with the mouse on,
+which the original has at the menu by default: DS:a6b5 1). A box with `sdl.mouse_emulation=always` reaches TIMASALIN's
+menu (`to_menu`), and the pointer moves (`MouseBox.point`, xdotool) to a spot in each of the eight areas round her cell
+(3, 4 on the view), then to the cell and to the gap above it (no area). At each spot the whole screen (nothing masked:
+the game draws its cursor, whose shape is the area's) is compared with eclplay's `--mouse` run to the spot: its keys
+`\r\r\mX,Y,0.\e` (the pointer's move, then an Escape, which leaves the menu waiting, its last shot taken after the
+move). Space typed at the menu enters `1595` again with DS:a6b5 set and cleared (the menu takes Space either way; the
+type-7 control at `1810` answers with the same 0x20). Then the pointer is on area 4 and clicked: the original's
+Move routine (5045:1099) is trapped where the turn's copies start (`arm`) and reached, and eclplay stops at "not yet
+ported: ... Move with a direction key (dqk 5045:1099 ...)" after logging the code `code: 0x87`.
 
 `view` (`view_check`, last in `commands`) is V at TIMASALIN's first menu (`view_original`: the menu trapped at `5045:0cd7`
 for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and

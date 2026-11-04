@@ -2236,6 +2236,7 @@ def won_original(work, patched, verbose):
     with cokbox.Box(workdir=work / "box-won", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
         enter(box)
+        freeze_frame(box)  # the treasure menu's picture is compared exactly (as dqk_treasure's)
         v = box.far(box.ds * 16 + dqk_ecl.DS_VARS)
         box.set_seed(SEED)
         box.keys("\\r")
@@ -2650,6 +2651,9 @@ def yell_check(v, work, patched, opts):
     screen agree with eclplay's run of EEY."""
     o = yell_original(work, patched, opts.verbose)
     spins_at_placement(v, o["menu"])
+    v.check(o["walker"]["seed"] == o["menu"]["seed"], "the two Ends before Yell (TIMASALIN's and ROARK's) "
+            "draw nothing: RandSeed at WALKER KEYS' menu is the first menu's",
+            f"{o['walker']['seed']:#x} against {o['menu']['seed']:#x}")
     s = o["stop"]
     base = work / "cmd-yell"
     p = command_port(work, patched, "yell", "EEY", effects=True)
@@ -2741,6 +2745,132 @@ def view_check(v, work, patched, opts):
                    q["base"].with_suffix(".bmp"), MENU_POINTER)
 
 
+# The mouse areas of the command menu (step 4, part 22b; dqk 1bdb:1595, scope section 5). The original
+# has the mouse on at the menu (DS:a6b5, read at 1595's 15de and 1810), and so has eclplay with --mouse.
+# TIMASALIN's cell is at 3, 4 on the view (P, Q): one spot in each of the eight areas, then the cell and
+# the gap above it (no area: the arrow). The original's whole screen with the pointer there, against
+# eclplay's (the game draws its cursor, so nothing is masked: the cursor's shape tells the area).
+MOUSE_ON = 0xA6B5                        # DS:a6b5 (game->mouse.on)
+MOUSE_CONF = {"sdl.mouse_emulation": "always"}
+MOUSE_SPOTS = [((50, 90), "area 0 (0x86)"), ((110, 30), "area 1 (0x88)"),
+               ((150, 90), "area 2 (0x82)"), ((110, 130), "area 3 (0x84)"),
+               ((50, 40), "area 4 (0x87)"), ((150, 40), "area 5 (0x81)"),
+               ((150, 150), "area 6 (0x83)"), ((50, 150), "area 7 (0x85)"),
+               ((110, 90), "the cell (no area)"), ((110, 78), "the gap above the cell (no area)")]
+MOUSE_CLICK = (50, 40)                   # area 4 (0x87): Move, which 5045:1099 begins
+MOVE = (0x5045, 0x1099)
+MOVE_NOT_YET = re.compile(r".*Move with a direction key \(dqk 5045:1099.*")
+FRAME_ADVANCE = (0x1BDB, 0x1168)          # freeze_frame, as dqk_treasure's (which imports this module)
+FRAME_ADVANCE_BYTES = bytes.fromhex("fe060eb2")  # incb DS:b20e
+
+
+class MouseBox(cokbox.Box):
+    """A box whose pointer moves to pixel x, y of the 320x200 screen (no button), as dqk_view_mouse's."""
+
+    def point(self, x, y):
+        self._xdo("windowfocus", "--sync", self.window)
+        self._xdo("mousemove", "--window", self.window, 2 * x, 2 * y)
+        self.settle(0.4)
+
+
+def freeze_frame(box):
+    """The small picture's frame advance frozen in the box only (1bdb:1168's incb DS:b20e: four nops),
+    so the menu's screens are exact (dqk_treasure's freeze_frame). Call after the block's entry."""
+    at = L.code(box, *FRAME_ADVANCE)
+    if box.read(at, 4) != FRAME_ADVANCE_BYTES:
+        raise cokbox.BoxError(f"1bdb:1168 is not incb DS:b20e: {box.read(at, 4).hex()}")
+    box.write(at, b"\x90" * 4)
+
+
+def mouse_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu) with the mouse on: DS:a6b5 there, the screen with
+    the pointer at each of MOUSE_SPOTS (`spots`, in order), then the click on area 4 with Move's routine
+    (5045:1099) trapped where the turn's copies start (arm): `reached`, whether its spin holds."""
+    out = dict(spots=[])
+    with MouseBox(workdir=work / "box-mouse", game="dark-queen", verbose=verbose, timeout=900,
+                  files=L.files(patched), extra_conf=MOUSE_CONF) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        out["mouse"] = box.ds_byte(MOUSE_ON)
+        for (x, y), _ in MOUSE_SPOTS:
+            box.point(x, y)
+            out["spots"].append(box.settled(tolerance=64))
+        # Space at the menu, with the mouse on and then cleared: 1595 is entered again either way (the
+        # type-7 control's message is Space, and the menu takes Space without the mouse too). Then the
+        # mouse on and Space once more, so that the menu's areas are built again for the click.
+        out["space"] = []
+        for mouse in (1, 0):
+            box.ds_write(MOUSE_ON, bytes([mouse]))
+            handle = L.trap(box, 0x1BDB, 0x1595, until=lambda: True, seconds=60)
+            box.keys(" ")
+            box.settle(3.0)
+            out["space"].append(L.held(box, handle, seconds=1.5)[0])
+            L.untrap(box, handle)
+            box.settle(1.0)
+        box.ds_write(MOUSE_ON, b"\x01")
+        box.keys(" ")
+        box.settled(tolerance=64)
+        box.point(*MOUSE_CLICK)
+        t = arm(box, menu["handle"], MOVE)
+        box.click(*MOUSE_CLICK)
+        try:
+            wait_trap(box, t, "5045:1099")
+            out["reached"] = True
+        except cokbox.BoxError:
+            out["reached"] = False
+    return out
+
+
+def mouse_port(work, patched, name, typed):
+    """eclplay's run with --mouse of the block from saved game A (dqk_fight.port's), TYPED after the
+    entry's keys: its last shot (the menu waiting, the pointer where the keys left it), its last output
+    line and its output."""
+    shots = work / f"mouse-{name}"
+    if shots.exists():
+        shutil.rmtree(shots)
+    extra = ["--load", str(saved_entry(work)), "--play", "--mouse", "--shots", str(shots)]
+    _, last, _ = dqk_ecl.port(work, f"mouse-{name}", patched, typed=typed, extra=extra, block=None)
+    shot = cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() else None
+    return shot, last, (work / f"port-mouse-{name}.txt").read_text()
+
+
+def mouse_check(v, work, patched, opts):
+    """The mouse areas (dqk_fight's `mouse` flow): the mouse on at the menu in both; each spot's screen
+    agrees with eclplay's run to the spot ("\\r\\r" then the pointer's move and an Escape, which
+    leaves the menu waiting, its last shot taken after the move); the click on area 4 reaches Move
+    (5045:1099) in the original, and eclplay stops there: "not yet ported: ... Move with a direction key"
+    after the code 0x87 is logged."""
+    o = mouse_original(work, patched, opts.verbose)
+    v.check(o["mouse"] == 1, "the original's mouse is on at the command menu (DS:a6b5 is 1)",
+            f"{o['mouse']}")
+    v.check(o["space"] == [True, True], "Space at the command menu enters 1595 again with the mouse on "
+            "and cleared (the menu takes it either way)", f"{o['space']}")
+    for i, ((x, y), label) in enumerate(MOUSE_SPOTS):
+        shot, _, _ = mouse_port(work, patched, f"spot-{i}", f"\\r\\r\\m{x},{y},0.\\e")
+        if shot is None:
+            v.check(False, f"eclplay writes its screen with the pointer at {x},{y} ({label})")
+            continue
+        v.screen(f"the command menu with the pointer at {x},{y} ({label}), the whole screen",
+                 o["spots"][i], shot, work=work)
+    shot, last, text = mouse_port(work, patched, "click", f"\\r\\r\\m{MOUSE_CLICK[0]},"
+                                  f"{MOUSE_CLICK[1]},1.")
+    v.check(o["reached"], "the original reaches 5045:1099 (Move) after the click on area 4 (the spin "
+            "holds)", f"{o['reached']}")
+    v.check(MOVE_NOT_YET.match(last or "") is not None, "eclplay stops at Move, not yet ported, after "
+            "the click on area 4", last)
+    v.check("code: 0x87" in text.splitlines(), "eclplay logs the code 0x87 of the click on area 4",
+            [line for line in text.splitlines() if line.startswith("code:")])
+
+
+def mouse(v, work, opts):
+    """The command menu's mouse areas (step 4, part 22b): the pointer over each area of TIMASALIN's menu,
+    and a click on one (mouse_check)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    mouse_check(v, work, patched, opts)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -2760,9 +2890,9 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,turns,round,won,timer,walk",
+                                "keys,turns,round,won,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, turns, round, won, timer, walk")
+                             "slots, icons, dispatch, keys, turns, round, won, timer, walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -2803,6 +2933,8 @@ def main():
         won(v, work, opts)
     if "walk" in flows:
         walk(v, work, opts)
+    if "mouse" in flows:
+        mouse(v, work, opts)
     return v.finish()
 
 

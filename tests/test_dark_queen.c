@@ -1593,12 +1593,22 @@ static void menu_close(void)
     menu_is_open = false;
 }
 
-/* The keys: each character is a key, '~' the extended key's 0 (its scan code follows). */
+/* The pixel a '\x01' key clicks at (the mouse's pointer, read with the click). */
+static int16_t click_x, click_y;
+
+/* The keys: each character is a key, '~' the extended key's 0 (its scan code follows), '\x01' a
+ * click at click_x, click_y. A key read clears the pointer's click, as adventure.c's read does. */
 static int menu_keys(void *context)
 {
     menu_script *s = context;
     if (s->keys[s->at] == '\0') return -1;
     char c = s->keys[s->at++];
+    menu_game.pointer.clicked = c == '\x01';
+    if (c == '\x01') {
+        menu_game.pointer.x = click_x;
+        menu_game.pointer.y = click_y;
+        return 0;
+    }
     return c == '~' ? 0 : (unsigned char)c;
 }
 
@@ -1856,6 +1866,87 @@ static void test_command_menu_keys(void)
     /* No keys: the run ends with the turn kept (initiative 5). */
     menu_open();
     CHECK(menu_run("") && menu_game.vm.status == COK_ECL_OK && menu_c->combat->initiative == 5);
+    menu_close();
+}
+
+/* queen_combat_menu's mouse areas (dqk 1bdb:1595 15de-1828, scope section 5): with the mouse on, a
+ * click in each of the eight areas round the cell at 3, 4 (and 0, 0) gives its code (0x81-0x88), the
+ * cell's edges as the rects have them (the cell's own columns above and below it are in no area: the
+ * menu waits on, -1); with the mouse off there are none. A first-row button over area 3 gives the
+ * button. Space is 0x20 with the mouse on and off (the original's probe: 1595 entered again). */
+static int combat_bar(bool mouse, int p, int q, size_t count, int split, int16_t x, int16_t y,
+                      const char *keys)
+{
+    static const char *const bar[] = {"Quick", "Speed", "Delay", "Move"};
+    menu_open();
+    menu_game.mouse.on = mouse;
+    click_x = x;
+    click_y = y;
+    script.keys = keys;
+    script.at = 0;
+    menu_game.vm.abort = false;
+    return queen_combat_menu(&menu_game, bar, count, split, p, q);
+}
+
+static void test_combat_menu_areas(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the command menu's mouse areas not checked");
+        return;
+    }
+    static const struct { int16_t x, y; int code; } at_3_4[] = {
+        {50, 90, 0x86}, {110, 30, 0x88}, {150, 90, 0x82}, {110, 130, 0x84},
+        {50, 40, 0x87}, {150, 40, 0x81}, {150, 150, 0x83}, {50, 150, 0x85},
+        {126, 90, 0x82}, /* the cell's last four columns: area 2 */
+        {101, 112, 0x84}, /* over area 7's columns: area 3 is first */
+    };
+    static const struct { int16_t x, y; int code; } at_0_0[] = {
+        {4, 20, 0x86}, {20, 2, 0x88}, {100, 20, 0x82}, {10, 100, 0x84},
+        {2, 2, 0x87}, {100, 2, 0x81}, {100, 100, 0x83}, {2, 100, 0x85},
+    };
+    for (size_t i = 0; i < sizeof at_3_4 / sizeof at_3_4[0]; ++i)
+        CHECK(combat_bar(true, 3, 4, 0, -1, at_3_4[i].x, at_3_4[i].y, "\x01") == at_3_4[i].code);
+    for (size_t i = 0; i < sizeof at_0_0 / sizeof at_0_0[0]; ++i)
+        CHECK(combat_bar(true, 0, 0, 0, -1, at_0_0[i].x, at_0_0[i].y, "\x01") == at_0_0[i].code);
+    /* No area: the cell (110, 90), the cell's columns above it (110, 78) and below it (110, 105),
+     * and the cell at 0, 0 (20, 20): the keys run out, the menu waits on. */
+    CHECK(combat_bar(true, 3, 4, 0, -1, 110, 78, "\x01") == -1);
+    CHECK(combat_bar(true, 3, 4, 0, -1, 110, 90, "\x01") == -1);
+    CHECK(combat_bar(true, 3, 4, 0, -1, 110, 105, "\x01") == -1);
+    CHECK(combat_bar(true, 0, 0, 0, -1, 20, 20, "\x01") == -1);
+    /* The mouse off: the same clicks give nothing. */
+    CHECK(combat_bar(false, 3, 4, 0, -1, 50, 90, "\x01") == -1);
+    CHECK(combat_bar(false, 3, 4, 0, -1, 101, 112, "\x01") == -1);
+    /* The first row's button "Delay" (cols 100-148, rows 176-188) over area 3 (rows 108-188). */
+    CHECK(combat_bar(true, 3, 4, 4, 3, 110, 180, "\x01") == 2);
+    CHECK(combat_bar(false, 3, 4, 4, 3, 110, 180, "\x01") == 2);
+    /* Space is 0x20 with the mouse on and off. */
+    CHECK(combat_bar(true, 3, 4, 4, 3, 0, 0, " ") == 0x20);
+    CHECK(combat_bar(false, 3, 4, 4, 3, 0, 0, " ") == 0x20);
+    /* queen_commands passes the combatant's cell: CINDER at 5, 5 (her cell 3, 3 on the view), so
+     * a click at 90, 20 is area 1 (code 0x88: Move, not yet ported) with the mouse on. Her cell at
+     * 0, 0 would have no area there, and the run would wait on (the mouse off gives nothing). */
+    menu_open();
+    menu_game.mouse.on = true;
+    /* place() put CINDER at entry 0, which is none (cok_combat_index counts from 1): moved to 1, with
+     * her cell in the occupants and the view at 2, 2 (her cell 3, 3). */
+    cok_combat *k = &menu_game.combat;
+    k->combatant[1] = k->combatant[0];
+    memset(&k->combatant[0], 0, sizeof k->combatant[0]);
+    k->occupant[5][5] = 1;
+    k->view_x = 2;
+    k->view_y = 2;
+    click_x = 90;
+    click_y = 20;
+    CHECK(!menu_run("\x01") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "Move with a direction key") != NULL);
+    /* 20, 90 is area 0 (code 0x86) for the cell at 3, 3 and no area for a cell at 3, 0 or 0, 3. */
+    click_x = 20;
+    click_y = 90;
+    CHECK(!menu_run("\x01") && menu_game.vm.status == COK_ECL_UNPORTED);
+    menu_open();
+    menu_game.mouse.on = false;
+    CHECK(menu_run("\x01") && menu_game.vm.status == COK_ECL_OK);
     menu_close();
 }
 
@@ -2284,6 +2375,7 @@ int main(void)
     test_command_menu_items();
     test_command_menu_text();
     test_command_menu_keys();
+    test_combat_menu_areas();
     test_command_menu_quick_speed();
     test_arena_say();
     test_member_say();

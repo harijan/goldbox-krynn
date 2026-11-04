@@ -5232,9 +5232,35 @@ int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *co
                           -1, false);
 }
 
-int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split)
+/* 1bdb:1595's mouse areas (15de-1828, the mouse on: 2aa6:1294's records in 2-px units, read as
+ * pixels here), in the control order (the first added wins): the cursor and the code of each (1206's
+ * table at 126e: hit - buttons - 1). P and Q are 24 px times the combatant's row and column on the
+ * view (0cd7's bytes); test_dark_queen.c has the areas' edges for P, Q = 3, 4 and 0, 0. The type-7
+ * control at 1810 (message 0x20, Space) is not added: Space enters 1595 again with the mouse on and
+ * off (the same 0x20, taken by 1206 either way), so the filter above stands. */
+static const uint8_t combat_cursors[8] = {9, 11, 5, 7, 10, 4, 6, 8};
+static const int combat_codes[8] = {0x86, 0x88, 0x82, 0x84, 0x87, 0x81, 0x83, 0x85};
+
+int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
+                      int p, int q)
 {
-    return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split, true);
+    if (!game->mouse.on)
+        return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split,
+                              true);
+    int P = 24 * (uint8_t)p, Q = 24 * (uint8_t)q;
+    const rect areas[8] = {
+        {P + 8, 0, P + 32, Q + 8},
+        {0, Q + 8, P + 4, Q + 32},
+        {P + 8, Q + 28, P + 32, 184},
+        {P + 36, Q + 4, 188, Q + 28},
+        {0, 0, P + 8, Q + 8},
+        {0, Q + 32, P + 8, 184},
+        {P + 32, Q + 32, 184, 184},
+        {P + 32, 0, 184, Q + 8},
+    };
+    int result = bar_menu_areas(game, "", items, count, true, false, 0, 0, areas, combat_cursors,
+                                8, split, true);
+    return result >= AREA_MENU ? combat_codes[result - AREA_MENU] : result;
 }
 
 void queen_combat_menu_close(cok_adventure *game)

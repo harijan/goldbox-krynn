@@ -127,8 +127,14 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
     *out = false;
     if (item < 0) {
         /* A key taken (0b3c's table): Move with a direction, Alt-A and Alt-Q, Alt-M, Alt-X. */
-        if (code >= 0x81 && code <= 0x88)
-            return cok_adventure_not_yet(game, "Move with a direction key", "dqk 5045:1099 (part 23)");
+        if (code >= 0x81 && code <= 0x88) {
+            /* The code a click on an area or an arrow key gives (its log: "code: 0x87"). */
+            char text[8];
+            snprintf(text, sizeof text, "0x%02x", code);
+            cok_adventure_log(game, "code", text);
+            return cok_adventure_not_yet(game, "Move with a direction key",
+                                         "dqk 5045:1099 (part 23)");
+        }
         if (code == 0xc0 || code == 0xd0) {
             quick_all(game, c); /* 0c0f */
             *done = true;
@@ -176,9 +182,13 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
          * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop.
          * The flush is the typed keys only. The original's 2093:0136 also drains them through
          * 2093:0078 (Alt-S and Alt-T toggle the sound, 2023:0247 and 2023:0272; Escape or '`'
-         * with DS:ae59 set sets DS:a890) and reads a pending mouse click (22b7:235f, DS:cb49).
-         * cok_adventure_flush drops the keys and leaves both alone. Not reached by eclplay's keys;
-         * to be done with the menu's mouse part (1bdb:1595). */
+         * with DS:ae59 set sets DS:a890), and then 22b7:235f(7) takes the pending press latch
+         * (DS:cb49, set by the driver's press, which the port's cok_mouse_driver does not keep:
+         * it holds the buttons' level). Nothing is left to drop in the port: Quick's own click
+         * was read by the menu, and eclplay applies a \m only at the game's next read or poll,
+         * so no click waits here. A press typed between Quick's read and this flush would be
+         * swallowed by the original and kept here (open: a human's double click, not reproducible
+         * by the keys). cok_adventure_flush drops the keys and leaves the sound and the latch. */
         cok_combat_auto(c, cok_game_rules(game));
         queen_bottom_bar(game);
         cok_adventure_flush(game);
@@ -250,9 +260,13 @@ bool queen_commands(cok_adventure *game, cok_character *c)
         cok_adventure_log(game, "menu", text);
         const char *names[ITEM_COUNT];
         for (size_t i = 0; i < count; ++i) names[i] = item_words[ids[i]];
+        /* 0cd7's p and q (5837:0b19, 0aea): the combatant's row and column less the view's corner,
+         * as the bytes the mouse's areas take (only with the mouse on). */
+        int p = cok_combat_y(&game->combat, c->record) - game->combat.view_y;
+        int q = cok_combat_x(&game->combat, c->record) - game->combat.view_x;
         int result;
         for (;;) {
-            result = queen_combat_menu(game, names, count, split);
+            result = queen_combat_menu(game, names, count, split, p, q);
             if (result < 0 || game->vm.abort) break;
             if ((size_t)result < count || taken_code(result)) break;
         }
