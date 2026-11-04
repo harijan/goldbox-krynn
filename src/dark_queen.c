@@ -3774,16 +3774,22 @@ static bool in_party(cok_adventure *game, const char *name)
     return false;
 }
 
+/* The speed's wait (1a62:0960: DS:1cd8's time for variable 0x12): pass for it. */
+static void speed_pass(cok_adventure *game)
+{
+    static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
+    unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
+    pass(game, ms[speed < 10 ? speed : 9]);
+}
+
 /* A message on the bar for the speed's time (1a62:0960: DS:1cd8's,
  * variable 0x12's): boxed from cell x + 1 in fg on bg, the bar again. */
 static void message_at(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
 {
-    static const unsigned ms[] = {10, 100, 250, 500, 1000, 1500, 2000, 3000, 4000, 5000};
     bottom_bar(game);
     cok_adventure_log(game, "message", s);
     prompt_box(game, x, s, fg, bg);
-    unsigned speed = cok_ecl_load_var(&game->vm, 0x12);
-    pass(game, ms[speed < 10 ? speed : 9]);
+    speed_pass(game);
     bottom_bar(game);
 }
 
@@ -3797,6 +3803,30 @@ static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
 static void bar_message(cok_adventure *game, const char *s)
 {
     bar_message_colour(game, s, 0x0f);
+}
+
+/* A text said in the battle by c in the window at row (177e:156e in mode 5, the say's branch
+ * for the battle; the camp's is member_say's): the window cleared from row, c's name on it
+ * (177e:1697, light or dark by its state), the text under it in grey from row + 1 (1a62:0311,
+ * clear off), then with wait the speed's time (1a62:0960) and the window cleared again from
+ * row 10 (177e:1665). The text is logged as the say's are (the name, then the text). c NULL:
+ * no name. */
+static bool arena_say(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
+                      bool wait)
+{
+    clear_cells(game, 0x17, row, 0x26, 0x15);
+    if (c != NULL) {
+        char name[17];
+        cok_field_name(cok_game_rules(game)->character, c->record, name);
+        queen_name_line(game, c, 0x17, row, false);
+        cok_adventure_log(game, "print", name);
+    }
+    cok_adventure_log(game, "print", text);
+    if (!print_window(game, text, 0x17, row + 1, 0x26, 0x15, 7, false)) return false;
+    if (!wait) return true;
+    speed_pass(game);
+    clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
+    return true;
 }
 
 /* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
@@ -5373,6 +5403,8 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_icon = arena_icon,
     .arena_load_icon = arena_load_icon,
     .arena_panel = combat_panel,
+    .arena_say = arena_say,
+    .notice = queen_bar_message,
     .encounter = encounter,
     .round_clock = cok_dark_queen_round_clock,
     .teammate_dying = cok_dark_queen_teammate_dying,

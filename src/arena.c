@@ -958,9 +958,16 @@ bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint
     if (game->vm.mode == 5 && row > 20)
         return fail(game, "text said from row %u runs below the side panel over the frame "
                           "(6346:1883)", row);
-    if (game->vm.mode == 5 && own_ground(game) != NULL)
-        return fail(game, "text in the battle is not drawn on this game's screen yet "
-                          "(parts 11-12)");
+    const cok_drawing *own = own_ground(game);
+    if (game->vm.mode == 5 && own != NULL) {
+        if (own->arena_say == NULL)
+            return fail(game, "text in the battle is not drawn on this game's screen yet "
+                              "(parts 11-12)");
+        if (own->arena_say(game, c, text, row, wait)) return true;
+        /* As cok_arena_panel: a failure that left the error text alone is reported here. */
+        if (!game->vm.abort) own_failed(game);
+        return false;
+    }
     say(game, c, text, row, wait, true);
     return true;
 }

@@ -1573,6 +1573,7 @@ typedef struct {
     int menus;          /* the "menu" lines logged (one per build) */
     char menu[64];      /* the last one */
     char messages[256]; /* the messages logged, each ended with ';' */
+    char prints[128];   /* the texts said (the "print" lines), each ended with ';' */
 } menu_script;
 
 static menu_script script;
@@ -1606,6 +1607,9 @@ static void menu_log(cok_adventure *game, const char *kind, const char *text, vo
     } else if (strcmp(kind, "message") == 0) {
         size_t used = strlen(s->messages);
         snprintf(s->messages + used, sizeof s->messages - used, "%s;", text);
+    } else if (strcmp(kind, "print") == 0) {
+        size_t used = strlen(s->prints);
+        snprintf(s->prints + used, sizeof s->prints - used, "%s;", text);
     }
 }
 
@@ -1656,6 +1660,7 @@ static void menu_open(void)
     script.menus = 0;
     script.menu[0] = '\0';
     script.messages[0] = '\0';
+    script.prints[0] = '\0';
 }
 
 /* Runs queen_commands on CINDER with keys, from a fresh menu's state (the keys' queue reset). */
@@ -1666,6 +1671,7 @@ static bool menu_run(const char *keys)
     script.menus = 0;
     script.menu[0] = '\0';
     script.messages[0] = '\0';
+    script.prints[0] = '\0';
     menu_game.vm.status = COK_ECL_OK;
     menu_game.vm.abort = false;
     return queen_commands(&menu_game, menu_c);
@@ -1909,6 +1915,120 @@ static void test_command_menu_quick_speed(void)
     menu_close();
 }
 
+/* The battle's ground for a menu's arena stops (cok_arena_turn needs the map: the tiles and
+ * the battle's combat.active, as the arena's tests set them). */
+static void battle_map(void)
+{
+    CHECK(cok_adventure_drawing(&menu_game)->arena_tiles(&menu_game, false, 4));
+    menu_game.combat.active = true;
+}
+
+/* The battle's say (dqk 177e:156e in mode 5, cok_drawing.arena_say through cok_arena_say): c's
+ * name on row 10, the text under it in grey on row 11, and with wait the speed's time (one draw)
+ * then the rows 10-21 cleared; without wait the text stays and nothing is drawn. The texts are
+ * logged as the say's are: the name, then the text. Skipped without DQKAssets/. */
+static void test_arena_say(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's say not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    memset(menu_game.screen.pixels, 0x00, 320 * 200);
+    char name[17];
+    cok_field_name(R->character, menu_c->record, name);
+    uint32_t want = menu_game.vm.seed;
+    CHECK(cok_arena_say(&menu_game, menu_c, "HELLO", 10, false));
+    CHECK(menu_game.vm.seed == want);
+    CHECK(ink_row(&menu_game, 10) && row_has(&menu_game, 23, 38, 11, 0x07));
+    CHECK(!ink_row(&menu_game, 12) && !ink_row(&menu_game, 21));
+    char logged[160];
+    snprintf(logged, sizeof logged, "%s;HELLO;", name);
+    CHECK(strcmp(script.prints, logged) == 0);
+    want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    memset(menu_game.screen.pixels, 0x00, 320 * 200);
+    script.prints[0] = '\0';
+    CHECK(cok_arena_say(&menu_game, menu_c, "HELLO", 10, true));
+    CHECK(menu_game.vm.seed == want);
+    for (int row = 10; row <= 21; ++row) CHECK(!ink_row(&menu_game, row));
+    CHECK(strcmp(script.prints, logged) == 0);
+    menu_close();
+}
+
+/* Bandage (dqk 5045:0adb: 51c2:0d63(1), then 0b29 End): a dying member who is not hostile is
+ * bandaged by the menu's Bandage: its status word 4 and its dying 0, "is bandaged" said (its name
+ * and the text logged), one draw, and CINDER's turn ended. Skipped without DQKAssets/. */
+static void test_bandage(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Bandage not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    cok_character *ally = placed(&menu_game, 0);
+    uint8_t *r = ally->record;
+    cok_field_set8(R->character, r, COK_FIELD_STATUS, 5);
+    ally->combat->dying = 3;
+    menu_expect("Aim Guard Quick@Delay Bandage View Speed End");
+    char name[17];
+    cok_field_name(R->character, r, name);
+    uint32_t drawn = menu_game.vm.seed;
+    cok_tp_random(&drawn, 1000);
+    CHECK(menu_run("B") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(r[0x64] == 4 && r[0x65] == 0 && ally->combat->dying == 0);
+    CHECK(menu_game.vm.seed == drawn);
+    char logged[160];
+    snprintf(logged, sizeof logged, "%s;is bandaged;", name);
+    CHECK(strcmp(script.prints, logged) == 0);
+    CHECK(menu_c->combat->initiative == 0 && script.menus == 1);
+    menu_close();
+}
+
+/* Alt-X (dqk 5045:0c5d, 52db:3feb). Without the Helm's password (game->helm false) "That doesn't
+ * work" on the bar (one draw), the turn not ended: the menu built again. With the Helm the gods
+ * (cok_combat_gods): the hostile monster (word +0x66 1) leaves the map (+0x18b 0, status word 6,
+ * size 0) and every record's turn ends, "The Gods intervene!" on the bar, and the menu is not
+ * built again. Skipped without DQKAssets/. */
+static void test_alt_x(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Alt-X not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    menu_open();
+    battle_map();
+    uint32_t drawn = menu_game.vm.seed;
+    cok_tp_random(&drawn, 1000);
+    menu_game.helm = false;
+    CHECK(menu_run("~\x2d") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "That doesn't work;") == 0);
+    CHECK(script.menus == 2 && menu_game.vm.seed == drawn && menu_c->combat->initiative == 5);
+    menu_close();
+
+    menu_open();
+    battle_map();
+    cok_character *monster = placed(&menu_game, 1);
+    place(&menu_game, monster, 9, 9);
+    uint8_t *m = monster->record;
+    uint8_t n = cok_combat_index(&menu_game.combat, m);
+    CHECK(n == 1);
+    m[0x64] = 1;   /* a status word of 1, not 6 */
+    m[0x65] = 1;   /* its high byte, which the gods' word write clears */
+    m[0x66] = 1;   /* the hostile word 1 */
+    menu_game.helm = true;
+    CHECK(menu_run("~\x2d") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, m, COK_FIELD_ACTIVE) == 0 && m[0x18b] == 0);
+    CHECK(m[0x64] == 6 && m[0x65] == 0);
+    CHECK(menu_game.combat.combatant[n].size == 0);
+    CHECK(menu_c->combat->initiative == 0 && monster->combat->initiative == 0);
+    CHECK(strcmp(script.messages, "The Gods intervene!;") == 0 && script.menus == 1);
+    menu_close();
+}
+
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
 static void test_pass_draw(void)
 {
@@ -1958,6 +2078,9 @@ int main(void)
     test_command_menu_text();
     test_command_menu_keys();
     test_command_menu_quick_speed();
+    test_arena_say();
+    test_bandage();
+    test_alt_x();
     test_pass_draw();
     test_text_delay_state();
     puts("dark queen tests passed");

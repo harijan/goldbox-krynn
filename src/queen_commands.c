@@ -141,8 +141,18 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
             queen_bar_message(game, game->combat.magic_on ? "magic on" : "magic off");
             return true;
         }
-        if (code == 0xd7)
-            return cok_adventure_not_yet(game, "Alt-X (the gods)", "dqk 52db:3feb (part 22b)");
+        if (code == 0xd7) {
+            /* 5045:0c5d, 52db:3feb: the gods answer only to the Helm's password "Gem" (eclplay's
+             * --helm); else "That doesn't work" (177e:153c, DS:58f0) and the menu again (c8c).
+             * The gods: the turn ends and the arena is centred (5837:12f5(c, 3, 0)). */
+            if (!game->helm) {
+                queen_bar_message(game, "That doesn't work");
+                return true;
+            }
+            if (!cok_combat_gods(game) || !cok_arena_turn(game, c, 3, false)) return false;
+            *done = true;
+            return true;
+        }
         return true; /* 0x12: nothing, the arena again (c8c) */
     }
     switch (item) {
@@ -182,7 +192,12 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         *done = true;
         return true;
     case ITEM_BANDAGE:
-        return cok_adventure_not_yet(game, "Bandage", "dqk 51c2:0d63 (its say 177e:156e, part 22b)");
+        /* 0adb: 51c2:0d63(1) (cok_combat_bandage: the dying member bandaged, its say), then 0b29
+         * (End), whether one was bandaged or not. */
+        (void)cok_combat_bandage(game, true);
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
     case ITEM_YELL: return cok_adventure_not_yet(game, "Yell", "dqk 148f:0005 (part 22b)");
     case ITEM_VIEW: return cok_adventure_not_yet(game, "View", "dqk 86b8:0b0c (part 22b)");
     case ITEM_SPEED:

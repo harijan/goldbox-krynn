@@ -1260,10 +1260,11 @@ def menu_screen_agrees(v, original, path, where):
             f"{count} pixels differ in {box}")
 
 
-def placement(v, work, patched, tag, where, square, r):
+def placement(v, work, patched, tag, where, square, r, entry=None):
     """eclplay's run to the first turn (5045:078b) against the original's state r: the battlefield,
     RandSeed (the original's, after the draws the battle made: the builders' and the initiative's),
-    the records, blocks, turn list, the header and the view."""
+    the records, blocks, turn list, the header and the view. ENTRY: the saved game eclplay loads
+    (saved_entry's; the plain one by default)."""
     original = r["field"]
     cells = bytes.fromhex(original["cells"])
     path = work / f"port-{tag}.field"
@@ -1275,7 +1276,7 @@ def placement(v, work, patched, tag, where, square, r):
     screen = work / f"port-{tag}.bmp" if menu is not None else None
     port_vars, port_last = port(work, patched, name=tag, typed="\\r\\r", field=path, at=square,
                                 records=records, blocks=blocks, turns=turns, screen=screen,
-                                effects=effects)
+                                effects=effects, entry=entry)
     v.check(BATTLE_STOP.fullmatch(port_last or "") is not None,
             "eclplay ends at the battle's command menu (out of keys)", port_last)
     if not path.exists():
@@ -1702,14 +1703,16 @@ def selected(box):
     return "%04x:%04x" % (box.ds_word(0xAD69), box.ds_word(0xAD67))
 
 
-def keys_original(work, patched, key, verbose):
+def keys_original(work, patched, key, verbose, tag=None, data=None):
     """The original at the first turn's menu (to_menu), the key typed there (step 4, part 22a: End,
     Guard or Delay) and the next combatant's command menu reached: 5045:08cf, trapped where the
     dispatch's copies start. The state there (`stop`, with DS:ad67 as `selected`) and the trap given
-    back, the menu drawn and waiting (`menu_screen2`), as the placement's menu."""
-    tag = f"keys{key}"
+    back, the menu drawn and waiting (`menu_screen2`), as the placement's menu. DATA, if given, is
+    the saved game the box runs (SAVGAMA.QSV; the plain one by default)."""
+    tag = tag or f"keys{key}"
+    files = L.files(patched) if data is None else {**L.files(patched), "SAVE/SAVGAMA.QSV": data}
     with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose,
-                    timeout=900, files=L.files(patched)) as box:
+                    timeout=900, files=files) as box:
         enter(box)
         box.set_seed(SEED)
         menu = to_menu(box)
@@ -1876,7 +1879,7 @@ def command_original(work, patched, flow, verbose):
                                  var12=var12(box))
             box.keys("E")
         else:
-            box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M"}[flow])
+            box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M", "AltX": "\\@X"}[flow])
         wait_trap(box, t, f"5045:{trap:04x}")
         out["stop"] = snapshot(box)
         out["stop_magic"] = box.ds_byte(MAGIC)
@@ -1894,15 +1897,15 @@ def command_original(work, patched, flow, verbose):
     return out
 
 
-def command_port(work, patched, name, typed):
-    """eclplay's run to the stop of NAME (the first turn's menu, then TYPED): its variables, its
-    last line, its text, and the files its state is read from (base: field, records, blocks,
-    turns, bmp)."""
+def command_port(work, patched, name, typed, entry=None):
+    """eclplay's run to the stop of NAME (the first turn's menu, then TYPED; ENTRY the saved game as
+    placement's): its variables, its last line, its text, and the files its state is read from
+    (base: field, records, blocks, turns, bmp)."""
     base = work / f"cmd-{name}"
     variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
-                           screen=base.with_suffix(".bmp"))
+                           screen=base.with_suffix(".bmp"), entry=entry)
     text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
     return dict(base=base, vars=variables, last=last, text=text)
 
@@ -2539,13 +2542,72 @@ def walk(v, work, opts):
             f"{walk_hex(next_seed)}")
 
 
+def alt_x_check(v, work, patched, opts):
+    """Alt-X without the Helm (dqk 5045:0c5d, 52db:3feb: the password "Gem" is not given): "That
+    doesn't work" on the bar, one draw, and the menu built again (the turn not ended)."""
+    o = command_original(work, patched, "AltX", opts.verbose)
+    p = command_port(work, patched, "AltX", "\\@X")
+    m = o["menu"]
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys) after Alt-X", p["last"])
+    v.check("message: That doesn't work" in p["text"], "eclplay says \"That doesn't work\" (the "
+            "bar message) after Alt-X", [line for line in p["text"] if line.startswith("message:")])
+    menus = sum(1 for line in p["text"] if line.startswith("menu: Aim"))
+    v.check(menus == 2, "eclplay builds the command menu again after the refusal (its built text "
+            "logged twice)", f"{menus} times")
+    draws = command_state(v, "AltX", o["stop"], p, m["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after Alt-X is one draw (the bar "
+            "message's wait, 1df9:052a)", f"{draws} draws")
+    command_screen(v, "with the command menu again after Alt-X", o["menu_again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+BANDAGE_STATUS = 0x64                   # the member's status word (+0x64), 4 once bandaged
+
+
+def bandage_check(v, work, patched, opts):
+    """Bandage (dqk 5045:0adb: 51c2:0d63(1), then End): saved game A with member 0 dying (status 5,
+    dqk_modify.modified({}, {0: {0x64: 5}})), so the first menu (TIMASALIN's) has Bandage. B is
+    typed there; the original's next combatant's menu (08cf, trapped) and eclplay's run to the same
+    menu, its first menu's text and placement, the state there (member 0 at status 4, one draw
+    past the menu for the say's wait, the records, blocks and turns), the say logged, the screen."""
+    import dqk_modify  # noqa: E402
+    qsv = dqk_modify.modified({}, {0: {BANDAGE_STATUS: 5}})
+    o = keys_original(work, patched, "B", opts.verbose, tag="bandage", data=qsv)
+    spins_at_placement(v, o["menu"])
+    placement(v, work, patched, "bandage", "the first turn's menu with member 0 dying", None,
+              o["menu"], entry=saved_entry(work, qsv))
+    text = (work / "port-bandage.txt").read_text().splitlines()
+    v.check("menu: Aim Use Guard Quick@Delay Bandage View Speed End" in text,
+            "the first menu shows Bandage (member 0 dying, not hostile)",
+            [line for line in text if line.startswith("menu:")][:1])
+    s = o["stop"]
+    status = bytes.fromhex(s["records"][0])[BANDAGE_STATUS:BANDAGE_STATUS + 2]
+    v.check(status == (4).to_bytes(2, "little"), "the original's member 0 is bandaged (status word "
+            "4) after B", status.hex())
+    p = command_port(work, patched, "bandage", "B", entry=saved_entry(work, qsv))
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the next combatant's menu (out of keys) after B", p["last"])
+    v.check("print: is bandaged" in p["text"],
+            "eclplay says \"is bandaged\" (the say, logged) after B",
+            [line for line in p["text"] if line.startswith("print:")])
+    draws = command_state(v, "bandage", s, p, o["menu"]["seed"])
+    v.check(draws == 1, "the original's RandSeed past the menu after B is one draw (the say's "
+            "wait, 1df9:052a)", f"{draws} draws")
+    command_screen(v, "with the command menu at the next combatant after B", o["menu_screen2"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
 def commands(v, work, patched, opts):
-    """The command menu's four commands (step 4, part 22b) from the first turn's menu: Quick, Alt-Q,
-    Alt-M and Speed (S, F, E), each run against eclplay's stop after its keys."""
+    """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
+    E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
+    eclplay's stop after its keys."""
     quick_check(v, work, patched, opts)
     alt_q_check(v, work, patched, opts)
     alt_m_check(v, work, patched, opts)
     speed_check(v, work, patched, opts)
+    alt_x_check(v, work, patched, opts)
+    bandage_check(v, work, patched, opts)
 
 
 def main():

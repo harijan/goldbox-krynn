@@ -237,6 +237,15 @@ typedef struct {
     /* The side panel for c (cok_arena_panel's place, which clears the due flag first), drawn by
      * the game (dqk 177e:085f). NULL: arena.c's (Champions', Death Knights'). */
     bool (*arena_panel)(cok_adventure *game, cok_character *c);
+    /* A text said by c in the battle's window (cok_arena_say's place for a game that draws its own
+     * ground, in mode 5; row is its top, 10 for the combat's text): drawn by the game (dqk
+     * 177e:156e, mode 5), waited for at the speed with wait and cleared again. NULL: cok_arena_say
+     * stops, cited. */
+    bool (*arena_say)(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
+                      bool wait);
+    /* A notice in the battle, in place of cok_camp_notice (the gods' "The Gods intervene!", dqk
+     * 177e:153c: the bar message). NULL: cok_camp_notice. */
+    void (*notice)(cok_adventure *game, const char *text);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',

@@ -900,6 +900,18 @@ bar, 3 after F and after E) and the screens: the speed bar after S and after F w
 (`dqk_views.POINTER`), the others with the menu's pointer masked. Yell, Bandage and the mouse areas have no flow
 (repo tests only).
 
+Two more runs (step 4, part 22b's leftovers; `commands` after the four above). `altx` is `command_original`'s
+Alt-X (`\@X`) trapped at `5045:0cd7`, as Alt-M: the box has no "Gem" argument, so the original answers
+"That doesn't work" (`177e:153c`, one draw), the menu is built again and its screen is the check. Eclplay's run
+says "That doesn't work", builds the menu twice and ends at the menu. The gods (with the Helm) have no run: the
+box runs without "Gem", and the repo test (`test_alt_x`) checks them. `bandage` is a run on a patched saved
+game: `dqk_modify.modified({}, {0: {0x64: 5}})` makes ROLAND (member 0) dying, so TIMASALIN's first menu has
+Bandage; B is typed there (`keys_original` with `data`, the box's `SAVE/SAVGAMA.QSV`), the original is trapped at
+the next combatant's menu (`5045:08cf`), and eclplay runs from the same saved game (`saved_entry` with the same
+bytes). Checked: the first menu's text and placement, member 0 at status word 4 at the stop, the state there
+(records, blocks, turns, RandSeed one draw past the menu: the say's wait), eclplay's "is bandaged" logged, and the
+screen at the next menu (the pointer masked). `make dqk-checks ARGS="--only dqk_fight"` runs both as the rest.
+
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):

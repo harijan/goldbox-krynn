@@ -352,15 +352,20 @@ bool cok_combat_leave(cok_adventure *game, cok_character *c, uint8_t status, con
 
 bool cok_combat_gods(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
     cok_combat *combat = &game->combat;
-    cok_camp_notice(game, "The Gods intervene!"); /* 6346:1827 */
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->notice != NULL)
+        own->notice(game, "The Gods intervene!"); /* dqk 177e:153c */
+    else
+        cok_camp_notice(game, "The Gods intervene!"); /* 6346:1827 */
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;
-        if (cok_field_u8(L, r, COK_FIELD_HOSTILE) == 1) {
+        if (cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) == 1) {
             cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
-            cok_field_set8(L, r, COK_FIELD_STATUS, 6);
+            cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 6);
             /* The occupants are not rebuilt: its cells keep its number. */
             uint8_t n = cok_combat_index(combat, r);
             if (n == 0)
