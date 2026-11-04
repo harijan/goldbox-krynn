@@ -2694,9 +2694,11 @@ def view_original(work, patched, verbose):
         box.set_seed(SEED)
         menu = to_menu(box)
         menu["menu_screen"] = box.screenshot(path=str(work / "view-menu.png"))
+        menu_redraw = box.ds_byte(0xAE27)
         box.keys("V")
         box.settled(quiet=1.0, tolerance=0)
-        out = dict(menu=menu, sheet_screen=box.screenshot(path=str(work / "view-sheet.png")))
+        out = dict(menu=menu, menu_redraw=menu_redraw,
+                   sheet_screen=box.screenshot(path=str(work / "view-sheet.png")))
         t = arm(box, menu["handle"], (0x5045, MENU_TRAP))
         box.keys("\\e")
         wait_trap(box, t, f"5045:{MENU_TRAP:04x}")
@@ -2714,8 +2716,9 @@ def view_check(v, work, patched, opts):
     """View in the battle (step 4, part 22b's leftovers; dqk 5045:0af8, 86b8:0b0c, the mode 5 tail
     86b8:0d8b-0d97): V at TIMASALIN's menu, the sheet's bar "Items Drop Exit" (no Trade in combat),
     its screen and eclplay's out of keys there; then Escape: no draw past the menu (the arena and
-    the panel again draw nothing), DS:ae27 1 (177e:1ad1), the command menu built again with its
-    screen, and the records, blocks and turns agree with eclplay's run of "V" then Escape."""
+    the panel again draw nothing), DS:ae27 1 at the menu before V and after it (177e:1ad1), the
+    command menu built again with its screen, and the records, blocks and turns agree with
+    eclplay's run of "V" then Escape."""
     o = view_original(work, patched, opts.verbose)
     p = command_port(work, patched, "view", "V")
     text = (work / "port-cmd-view.txt").read_text().splitlines()
@@ -2735,8 +2738,11 @@ def view_check(v, work, patched, opts):
     draws = command_state(v, "view", o["stop"], q, o["menu"]["seed"])
     v.check(draws == 0, "the original's RandSeed past the menu after V and Escape is 0 draws (the "
             "arena and the panel draw nothing)", f"{draws} draws")
-    v.check(o["stop_redraw"] == 1, "the original's DS:ae27 (177e:1ad1's redraw) is 1 after the "
-            "sheet's Escape", o["stop_redraw"])
+    # DS:ae27 is already 1 at the menu, so the 1 after the Escape does not show 177e:1ad1's store
+    # (test_view_combat does, from 0 to 1): both sides are recorded here.
+    v.check(o["menu_redraw"] == 1 and o["stop_redraw"] == 1, "the original's DS:ae27 (game->redraw) "
+            "is 1 at the command menu before V and after the sheet's Escape (177e:1ad1 leaves it 1)",
+            (o["menu_redraw"], o["stop_redraw"]))
     command_screen(v, "with the command menu again after V and Escape", o["menu_screen2"],
                    q["base"].with_suffix(".bmp"), MENU_POINTER)
 
