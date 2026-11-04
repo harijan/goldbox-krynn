@@ -920,6 +920,16 @@ NOMOON's) trapped. Checked: RandSeed two draws past WALKER's menu (both SHARKMEN
 and variables at the stop, and the screen once given back (the pointer masked). eclplay's run is "EEY" from the first
 menu. A failed save (its flash, a stop) and "is Unaffected" have no run: the repo tests (`test_yell`) check them.
 
+`view` (`view_check`, last in `commands`) is V at TIMASALIN's first menu (`view_original`: the menu trapped at `5045:0cd7`
+for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and
+steel, so no Trade in combat), eclplay out of keys there, and the sheet's screen agrees with the original's (its mouse
+pointer, the shield at the corner, is masked with `SHEET_POINTER`, the box the only pixels that differ). After Escape the original draws nothing
+past the menu (RandSeed unchanged, 0 draws), DS:ae27 is 1 (`177e:1ad1`), and the command menu is built again: eclplay
+builds it twice, ends out of keys there, and the records, blocks and turns agree; the screen once the trap is given back
+agrees with the pointer masked (`MENU_POINTER`). That screen having no colour difference is what leaves `5837:00e4` (the
+mode 5 tail) unported. eclplay's runs are "V" and "V\\e" from the first menu. The keys running out in the sheet,
+the weapon attacks' value and Spells have no run: the repo tests (`test_view_combat`) check them.
+
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points
 are the base 0xc0, AC 0xbb, THAC0 0x87, size 0x8a, movement 0x90, undead 0x5c, magic resistance 0xcc):

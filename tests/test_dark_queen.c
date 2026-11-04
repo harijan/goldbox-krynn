@@ -1576,6 +1576,7 @@ typedef struct {
     size_t at;
     int menus;          /* the "menu" lines logged (one per build) */
     char menu[64];      /* the last one */
+    char all[512];      /* every "menu" line, each ended with ';' */
     char messages[256]; /* the messages logged, each ended with ';' */
     char prints[128];   /* the texts said (the "print" lines), each ended with ';' */
 } menu_script;
@@ -1608,6 +1609,8 @@ static void menu_log(cok_adventure *game, const char *kind, const char *text, vo
     if (strcmp(kind, "menu") == 0) {
         ++s->menus;
         snprintf(s->menu, sizeof s->menu, "%s", text);
+        size_t used = strlen(s->all);
+        snprintf(s->all + used, sizeof s->all - used, "%s;", text);
     } else if (strcmp(kind, "message") == 0) {
         size_t used = strlen(s->messages);
         snprintf(s->messages + used, sizeof s->messages - used, "%s;", text);
@@ -1663,6 +1666,7 @@ static void menu_open(void)
     menu_c->combat->guarding = 0;
     script.menus = 0;
     script.menu[0] = '\0';
+    script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
 }
@@ -1674,6 +1678,7 @@ static bool menu_run(const char *keys)
     script.at = 0;
     script.menus = 0;
     script.menu[0] = '\0';
+    script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
     menu_game.vm.status = COK_ECL_OK;
@@ -2163,6 +2168,74 @@ static void test_yell(void)
     menu_close();
 }
 
+/* View in a battle (dqk 5045:0af8, 86b8:0b0c, the mode 5 tail 86b8:0d8b-0d97): the sheet's bar is
+ * "Items Drop Exit" for a member with items and coins (no Trade in combat); Escape leaves it, then
+ * the weapon attacks (52db:0edf), the arena again (51c2:0c94, nothing drawn), the command menu built
+ * again, the turn kept, and game->redraw set (177e:1ad1). The keys running out in the sheet end
+ * the run with the tail not run. Skipped without DQKAssets/. */
+static void view_member(void)
+{
+    menu_open();
+    battle_map();
+    menu_game.vm.mode = 5;
+    free(menu_c->items); /* one item and coins: Items and Drop on the sheet, Use on the menu */
+    menu_c->items = calloc(1, COK_ITEM_SIZE);
+    CHECK(menu_c->items != NULL);
+    menu_c->item_count = 1;
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_ITEM_COUNT, 1);
+    menu_c->record[0x4c] = 5;
+    menu_game.vm.character = menu_c->record; /* the turn's (round.c's cok_combat_turn) */
+    menu_game.redraw = false;
+}
+
+static void test_view_combat(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; View in a battle not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    static const char *const sheet = "Aim Use Guard Quick@Delay View Speed End;Items Drop Exit;";
+    char again[160];
+    snprintf(again, sizeof again, "%sAim Use Guard Quick@Delay View Speed End;", sheet);
+    view_member();
+    uint8_t *r = menu_c->record;
+    uint32_t before = menu_game.vm.seed;
+    CHECK(menu_run("V\x1b") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.all, again) == 0);
+    CHECK(menu_c->combat->initiative == 5 && menu_game.vm.seed == before);
+    CHECK(menu_game.redraw);
+    menu_close();
+
+    /* The weapon attacks run after the sheet (52db:0edf): ATTACKS_LEFT index 1 (+0xb3) was 1 and
+     * BASE_ATTACKS index 1 is 4, so it is 4 >> 1 (attacked 0) after. */
+    view_member();
+    r = menu_c->record; /* the last game's record: the previous one is closed */
+    cok_field_set8_at(L, r, COK_FIELD_BASE_ATTACKS, 1, 4);
+    cok_field_set8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    CHECK(menu_run("V\x1b") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1) == 2);
+    menu_close();
+
+    /* The keys run out at the sheet's bar: the run ends with the turn kept, no arena, no redraw. */
+    view_member();
+    before = menu_game.vm.seed;
+    CHECK(menu_run("V") && menu_game.vm.status == COK_ECL_OK && menu_game.vm.abort);
+    CHECK(strcmp(script.all, sheet) == 0);
+    CHECK(menu_c->combat->initiative == 5 && menu_game.vm.seed == before);
+    CHECK(!menu_game.redraw);
+    menu_close();
+
+    /* The sheet's Spells is a stop (dqk 849a:2080, view_character's routine), with a memorised
+     * spell (+0xce). */
+    menu_open();
+    menu_game.vm.character = menu_c->record;
+    menu_c->record[0xce] = 1;
+    CHECK(!menu_run("VS") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "849a:2080") != NULL);
+    menu_close();
+}
+
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
 static void test_pass_draw(void)
 {
@@ -2217,6 +2290,7 @@ int main(void)
     test_bandage();
     test_alt_x();
     test_yell();
+    test_view_combat();
     test_pass_draw();
     test_text_delay_state();
     puts("dark queen tests passed");

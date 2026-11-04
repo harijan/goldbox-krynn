@@ -118,8 +118,8 @@ static void quick_all(cok_adventure *game, cok_character *c)
 }
 
 /* The turn's command routine by its item (08cf's table at 0925's jump table). done is set
- * where the turn ends; out is set where the keys ran out in the middle of a command (Speed); the
- * stops are cited (part numbers for the ones still to port). */
+ * where the turn ends; out is set where the keys ran out in the middle of a command (Speed, View);
+ * the stops are cited (part numbers for the ones still to port). */
 static bool command(cok_adventure *game, cok_character *c, int item, int code, bool *done,
                     bool *out)
 {
@@ -206,7 +206,21 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         cok_combat_end_turn(c);
         *done = true;
         return true;
-    case ITEM_VIEW: return cok_adventure_not_yet(game, "View", "dqk 86b8:0b0c (part 22b)");
+    case ITEM_VIEW: {
+        /* 5045:0af8: 86b8:0b0c(&done) (queen_view_combat: the sheet, then its mode 5 tail), then
+         * 52db:0edf(c) (cok_combat_weapon_attacks), then 51c2:0c94 (cok_arena_redraw) unless done;
+         * the turn goes on (c8c). The original's 52db:0edf also stores DS:b7f5 = 0, read only by
+         * effect 0xb2's handler (7e76:0dc6, COK_FX_MISSING here): nothing is lost by not storing it. */
+        bool viewed;
+        if (!queen_view_combat(game, &viewed)) return false;
+        if (game->vm.abort) {
+            *out = true; /* the keys ran out in the sheet: the turn not ended, no tail */
+            return true;
+        }
+        if (!cok_combat_weapon_attacks(game, c)) return false;
+        *done = viewed;
+        return viewed || cok_arena_redraw(game);
+    }
     case ITEM_SPEED:
         /* 166c: the speed menu (queen_speed); the turn goes on (c8c). */
         *out = !queen_speed(game);

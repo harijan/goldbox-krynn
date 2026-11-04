@@ -2131,6 +2131,7 @@ static bool screen_as_it_was(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     queen *q = own(game);
+    game->redraw = true; /* 177e:1ad1's first store, DS:ae27 (no reader of it here) */
     switch (vm->mode) {
     case 0:
         full_window(game);
@@ -3465,7 +3466,7 @@ static bool view_character(cok_adventure *game)
             queen_sheet_coins(game, member);
             continue;
         }
-        static const char *const routines[] = {"dqk 86b8:0f41", "dqk 7a87:10cb",
+        static const char *const routines[] = {"dqk 86b8:0f41", "dqk 849a:2080",
                                                "dqk 86b8:286a", "dqk 86b8:2c32",
                                                "dqk 86b8:2c32", "dqk 86b8:3200",
                                                "dqk 86b8:3319"};
@@ -3474,6 +3475,20 @@ static bool view_character(cok_adventure *game)
         cok_adventure_not_yet(game, what, routines[k]);
         return false;
     }
+}
+
+/* View in a battle (dqk 5045:0af8's 86b8:0b0c(&done), then 86b8:0d8b-0d97). The sheet and its menu
+ * are view_character's: Items, Drop and Exit in combat (no Trade), the Use of Items a stop. Only
+ * Use writes done (86b8:2175, a stop here), so done is false where this returns. The mode 5 tail
+ * is 86b8:0d92's 5837:00e4 (19a4:0630, DS:c5d4: the combat icons' page and palette made current
+ * again), not ported: combat_screen says why; then 177e:1ad1 (screen_as_it_was), which draws
+ * nothing in mode 5. False where the run stopped; true, with vm.abort set, where the keys ran out
+ * in the sheet (the turn is not ended and the tail is not run). */
+bool queen_view_combat(cok_adventure *game, bool *done)
+{
+    *done = false;
+    if (!view_character(game)) return game->vm.abort && game->vm.status == COK_ECL_OK;
+    return screen_as_it_was(game);
 }
 
 /* The save path (604b:0073 and 000e with DS:ace0 0, DQK.CFG's: the

@@ -2678,10 +2678,73 @@ def yell_check(v, work, patched, opts):
                    base.with_suffix(".bmp"), MENU_POINTER)
 
 
+VIEW_SHEET = "menu: Items Drop Exit"    # the sheet's bar for TIMASALIN (items, steel; no Trade)
+SHEET_POINTER = (2, 2, 14, 15, "the mouse pointer on the sheet (the shield at the corner)")
+
+
+def view_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu), V typed there (TIMASALIN's View): the sheet
+    once settled, its bar's keys run out there. Then the command menu's build (5045:0cd7) trapped,
+    Escape typed on the sheet: the sheet's tail (5837:00e4, 177e:1ad1 with DS:ae27), the arena and
+    the panel again, and the menu built again. The state there, DS:ae27, and the screen once the
+    trap is given back."""
+    with cokbox.Box(workdir=work / "box-view", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / "view-menu.png"))
+        box.keys("V")
+        box.settled(quiet=1.0, tolerance=0)
+        out = dict(menu=menu, sheet_screen=box.screenshot(path=str(work / "view-sheet.png")))
+        t = arm(box, menu["handle"], (0x5045, MENU_TRAP))
+        box.keys("\\e")
+        wait_trap(box, t, f"5045:{MENU_TRAP:04x}")
+        out["stop"] = snapshot(box)
+        out["stop"].update(tail_state(box), selected=selected(box))
+        out["stop_redraw"] = box.ds_byte(0xAE27)
+        out["stop_screen"] = box.screenshot(path=str(work / "view-stop.png"))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        out["menu_screen2"] = box.screenshot(path=str(work / "view-menu2.png"))
+    return out
+
+
+def view_check(v, work, patched, opts):
+    """View in the battle (step 4, part 22b's leftovers; dqk 5045:0af8, 86b8:0b0c, the mode 5 tail
+    86b8:0d8b-0d97): V at TIMASALIN's menu, the sheet's bar "Items Drop Exit" (no Trade in combat),
+    its screen and eclplay's out of keys there; then Escape: no draw past the menu (the arena and
+    the panel again draw nothing), DS:ae27 1 (177e:1ad1), the command menu built again with its
+    screen, and the records, blocks and turns agree with eclplay's run of "V" then Escape."""
+    o = view_original(work, patched, opts.verbose)
+    p = command_port(work, patched, "view", "V")
+    text = (work / "port-cmd-view.txt").read_text().splitlines()
+    v.check(VIEW_SHEET in text, "eclplay's sheet's bar after V is \"Items Drop Exit\"",
+            [line for line in text if line.startswith("menu:")][-1:])
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay runs out of keys at the sheet's bar after V", p["last"])
+    command_screen(v, "with the sheet after V", o["sheet_screen"], p["base"].with_suffix(".bmp"),
+                   SHEET_POINTER)
+    q = command_port(work, patched, "view-esc", "V\\e")
+    text = (work / "port-cmd-view-esc.txt").read_text().splitlines()
+    menus = sum(1 for line in text if line.startswith("menu: Aim"))
+    v.check(menus == 2, "eclplay builds the command menu again after the sheet's Escape (its built "
+            "text logged twice)", f"{menus} times")
+    v.check(BATTLE_STOP.fullmatch(q["last"] or "") is not None,
+            "eclplay ends at the command menu (out of keys) after V and Escape", q["last"])
+    draws = command_state(v, "view", o["stop"], q, o["menu"]["seed"])
+    v.check(draws == 0, "the original's RandSeed past the menu after V and Escape is 0 draws (the "
+            "arena and the panel draw nothing)", f"{draws} draws")
+    v.check(o["stop_redraw"] == 1, "the original's DS:ae27 (177e:1ad1's redraw) is 1 after the "
+            "sheet's Escape", o["stop_redraw"])
+    command_screen(v, "with the command menu again after V and Escape", o["menu_screen2"],
+                   q["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
-    eclplay's stop after its keys."""
+    eclplay's stop after its keys; Yell and View (the same leftovers) last."""
     quick_check(v, work, patched, opts)
     alt_q_check(v, work, patched, opts)
     alt_m_check(v, work, patched, opts)
@@ -2689,6 +2752,7 @@ def commands(v, work, patched, opts):
     alt_x_check(v, work, patched, opts)
     bandage_check(v, work, patched, opts)
     yell_check(v, work, patched, opts)
+    view_check(v, work, patched, opts)
 
 
 def main():
