@@ -164,6 +164,47 @@ static void test_combat_records(void)
     cok_party_free(&game.party);
 }
 
+/* The aging report (dqk 5045:012f, the battle's end: rounds()'s aging_unported) is a cited stop
+ * when effects.aging is set (the year's pass_time, 1396:0368), and the battle goes on past it when
+ * not. The battle is over before its first round (COK_COMBAT_WON), so the stop is the one after
+ * the loop; the battle's end (cok_combat_end) is run only when the report is not due. */
+static void test_aging(void)
+{
+    for (int aged = 0; aged < 2; ++aged) {
+        cok_party_free(&game.party);
+        log_text[0] = '\0';
+        game.vm.status = COK_ECL_OK;
+        game.vm.abort = false;
+        game.error[0] = '\0';
+        game.combat_stub = COK_COMBAT_WON;
+        game.effects.aging = aged != 0;
+        /* A 3D area's battle ground: DUNGCOM's set 4 (test_dark_queen's arena_tiles). */
+        cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+        game.wall_ids[0] = 4;
+        /* Active (+0x18b 1): a record not active is a body, placed on its cell (1c0d). */
+        const cok_character_layout *L = R->character;
+        cok_field_set8(L, record('A', 0, 0)->record, COK_FIELD_ACTIVE, 1);
+        cok_field_set8(L, record('B', 0, 0)->record, COK_FIELD_ACTIVE, 1);
+        bool ok = cok_combat_battle(&game);
+        if (aged) {
+            CHECK(!ok && game.vm.status == COK_ECL_UNPORTED);
+            CHECK(strstr(game.error, "the aging report") != NULL &&
+                  strstr(game.error, "dqk 5045:012f") != NULL);
+            CHECK(strstr(log_text, "combat: won;") != NULL);
+        } else {
+            CHECK(ok && game.vm.status == COK_ECL_OK && game.error[0] == '\0');
+            CHECK(strstr(log_text, "combat: won;") != NULL);
+        }
+    }
+    game.effects.aging = false;
+    game.wall_ids[0] = 0;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    game.combat_stub = COK_COMBAT_UNPORTED;
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    cok_party_free(&game.party);
+}
+
 int main(void)
 {
     struct stat st;
@@ -177,6 +218,7 @@ int main(void)
     test_leadership();
     test_fled();
     test_combat_records();
+    test_aging();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
