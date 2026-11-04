@@ -47,6 +47,7 @@ DS_SEED = 0xCA0E
 DS_ENTRY, DS_WORD, DS_ANSWER, DS_TYPED = 0xC74C, 0xC74D, 0xC6F9, 0xC723
 DS_ASKED = 0xC722
 DS_VARS = 0xB20F                        # the block variables' far pointer (dqk_ecl.DS_VARS)
+DS_MAIN_TIMEOUT = 0xC5CE                # main's menu's timeout: 0 through the title (5ebd:01c5)
 
 
 def need_assets():
@@ -64,6 +65,21 @@ def far(box, off):
     """The far pointer at DS:OFF as (segment, offset), None if nil."""
     o, s = struct.unpack("<HH", box.ds_read(off, 4))
     return None if o == s == 0 else (s, o)
+
+
+def escape_title(box):
+    """Escape at the title, confirmed: main's menu is reached once DS:c5ce is set (5ebd:01c5's
+    7000, after the title's loop 6523:0345 returns; 0 through the title). Between two scenes
+    the screen is still too, and a key typed there is lost: each scene's wait (6523:000c) drops
+    the keys waiting as it starts (2093:0130) and flushes as it ends (2102:00c4), its time run
+    out. The title then goes on, the next key ends it (any but Escape and Space) and the keys
+    after it fall on main's menu. Escape again, then BoxError."""
+    for _ in range(3):
+        box.keys("\\e")
+        box.settled(tolerance=64)
+        if box.ds_word(DS_MAIN_TIMEOUT) != 0:
+            return
+    raise cokbox.BoxError("the title did not end at Escape (DS:c5ce 0), Escape typed three times")
 
 
 def saved_game_loaded(box):

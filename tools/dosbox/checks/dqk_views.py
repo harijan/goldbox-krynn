@@ -242,7 +242,7 @@ def main():
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
+        dqk_lib.escape_title(box)
         begin(box, out, verdict)
         box.keys(AREAS[1]["key"])
         loop(box, work, out, verdict, memory, AREAS[1], "hizd")

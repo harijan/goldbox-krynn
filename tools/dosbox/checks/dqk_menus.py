@@ -106,8 +106,7 @@ def main():
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
+        dqk_lib.escape_title(box)
         freeze_cycles(box)
         steps = [("main's menu", None, 1), ("the camp's menu", "p", 2),
                  ("Load's \"load from where?\"", "l", 3), ("the camp after Escape", "\\e", 4),
@@ -151,8 +150,7 @@ def main():
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
+        dqk_lib.escape_title(box)
         freeze_cycles(box)
         dqk_lib.load_saved_game(box)
         variables = box.far(box.ds * 16 + DS_VARS)

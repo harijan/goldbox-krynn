@@ -270,7 +270,8 @@ def run_case(case, opts, work, verdict):
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        for key in ("\\e", "P", "C"):
+        dqk_lib.escape_title(box)
+        for key in ("P", "C"):
             box.keys(key)
             box.settled(tolerance=64)
         box.ds_write(0xCA0E, seeds[0])

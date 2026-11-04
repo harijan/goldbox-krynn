@@ -82,8 +82,7 @@ def main():
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
+        dqk_lib.escape_title(box)
         dqk_train.freeze_cycles(box)
         for key in "PLTAsa":
             box.keys(key)

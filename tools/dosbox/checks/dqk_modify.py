@@ -203,7 +203,7 @@ SCENARIOS = [
 ]
 
 
-def port_run(work, name, keys, qsv, saves):
+def port_run(work, name, keys, qsv, saves, written=None):
     shots = work / name
     if shots.exists():
         shutil.rmtree(shots)
@@ -212,6 +212,8 @@ def port_run(work, name, keys, qsv, saves):
     shutil.copytree(dqk_lib.ASSETS / "SAVE", saves)
     if qsv is not None:
         (saves / "SAVGAMA.QSV").write_bytes(qsv)
+    if written:  # the stock copy would pass for a run that did not write it
+        (saves / f"{written}.QCH").unlink(missing_ok=True)
     args = [str(cokbox.ECLPLAY), *GAME, "--mouse", "--shots", str(shots), "--start-menu",
             "--saves", str(saves), "--keys", "\\k\\e" + keys, str(dqk_lib.ASSETS)]
     result = subprocess.run(args, capture_output=True, text=True, cwd=ROOT, timeout=300)
@@ -280,7 +282,7 @@ def run_scenario(opts, work, verdict, name, qsv, steps, written):
     masks = [CURSOR]
     steps = [("loaded", "PLTA")] + steps
     keys = "".join(k for _, k in steps)
-    shots, log = port_run(work, name, keys, qsv, work / f"port-saves-{name}")
+    shots, log = port_run(work, name, keys, qsv, work / f"port-saves-{name}", written)
     saves = []
     if qsv is not None:
         folder = work / f"saves-{name}"
@@ -291,13 +293,14 @@ def run_scenario(opts, work, verdict, name, qsv, steps, written):
     conf = {"sdl.mouse_emulation": "always"} if name == "mouse" else {}
     with cokbox.Box(workdir=work / f"box-{name}", game="dark-queen", verbose=opts.verbose,
                     saves=saves, extra_conf=conf, timeout=900) as box:
+        if written:  # the box's copy of the stock file: "wrote" must mean this run
+            (box.game / "SAVE" / f"{written}.QCH").unlink(missing_ok=True)
         for _ in range(600):
             shot = box.screenshot()
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
+        dqk_lib.escape_title(box)
         freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
         if box.read(freeze, 1) != b"\x55":
             raise cokbox.BoxError("261b:05be is not where it was expected")

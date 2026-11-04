@@ -426,8 +426,7 @@ def enter_block(box):
     the PRESS KEY, the seed not yet set. Returns the address of the block
     variables (DS:b20f)."""
     wait_screen(box)
-    box.keys("\\e")
-    box.settled(tolerance=64)
+    dqk_lib.escape_title(box)
     freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
     if box.read(freeze, 1) != b"\x55":
         raise cokbox.BoxError("261b:05be is not where it was expected")

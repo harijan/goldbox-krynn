@@ -207,8 +207,7 @@ def main():
             if (shot.width, shot.height) == (320, 200) and len(shot.colours()) >= 8:
                 break
             box.settle(0.1)
-        box.keys("\\e")
-        box.settled(tolerance=64)
+        dqk_lib.escape_title(box)
         freeze = (box.ds - 0x422E + 0x261B) * 16 + 0x05BE  # dqk_menus' freeze_cycles
         if box.read(freeze, 1) != b"\x55":
             raise cokbox.BoxError("261b:05be is not where it was expected")
