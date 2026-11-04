@@ -2231,13 +2231,19 @@ static void member_key(cok_adventure *game, int key)
 /* The selected member's name line and the text under it (177e:156e, the camp's shape:
  * 177e:1665's window cleared from row 17, the name on 18, the text on 19 in colour 7).
  * The Dark Queen camp is never resting, so the window starts at row 17. A NULL member
- * gives the text alone (its name line is skipped). */
+ * gives the text alone (its name line is skipped). The text's window is cleared and its cursor
+ * homed (1a62:0311's bp+0x12 is 1 at 177e:1631). */
 static void member_say(cok_adventure *game, const uint8_t *c, const char *text)
 {
     clear_cells(game, 1, 0x11, 0x26, 0x16);
     size_t i = cok_party_index(&game->party, c);
     if (i < game->party.count) queen_name_line(game, game->party.members[i], 1, 0x12, false);
-    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, false);
+    print_window(game, text, 1, 0x13, 0x26, 0x16, 7, true);
+}
+
+void cok_dark_queen_member_say_for_test(cok_adventure *game, const uint8_t *c, const char *text)
+{
+    member_say(game, c, text);
 }
 
 /* Set the speed: the variable 0x12 the Speed menu reads and the text's delay reads
@@ -3808,7 +3814,7 @@ static void bar_message(cok_adventure *game, const char *s)
 /* A text said in the battle by c in the window at row (177e:156e in mode 5, the say's branch
  * for the battle; the camp's is member_say's): the window cleared from row, c's name on it
  * (177e:1697, light or dark by its state), the text under it in grey from row + 1 (1a62:0311,
- * clear off), then with wait the speed's time (1a62:0960) and the window cleared again from
+ * clear on: its bp+0x12 is 1, so the cursor is homed at x 0x17), then with wait the speed's time (1a62:0960) and the window cleared again from
  * row 10 (177e:1665). The text is logged as the say's are (the name, then the text). c NULL:
  * no name. */
 static bool arena_say(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
@@ -3822,7 +3828,7 @@ static bool arena_say(cok_adventure *game, cok_character *c, const char *text, u
         cok_adventure_log(game, "print", name);
     }
     cok_adventure_log(game, "print", text);
-    if (!print_window(game, text, 0x17, row + 1, 0x26, 0x15, 7, false)) return false;
+    if (!print_window(game, text, 0x17, row + 1, 0x26, 0x15, 7, true)) return false;
     if (!wait) return true;
     speed_pass(game);
     clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
