@@ -937,7 +937,7 @@ ported: ... Move with a direction key (dqk 5045:1099 ...)" after logging the cod
 for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and
 steel, so no Trade in combat), eclplay out of keys there, and the sheet's screen agrees with the original's (its mouse
 pointer, the shield at the corner, is masked with `SHEET_POINTER`, the box the only pixels that differ). After Escape the original draws nothing
-past the menu (RandSeed unchanged, 0 draws), DS:ae27 is 1 (`177e:1ad1`), and the command menu is built again: eclplay
+past the menu (RandSeed unchanged, 0 draws), DS:ae27 is 1 at the menu before V and after the Escape (`177e:1ad1`; already 1 at the menu, so this does not show the store), and the command menu is built again: eclplay
 builds it twice, ends out of keys there, and the records, blocks and turns agree; the screen once the trap is given back
 agrees with the pointer masked (`MENU_POINTER`). That screen having no colour difference is what leaves `5837:00e4` (the
 mode 5 tail) unported. eclplay's runs are "V" and "V\\e" from the first menu. The keys running out in the sheet,

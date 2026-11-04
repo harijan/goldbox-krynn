@@ -88,8 +88,9 @@ void queen_combat_menu_close(cok_adventure *game);
  * Exit, until Exit or Escape. False where the keys ran out. */
 bool queen_speed(cok_adventure *game);
 /* View in a battle (dqk 5045:0af8: 86b8:0b0c(&done), then the mode 5 tail): the sheet and its menu,
- * as the camp's View. done is written only by Use (a stop here), so it is false. False where the run
- * stopped; true, with vm.abort set, where the keys ran out. */
+ * as the camp's View. done is set where Items ends the turn (a readied item of 0x8c, 86b8:16bc),
+ * else false (Use, the other writer, is a stop here). False where the run stopped; true, with
+ * vm.abort set, where the keys ran out. */
 bool queen_view_combat(cok_adventure *game, bool *done);
 /* queen_bar_menu with areas of the screen after its buttons (1bdb:1429): a
  * click on one gives QUEEN_AREA + its index. */

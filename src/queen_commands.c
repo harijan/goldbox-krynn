@@ -220,7 +220,8 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         /* 5045:0af8: 86b8:0b0c(&done) (queen_view_combat: the sheet, then its mode 5 tail), then
          * 52db:0edf(c) (cok_combat_weapon_attacks), then 51c2:0c94 (cok_arena_redraw) unless done;
          * the turn goes on (c8c). The original's 52db:0edf also stores DS:b7f5 = 0, read only by
-         * effect 0xb2's handler (7e76:0dc6, COK_FX_MISSING here): nothing is lost by not storing it. */
+         * effect 0xb2's handler (7e76:0dc6, COK_FX_MISSING here): nothing is lost by not storing it.
+         * done (Items ended the turn) leaves the loop with no menu again, as the original's. */
         bool viewed;
         if (!queen_view_combat(game, &viewed)) return false;
         if (game->vm.abort) {

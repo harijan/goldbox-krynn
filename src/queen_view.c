@@ -317,7 +317,16 @@ static bool trade_item(cok_adventure *game, cok_character *character, size_t ind
     return stats(game, to);
 }
 
-bool queen_view_items(cok_adventure *game, cok_character *character)
+bool queen_readied_8c(const cok_character *character)
+{
+    for (size_t i = 0; i < character->item_count; ++i) {
+        const uint8_t *item = character->items[i];
+        if (item[0x37] == 0x8c && item[ITEM_READIED] != 0) return true;
+    }
+    return false;
+}
+
+bool queen_view_items(cok_adventure *game, cok_character *character, bool *done)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
@@ -439,6 +448,12 @@ bool queen_view_items(cok_adventure *game, cok_character *character)
         default: break;
         }
         if (!ok || !stats(game, character)) return false;
+        /* 86b8:16bc: in a battle a readied item of 0x8c ends the menu after any choice, Exit too,
+         * with done set (86b8:16d1): the turn is over, the sheet is not drawn again. */
+        if (done != NULL && vm->mode == 5 && queen_readied_8c(character)) {
+            *done = true;
+            break;
+        }
     } while (choice != B_EXIT);
     return true;
 }

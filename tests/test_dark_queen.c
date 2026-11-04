@@ -2317,6 +2317,15 @@ static void test_view_combat(void)
     CHECK(!menu_game.redraw);
     menu_close();
 
+    /* A former paladin (+0xaf) in a battle: View does not stop at the former paladin's rule
+     * (177e:21bd), since 314e and 31af give Lay and Cure 0 in mode 5 whatever it says. */
+    view_member();
+    menu_c->record[0xaf] = 1;
+    CHECK(menu_run("V\x1b") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.all, again) == 0);
+    CHECK(menu_c->combat->initiative == 5);
+    menu_close();
+
     /* The sheet's Spells is a stop (dqk 849a:2080, view_character's routine), with a memorised
      * spell (+0xce). */
     menu_open();
@@ -2325,6 +2334,52 @@ static void test_view_combat(void)
     CHECK(!menu_run("VS") && menu_game.vm.status == COK_ECL_UNPORTED);
     CHECK(strstr(menu_game.error, "849a:2080") != NULL);
     menu_close();
+}
+
+/* View's Items in a battle (dqk 86b8:16bc): a readied item of type 0x8c (+0x37, +0x32 set) ends the
+ * Items menu after any choice, Exit too, with done set (86b8:16d1): the turn is over, so the sheet
+ * is not drawn again and the command menu is not built again; the weapon attacks still run
+ * (5045:0af8's 52db:0edf). Not readied, or another type, Exit gives the sheet again, and Escape the
+ * turn's tail with the menu built again. Skipped without DQKAssets/. */
+static void test_view_items_combat(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; View's Items in a battle not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    static const char *const sheet = "Aim Use Guard Quick@Delay View Speed End;Items Drop Exit;";
+    static const char *const items = "Rdy Use Drop Halve Join Exit;"; /* 86b8:0f41's mode 5 menu */
+    static const char *const again = "Aim Use Guard Quick@Delay View Speed End;";
+    char want[512];
+
+    /* A readied 0x8c ends the turn: VIE (View, Items, Exit). The keys are all used, the turn kept
+     * (initiative 5, no End), the weapon attacks run (ATTACKS_LEFT index 1, 1 to 2). */
+    view_member();
+    menu_c->items[0][0x37] = 0x8c;
+    menu_c->items[0][0x32] = 1;
+    uint8_t *r = menu_c->record;
+    cok_field_set8_at(L, r, COK_FIELD_BASE_ATTACKS, 1, 4);
+    cok_field_set8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    CHECK(menu_run("VIE") && menu_game.vm.status == COK_ECL_OK && !menu_game.vm.abort);
+    snprintf(want, sizeof want, "%s%s", sheet, items);
+    CHECK(strcmp(script.all, want) == 0);
+    CHECK(menu_c->combat->initiative == 5);
+    CHECK(cok_field_u8_at(L, r, COK_FIELD_ATTACKS_LEFT, 1) == 2);
+    menu_close();
+
+    /* Without it (0x8c not readied, then another readied type): Exit gives the sheet again, Escape
+     * the tail and the command menu built again, where the keys run out. */
+    for (int k = 0; k < 2; ++k) {
+        view_member();
+        menu_c->items[0][0x37] = k == 0 ? 0x8c : 0x10;
+        menu_c->items[0][0x32] = k == 0 ? 0 : 1;
+        CHECK(menu_run("VIE\x1b") && menu_game.vm.status == COK_ECL_OK);
+        snprintf(want, sizeof want, "%s%sItems Drop Exit;%s", sheet, items, again);
+        CHECK(strcmp(script.all, want) == 0);
+        CHECK(menu_c->combat->initiative == 5);
+        menu_close();
+    }
 }
 
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
@@ -2383,6 +2438,7 @@ int main(void)
     test_alt_x();
     test_yell();
     test_view_combat();
+    test_view_items_combat();
     test_pass_draw();
     test_text_delay_state();
     puts("dark queen tests passed");

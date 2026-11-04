@@ -2100,7 +2100,7 @@ static bool pass_time(cok_adventure *game, unsigned count, unsigned unit);
 static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin);
 static void party_list(cok_adventure *game);
 static void status_line(cok_adventure *game);
-static bool view_character(cok_adventure *game);
+static bool view_character(cok_adventure *game, bool *done);
 static bool save_game(cok_adventure *game);
 static void say(cok_adventure *game, int x, int y, const char *s, unsigned fg);
 static cok_ecl_status encamp(cok_adventure *game);
@@ -2522,7 +2522,7 @@ static bool encamp_menu(cok_adventure *game)
         if (k == ENCAMP_EXIT) break;
         switch (k) {
         case ENCAMP_VIEW:
-            if (!view_character(game)) return false;
+            if (!view_character(game, NULL)) return false;
             encamp_screen(game); /* 86b8:0d97: the screen as it was (177e:1ad1), mode 2 */
             break;
         case ENCAMP_LOAD:
@@ -3391,10 +3391,12 @@ void queen_party_list(cok_adventure *game, const uint8_t *selected)
  * may not, Deposit with coins in the vault (mode 10), Drop with coins
  * elsewhere, Lay and Cure for a paladin who may (86b8:314e, 31af: +0x5a 3,
  * not in combat, status 0, Lay without effect 0x8c, Cure with +0x88 left;
- * a former paladin's, 177e:21bd, not ported), Exit always); Exit or
- * Escape leaves it; the others are not ported yet (the run stops).
- * False where the run stopped. */
-static bool view_character(cok_adventure *game)
+ * a former paladin's, 177e:21bd, not ported outside a battle (in one 314e and 31af give 0
+ * whatever 21bd says)), Exit always); Exit or Escape leaves it; the others are not ported yet
+ * (the run stops).
+ * done (NULL outside a battle) is set where Items ends the turn (queen_view_items), and the
+ * sheet is then not drawn again. False where the run stopped. */
+static bool view_character(cok_adventure *game, bool *done)
 {
     cok_ecl *vm = &game->vm;
     const uint8_t *c = vm->character;
@@ -3413,7 +3415,8 @@ static bool view_character(cok_adventure *game)
             if (rec16(c, 0x4c + 2 * k) > 0) coins = true;
         bool items = member->item_count > 0;
         bool paladin = rec16(c, 0x5a) == 3;
-        if (!paladin && c[0xaf] > 0) {
+        /* In a battle (mode 5) 21bd does not matter: 314e and 31af give 0 there either way. */
+        if (!paladin && c[0xaf] > 0 && vm->mode != 5) {
             cok_adventure_not_yet(game, "a former paladin's Lay and Cure", "dqk 177e:21bd");
             return false;
         }
@@ -3448,7 +3451,8 @@ static bool view_character(cok_adventure *game)
         log_choice(game, k);
         if (k == 7) return true;
         if (k == 0) {
-            if (!queen_view_items(game, member)) return false;
+            if (!queen_view_items(game, member, done)) return false;
+            if (done != NULL && *done) return true; /* 0b0c's d66 and d79: no sheet again */
             if (!queen_sheet(game, member)) return false;
             continue;
         }
@@ -3478,16 +3482,18 @@ static bool view_character(cok_adventure *game)
 }
 
 /* View in a battle (dqk 5045:0af8's 86b8:0b0c(&done), then 86b8:0d8b-0d97). The sheet and its menu
- * are view_character's: Items, Drop and Exit in combat (no Trade), the Use of Items a stop. Only
- * Use writes done (86b8:2175, a stop here), so done is false where this returns. The mode 5 tail
+ * are view_character's: Items, Drop and Exit in combat (no Trade), the Use of Items a stop. done is
+ * set by Items where a readied item of 0x8c is held (86b8:16bc: the turn is over, no sheet, no
+ * arena again); Use is the other writer in a battle, a stop here (86b8:2175). The mode 5 tail
  * is 86b8:0d92's 5837:00e4 (19a4:0630, DS:c5d4: the combat icons' page and palette made current
- * again), not ported: combat_screen says why; then 177e:1ad1 (screen_as_it_was), which draws
- * nothing in mode 5. False where the run stopped; true, with vm.abort set, where the keys ran out
- * in the sheet (the turn is not ended and the tail is not run). */
+ * again), not ported: combat_screen says why; then 177e:1ad1
+ * (screen_as_it_was), which draws nothing in mode 5. False where the run stopped; true, with
+ * vm.abort set, where the keys ran out in the sheet (the turn is not ended and the tail is not
+ * run). */
 bool queen_view_combat(cok_adventure *game, bool *done)
 {
     *done = false;
-    if (!view_character(game)) return game->vm.abort && game->vm.status == COK_ECL_OK;
+    if (!view_character(game, done)) return game->vm.abort && game->vm.status == COK_ECL_OK;
     return screen_as_it_was(game);
 }
 
@@ -4450,7 +4456,7 @@ static cok_ecl_status camp(cok_adventure *game, bool from_main, bool *begin)
             break;
         }
         case CAMP_VIEW:
-            if (!view_character(game)) return vm->status;
+            if (!view_character(game, NULL)) return vm->status;
             break;
         case CAMP_ADD:
             if (!add_character(game)) return vm->status;
@@ -4840,7 +4846,7 @@ static int commands(cok_adventure *game)
         case 2: cok_adventure_not_yet(game, "Cast", "dqk 6070:0688"); return -1;
         case 3:
             /* 2d99:0fef, then the screen as it was (177e:1ad1). */
-            if (!view_character(game)) return -1;
+            if (!view_character(game, NULL)) return -1;
             adventure_screen(game);
             party_list(game);
             status_line(game);
@@ -5544,8 +5550,8 @@ static bool heal(cok_adventure *game)
 
 /* Stone to Flesh (dqk 7825:0524): a member not stoned (status not 7) is asked "cast cure anyway? "
  * after "is not stoned." (0001: 177e:156e, 1bdb:0424), and nothing changes whatever the answer.
- * A stoned member with a readied item of type 0x8c (+0x37, 0x32 set; 177e:1389) is told "spell
- * dosn't work!" (no name line) and stays stoned. Otherwise its status is 0, it is active and has
+ * A stoned member with a readied item of type 0x8c (+0x37, 0x32 set; 177e:1389, queen_readied_8c)
+ * is told "spell dosn't work!" (no name line) and stays stoned. Otherwise its status is 0, it is active and has
  * 1 hit point. No money is taken. False where the keys ran out. */
 static bool stone_to_flesh(cok_adventure *game, cok_character *who)
 {
@@ -5557,12 +5563,9 @@ static bool stone_to_flesh(cok_adventure *game, cok_character *who)
         clear_cells(game, 1, 0x12, 0x26, 0x16); /* 0001's 177e:1665 (mode 1): rows 18-22 */
         return answer >= 0;
     }
-    for (size_t i = 0; i < who->item_count; ++i) {
-        const uint8_t *item = who->items[i];
-        if (item[0x37] == 0x8c && item[0x32] != 0) {
-            member_say(game, NULL, "spell dosn't work!");
-            return true;
-        }
+    if (queen_readied_8c(who)) {
+        member_say(game, NULL, "spell dosn't work!");
+        return true;
     }
     cok_field_set8(L, c, COK_FIELD_STATUS, 0);
     c[0x65] = 0; /* 7825:0588's movw: the status is a word, +0x64 and +0x65 */
@@ -6203,7 +6206,7 @@ static bool treasure_menu(cok_adventure *game)
         switch (code) {
         case TM_VIEW:
             /* 10a7: 2d99:0fef (86b8:0b0c), then 177e:1ad1 (86b8:0d97) */
-            if (!view_character(game)) return false;
+            if (!view_character(game, NULL)) return false;
             if (!screen_as_it_was(game)) return false;
             break;
         case TM_TAKE: /* 10b6: 75cc:0d01 */
@@ -6423,7 +6426,7 @@ void cok_dark_queen_temple(cok_adventure *game)
         case TEMPLE_VIEW:
             /* The sheet leaves the screen as it was (the original's: the adventure's
              * screen by the mode, 177e:1ad1, as the adventure's View does after 2d99:0fef). */
-            if (!view_character(game)) return;
+            if (!view_character(game, NULL)) return;
             cok_adventure_redraw(game);
             break;
         case TEMPLE_REPAIR:
