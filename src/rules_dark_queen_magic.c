@@ -593,7 +593,8 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
 };
 
 /* The effect ids the code names (spells.h). Each is the id the original's routine tests:
- * CHARMED and BERSERK by the battle's end (5045:0001 and 1b66's test), INVISIBLE by the attack.
+ * CHARMED and BERSERK by the battle's end (5045:0001 and 1b66's test), INVISIBLE by the attack,
+ * YELLED_AT by a yell (148f:0005's add; View's Lay tests it too, 86b8:314e: that routine stops).
  * Every other name is 0 (the game has none under it yet, read as false by cok_effect_is and
  * cok_character_find_named; cok_effect_id asserts), so a routine that finds one of those names
  * must be ported with its id first (dqk-effects-a..e). */
@@ -604,6 +605,9 @@ const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_ENLARGED] = 0x0c,  /* 017d's 1dfc(rec, 0) for Enlarge's */
     [COK_EFFECT_FRIENDLY] = 0x0e,  /* 017d's 1dfc(rec, 5) for Friends' */
     [COK_EFFECT_STRENGTH] = 0x26,  /* 017d's 1dfc(rec, 0) for Strength's */
+    /* 148f:0005's 252c(m, 0x8c, ...). attack.c:854 and round.c:726 read it for the computer's
+     * targets (part 15) and cast.c's picks read it through round.c:697 (part 28): unchecked here. */
+    [COK_EFFECT_YELLED_AT] = 0x8c,
 };
 
 /* The event lists (148f:0512, a0512.txt): by event, the ids its handlers run, 0-ended, in

@@ -1143,7 +1143,8 @@ bool cok_combat_cast(cok_adventure *game, bool *done, bool redrawn, uint8_t spel
 
 bool cok_combat_yell(cok_adventure *game, cok_character *c)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
     game->combat.yelled = c->record;
     char name[16], text[40];
     name_of(L, c->record, name);
@@ -1151,11 +1152,13 @@ bool cok_combat_yell(cok_adventure *game, cok_character *c)
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *m = game->party.members[i];
         const uint8_t *r = m->record;
-        if (cok_field_u8(L, r, COK_FIELD_STATUS) != 0 ||
+        /* Status and side are words in Dark Queen's (dqk 148f:0005 compares words); the 4-bit
+         * games' bytes are read by cok_combat_field_word unchanged. */
+        if (cok_combat_field_word(rules, r, COK_FIELD_STATUS) != 0 ||
             cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 3 ||
-            cok_field_u8(L, r, COK_FIELD_HOSTILE) ==
-                cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
-            cok_combat_helpless(m, cok_game_rules(game)))
+            cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) ==
+                cok_combat_field_word(rules, c->record, COK_FIELD_HOSTILE) ||
+            cok_combat_helpless(m, rules))
             continue;
         bool made;
         if (!cok_effects_save(&game->effects, m, 4, 0, &made))

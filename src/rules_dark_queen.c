@@ -781,6 +781,7 @@ const cok_rules cok_rules_dark_queen = {
             .shared_far = 6,
             .resisted_pending = cok_dark_queen_resisted_pending,
             .resist_unported = "dqk 177e:1900 (Dark Queen's caster level, not ported)",
+            .unaffected = "is Unaffected", /* DS:01b5, 148f:2561 */
             .damage_flags_at = 0xc8,
             .acting_id = 0xd4,
             .ability_routine = COK_ABILITY_DARK_QUEEN, /* 148f:1dfc */

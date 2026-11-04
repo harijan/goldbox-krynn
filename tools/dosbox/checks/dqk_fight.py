@@ -1897,15 +1897,16 @@ def command_original(work, patched, flow, verbose):
     return out
 
 
-def command_port(work, patched, name, typed, entry=None):
+def command_port(work, patched, name, typed, entry=None, effects=False):
     """eclplay's run to the stop of NAME (the first turn's menu, then TYPED; ENTRY the saved game as
     placement's): its variables, its last line, its text, and the files its state is read from
-    (base: field, records, blocks, turns, bmp)."""
+    (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
     base = work / f"cmd-{name}"
     variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
-                           screen=base.with_suffix(".bmp"), entry=entry)
+                           screen=base.with_suffix(".bmp"), entry=entry,
+                           effects=base.with_suffix(".effects") if effects else None)
     text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
     return dict(base=base, vars=variables, last=last, text=text)
 
@@ -2598,6 +2599,85 @@ def bandage_check(v, work, patched, opts):
                    p["base"].with_suffix(".bmp"), MENU_POINTER)
 
 
+YELL_MENU = "Aim Use Guard Quick@Delay Yell View Speed End"
+YELL_SEED = 0x64E44872                  # RandSeed at BALTHIR NOMOON's menu: two draws past WALKER's
+YELL_DRAWS = 2                          # the two SHARKMEN's saves (intelligence 10, status 0, side 1)
+
+
+def yell_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu), E typed there (TIMASALIN's) and at the next
+    menu (ROARK's), each as turns' E: 5045:08cf trapped, the key, the trap held, given back, settled.
+    Then WALKER KEYS' menu (the trap held there: its record DS:ad67, RandSeed, the built text
+    searched once given back), Y typed there (a kender's Yell, 5045:0ae9) and the next menu trapped
+    (BALTHIR NOMOON's, 08cf): the state there (DS:b45b, the yelled record, as `yelled`), and its
+    screen once given back."""
+    with cokbox.Box(workdir=work / "box-yell", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        menu["menu_screen"] = box.screenshot(path=str(work / "yell-menu.png"))
+        out = dict(menu=menu)
+        for last in (False, True):
+            t = arm(box, menu["handle"], MENU)
+            box.keys("E")
+            wait_trap(box, t, "5045:08cf")
+            if last:
+                out["walker"] = dict(selected=selected(box), seed=box.ds_dword(L.DS_SEED))
+            L.untrap(box, t)
+            box.settled(quiet=1.0, tolerance=0)
+        # The built text is not at DS:af15 (a far pointer to an empty string there): search the
+        # original's first megabyte for it (the Yell line only exists once WALKER's menu is built).
+        out["walker"]["text_at"] = box.read(0, 0x100000).find(YELL_MENU.encode("latin-1"))
+        t = arm(box, menu["handle"], MENU)
+        box.keys("Y")
+        wait_trap(box, t, "5045:08cf")
+        out["stop"] = snapshot(box)
+        out["stop"].update(tail_state(box), selected=selected(box),
+                           yelled="%04x:%04x" % (box.ds_word(0xB45D), box.ds_word(0xB45B)))
+        out["stop_screen"] = box.screenshot(path=str(work / "yell-stop.png"))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        out["menu_screen2"] = box.screenshot(path=str(work / "yell-menu2.png"))
+        return out
+
+
+def yell_check(v, work, patched, opts):
+    """Yell (step 4, part 22b, dqk 5045:0ae9, 148f:0005): a kender's Y at WALKER KEYS' menu, after E at
+    the two before it (TIMASALIN's and ROARK's). Both SHARKMEN's saves are made (two rolls past
+    WALKER's menu, no 0x8c: the chains agree and none holds 0x8c), DS:b45b is WALKER's record, and
+    the next menu (BALTHIR NOMOON's) is the stop: the records, blocks, turns, variables and the
+    screen agree with eclplay's run of EEY."""
+    o = yell_original(work, patched, opts.verbose)
+    spins_at_placement(v, o["menu"])
+    s = o["stop"]
+    base = work / "cmd-yell"
+    p = command_port(work, patched, "yell", "EEY", effects=True)
+    text = (work / "port-cmd-yell.txt").read_text().splitlines()
+    menus = [line for line in text if line.startswith("menu:")]
+    aims = [line for line in menus if line.startswith("menu: Aim")]
+    v.check(len(aims) >= 3 and aims[2] == f"menu: {YELL_MENU}",
+            "eclplay's third command menu (WALKER KEYS') has Yell: \"Aim Use Guard Quick@Delay Yell "
+            "View Speed End\"", aims[:3])
+    v.check(o["walker"]["text_at"] >= 0, "the original's built menu at WALKER KEYS' is \"Aim Use "
+            "Guard Quick@Delay Yell View Speed End\" in its memory (a linear address)",
+            f"found at {o['walker']['text_at']:#x}" if o["walker"]["text_at"] >= 0 else "not found")
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at BALTHIR NOMOON's command menu (out of keys) after EEY", p["last"])
+    draws = command_state(v, "yell", s, p, o["menu"]["seed"])
+    v.check(draws == YELL_DRAWS and s["seed"] == YELL_SEED,
+            f"the original's RandSeed past the menu after Y is {YELL_DRAWS} draws (the two saves "
+            f"of SHARKMEN, both made), {YELL_SEED:#x}", f"{draws} draws, {s['seed']:#x}")
+    chains_agree(v, s["chains"], base.with_suffix(".effects"), " (yell)")
+    with_8c = [i for i, nodes in enumerate(s["chains"]) if any(n[0] == 0x8C for n in nodes)]
+    v.check(not with_8c, "no record holds 0x8c (yelled at) after Y: no save failed", with_8c)
+    v.check(s["yelled"] == o["walker"]["selected"], "DS:b45b (the yelled record) is WALKER KEYS' "
+            "record (DS:ad67 at its menu)", f"{s['yelled']} against {o['walker']['selected']}")
+    v.check(s["variables"] == p["vars"], "the variables agree at BALTHIR NOMOON's menu (the 1 KB)")
+    command_screen(v, "after the menu is given back after Y", o["menu_screen2"],
+                   base.with_suffix(".bmp"), MENU_POINTER)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -2608,6 +2688,7 @@ def commands(v, work, patched, opts):
     speed_check(v, work, patched, opts)
     alt_x_check(v, work, patched, opts)
     bandage_check(v, work, patched, opts)
+    yell_check(v, work, patched, opts)
 
 
 def main():

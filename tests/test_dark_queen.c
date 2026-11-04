@@ -7,6 +7,7 @@
  * line saying so, where it is not there). */
 #include "adventure.h"
 #include "arena.h"
+#include "cast.h"
 #include "combat.h"
 #include "ecl.h"
 #include "dark_queen.h"
@@ -993,15 +994,18 @@ static void test_magic_ids(void)
         }
     }
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
-     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, every other name is 0 (none). */
+     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, and the yell's YELLED_AT; every
+     * other name is 0 (none). */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
+    CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
     CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
-            n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH)
+            n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
+            n != COK_EFFECT_YELLED_AT)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
@@ -2029,6 +2033,114 @@ static void test_alt_x(void)
     menu_close();
 }
 
+/* Yell (dqk 5045:0ae9, 148f:0005): CINDER as a kender (race 5, 0x59 0) with her menu's Yell. Each
+ * hostile member of the other side (word +0x66 1) with status word 0, intelligence above 3 and not
+ * helpless makes a save of kind 4 (its saving throw byte 4, 0x8f: one roll of 1d20, a roll of 1
+ * fails); one that fails takes 0x8c (0 minutes, value 0xff) and its flash stops (dqk 51c2:0731).
+ * The yelled record is CINDER, the damage type is cleared and her turn ends. The seed's first roll
+ * is not 1 (checked), so a byte of 1 saves. Skipped without DQKAssets/. */
+enum { YELL_SEED = 0x2468ACE1 };
+
+static void yell_menu(void)
+{
+    menu_open();
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_RACE, 5);
+    menu_c->record[0x59] = 0;
+    menu_c->record[0x67] = 0; /* CINDER's side word 0 */
+    menu_game.vm.seed = YELL_SEED;
+}
+
+/* A hostile member of the other side (word +0x66 1) with intelligence and saving throw 4. */
+static cok_character *yelled_monster(uint8_t intelligence, uint8_t save)
+{
+    cok_character *m = placed(&menu_game, 1);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE,
+                      intelligence);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_SAVING_THROW, 4, save);
+    return m;
+}
+
+static void test_yell(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Yell not checked");
+        return;
+    }
+    /* A monster that saves: one roll, nothing added or said, the damage type cleared, CINDER's turn
+     * ended. */
+    yell_menu();
+    cok_character *m = yelled_monster(10, 1);
+    uint32_t after = YELL_SEED;
+    CHECK(cok_dice(&after, 1, 20) != 1);
+    menu_game.effects.rolls.damage_type = 8;
+    CHECK(menu_run("Y") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.combat.yelled == menu_c->record);
+    CHECK(menu_game.vm.seed == after);
+    CHECK(cok_character_find_named(m, R, COK_EFFECT_YELLED_AT) == NULL);
+    CHECK(menu_game.effects.rolls.damage_type == 0);
+    CHECK(menu_c->combat->initiative == 0 && script.menus == 1 && script.prints[0] == '\0');
+    menu_close();
+
+    /* Not tested: intelligence 3; status word 0x100 (its high byte 1, a byte test would roll). No
+     * draw either way. */
+    yell_menu();
+    cok_character *weak = yelled_monster(3, 1);
+    CHECK(menu_run("Y") && menu_game.vm.seed == YELL_SEED);
+    CHECK(cok_character_find_named(weak, R, COK_EFFECT_YELLED_AT) == NULL);
+    menu_close();
+
+    yell_menu();
+    cok_character *status = yelled_monster(10, 1);
+    status->record[0x65] = 1;
+    CHECK(menu_run("Y") && menu_game.vm.seed == YELL_SEED);
+    menu_close();
+
+    /* Tested: side word 0x100 against CINDER's 0 (its byte is 0, a byte test would skip it). One
+     * draw. */
+    yell_menu();
+    cok_character *other = yelled_monster(10, 1);
+    other->record[0x66] = 0;
+    other->record[0x67] = 1;
+    uint32_t tested = YELL_SEED;
+    cok_dice(&tested, 1, 20);
+    CHECK(menu_run("Y") && menu_game.vm.seed == tested);
+    menu_close();
+
+    /* A monster that fails (saving throw 0x7f): the add of 0x8c, then the flash, a stop (dqk
+     * 51c2:0731) before any text is said; one roll. */
+    yell_menu();
+    menu_game.vm.mode = 5;
+    cok_character *failing = yelled_monster(10, 0x7f);
+    uint32_t drawn = YELL_SEED;
+    cok_dice(&drawn, 1, 20);
+    CHECK(!menu_run("Y"));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "an effect's flash") != NULL &&
+          strstr(menu_game.error, "dqk 51c2:0731") != NULL);
+    CHECK(menu_game.vm.seed == drawn && script.prints[0] == '\0');
+    cok_effect *e = cok_character_find_named(failing, R, COK_EFFECT_YELLED_AT);
+    CHECK(e != NULL && e->id == 0x8c && e->duration == 0 && e->value == 0xff);
+    menu_close();
+
+    /* "is Unaffected" said through the battle's say (dqk 177e:156e): the branch of an effect that
+     * a save of kind 1 saved against (cok_cast_add_effect's, as the yell's is kind 0; event 9's
+     * cancel has no ported handler here). Nothing added, the name and the text logged, one draw. */
+    yell_menu();
+    menu_game.vm.mode = 5;
+    memset(menu_game.screen.pixels, 0x00, 320 * 200);
+    cok_character *saved = yelled_monster(10, 1);
+    uint32_t said = YELL_SEED;
+    cok_tp_random(&said, 1000);
+    CHECK(cok_cast_add_effect(&menu_game, saved, 0x8c, 0, 0xff, false, 1, true, ""));
+    CHECK(menu_game.vm.seed == said);
+    CHECK(cok_character_find_named(saved, R, COK_EFFECT_YELLED_AT) == NULL);
+    char name[17], logged[64];
+    cok_field_name(R->character, saved->record, name);
+    snprintf(logged, sizeof logged, "%s;is Unaffected;", name);
+    CHECK(strcmp(script.prints, logged) == 0);
+    menu_close();
+}
+
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
 static void test_pass_draw(void)
 {
@@ -2081,6 +2193,7 @@ int main(void)
     test_arena_say();
     test_bandage();
     test_alt_x();
+    test_yell();
     test_pass_draw();
     test_text_delay_state();
     puts("dark queen tests passed");

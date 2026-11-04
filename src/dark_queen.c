@@ -3829,6 +3829,17 @@ static bool arena_say(cok_adventure *game, cok_character *c, const char *text, u
     return true;
 }
 
+/* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5: kind 1 is an effect's, the
+ * four-frame missile, its sound and passes, the draws of each frame), not ported: its own part. A
+ * kind 0 flash (a burst) is not checked against the original: it stops under the same citation. */
+static bool arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const char *text)
+{
+    (void)c;
+    (void)text;
+    return cok_adventure_not_yet(game, kind != 0 ? "an effect's flash" : "a flash",
+                                 "dqk 51c2:0731 (2d99:0f09)");
+}
+
 /* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
  * roster (none: "No characters to load.", DS:5f76); then "add a
  * character: " over its list ("Add Exit", DS:501a), each member's "* "
@@ -5404,6 +5415,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_load_icon = arena_load_icon,
     .arena_panel = combat_panel,
     .arena_say = arena_say,
+    .arena_flash = arena_flash,
     .notice = queen_bar_message,
     .encounter = encounter,
     .round_clock = cok_dark_queen_round_clock,

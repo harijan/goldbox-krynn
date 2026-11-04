@@ -897,8 +897,8 @@ records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too
 initiative 9 after Quick, 0x13 after Alt-Q), the turn list, DS:bd2d (1 after Quick and after Alt-Q), DS:b1cb
 (0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
 bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
-(`dqk_views.POINTER`), the others with the menu's pointer masked. Yell, Bandage and the mouse areas have no flow
-(repo tests only).
+(`dqk_views.POINTER`), the others with the menu's pointer masked. The mouse areas have no flow
+(repo tests only); Bandage and Yell have their runs below.
 
 Two more runs (step 4, part 22b's leftovers; `commands` after the four above). `altx` is `command_original`'s
 Alt-X (`\@X`) trapped at `5045:0cd7`, as Alt-M: the box has no "Gem" argument, so the original answers
@@ -911,6 +911,14 @@ the next combatant's menu (`5045:08cf`), and eclplay runs from the same saved ga
 bytes). Checked: the first menu's text and placement, member 0 at status word 4 at the stop, the state there
 (records, blocks, turns, RandSeed one draw past the menu: the say's wait), eclplay's "is bandaged" logged, and the
 screen at the next menu (the pointer masked). `make dqk-checks ARGS="--only dqk_fight"` runs both as the rest.
+
+`yell` (`yell_check`, last in `commands`) is E at TIMASALIN's and at ROARK's menus (each as `turns`: the menu trapped at
+`5045:08cf`, the key, the trap held, given back, settled), then Y at WALKER KEYS' menu (a kender: the built text "Aim Use
+Guard Quick@Delay Yell View Speed End" in the original's memory, searched, and eclplay's menu line), the next menu (BALTHIR
+NOMOON's) trapped. Checked: RandSeed two draws past WALKER's menu (both SHARKMEN's saves, made), no record with 0x8c
+(the chains agree with eclplay's `--effects`), DS:b45b (the yelled record) is WALKER's record, the records, blocks, turns
+and variables at the stop, and the screen once given back (the pointer masked). eclplay's run is "EEY" from the first
+menu. A failed save (its flash, a stop) and "is Unaffected" have no run: the repo tests (`test_yell`) check them.
 
 The six MONCHA
 ids the later combat parts check (`MONCHA.GLB` through `cok_monster_read`'s records, unpacked; hit points

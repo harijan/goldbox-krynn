@@ -246,6 +246,10 @@ typedef struct {
     /* A notice in the battle, in place of cok_camp_notice (the gods' "The Gods intervene!", dqk
      * 177e:153c: the bar message). NULL: cok_camp_notice. */
     void (*notice)(cok_adventure *game, const char *text);
+    /* An effect's flash on c in the battle (cok_arena_flash's place in mode 5 on a game's own
+     * ground, kind 1 for an effect's text): drawn by the game (dqk 51c2:0731). NULL: the game's
+     * own missile stops, cited. */
+    bool (*arena_flash)(cok_adventure *game, cok_character *c, uint8_t kind, const char *text);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',

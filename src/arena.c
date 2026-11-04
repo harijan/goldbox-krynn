@@ -1107,6 +1107,13 @@ bool cok_arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const 
         say(game, c, text, 10, true, true);
         return true;
     }
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL && own->arena_flash != NULL) {
+        if (own->arena_flash(game, c, kind, text)) return true;
+        /* As cok_arena_say: a failure that left the error text alone is reported here. */
+        if (!game->vm.abort) own_failed(game);
+        return false;
+    }
     /* Kind 1's flash, kind 0's burst (the descriptor's slot). */
     uint8_t slot = kind != 0 ? 0x16 : cok_game_rules(game)->fight.burst_slot;
     if (!map_there(game, "6346:228c") || !cok_arena_missile_frames(game, slot))

@@ -198,7 +198,14 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         cok_combat_end_turn(c);
         *done = true;
         return true;
-    case ITEM_YELL: return cok_adventure_not_yet(game, "Yell", "dqk 148f:0005 (part 22b)");
+    case ITEM_YELL:
+        /* 5045:0ae9: 148f:0005 (cok_combat_yell), with the damage type cleared first (148f:0020,
+         * DS:bebd, before the saves: their event 0x0c handlers test it), then 0b29 (End). */
+        game->effects.rolls.damage_type = 0;
+        if (!cok_combat_yell(game, c)) return false;
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
     case ITEM_VIEW: return cok_adventure_not_yet(game, "View", "dqk 86b8:0b0c (part 22b)");
     case ITEM_SPEED:
         /* 166c: the speed menu (queen_speed); the turn goes on (c8c). */
