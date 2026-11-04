@@ -302,7 +302,10 @@ checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
-so that a loaded host does not change them). `dqk_boot.py` compares the first
+so that a loaded host does not change them). The title is left by `dqk_lib.escape_title`:
+Escape, then DS:c5ce (main's menu's timeout, set once the title's loop returns) checked, Escape
+again up to three times, else BoxError; a key typed between two scenes is dropped, and the next
+key ends the title, so the keys after it would fall on main's menu. `dqk_boot.py` compares the first
 screen of the game after Begin Adventuring (block 4's text over Palanthas'
 picture) with `eclplay --game dark-queen`'s; `dqk_views.py` the title's
 eight scenes (each passed by Space) and its menu, whole; the developers'
