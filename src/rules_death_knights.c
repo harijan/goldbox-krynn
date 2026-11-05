@@ -1912,6 +1912,7 @@ const cok_rules cok_rules_death_knights = {
             .missile_clamped = true,        /* 65cd:1da5 */
             .burst_slot = 0x18, /* 65cd:24bc */
             .turning = COK_TURNING_DEATH_KNIGHTS, /* 5340:119b */
+            .moves_left_colour = 10, /* the shared step's text, as it was (dkk 3f63:08c6) */
         },
     .menus =
         {

@@ -200,7 +200,7 @@ void cok_combat_guard(cok_adventure *game, cok_character *c)
     cok_combat_end_turn(c);
     if (c->combat != NULL && c->combat->forced == 0) {
         c->combat->guarding = 1;
-        cok_camp_notice(game, cok_game_rules(game)->fight.words.guarding); /* 6346:1827 */
+        cok_arena_notice(game, cok_game_rules(game)->fight.words.guarding); /* 6346:1827 */
     }
 }
 

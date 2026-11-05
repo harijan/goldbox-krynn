@@ -766,6 +766,10 @@ const cok_rules cok_rules_dark_queen = {
             /* Bandaging (dqk 5045:0adb, 51c2:0d63's say at 177e:156e): the only fight word
              * Dark Queen's combat says so far (DS:5a33). */
             .words = {.bandaged = "is bandaged"},
+            /* 5bb8:06b0's "Move/Attack, Move Left = N" (5ded, 5e0a): 7, which 1a62:0046 makes
+             * white on the bar's grey. */
+            .moves_left_colour = 7,
+            .moves_left_bare_from_ten = true,
         },
     .effects =
         {

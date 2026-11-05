@@ -204,6 +204,24 @@ bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint
  * it rows 18-22. */
 void cok_arena_clear_text(cok_adventure *game);
 
+/* A text at cell x, y of the battle in colour fg on bg: cok_text_string, or cok_drawing.arena_text
+ * where the game draws its own ground (Dark Queen's 1a62:0046). Used for the computer's "Move/
+ * Attack, Move Left" line. False with the game's error set. */
+bool cok_arena_text(cok_adventure *game, int x, int y, const char *text, uint8_t fg, uint8_t bg);
+
+/* The battle's wait of ms (cok_adventure_wait, or cok_drawing.wait: Dark Queen's 1df9:052a, one
+ * draw for ms != 0), and its pause of the speed's time (cok_drawing.pause: 1a62:0949, variable
+ * 0x12 times 100 ms; else speed * 100 ms). */
+void cok_arena_wait(cok_adventure *game, unsigned ms);
+void cok_arena_pause(cok_adventure *game);
+
+/* The bottom bar blanked at the computer's turn's start (67b5:0c7b, or
+ * cok_drawing.clear_bar: Dark Queen's 1bdb:036c). */
+void cok_arena_clear_bar(cok_adventure *game);
+
+/* A notice in the battle (cok_camp_notice, or cok_drawing.notice: Dark Queen's bar message). */
+void cok_arena_notice(cok_adventure *game, const char *text);
+
 /* Say text about c with a flash on it (6346:228c): in combat the flash's
  * pictures are built from icon slot 0x16 (kind not 0) or 0x17
  * (cok_arena_missile_frames), the screen centred on c unless it is shown

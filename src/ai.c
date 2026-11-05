@@ -115,12 +115,6 @@ static bool stats(cok_adventure *game, cok_character *c)
     return undefined(game, "%s", error);
 }
 
-/* Blank row 24 (67b5:0c7b). */
-static void clear_row(cok_adventure *game)
-{
-    cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0);
-}
-
 /* A spell table byte (DS:31b3 + 16 * spell + column), which the AI reads
  * for any byte it is given, marked spells past the table's end too. */
 static bool spell_byte(cok_adventure *game, uint8_t spell, unsigned column, uint8_t *byte)
@@ -161,7 +155,7 @@ static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
     if (key == 0x32) {
         const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
         combat->magic_on = !combat->magic_on;
-        cok_camp_notice(game, combat->magic_on ? W->magic_on : W->magic_off); /* 6346:1827 */
+        cok_arena_notice(game, combat->magic_on ? W->magic_on : W->magic_off); /* 6346:1827 */
     } else if (key == ' ') {
         for (size_t i = 0; i < game->party.count; ++i) {
             uint8_t *r = game->party.members[i]->record;
@@ -885,12 +879,21 @@ bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_
     return true;
 }
 
-/* "Move/Attack, Move Left = N " on row 24 in light green (1521:0353). */
-static void moves_left(cok_adventure *game, uint8_t movement)
+/* The row 24 line's text (ai.h). */
+void cok_ai_moves_left_text(const cok_rules_fight *F, uint8_t movement, char *text, size_t size)
 {
+    unsigned left = movement >> 1;
+    snprintf(text, size, "Move/Attack, Move Left = %u%s", left,
+             F->moves_left_bare_from_ten && left >= 10 ? "" : " ");
+}
+
+/* "Move/Attack, Move Left = N " on row 24 in the rules' colour (light green, 1521:0353). */
+static bool moves_left(cok_adventure *game, uint8_t movement)
+{
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     char text[48];
-    snprintf(text, sizeof text, "Move/Attack, Move Left = %u ", movement >> 1);
-    cok_text_string(&game->screen, &game->font, text, 0, 24, 10, 0);
+    cok_ai_moves_left_text(F, movement, text, sizeof text);
+    return cok_arena_text(game, 0, 24, text, F->moves_left_colour, 0);
 }
 
 bool cok_ai_step(cok_adventure *game, cok_character *c)
@@ -901,7 +904,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
-    moves_left(game, cr->movement);
+    if (!moves_left(game, cr->movement)) return false;
     bool back;
     if (!cok_ai_keys(game, c, &back)) return false;
     if (back) return true;
@@ -1168,7 +1171,7 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
         !cok_combat_pick_target(game, c, 0xff, true, false, &done))
         return false;
     if (!cok_ai_keys(game, c, &over)) return false;
-    clear_row(game);
+    cok_arena_clear_bar(game); /* 67b5:0c7b; dqk 5bb8:006a */
     cok_arena_clear_text(game);
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
         cok_combat_end_turn(c);

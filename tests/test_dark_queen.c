@@ -6,6 +6,7 @@
  * saved game in DQKAssets/ (the checks needing either are skipped, with a
  * line saying so, where it is not there). */
 #include "adventure.h"
+#include "ai.h"
 #include "arena.h"
 #include "cast.h"
 #include "combat.h"
@@ -2403,6 +2404,136 @@ static void test_pass_draw(void)
     menu_close();
 }
 
+/* The count of pixels of colour in x1 <= x < x2, y1 <= y < y2. */
+static int count_px(const cok_adventure *game, int x1, int y1, int x2, int y2, uint8_t colour)
+{
+    int n = 0;
+    for (int y = y1; y < y2; ++y)
+        for (int x = x1; x < x2; ++x)
+            if (game->screen.pixels[y * 320 + x] == colour) ++n;
+    return n;
+}
+
+/* The computer's row 24 line (ai.h's cok_ai_moves_left_text): the trailing space is left off from
+ * ten up for Dark Queen's (5bb8:06b0's 5e0a), kept for Champions' (3afb:095a's "%u "). */
+static void test_moves_left_text(void)
+{
+    char text[48];
+    cok_ai_moves_left_text(&R->fight, 18, text, sizeof text);
+    CHECK(strcmp(text, "Move/Attack, Move Left = 9 ") == 0);
+    cok_ai_moves_left_text(&R->fight, 20, text, sizeof text);
+    CHECK(strcmp(text, "Move/Attack, Move Left = 10") == 0);
+    cok_ai_moves_left_text(&cok_rules_champions.fight, 20, text, sizeof text);
+    CHECK(strcmp(text, "Move/Attack, Move Left = 10 ") == 0);
+}
+
+/* The battle's clear (dqk 177e:1665, cok_drawing.arena_clear_text): cells 0x17-0x26 by 0x0a-0x15
+ * in the window's grey, the rest of the screen kept. Without the hook the shared clear would
+ * black them. Skipped without DQKAssets/. */
+static void test_battle_clear(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's clear not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    memset(menu_game.screen.pixels, 0x07, 320 * 200);
+    cok_arena_clear_text(&menu_game);
+    int bad = 0;
+    for (int y = 0; y < 200; ++y)
+        for (int x = 0; x < 320; ++x) {
+            bool inside = x >= 8 * 0x17 && x < 8 * 0x27 && y >= 8 * 0x0a && y < 8 * 0x16;
+            if (menu_game.screen.pixels[y * 320 + x] != (inside ? 0x17 : 0x07)) ++bad;
+        }
+    CHECK(bad == 0);
+    menu_close();
+}
+
+/* The battle's text (dqk 1a62:0046, cok_drawing.arena_text): on row 24 boxed in black from cell 1
+ * (prompt_box), and a fg of 7 with a background of 0 on the bar is white (15) on the grey; above
+ * it the text in its colours on the grey. Skipped without DQKAssets/. */
+static void test_battle_text(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's text not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    memset(menu_game.screen.pixels, 0x05, 320 * 200);
+    CHECK(cok_arena_text(&menu_game, 0, 0x18, "MOVE", 7, 0));
+    const uint8_t *px = menu_game.screen.pixels;
+    CHECK(px[187 * 320 + 7] == 0 && px[187 * 320 + 40] == 0 && px[187 * 320 + 41] == 0x05);
+    CHECK(px[188 * 320 + 8] == 0x17 && px[188 * 320 + 39] == 0x17);
+    CHECK(count_px(&menu_game, 8, 189, 40, 200, 0x0f) > 0);
+    CHECK(count_px(&menu_game, 0, 187, 320, 200, 0x07) == 0);
+    /* Above the bar, "HI" in 7 on the grey in cells 23 and 24 of row 12 (1a62:0046's attribute). */
+    memset(menu_game.screen.pixels, 0x05, 320 * 200);
+    CHECK(cok_arena_text(&menu_game, 0x17, 12, "HI", 7, 0));
+    CHECK(count_px(&menu_game, 184, 96, 200, 104, 0x07) > 0);
+    CHECK(count_px(&menu_game, 184, 96, 200, 104, 0x17) > 0);
+    CHECK(count_px(&menu_game, 184, 96, 200, 104, 0x0f) == 0);
+    CHECK(count_px(&menu_game, 184, 96, 200, 104, 0x05) == 0);
+    menu_close();
+}
+
+/* The battle's bottom bar blanked at the computer's turn's start (dqk 1bdb:036c,
+ * cok_drawing.clear_bar): rows 186-199 as the bar is drawn. Skipped without DQKAssets/. */
+static void test_battle_bar(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's bar not checked");
+        return;
+    }
+    menu_open();
+    static uint8_t drawn[14 * 320];
+    memset(menu_game.screen.pixels, 0x05, 320 * 200);
+    queen_bottom_bar(&menu_game);
+    memcpy(drawn, menu_game.screen.pixels + 186 * 320, sizeof drawn);
+    memset(menu_game.screen.pixels, 0x05, 320 * 200);
+    cok_arena_clear_bar(&menu_game);
+    CHECK(memcmp(drawn, menu_game.screen.pixels + 186 * 320, sizeof drawn) == 0);
+    menu_close();
+}
+
+/* The battle's notice and waits (dqk 177e:153c, 1df9:052a, 1a62:0949): the notice draws once for
+ * the speed's time; a wait draws once for a time and not for none; the pause draws once for
+ * variable 0x12 times 100 ms and not for 0. Skipped without DQKAssets/. */
+static void test_battle_waits(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's waits not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 4);
+    CHECK(cok_ecl_load_var(&menu_game.vm, 0x12) == 4);
+    script.messages[0] = '\0';
+    uint32_t want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    cok_arena_notice(&menu_game, "Guarding");
+    CHECK(menu_game.vm.seed == want && strcmp(script.messages, "Guarding;") == 0);
+    want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    cok_arena_wait(&menu_game, 100);
+    CHECK(menu_game.vm.seed == want);
+    want = menu_game.vm.seed;
+    cok_arena_wait(&menu_game, 0);
+    CHECK(menu_game.vm.seed == want);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 0);
+    want = menu_game.vm.seed;
+    cok_arena_pause(&menu_game);
+    CHECK(menu_game.vm.seed == want);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 4);
+    want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    cok_arena_pause(&menu_game);
+    CHECK(menu_game.vm.seed == want);
+    menu_close();
+}
+
 int main(void)
 {
     test_wilderness();
@@ -2439,6 +2570,11 @@ int main(void)
     test_view_items_combat();
     test_pass_draw();
     test_text_delay_state();
+    test_moves_left_text();
+    test_battle_clear();
+    test_battle_text();
+    test_battle_bar();
+    test_battle_waits();
     puts("dark queen tests passed");
     return 0;
 }
