@@ -1916,6 +1916,7 @@ const cok_rules cok_rules_death_knights = {
             .keys = COK_KEYS_CHAMPIONS, /* the shared keys, as they were (dkk 3f63:117c) */
             .keys_unflushed = false,
             .pick_tries_listed = false, /* 20 tries, as the port has it (dkk 5340:3cac) */
+            .step_sound = 0x0a,         /* dkk 5340:0654 (the shared step) */
         },
     .menus =
         {

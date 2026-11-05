@@ -137,7 +137,9 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over);
  * passes a d100 (which every NPC and monster rolls) plus the morale, or if
  * it is not fleeing, wears no armour and +0x5b is 5; else it tries five
  * directions around its target's, or for one fleeing a d2's row and the
- * party's facing's way off the map (see ai.c), stepping where it can. */
+ * party's facing's way off the map (see ai.c), stepping where it can. Its
+ * holds with no move (movement / 2 of 0) run the descriptor's no_move first (dqk
+ * 5bb8:0af0's 0306), and its square test is cok_round_square's at a step. */
 bool cok_ai_step(cok_adventure *game, cok_character *c);
 
 /* The row 24 line of a step (3afb:095a; dqk 5bb8:06b0): "Move/Attack, Move Left = N" with the
@@ -150,7 +152,8 @@ void cok_ai_moves_left_text(const cok_rules_fight *F, uint8_t movement, char *te
  * and no one holds, costing (twice, three times on a diagonal, a byte)
  * less than its movement left; a green cloud costs all unless c has effect
  * 0x20, 0x1e, 0x63 or 0x3f, is made to flee or makes a saving throw of
- * type 0, and a puddle for one below level 7 unless 0x63 or made to flee. */
+ * type 0, and a puddle for one below level 7 unless 0x63 or made to flee.
+ * A descriptor's can_step (dqk 5bb8:0438, queen_can_step) replaces this. */
 bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_t dir,
                      bool *offmap, bool *ok);
 

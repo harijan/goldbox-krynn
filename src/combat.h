@@ -141,6 +141,9 @@ typedef struct {
     uint8_t turn_index;
     bool panel;              /* DS:71ac: the side panel is to be drawn (6346:0af6). */
     bool show_actions;       /* DS:71ad: the actor's moves are shown (3995:040b). */
+    /* DS:bd2e: the over flag of the last free attack (dqk 52db:08e6; a sweep's, 52e4, is part
+     * 14b's), which turning (52db:1117, part 26) reads. */
+    bool attack_over;
     /* DS:71ab: the computer's target is within reach (3afb:0d49), then
      * whether it has ammunition; read by its next step, kept from turn to
      * turn and battle to battle. */

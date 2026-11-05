@@ -853,6 +853,18 @@ static const uint8_t cloud_cells[9] = {
     0x08, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x00, 0x01,
 };
 
+/* DS:5db4 + 6 * way + try: the turn from the direction wanted (5bb8:0438, 0902), for ways
+ * 1-6 and tries 1-5; the other bytes are not read. */
+static const uint8_t ways[42] = {
+    0x00, 0x08, 0x07, 0x06, 0x01, 0x02,
+    0x00, 0x08, 0x07, 0x06, 0x01, 0x02,
+    0x00, 0x08, 0x01, 0x02, 0x07, 0x06,
+    0x00, 0x07, 0x01, 0x08, 0x06, 0x02,
+    0x00, 0x01, 0x07, 0x08, 0x02, 0x06,
+    0x00, 0x08, 0x07, 0x06, 0x05, 0x04,
+    0x00, 0x08, 0x01, 0x02, 0x03, 0x04,
+};
+
 static const cok_ds_table tables[] = {
     {0x00a2, sizeof battle_only, 1, battle_only},
     {0x028c, 44, 1, increments},
@@ -874,6 +886,7 @@ static const cok_ds_table tables[] = {
     {0x5d37, sizeof start_rows, 1, start_rows},
     {0x5d3f, sizeof formations, 1, formations},
     {0x5d7b, sizeof terrain_flags, 1, terrain_flags},
+    {0x5db4, sizeof ways, 1, ways},
     {0x6170, sizeof line_directions, 1, line_directions},
     {0x6189, sizeof step_x, 1, step_x},
     {0x6192, sizeof step_y, 1, step_y},
@@ -907,6 +920,8 @@ const cok_data_segment cok_dark_queen_data = {
     {
         [COK_DATA_AREA_ROWS] = TABLE(0x5a50, 2, -3, 7, 6, 1, 3),
         [COK_DATA_TURNING] = TABLE(0x5a5f, 1, 1, 13, 11, 0, 11),
+        /* DS:5db4 (ways 1-6, tries 1-5: ways[]). */
+        [COK_DATA_WAYS] = TABLE(0x5db4, 1, 1, 6, 6, 1, 5),
         [COK_DATA_MOVES] = TABLE(0x5d0b, 1, 0, 4, 4, 0, 4),
         [COK_DATA_QUADRANTS] = TABLE(0x5d1b, 1, 0, 4, 4, 0, 4),
         [COK_DATA_QUADRANT_DIRECTIONS] = LIST(0x5d2b, 1, 0, 4),

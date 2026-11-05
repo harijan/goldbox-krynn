@@ -771,6 +771,7 @@ static void test_combat_tables(void)
     const cok_data_segment *D = R->data;
     static const cok_data tables_checked[] = {
         COK_DATA_AREA_ROWS,           COK_DATA_TURNING,        COK_DATA_MOVES,
+        COK_DATA_WAYS,
         COK_DATA_QUADRANTS,           COK_DATA_QUADRANT_DIRECTIONS,
         COK_DATA_START_COLUMNS,       COK_DATA_START_ROWS,     COK_DATA_FORMATIONS,
         COK_DATA_TERRAIN_FLAGS,       COK_DATA_LINE_DIRECTIONS, COK_DATA_STEP_X,

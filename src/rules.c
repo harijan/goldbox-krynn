@@ -1808,6 +1808,7 @@ const cok_rules cok_rules_champions = {
             .keys = COK_KEYS_CHAMPIONS, /* 3afb:1200 */
             .keys_unflushed = false,    /* 3afb:12eb flushes */
             .pick_tries_listed = false, /* 20 tries, as the port has it (432f:3f9f) */
+            .step_sound = 0x0a,         /* 432f:077a, DS:1e5c */
         },
     .menus =
         {

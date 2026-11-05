@@ -106,6 +106,9 @@ bool cok_combat_turn_tail(cok_adventure *game);
  * (square_unported), "Your Teammate is Dying" (teammate_dying) and the Continue question
  * (continue_battle). */
 bool cok_combat_end_round(cok_adventure *game, bool *done);
+/* The square test of a record (round.c): at a step (step, 5bb8:06b0's 148f:12ab(c, 0, 0)) or at
+ * the round's end (not step, 148f:12ab(rec, 0, 1)). False where the run stopped. */
+bool cok_round_square(cok_adventure *game, cok_character *c, bool step);
 
 /* The shared helpers. */
 

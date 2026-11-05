@@ -413,6 +413,11 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_NO_MAGIC] = VAR(0x02),   /* dqk 5045:0cd7's Cast: the area forbids casting */
 };
 
+/* The effects that bar a free attack's blow (52db:08e6's tests on each neighbour: 0xd2, 0x6a,
+ * 0x1f, 0x33, 0x34, 0x35, 0x37, 0x76, 0x82, 0xd5), 0-ended. */
+static const uint8_t dark_queen_free_barred[] = {0xd2, 0x6a, 0x1f, 0x33, 0x34, 0x35,
+                                                 0x37, 0x76, 0x82, 0xd5, 0x00};
+
 /* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
  * and 0x17 (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95
  * (148f:19c2) given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
@@ -774,15 +779,31 @@ const cok_rules cok_rules_dark_queen = {
                     .magic_on = "Magic On",
                     .magic_off = "Magic Off",
                     .guarding = "Guarding",
+                    /* Fleeing (52db:0e26): away (DS:5bac), or blocked (DS:5bb5). */
+                    .got_away = "Got Away",
+                    .blocked = "Escape is blocked",
                 },
             /* 5bb8:06b0's "Move/Attack, Move Left = N" (5ded, 5e0a): 7, which 1a62:0046 makes
              * white on the bar's grey. */
             .moves_left_colour = 7,
             .moves_left_bare_from_ten = true,
             /* 5bb8:06b0's step: the turn added to the way from the party (1), and the ways of
-             * moving read only for a try below 6 (5bb8:0902's table, DS:5db4). */
+             * moving read only for a try below 6 (5bb8:0902's table, DS:5db4). Its sound is 0x0b
+             * (52db:06c0), and a class 5 holds without a look at slot 2 (06b0). */
             .flee_turn = 1,
             .ways_guarded = true,
+            .step_sound = 0x0b,
+            .step_no_slot_test = true,
+            /* 5bb8:0438 (queen_can_step) and the no-move tail's spell choice, 5bb8:0306's prefix
+             * (queen_spell_choice). */
+            .can_step = COK_CAN_STEP_DARK_QUEEN,
+            .no_move = COK_NO_MOVE_DARK_QUEEN,
+            /* 52db:0e26: the ambush byte at 0x20 blocks a flight. */
+            .flee_blocked_by_ambush = true,
+            /* 52db:08e6: a free attack is denied by effect 0x1b, and barred for the blow by the
+             * effects in dark_queen_free_barred. */
+            .free_attack_effect = 0x1b,
+            .free_attack_barred = dark_queen_free_barred,
             /* 52db:1030: an enemy of the attacker's side is not a target (its hostile bytes). */
             .attack_sides = true,
             /* 5bb8:1050: the keys read through the Dark Queen's reader, not flushed after. */
