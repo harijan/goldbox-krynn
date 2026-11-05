@@ -59,14 +59,21 @@ bool queen_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_t
                            "a combatant has no combat record, read through NULL (5bb8:0438)");
         return false;
     }
-    uint8_t turn = cok_data_u8_at2(D, COK_DATA_WAYS, cr->pattern, try_);
+    long way = cok_data_offset2(D, COK_DATA_WAYS, cr->pattern, try_);
+    if (!cok_data_holds(D, COK_DATA_WAYS, way)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "way of moving %u reads past its table (DS:5db4, 5bb8:0438)",
+                           cr->pattern);
+        return false;
+    }
+    uint8_t turn = cok_data_held(D, way);
     uint8_t d = (uint8_t)((turn + dir) % 8);
     uint8_t occupant, terrain, kind;
     bool cloud, puddle, acid;
     if (!cok_combat_probe(&game->combat, rules, r, d, &occupant, &terrain, &cloud, &puddle) ||
         !cok_combat_marks(&game->combat, rules, r, d, &kind, &acid)) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "a size past the footprints is read after them (6beb:0c9d)");
+                           "a size past the footprints is read after them (dqk 5837:0bd1)");
         return false;
     }
     if (terrain == 0) {

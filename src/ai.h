@@ -138,7 +138,7 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over);
  * it is not fleeing, wears no armour and +0x5b is 5; else it tries five
  * directions around its target's, or for one fleeing a d2's row and the
  * party's facing's way off the map (see ai.c), stepping where it can. Its
- * holds with no move (movement / 2 of 0) run the descriptor's no_move_spell first (dqk
+ * holds with no move (movement / 2 of 0) run the descriptor's no_move first (dqk
  * 5bb8:0af0's 0306), and its square test is cok_round_square's at a step. */
 bool cok_ai_step(cok_adventure *game, cok_character *c);
 

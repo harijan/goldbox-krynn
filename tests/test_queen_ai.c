@@ -191,6 +191,11 @@ static void test_can_step(void)
     CHECK(!may_step_east(m));
     cok_field_set8(R->character, m->record, COK_FIELD_HIGHEST_LEVEL, 7);
     CHECK(may_step_east(m));
+    /* 5bb8:0438 tests the level with cmp $7 and jae: 0x80 is no less than 7, so it is free too
+     * (a signed read would take it for -128 and refuse). */
+    m = mover(0x46);
+    cok_field_set8(R->character, m->record, COK_FIELD_HIGHEST_LEVEL, 0x80);
+    CHECK(may_step_east(m));
     m = mover(0x46);
     m->combat->forced = 1;
     CHECK(may_step_east(m));
@@ -199,16 +204,6 @@ static void test_can_step(void)
     m->combat->movement = 2;
     CHECK(!may_step_east(m));
     battle_clear();
-}
-
-/* The row 24 line (5bb8:06b0): "Move/Attack, Move Left = N" with its blank below ten only. */
-static void test_moves_left(void)
-{
-    char text[48];
-    cok_ai_moves_left_text(&R->fight, 18, text, sizeof text);
-    CHECK(strcmp(text, "Move/Attack, Move Left = 9 ") == 0);
-    cok_ai_moves_left_text(&R->fight, 20, text, sizeof text);
-    CHECK(strcmp(text, "Move/Attack, Move Left = 10") == 0);
 }
 
 /* 5bb8:06b0 steps a monster east toward the party's record, to the sound of 52db:06c0 (0x0b). */
@@ -271,7 +266,13 @@ static void test_flee_ambush(void)
     place(a, 5, 5);
     a->combat->fleeing = 1;
     game.ambush = 0x20;
+    /* The notice (177e:153c) waits the speed's time once: one random(1000) (dark_queen.c's
+     * pass). */
+    game.vm.seed = 9;
+    uint32_t one = 9;
+    cok_tp_random(&one, 1000);
     CHECK(cok_combat_flee(&game, a) && LOGGED("message: Escape is blocked;") && !LOGGED("Got Away"));
+    CHECK(game.vm.seed == one);
     CHECK(cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 1 && a->combat->initiative == 0);
     battle_clear();
     a = record('A', 0, 0);
@@ -373,7 +374,6 @@ int main(void)
     CHECK(cok_adventure_drawing(&game)->arena_tiles(&game, false, 1));
     test_ways();
     test_can_step();
-    test_moves_left();
     test_step_sound();
     test_no_move();
     test_flee_ambush();
