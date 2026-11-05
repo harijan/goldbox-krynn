@@ -489,8 +489,9 @@ static void test_hit_bonus(void)
 }
 
 /* Dark Queen's damage roll (dqk 52db:01dd): a total below 0 is 0 (1d4 with bonus -5 is not a
- * wrapped byte). A thief's backstab multiplies the word: 2 at level 1, 5 at level 13 and at 17
- * (capped), and 5 for level 0 by effect 0xbe. A target at 255 hit points with 300 dealt (a word)
+ * wrapped byte, in amount16 or amount). A thief's backstab multiplies the word: 2 at level 1, 5 at
+ * level 13 and at 17 (capped), 5 for level 0 by effect 0xbe, and 5 for level 0x80 (a non-zero
+ * level, unsigned: 52db:278f's test and 01dd's zero-extended level). A target at 255 hit points with 300 dealt (a word)
  * dies (status 6). */
 static void test_damage(void)
 {
@@ -501,11 +502,12 @@ static void test_damage(void)
     dice(a, 1, 4, -5);
     game.vm.seed = seed_from(1, (const unsigned[]){4, 1, 4});
     uint32_t seed = game.vm.seed;
-    CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 0);
+    CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 0 &&
+          game.effects.rolls.amount == 0);
     CHECK(game.vm.seed == after_draws(seed, 1, 4));
     /* The backstab: the target hit twice, a square away and turned to face the attacker. */
     struct { uint8_t level; bool effect; int16_t times; } thieves[] = {
-        {1, false, 2}, {13, false, 5}, {17, false, 5}, {0, true, 5}};
+        {1, false, 2}, {13, false, 5}, {17, false, 5}, {0, true, 5}, {0x80, false, 5}};
     for (size_t i = 0; i < sizeof thieves / sizeof *thieves; ++i) {
         battle_clear();
         a = record('A', 0, 0);

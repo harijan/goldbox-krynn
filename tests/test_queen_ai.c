@@ -331,6 +331,8 @@ static void test_free_attack_blow(void)
     a->combat->facing = 0;
     e->combat->facing = 0;
     e->combat->target = x->record;
+    /* The attack's 100 ms wait draws before its d20, so the seed's first draw is the wait's: the
+     * d20 is some later draw, not known to be 1. The check takes a hit or a miss. */
     game.vm.seed = seed_with(20, 1);
     uint32_t seed = game.vm.seed;
     CHECK(cok_combat_opportunity(&game, a, 0) && game.vm.status == COK_ECL_OK);

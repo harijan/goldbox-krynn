@@ -282,7 +282,8 @@ bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_chara
     *backstab = false;
     bool thief;
     if (F->backstab == COK_BACKSTAB_DARK_QUEEN)
-        thief = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) > 0 ||
+        /* 52db:278f: any non-zero level (unsigned) is a thief. */
+        thief = cok_field_u8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) != 0 ||
                 (F->backstab_effect != 0 &&
                  cok_character_find_effect(attacker, F->backstab_effect) != NULL);
     else
@@ -345,15 +346,15 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
     /* Champions' and Death Knights' total is a byte (its test for a negative one compares unsigned
      * and never holds); Dark Queen's is a word, not below 0 (52db:01dd's jge). */
     int total = n + (int8_t)a[bonus];
-    rolls->amount = (uint8_t)total;
     rolls->amount16 = (int16_t)(total < 0 ? 0 : total);
+    rolls->amount = (uint8_t)(cok_game_rules(game)->fight.damage_word ? rolls->amount16 : total);
     if (!event(game, attacker, 4) || !event(game, target, 5)) return false;
     bool backstab;
     if (!cok_combat_backstab(game, attacker, target, &backstab)) return false;
     if (backstab && cok_game_rules(game)->fight.backstab == COK_BACKSTAB_DARK_QUEEN) {
         /* 52db:01dd: 5 for a thief of level 0 (by its effect), else (level - 1) / 4 + 2, at most
          * 5, times the word. */
-        int level = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6);
+        int level = cok_field_u8_at(L, a, COK_FIELD_CLASS_LEVEL, 6);
         int times = level == 0 ? 5 : (level - 1) / 4 + 2;
         if (times > 5) times = 5;
         rolls->amount16 = (int16_t)(rolls->amount16 * times);
