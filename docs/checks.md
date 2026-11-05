@@ -298,7 +298,7 @@ minutes, in real time).
 
 The Dark Queen of Krynn (see [The Dark Queen](games.md#the-dark-queen)) is
 checked by `tools/dosbox/checks/dqk_views.py`, `dqk_boot.py`,
-`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py`, `dqk_camp.py`, `dqk_shops.py` and `dqk_treasure.py`, which `make dqk-checks` runs
+`dqk_menus.py`, `dqk_party.py`, `dqk_view_mouse.py`, `dqk_items.py`, `dqk_train.py`, `dqk_add.py`, `dqk_modify.py`, `dqk_stats.py`, `dqk_create.py`, `dqk_ecl.py`, `dqk_ecl_input.py`, `dqk_ecl_text.py`, `dqk_ecl_flow.py`, `dqk_ecl_misc.py`, `dqk_ecl_party.py`, `dqk_ecl_items.py`, `dqk_fight.py`, `dqk_program0.py`, `dqk_camp.py`, `dqk_shops.py`, `dqk_treasure.py` and `dqk_bar.py`, which `make dqk-checks` runs
 (`run_all.py --set dqk`; about a minute each), in RGB
 (the original in VGA, `RGBScreen`; the title's scenes taken as the
 original waits in each, by its loop's scene number, `dqk_lib.title_scene`,
@@ -598,6 +598,14 @@ coins, Share and Pool (the probe's numbers); `lost` and `lost9` run on to COMBAT
 hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);
 `negative` divides by -2 (-2475). Saved game A's pool is empty, so `won` awards nothing.
+
+`dqk_bar.py` (half a minute; in `make dqk-checks`) takes the original's screen while a bar
+message is up: main's menu, Party and Delete Character with no `.QCH` in the box ("No characters to
+delete.", `177e:153c`), the spin written at `177e:1560`, after the lcall `1a62:0046`. The box's black
+edges must be at pixels 7 and 200 (rows 187-197) and the text from 8: 1a62:0046 boxes from cell x + 1,
+and 177e:153c's x is 0. The port's side is `test_dark_queen.c`'s `test_bar_message_place` (the
+screen at the message's wait, `hooks.delay`): eclplay's shots come at key waits, after the bar is
+drawn again.
 
 `dqk_camp.py` (about a minute; in `make dqk-checks`) runs the adventure's camp, Encamp (`e`) from
 the commands after the same walk to Caergoth's 3D view as `dqk_party.py`, with saved game A's

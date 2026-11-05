@@ -171,7 +171,7 @@ DQK_SPLIT = {"dqk_create": ["fighter", "cleric", "dwarf", "kender", "multi", "mo
 DQK_SCRIPTS = ["dqk_boot", "dqk_views", "dqk_menus", "dqk_party", "dqk_view_mouse", "dqk_items",
                "dqk_train", "dqk_add", "dqk_modify", "dqk_stats", "dqk_create", "dqk_ecl",
                "dqk_ecl_input", "dqk_ecl_text", "dqk_ecl_flow", "dqk_ecl_misc", "dqk_ecl_party", "dqk_ecl_items",
-               "dqk_fight", "dqk_program0", "dqk_camp", "dqk_shops", "dqk_treasure"]
+               "dqk_fight", "dqk_program0", "dqk_camp", "dqk_shops", "dqk_treasure", "dqk_bar"]
 DQK_CHECKS = [(f"{script}-{flow}" if flow else script, "DQK", "") for script in DQK_SCRIPTS
               for flow in DQK_SPLIT.get(script, [""])]
 SETS = {"champions": CHECKS, "dkk": DKK_CHECKS, "all": CHECKS + DKK_CHECKS, "dqk": DQK_CHECKS}

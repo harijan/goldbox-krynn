@@ -2381,6 +2381,46 @@ static void test_view_items_combat(void)
     }
 }
 
+/* The bar message as its wait shows it (hooks.delay): 177e:153c's 1a62:0046 at x 0 boxes it from
+ * cell 1, the black edges at pixels 7 and 8 + 8 * 8 (the text's 8 characters), the text from 8
+ * in white on grey; the bar's colours left of 7. dqk_bar checks the original's (the screen while
+ * 177e:1560 spins). */
+static uint8_t bar_shot[320 * 200];
+static bool bar_shot_taken;
+
+static void shoot_bar(cok_adventure *game, unsigned ms, void *context)
+{
+    (void)ms;
+    (void)context;
+    if (bar_shot_taken) return;
+    memcpy(bar_shot, game->screen.pixels, sizeof bar_shot);
+    bar_shot_taken = true;
+}
+
+static void test_bar_message_place(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the bar message's place not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    hooks.delay = shoot_bar;
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
+    bar_shot_taken = false;
+    queen_bar_message(&game, "Guarding");
+    CHECK(bar_shot_taken);
+    for (int y = 187; y < 198; ++y) {
+        CHECK(bar_shot[y * 320 + 7] == 0 && bar_shot[y * 320 + 72] == 0);
+        for (int x = 0; x < 7; ++x) CHECK(bar_shot[y * 320 + x] != 0);
+    }
+    for (int x = 7; x <= 72; ++x)
+        CHECK(bar_shot[187 * 320 + x] == 0 && bar_shot[197 * 320 + x] == 0);
+    CHECK(bar_shot[192 * 320 + 64] != 0);
+    cok_adventure_close(&game);
+}
+
 /* The bar message's wait draws once (1df9:052a's random(1000) at 058a). */
 static void test_pass_draw(void)
 {
@@ -2569,6 +2609,7 @@ int main(void)
     test_view_combat();
     test_view_items_combat();
     test_pass_draw();
+    test_bar_message_place();
     test_text_delay_state();
     test_moves_left_text();
     test_battle_clear();
