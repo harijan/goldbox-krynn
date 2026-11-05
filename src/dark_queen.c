@@ -3820,11 +3820,12 @@ static void message_at(cok_adventure *game, const char *s, int x, unsigned fg, u
     bottom_bar(game);
 }
 
-/* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24) for the
- * speed's time, in fg. */
+/* 177e:153c: s in the bar (white on grey, 1a62:0046 at row 24, x 0: the
+ * box from cell 1, its edge at pixel 7) for the speed's time, in fg (the
+ * trainer's 1a62:0904 in 0x0b, x 0 too). */
 static void bar_message_colour(cok_adventure *game, const char *s, unsigned fg)
 {
-    message_at(game, s, -1, fg, 8);
+    message_at(game, s, 0, fg, 8);
 }
 
 static void bar_message(cok_adventure *game, const char *s)
