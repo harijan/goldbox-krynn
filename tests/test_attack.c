@@ -412,7 +412,7 @@ static void test_strike(void)
     /* One attack of 1d2 against armour class 10 (50): a 10 hits for 2. */
     a->combat->initiative = 3;
     game.vm.seed = swing(10, 2, 2);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over);
     CHECK(m->record[0x197] == 8 && r->hits[0] == 1 && c->swings[1] == 1 && c->swings[2] == 0);
     CHECK(a->combat->attacked == 1 && a->combat->attack_slot == 1 && a->record[0x18f] == 0);
     CHECK(a->combat->initiative == 0 && a->combat->sweeps == 0);
@@ -424,7 +424,7 @@ static void test_strike(void)
     a->combat->attack_slot = 2;
     unsigned two_misses[] = {20, 2, 2, 20, 3, 3};
     game.vm.seed = seed_seq(2, two_misses);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over);
     CHECK(r->hits[0] == 0 && c->swings[1] == 2 && m->record[0x197] == 8);
     CHECK(LOGGED("sound: 9;print: A;print: Attacks;attack: M and Misses;"));
     CHECK(strstr(strstr(s.log, "Misses") + 1, "Misses") == NULL);
@@ -437,7 +437,7 @@ static void test_strike(void)
     a->combat->attack_slot = 2;
     unsigned both[] = {20, 15, 15, 1, 1, 1, 20, 15, 15, 2, 2, 2};
     game.vm.seed = seed_seq(4, both);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over);
     CHECK(r->hits[0] == 1 && r->hits[1] == 1 && c->swings[1] == 1 && c->swings[2] == 1);
     CHECK(LOGGED("attack: M Hitting for 1 point of damage;"));
     CHECK(LOGGED("attack: M Hitting for 2 points of damage;"));
@@ -450,7 +450,7 @@ static void test_strike(void)
     a->record[0x18f] = 2;
     a->combat->initiative = 3;
     game.vm.seed = swing(10, 2, 2);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && !over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && !over);
     CHECK(a->record[0x18f] == 1 && a->combat->initiative == 3 && m->record[0x188] == 4);
     CHECK(LOGGED("print: M;print: goes down;"));
     CHECK(c->combatant[2].size == 0 && c->sides[1] == 0);
@@ -460,14 +460,14 @@ static void test_strike(void)
     m = record('M', 1, 6, 5);
     m->record[0x189] = 0;
     game.vm.seed = swing(10, 2, 2);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over && !LOGGED("Hitting"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over && !LOGGED("Hitting"));
     CHECK(r->hits[0] == 1 && m->record[0x197] == 10);
     /* Only a hit stops the swings at a target down: a miss swings on. */
     a->record[0x18f] = 3;
     a->combat->attack_slot = 2;
     unsigned miss_hit[] = {20, 2, 2, 20, 15, 15, 2, 1, 1};
     game.vm.seed = seed_seq(3, miss_hit);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && !over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && !over);
     CHECK(c->swings[1] == 2 && r->hits[0] == 1 && a->record[0x18f] == 1);
     /* A helpless target: slain from the slot in progress down to one with
      * attacks left; hit points + 5, dying; no roll. */
@@ -478,7 +478,7 @@ static void test_strike(void)
     a->record[0x18f] = 1;
     a->record[0x190] = 0;
     uint32_t seed = game.vm.seed;
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over && game.vm.seed == seed);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over && game.vm.seed == seed);
     CHECK(a->combat->attack_slot == 1 && c->swings[1] == 1 && a->record[0x18f] == 0);
     CHECK(m->record[0x188] == 5 && m->combat->dying == 5);
     CHECK(LOGGED("print: A;print: slays helpless;attack: M with one cruel blow;"));
@@ -490,7 +490,7 @@ static void test_strike(void)
     m = record('M', 1, 6, 5);
     CHECK(cok_character_add_effect(m, 0x34, 0, 0, false) != NULL);
     a->record[0x18f] = 0;
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && a->combat->attack_slot == 0);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && a->combat->attack_slot == 0);
     CHECK(c->swings[0] == 1);
     /* And with that 0 too, past the record: refused. */
     reset("");
@@ -499,7 +499,8 @@ static void test_strike(void)
     CHECK(cok_character_add_effect(m, 0x34, 0, 0, false) != NULL);
     a->record[0x18f] = 0;
     a->record[0x18e] = 0;
-    CHECK(!cok_combat_strike(&game, a, m, false, &over) && game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(!cok_combat_strike(&game, a, m, false, false, &over) &&
+          game.vm.status == COK_ECL_UNDEFINED);
     /* A large target: the weapon's dice against large ones (bytes 2-4) for
      * slot 1, the small ones' bonus (byte 11) taken off. */
     reset("");
@@ -511,7 +512,7 @@ static void test_strike(void)
     a->record[0x195] = 4;
     const uint8_t *type = game.item_types.type[0x12];
     game.vm.seed = swing(15, type[3], 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(a->record[0x191] == type[2] && a->record[0x193] == type[3]);
     CHECK(a->record[0x195] == (uint8_t)(4 - (int8_t)type[11] + (int8_t)type[4]));
     CHECK(m->record[0x197] == (uint8_t)(100 - a->record[0x195] - 1));
@@ -524,7 +525,7 @@ static void test_strike(void)
     m->combat->facing = 2;
     m->combat->turning = 5;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(LOGGED("attack: M (from behind) Hitting for 1 point of damage;"));
     /* Turned 4: not from behind; the 10 against 50 still hits. */
     s.log[0] = '\0';
@@ -532,20 +533,21 @@ static void test_strike(void)
     a->record[0x18f] = 1;
     a->combat->attack_slot = 2;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && LOGGED("attack: M Hitting"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && LOGGED("attack: M Hitting"));
     /* Asked from behind, it is. */
     s.log[0] = '\0';
     a->record[0x18f] = 1;
     a->combat->attack_slot = 2;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, true, &over) && LOGGED("attack: M (from behind) Hit"));
+    CHECK(cok_combat_strike(&game, a, m, true, false, &over) &&
+          LOGGED("attack: M (from behind) Hit"));
     /* A backstab: from behind less 4, "-Backstabs-". */
     s.log[0] = '\0';
     a->record[0xff] = 1;
     a->record[0x18f] = 1;
     a->combat->attack_slot = 2;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && LOGGED("print: -Backstabs-;"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && LOGGED("print: -Backstabs-;"));
     CHECK(LOGGED("attack: M Hitting for 2 points of damage;"));
     /* Hurt with a spell being cast: may not cast, "lost a spell", its
      * turn ends. */
@@ -558,7 +560,7 @@ static void test_strike(void)
     m->record[0x1e] = 7;
     m->record[0x1f] = 3;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(m->combat->may_cast == 0 && m->combat->spell == 0 && m->combat->initiative == 0);
     CHECK(m->record[0x1e] == 7 && m->record[0x1f] == 0 && LOGGED("print: M;print: lost a spell;"));
     /* Events 2 (slot 1) on the attacker after damage, the target up: a
@@ -571,7 +573,7 @@ static void test_strike(void)
     unsigned poisoned[] = {20, 10, 10, 2, 1, 1, 20, 2, 19};
     game.vm.seed = seed_seq(3, poisoned);
     a->combat->target = m->record;
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(LOGGED("print: M;print: is Poisoned;") && LOGGED("print: is killed;"));
     CHECK(m->record[0x188] == 6 && cok_character_find_effect(m, 0x37) != NULL);
 }
@@ -1100,7 +1102,7 @@ static void test_explode(void)
     x->record[0x197] = 2;
     game.vm.seed = swing(15, 2, 2);
     bool over;
-    CHECK(cok_combat_strike(&game, a, x, false, &over));
+    CHECK(cok_combat_strike(&game, a, x, false, false, &over));
     /* The strike ran the explosions after the blow: "explodes.", 1d6 to
      * each other listed within a cell (but those exploding), then it is
      * dead and leaves the map. */
@@ -1555,14 +1557,14 @@ static void test_quirks(void)
     m = record('M', 1, 6, 5);
     m->record[0x188] = 8;
     game.vm.seed = swing(2, 0, 0);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && !LOGGED("and Misses"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && !LOGGED("and Misses"));
     reset("");
     a = record('A', 0, 5, 5);
     m = record('M', 1, 6, 5);
     a->record[0x195] = 30;
     track_rows = true;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && m->record[0x188] == 6);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && m->record[0x188] == 6);
     /* The text "Hitting for 31 / points of / damage" on rows 13-15. */
     CHECK(strstr(rows, "M Hitting for 31 points of damage@12;M@16;goes down@16;M@18;is killed@18;") !=
           NULL);
@@ -1574,7 +1576,7 @@ static void test_quirks(void)
     a->record[0x195] = 1;
     track_rows = true;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && m->record[0x188] == 5);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && m->record[0x188] == 5);
     CHECK(!LOGGED("is killed"));
     CHECK(strstr(rows, "M@16;goes down@16;and is Dying@17;5@18;") != NULL);
 
@@ -1595,7 +1597,7 @@ static void test_quirks(void)
     a->record[0x18f] = 1;
     a->record[0x190] = 1;
     a->combat->attack_slot = 1;
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && over);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && over);
     CHECK(a->record[0x18f] == 0 && a->record[0x190] == 0);
     /* Large above 0x80 or by & 7: 0x80 is not. */
     reset("");
@@ -1605,7 +1607,7 @@ static void test_quirks(void)
     m->record[0xcf] = 0x80;
     uint8_t dice = a->record[0x191], sides = a->record[0x193];
     game.vm.seed = swing(15, sides, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(a->record[0x191] == dice && a->record[0x193] == sides);
     /* The target's stats recomputed first; the sweeps used up. */
     reset("");
@@ -1614,7 +1616,7 @@ static void test_quirks(void)
     m->record[0x18d] = 0;
     a->combat->sweeps = 2;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over));
     CHECK(m->record[0x18d] == 50);
     CHECK(a->combat->sweeps == 0);
     /* A backstab: from behind less 4, so a 7 hits. */
@@ -1625,7 +1627,7 @@ static void test_quirks(void)
     m->combat->hits = 2;
     m->combat->facing = 2;
     game.vm.seed = swing(7, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && LOGGED("print: -Backstabs-;"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && LOGGED("print: -Backstabs-;"));
     CHECK(r->hits[0] == 1);
     /* From behind only for one hit more than once. */
     a->record[0xff] = 0;
@@ -1635,7 +1637,7 @@ static void test_quirks(void)
     a->combat->attack_slot = 2;
     s.log[0] = '\0';
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && LOGGED("attack: M Hitting"));
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && LOGGED("attack: M Hitting"));
     /* A target made helpless by the first blow (0x45) is hit by the next
      * whatever the roll. */
     reset("");
@@ -1648,7 +1650,7 @@ static void test_quirks(void)
     a->record[0x18f] = 2;
     unsigned held[] = {20, 10, 10, 2, 1, 1, 20, 2, 19, 20, 1, 1};
     game.vm.seed = seed_seq(4, held);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && r->hits[0] == 2);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && r->hits[0] == 2);
     CHECK(cok_combat_helpless(m, &cok_rules_champions));
     /* Events 2 and 3 only with damage: none, no poison. */
     reset("");
@@ -1660,7 +1662,7 @@ static void test_quirks(void)
     m->record[0xd0] = 0xff;
     unsigned none[] = {20, 10, 10, 2, 1, 1, 20, 2, 19};
     game.vm.seed = seed_seq(3, none);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && r->hits[0] == 1);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && r->hits[0] == 1);
     CHECK(!LOGGED("is Poisoned") && m->record[0x188] == 0);
     /* Slot 2's attacks left: not over. */
     reset("");
@@ -1671,7 +1673,7 @@ static void test_quirks(void)
     a->record[0x190] = 1;
     a->combat->attack_slot = 1;
     game.vm.seed = swing(10, 2, 1);
-    CHECK(cok_combat_strike(&game, a, m, false, &over) && !over && a->record[0x190] == 1);
+    CHECK(cok_combat_strike(&game, a, m, false, false, &over) && !over && a->record[0x190] == 1);
     /* An attacker that drops (the target exploding) is over. */
     reset("");
     a = record('A', 0, 5, 5);
@@ -1683,7 +1685,7 @@ static void test_quirks(void)
     a->record[0x190] = 1;
     a->combat->attack_slot = 1;
     game.vm.seed = swing(15, 2, 1);
-    CHECK(cok_combat_strike(&game, a, x, false, &over) && over);
+    CHECK(cok_combat_strike(&game, a, x, false, false, &over) && over);
     CHECK(a->record[0x189] == 0 && a->record[0x18f] == 1);
 
     /* 432f:2beb: an arrow south-east, its attacking picture (slot 14's

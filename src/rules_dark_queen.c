@@ -411,12 +411,18 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_VAULT] = VAR(0x31),      /* 5f07:084b: COMBAT opens the vault */
     [COK_VAR_TEMPLE] = VAR(0x14),     /* 5f07:0861: COMBAT opens the temple */
     [COK_VAR_NO_MAGIC] = VAR(0x02),   /* dqk 5045:0cd7's Cast: the area forbids casting */
+    [COK_VAR_HIT_PARTY] = VAR(0x2f),    /* 148f:1771: the party's to-hit bonus */
+    [COK_VAR_HIT_MONSTERS] = VAR(0x01), /* 148f:1771: the monsters' */
 };
 
 /* The effects that bar a free attack's blow (52db:08e6's tests on each neighbour: 0xd2, 0x6a,
  * 0x1f, 0x33, 0x34, 0x35, 0x37, 0x76, 0x82, 0xd5), 0-ended. */
 static const uint8_t dark_queen_free_barred[] = {0xd2, 0x6a, 0x1f, 0x33, 0x34, 0x35,
                                                  0x37, 0x76, 0x82, 0xd5, 0x00};
+
+/* The readied weapon's item types that allow a backstab (dqk 52db:278f, at the record's type,
+ * +0x28), 0-ended: 3, 4, 0x11-0x13, 0x3f and 0x43. */
+static const uint8_t dark_queen_backstab_weapons[] = {3, 4, 0x11, 0x12, 0x13, 0x3f, 0x43, 0};
 
 /* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
  * and 0x17 (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95
@@ -775,6 +781,22 @@ const cok_rules cok_rules_dark_queen = {
             .words =
                 {
                     .bandaged = "is bandaged",
+                    /* The attack's message (52db:02c0's words, scope 2.7: 5af9-5b95; 14b ports the
+                     * report's layout). */
+                    .attacks = "Attacks",
+                    .backstabs = "-Backstabs-",
+                    .slays = "slays helpless",
+                    .behind = "(from behind) ",
+                    .cruel = "with one cruel blow",
+                    .hitting = "Hitting for ",
+                    .point = " point ",
+                    .points = " points ",
+                    .damage = "of damage",
+                    .misses = "and Misses",
+                    .lost_spell = "lost a spell",
+                    .goes_down = "goes down",
+                    .dying = "and is Dying",
+                    .killed = "is killed",
                     .panic = "flees in panic",
                     .magic_on = "Magic On",
                     .magic_off = "Magic Off",
@@ -811,6 +833,26 @@ const cok_rules cok_rules_dark_queen = {
             .keys_unflushed = true,
             /* 52db:3d9e: tries the number listed, after one draw unused. */
             .pick_tries_listed = true,
+            /* 148f:1771: the party's var 0x2f and the monsters' 0x01, the difficulty's adjustment
+             * for the party. */
+            .hit_bonus = COK_HIT_BONUS_DARK_QUEEN,
+            /* 52db:1417: sound 8 on a hit, 0x0a on a miss (only with no item). */
+            .hit_sound = 8,
+            .miss_sound = 0x0a,
+            .miss_sound_no_item = true,
+            /* 52db:01dd, 1417, 02c0: the damage is a signed word (DS:ae55). */
+            .damage_word = true,
+            /* 52db:278f: a thief by level or effect 0xbe; the weapon types above; 52db:01dd. */
+            .backstab = COK_BACKSTAB_DARK_QUEEN,
+            .backstab_weapons = dark_queen_backstab_weapons,
+            .backstab_effect = 0xbe,
+            /* 177e:1346: the 0x89 memorized bytes from +0xce, marked 0x80. */
+            .forget_bytes = 0x89,
+            .forget_mark = 0x80,
+            /* 52db:1417's 0xb8 test: a holder gets event slot + 1 on a hit with no damage. */
+            .hit_event_effect = 0xb8,
+            /* 52db:1417 clears no sweeps. */
+            .strike_keeps_sweeps = true,
         },
     .effects =
         {

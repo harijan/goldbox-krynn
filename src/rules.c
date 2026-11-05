@@ -1107,6 +1107,8 @@ static const uint8_t champions_resisted_pending[] = {0x5b, 0x52, 0};
 /* The item types the missile's flight draws as arrows (432f:2beb): darts,
  * javelins, quarrels and arrows. */
 static const uint8_t champions_arrows[] = {5, 7, 0x0c, 0x1e, 0};
+/* The readied weapon's item types that allow a backstab (432f:278f), 0-ended. */
+static const uint8_t champions_backstab_weapons[] = {3, 4, 0x11, 0x12, 0x13, 0x43, 0};
 
 static const uint8_t champions_combat_effects[] = {0x03, 0x0b, 0x15, 0x17, 0x1b, 0x23,
                                                    0x28, 0x33, 0x34, 0x35, 0x1f, 0};
@@ -1809,6 +1811,11 @@ const cok_rules cok_rules_champions = {
             .keys_unflushed = false,    /* 3afb:12eb flushes */
             .pick_tries_listed = false, /* 20 tries, as the port has it (432f:3f9f) */
             .step_sound = 0x0a,         /* 432f:077a, DS:1e5c */
+            .hit_bonus = COK_HIT_BONUS_PAIR, /* 60f4:10xx: var 0x7f70, the monsters', 0x7f71 */
+            .hit_sound = 7,                  /* the port's SOUND_HIT (DS:1e56) */
+            .miss_sound = 9,                 /* SOUND_MISS (DS:1e5a), always made */
+            .backstab = COK_BACKSTAB_FORMER, /* 432f:278f */
+            .backstab_weapons = champions_backstab_weapons,
         },
     .menus =
         {

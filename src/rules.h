@@ -1453,6 +1453,28 @@ typedef enum {
     COK_NO_MOVE_DARK_QUEEN,
 } cok_computer_no_move;
 
+/* The to-hit bonus of a roll (cok_combat_hit), each the port's routine of that game's original. */
+typedef enum {
+    /* 60f4:10xx: COK_VAR_HIT_BONUS's two bytes, the monsters' (0) and the party's (1), signed. */
+    COK_HIT_BONUS_PAIR,
+    /* dqk 148f:1771's step 4: the party's var COK_VAR_HIT_PARTY (its hostile word 0) as a signed
+     * byte plus the difficulty's adjustment (COK_VAR_DIFFICULTY 1 +2, 2 +1, 3 0, 4 -1, 5 -2, else
+     * 0); the monsters' COK_VAR_HIT_MONSTERS. */
+    COK_HIT_BONUS_DARK_QUEEN,
+} cok_hit_bonus;
+
+/* The backstab (cok_combat_backstab and the damage's times), each the port's routine of that
+ * game's original. */
+typedef enum {
+    /* The port's (Champions'; Death Knights' as the port has it): a thief by its level, or by a
+     * former class's level when the former counts; the damage times 2 + (level - 1) / 4 as a
+     * byte. */
+    COK_BACKSTAB_FORMER,
+    /* dqk 52db:278f: a thief by its level or effect backstab_effect; the damage times 5 for level
+     * 0, else (level - 1) / 4 + 2, at most 5, as a word (52db:01dd). */
+    COK_BACKSTAB_DARK_QUEEN,
+} cok_backstab_routine;
+
 /* Turning undead (attack.c), each the port's routine of that game's
  * original. */
 typedef enum {
@@ -1571,6 +1593,32 @@ typedef struct {
      * (Champions' and Death Knights' have none): the blow is not made, the target kept, and the
      * turn's free attack used up. */
     const uint8_t *free_attack_barred;
+    /* The to-hit bonus of a roll (cok_hit_bonus; 148f:1771's step 4). */
+    cok_hit_bonus hit_bonus;
+    /* The sounds of a strike's hit and of its miss (52db:1417: 8 and 0x0a for Dark Queen; 7 and 9
+     * for Champions and Death Knights), and whether a miss sounds only with no item
+     * (52db:1417's 17c5; Champions' always does). */
+    uint8_t hit_sound, miss_sound;
+    bool miss_sound_no_item;
+    /* Whether the damage is a signed word (DS:ae55: cok_rolls.amount16, kept by 52db:01dd and
+     * 1417 and reported at 02c0 as a word, a helpless target's hp + 5 too); Champions' and Death
+     * Knights' is a byte (DS:6b30). */
+    bool damage_word;
+    /* The backstab (cok_backstab_routine): the readied weapon's item types that allow one, 0-ended
+     * (dqk 52db:278f: 3, 4, 0x11-0x13, 0x3f, 0x43), and the effect that makes a thief (dqk 0xbe;
+     * 0 none). */
+    cok_backstab_routine backstab;
+    const uint8_t *backstab_weapons;
+    uint8_t backstab_effect;
+    /* The memorized bytes that a forgotten spell is looked for in, from the field's first byte: 0
+     * the field's own count, Dark Queen's 0x89 (177e:1346 walks past the field's 0x4a). */
+    uint8_t forget_bytes;
+    /* The effect a holder of which gets event slot + 1 on a strike that hit even for no damage
+     * (dqk 52db:1417's 0xb8 test; 0 none). */
+    uint8_t hit_event_effect;
+    /* Whether a strike keeps the attacker's sweeps left (cok_combat_record's sweeps; dqk 52db:1417
+     * clears none). */
+    bool strike_keeps_sweeps;
 } cok_rules_fight;
 /* The clouds on the battlefield (cloud.c), each the port's routines of
  * that game's original. */

@@ -61,36 +61,40 @@ void cok_combat_end_turn(cok_character *c)
     c->combat->movement = 0;
 }
 
-bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *rules, uint8_t damage,
-                       uint8_t mode)
+bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *rules,
+                       uint16_t damage, uint8_t mode)
 {
     const cok_character_layout *L = rules->character;
     uint8_t *r = c->record;
-    uint8_t over = 0, left = 0, hp = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
+    /* The damage past the hit points is a word (Dark Queen's, 52db:01dd); 9 or more is a death. */
+    uint16_t over = 0;
+    uint8_t left = 0, hp = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
     if (hp < damage)
-        over = (uint8_t)(damage - hp);
+        over = (uint16_t)(damage - hp);
     else
         left = (uint8_t)(hp - damage);
-    if (over > 9 || (left == 0 && cok_field_u8(L, r, COK_FIELD_STATUS) == 1)) {
-        cok_field_set8(L, r, COK_FIELD_STATUS, 6);
+    if (over > 9 || (left == 0 && cok_combat_field_word(rules, r, COK_FIELD_STATUS) == 1)) {
+        cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 6);
     } else if (over > 0) {
-        cok_field_set8(L, r, COK_FIELD_STATUS, 5);
+        cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 5);
         if (mode == 5) {
             if (c->combat == NULL) return false;
-            c->combat->dying = over;
+            c->combat->dying = (uint8_t)over;
         }
     } else if (left == 0) {
-        cok_field_set8(L, r, COK_FIELD_STATUS, 4);
+        cok_combat_set_field_word(rules, r, COK_FIELD_STATUS, 4);
     }
-    if (cok_field_u8(L, r, COK_FIELD_STATUS) == 0 || cok_field_u8(L, r, COK_FIELD_STATUS) == 1) {
+    if (cok_combat_field_word(rules, r, COK_FIELD_STATUS) == 0 ||
+        cok_combat_field_word(rules, r, COK_FIELD_STATUS) == 1) {
         cok_field_set8(L, r, COK_FIELD_HIT_POINTS, left);
         return true;
     }
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
     cok_field_set8(L, r, COK_FIELD_HIT_POINTS, 0);
     if (mode != 5) return true;
-    if (cok_field_u8(L, r, COK_FIELD_HOSTILE) > 1 || c->combat == NULL) return false;
-    --combat->sides[cok_field_u8(L, r, COK_FIELD_HOSTILE)];
+    unsigned side = cok_combat_field_word(rules, r, COK_FIELD_HOSTILE);
+    if (side > 1 || c->combat == NULL) return false;
+    --combat->sides[side];
     c->combat->initiative = 0;
     return true;
 }
@@ -944,18 +948,28 @@ bool cok_combat_turn(cok_adventure *game, cok_character *c)
     return cok_arena_redraw_cell(game, cok_combat_x(combat, r), cok_combat_y(combat, r));
 }
 
-bool cok_combat_turn_tail(cok_adventure *game)
+/* 148f:2ab8, 2c4f and 2d9b, the pending lists, each with its guard (849a:000c): a list that is
+ * not empty stops (cited); with them all empty each sets DS:bebd to 0. Dark Queen's only (the
+ * descriptor's pending_unported); the turn's tail, and a strike after each of its slots
+ * (52db:1417). */
+bool cok_combat_pending_lists(cok_adventure *game, const char *where)
 {
     const cok_rules_combat *R = &cok_game_rules(game)->combat;
     cok_combat *combat = &game->combat;
+    if (R->pending_unported == NULL) return true;
+    if (combat->pending[0] != 0 || combat->pending[1] != 0 || combat->pending[2] != 0)
+        return cok_adventure_not_yet(game, where, R->pending_unported);
+    game->effects.rolls.damage_type = 0;
+    return true;
+}
+
+bool cok_combat_turn_tail(cok_adventure *game)
+{
+    const cok_rules_combat *R = &cok_game_rules(game)->combat;
     /* Champions and Death Knights have no tail here. Once the keys ran out the run is over
      * (vm.abort): the tail is not reached. */
     if (R->pending_unported == NULL || game->vm.abort) return true;
-    /* 148f:2ab8, 2c4f and 2d9b, each with its guard (849a:000c): a list that is not empty
-     * stops (cited); with them all empty each sets DS:bebd to 0. */
-    if (combat->pending[0] != 0 || combat->pending[1] != 0 || combat->pending[2] != 0)
-        return cok_adventure_not_yet(game, "a turn's tail", R->pending_unported);
-    game->effects.rolls.damage_type = 0;
+    if (!cok_combat_pending_lists(game, "a turn's tail")) return false;
     /* The demonstration's key test (5045:06cf-070e) is after the sides and the early end in
      * the original; here it is before them, which runs no state. */
     if (game->demo) return cok_adventure_not_yet(game, "a turn's tail", R->demo_key_unported);

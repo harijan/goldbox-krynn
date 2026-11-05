@@ -286,9 +286,7 @@ static void test_flee_ambush(void)
 
 /* 52db:08e6: a neighbour holding 0xd5 (one of the effects that bar the blow, free_attack_barred) is
  * not struck by the free attack: no attack is made, no draw, and its target is kept. A party record
- * steps south (dir 4) away from a monster beside it. The blow that is made (the hit roll) needs the
- * hit bonus, which Dark Queen's fight descriptor does not hold yet (dqk 148f:1771, part 14a), so
- * it is not run here. */
+ * steps south (dir 4) away from a monster beside it. */
 static void test_free_attack(void)
 {
     battle_clear();
@@ -304,6 +302,39 @@ static void test_free_attack(void)
     CHECK(cok_combat_opportunity(&game, a, 4));
     CHECK(!LOGGED("Attacks") && !LOGGED("Misses") && game.vm.seed == seed);
     CHECK(e->combat->target == x->record && e->combat->initiative == 5);
+    battle_clear();
+}
+
+/* The seed whose first d(sides) draw is value. */
+static uint32_t seed_with(uint8_t sides, uint8_t value)
+{
+    for (uint32_t seed = 1;; ++seed) {
+        uint32_t s = seed;
+        if (cok_dice(&s, 1, sides) == value) return seed;
+    }
+}
+
+/* The unbarred free attack (52db:08e6 with no 0xd5 by the monster): the blow is made, its hit roll
+ * drawn (Dark Queen's bonus, var 0x01, read: the port asserted here before the fight descriptor had
+ * it), and the attack is said, a miss or a hit. A party record steps north (dir 0) away from a
+ * monster to its south-west; both poses face 0 to 3 (the blow's pictures are not drawn yet: a
+ * facing above 3 with no icon stops), the party record's from its facing (hit twice, so kept). */
+static void test_free_attack_blow(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 10, 10);
+    cok_character *e = record('E', 1, 0);
+    place(e, 9, 11);
+    cok_character *x = record('X', 0, 0);
+    a->combat->hits = 2;
+    a->combat->facing = 0;
+    e->combat->facing = 0;
+    e->combat->target = x->record;
+    game.vm.seed = seed_with(20, 1);
+    uint32_t seed = game.vm.seed;
+    CHECK(cok_combat_opportunity(&game, a, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed != seed && (LOGGED("and Misses") || LOGGED("Hitting for")));
     battle_clear();
 }
 
@@ -378,6 +409,7 @@ int main(void)
     test_no_move();
     test_flee_ambush();
     test_free_attack();
+    test_free_attack_blow();
     test_stuck();
     test_square();
     cok_party_free(&game.party);

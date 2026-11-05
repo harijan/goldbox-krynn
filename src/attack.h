@@ -31,7 +31,8 @@
  * if it is not negative and, with attacker's THAC0 (+0x18c, as 60 -
  * THAC0) and var 0x7f71 (the party's side) or 0x7f70 (else) as a signed
  * byte, reaches ac. The original's adjustment by a constant 500 never
- * applies. */
+ * applies. Dark Queen's bonus is cok_hit_bonus's (148f:1771; a natural
+ * 17-20 that hits is critical, DS:c6b9, kept in rolls.critical). */
 bool cok_combat_hit(cok_adventure *game, cok_character *attacker, cok_character *target,
                     uint8_t ac, bool *hit);
 
@@ -61,7 +62,10 @@ bool cok_combat_range(cok_adventure *game, cok_character *attacker, cok_characte
  * DS:6b30: its dice (+0x190 + slot, sides +0x192 + slot, 60f4:1261) plus
  * its bonus (+0x194 + slot), a byte (a negative total wraps); events 4
  * (attacker) and 5 (target); a backstab (cok_combat_backstab) multiplies
- * it by 2 to 5 by the thief levels, as a byte; the damage type is 0. */
+ * it by 2 to 5 by the thief levels, as a byte; the damage type is 0.
+ * Dark Queen's (fight.damage_word) is a signed word in rolls.amount16
+ * (52db:01dd), not below 0, and its backstab is 5 at level 0, else
+ * (level - 1) / 4 + 2 at most 5, as a word. */
 bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_character *target,
                             uint8_t slot);
 
@@ -79,9 +83,13 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
  * it (432f:033e) and runs event slot + 1 on attacker while the target can
  * act and some was dealt; the dead that explode after each (60f4:2375).
  * With no hit, "and Misses". *over is set when no attacks are left, or
- * attacker cannot act, and its turn then ends (6346:2964). */
+ * attacker cannot act, and its turn then ends (6346:2964). Dark Queen's
+ * (52db:1417): sounds fight.hit_sound and miss_sound, the miss's only
+ * with no item (item: the attack has one), the event on a hit with no
+ * damage too when attacker holds fight.hit_event_effect, the pending
+ * lists after each slot (cok_combat_pending_lists), and the sweeps kept. */
 bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_character *target,
-                       bool behind, bool *over);
+                       bool behind, bool item, bool *over);
 
 /* 432f:1a45, an attack: a target hit fewer than twice turns away from
  * attacker (unless behind), but faces it if shown, which draws it

@@ -121,8 +121,12 @@ void cok_combat_end_turn(cok_character *c);
  * (DS:6b2c + side, a byte that can wrap), even if it had dropped before.
  * Returns false for a side other than 0 or 1, whose count the original
  * keeps in the bytes after. */
-bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *rules, uint8_t damage,
-                       uint8_t mode);
+bool cok_combat_damage(cok_combat *combat, cok_character *c, const cok_rules *rules,
+                       uint16_t damage, uint8_t mode);
+
+/* 148f:2ab8, 2c4f and 2d9b, the pending lists (Dark Queen's; the others have none): a list that is
+ * not empty stops, cited, with where said; with them all empty it sets the damage's type to 0. */
+bool cok_combat_pending_lists(cok_adventure *game, const char *where);
 
 /* 6346:31e9: whether a party member on the party's side (+0x18a 0, not
  * past the party's size) is dying; with bandage, the first is bandaged:

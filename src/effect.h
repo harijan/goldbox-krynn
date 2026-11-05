@@ -53,6 +53,14 @@ typedef struct {
                            * too. */
     uint8_t hits[2];      /* DS:6b3c, 6b3d: the attack's hits with its two slots. */
     uint8_t *target;      /* DS:6b3f: the record a handler takes as the attacker's target. */
+    /* Dark Queen's damage (DS:ae55, 52db:01dd): the amount as a signed word, which the strike deals
+     * and reports. Its byte (amount) is the low byte, which the effects' handlers still read. The
+     * other readers of DS:ae55 (148f:2214, 78e4:01f4, 0313, 0654, 0a22, 0a7e, 0d99, 0e98, 0eeb,
+     * 11d1) are the effect parts' (27, 34-38). */
+    int16_t amount16;
+    /* Dark Queen's critical (DS:c6b9, 148f:1771): a natural 17-20 that hits, read by 148f:16e0
+     * (an effect's handler, part 27). */
+    bool critical;
 } cok_rolls;
 
 enum {

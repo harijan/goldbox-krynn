@@ -23,6 +23,8 @@ static const cok_rules *const R = &cok_rules_dark_queen;
 static cok_adventure game;
 static char log_text[1 << 14];
 
+#define LOGGED(text) (strstr(log_text, text) != NULL)
+
 static void log_line(cok_adventure *g, const char *kind, const char *text, void *context)
 {
     (void)g, (void)context;
@@ -432,6 +434,223 @@ static void test_spell_choice(void)
     battle_clear();
 }
 
+/* Slot 1's dice of c in Dark Queen's layout: count and sides, and the damage bonus (177e:0be2's
+ * +0x192, +0x194, +0x196 for slot 1). */
+static void dice(cok_character *c, uint8_t count, uint8_t sides, int8_t bonus)
+{
+    const cok_character_layout *L = R->character;
+    c->record[cok_field_offset_unchecked(L, COK_FIELD_DICE, 0, 1)] = count;
+    c->record[cok_field_offset_unchecked(L, COK_FIELD_DICE_SIDES, 0, 1)] = sides;
+    c->record[cok_field_offset_unchecked(L, COK_FIELD_DAMAGE_BONUS, 0, 1)] = (uint8_t)bonus;
+}
+
+/* Dark Queen's to-hit bonus (dqk 148f:1771's step 4): a party member's var 0x2f plus the
+ * difficulty's adjustment (1 +2, 2 +1, 3 0, 4 -1, 5 -2), a monster's var 0x01 with none. The roll
+ * is 8 and thac0 10: a party member at difficulty 1 hits AC 20, at 5 hits 16 but not 20. A monster
+ * with var 0x01 1 hits 19 but not 20, even at difficulty 1. A 17 that hits is critical (DS:c6b9), a
+ * 17 that misses is not. */
+static void test_hit_bonus(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0), *m = record('M', 1, 0);
+    place(a, 5, 5);
+    place(m, 6, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_THAC0, 10);
+    cok_field_set8(R->character, m->record, COK_FIELD_THAC0, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_HIT_PARTY, 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_HIT_MONSTERS, 0);
+    const unsigned eight[] = {20, 8, 8}, seventeen[] = {20, 17, 17};
+    const struct { uint8_t difficulty, ac; bool hit; } party[] = {
+        {1, 20, true}, {5, 20, false}, {5, 16, true}};
+    for (size_t i = 0; i < sizeof party / sizeof *party; ++i) {
+        cok_ecl_set_var(&game.vm, COK_VAR_DIFFICULTY, party[i].difficulty);
+        game.vm.seed = seed_from(1, eight);
+        bool hit = !party[i].hit;
+        CHECK(cok_combat_hit(&game, a, m, party[i].ac, &hit) && hit == party[i].hit);
+    }
+    cok_ecl_set_var(&game.vm, COK_VAR_DIFFICULTY, 1);
+    cok_ecl_set_var(&game.vm, COK_VAR_HIT_MONSTERS, 1);
+    game.vm.seed = seed_from(1, eight);
+    bool hit = false;
+    CHECK(cok_combat_hit(&game, m, a, 19, &hit) && hit);
+    game.vm.seed = seed_from(1, eight);
+    CHECK(cok_combat_hit(&game, m, a, 20, &hit) && !hit);
+    /* A 17: critical when it hits (AC 27 with thac0 10 and no bonus at difficulty 3), not when it
+     * misses (AC 28). */
+    cok_ecl_set_var(&game.vm, COK_VAR_DIFFICULTY, 3);
+    cok_ecl_set_var(&game.vm, COK_VAR_HIT_MONSTERS, 0);
+    game.effects.rolls.critical = false;
+    game.vm.seed = seed_from(1, seventeen);
+    CHECK(cok_combat_hit(&game, a, m, 27, &hit) && hit && game.effects.rolls.critical);
+    game.vm.seed = seed_from(1, seventeen);
+    CHECK(cok_combat_hit(&game, a, m, 28, &hit) && !hit && !game.effects.rolls.critical);
+    cok_ecl_set_var(&game.vm, COK_VAR_DIFFICULTY, 1);
+    battle_clear();
+}
+
+/* Dark Queen's damage roll (dqk 52db:01dd): a total below 0 is 0 (1d4 with bonus -5 is not a
+ * wrapped byte). A thief's backstab multiplies the word: 2 at level 1, 5 at level 13 and at 17
+ * (capped), and 5 for level 0 by effect 0xbe. A target at 255 hit points with 300 dealt (a word)
+ * dies (status 6). */
+static void test_damage(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0), *t = record('T', 1, 0);
+    place(a, 5, 5);
+    place(t, 6, 5);
+    dice(a, 1, 4, -5);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 1, 4});
+    uint32_t seed = game.vm.seed;
+    CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 0);
+    CHECK(game.vm.seed == after_draws(seed, 1, 4));
+    /* The backstab: the target hit twice, a square away and turned to face the attacker. */
+    struct { uint8_t level; bool effect; int16_t times; } thieves[] = {
+        {1, false, 2}, {13, false, 5}, {17, false, 5}, {0, true, 5}};
+    for (size_t i = 0; i < sizeof thieves / sizeof *thieves; ++i) {
+        battle_clear();
+        a = record('A', 0, 0);
+        place(a, 5, 5);
+        t = record('T', 1, 0);
+        place(t, 6, 5);
+        dice(a, 1, 4, 0);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 6, thieves[i].level);
+        if (thieves[i].effect) CHECK(cok_character_add_effect(a, 0xbe, 0, 0, false) != NULL);
+        t->combat->hits = 2;
+        uint8_t d;
+        CHECK(cok_combat_direction(&game.combat, a, t, &d));
+        t->combat->facing = d;
+        game.vm.seed = seed_from(1, (const unsigned[]){4, 3, 3});
+        CHECK(cok_combat_damage_roll(&game, a, t, 1) &&
+              game.effects.rolls.amount16 == 3 * thieves[i].times);
+    }
+    battle_clear();
+    t = record('T', 1, 0);
+    place(t, 6, 5);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 255);
+    CHECK(cok_combat_damage(&game.combat, t, R, 300, 0) &&
+          cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+}
+
+/* Forgetting (dqk 177e:1346): the first of Dark Queen's 0x89 memorized bytes from +0xce that is the
+ * spell is marked 0x80, the 0x50th byte of the field included (its count is 0x4a). */
+static void test_forget(void)
+{
+    cok_character *c = record('C', 0, 0);
+    uint8_t *r = c->record;
+    memset(r + 0xce, 0, 0x89);
+    r[0xce + 0x50] = 0x21;
+    cok_combat_forget(R, r, 0x21);
+    CHECK(r[0xce + 0x50] == 0xa1);
+    r[0xce + 0x10] = 0x22;
+    cok_combat_forget(R, r, 0x22);
+    CHECK(r[0xce + 0x10] == 0xa2);
+    battle_clear();
+}
+
+/* A swing's attacker: one party record with slot 1's two attacks, 1d4 with no bonus, thac0 10, and
+ * a target beside it, a monster of 10 hit points, both up (record() leaves ACTIVE 0). Var 0x12 (the
+ * speed) is 0, so the waits draw nothing. */
+static void duel(cok_character **a, cok_character **t)
+{
+    battle_clear();
+    *a = record('A', 0, 0);
+    place(*a, 5, 5);
+    *t = record('M', 1, 0);
+    place(*t, 6, 5);
+    cok_field_set8(R->character, (*a)->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, (*t)->record, COK_FIELD_ACTIVE, 1);
+    (*a)->combat->attack_slot = 1;
+    cok_field_set8_at(R->character, (*a)->record, COK_FIELD_ATTACKS_LEFT, 1, 2);
+    dice(*a, 1, 4, 0);
+    cok_field_set8(R->character, (*a)->record, COK_FIELD_THAC0, 10);
+    cok_field_set8(R->character, (*t)->record, COK_FIELD_HIT_POINTS, 10);
+    memset(game.combat.pending, 0, sizeof game.combat.pending);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    log_text[0] = '\0';
+    game.error[0] = '\0';
+    game.vm.status = COK_ECL_OK;
+}
+
+/* Dark Queen's strike (dqk 52db:1417): a swing that misses (d20 1), then one that hits (d20 20,
+ * then 1d4): the seed is after the three draws, the hit's sound is 8 (the miss's, 0x0a, is not
+ * made), and the swings used up end the turn. Its sweeps are kept. */
+static void test_strike(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.seed = seed_from(3, (const unsigned[]){20, 1, 1, 20, 20, 20, 4, 1, 4});
+    uint32_t seed = game.vm.seed;
+    bool over = false;
+    a->combat->sweeps = 2;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    uint32_t expect = after_draws(seed, 2, 20);
+    cok_dice(&expect, 1, 4);
+    CHECK(game.vm.seed == expect);
+    CHECK(LOGGED("sound: 8;") && !LOGGED("sound: 10;") && !LOGGED("sound: 7;"));
+    CHECK(a->combat->sweeps == 2);
+    /* The miss with no item sounds 0x0a; with an item (the missile's) not. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    over = false;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over && LOGGED("sound: 10;") &&
+          LOGGED("and Misses"));
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(cok_combat_strike(&game, a, t, false, true, &over) && !LOGGED("sound: 10;") &&
+          LOGGED("and Misses"));
+    /* A pending list stops the strike after its slot's attacks, before the miss is said. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    game.combat.pending[1] = 1;
+    CHECK(!cok_combat_strike(&game, a, t, false, false, &over) &&
+          game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "148f:2ab8") != NULL &&
+          !LOGGED("Misses") && !LOGGED("sound: 10;"));
+    battle_clear();
+}
+
+/* A hit for no damage (1d4 with bonus -5) by a holder of effect 0xb8 runs the next slot's event
+ * (dqk 52db:1417's 0xb8 test): the effect has no handler yet (dqk 78e4:3d76), so the strike stops
+ * there, cited; without the effect the same hit is no event. */
+static void test_hit_event(void)
+{
+    for (int holds = 0; holds < 2; ++holds) {
+        cok_character *a, *t;
+        duel(&a, &t);
+        dice(a, 1, 4, -5);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+        if (holds) CHECK(cok_character_add_effect(a, 0xb8, 0, 0, false) != NULL);
+        game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
+        bool over = false;
+        bool ok = cok_combat_strike(&game, a, t, false, false, &over);
+        if (holds)
+            CHECK(!ok && strstr(game.error, "78e4:3d76") != NULL);
+        else
+            CHECK(ok && over && LOGGED("sound: 8;"));
+    }
+    battle_clear();
+}
+
+/* A helpless target (effect 0x33) takes the cruel blow of its hit points + 5 as a word (dqk
+ * 52db:1417): 260 on 255 hit points is 5 over, dying (status 5), where a byte would leave 4 of
+ * them (status 0). */
+static void test_helpless_blow(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 255);
+    CHECK(cok_character_add_effect(t, 0x33, 0, 0, false) != NULL);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 1, 4});
+    bool over = false;
+    cok_combat_strike(&game, a, t, false, false, &over);
+    CHECK(cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 5);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -442,6 +661,8 @@ int main(void)
     cok_keyboard keys = {no_key, NULL, NULL, NULL};
     cok_adventure_hooks hooks = {.log = log_line};
     CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
+    /* The battle's ground (set 1: no palette cycle, so no draw), for the report's window. */
+    CHECK(cok_adventure_drawing(&game)->arena_tiles(&game, false, 1));
     test_leadership();
     test_fled();
     test_combat_records();
@@ -449,6 +670,12 @@ int main(void)
     test_pick_listed();
     test_geometry();
     test_spell_choice();
+    test_hit_bonus();
+    test_damage();
+    test_forget();
+    test_strike();
+    test_hit_event();
+    test_helpless_blow();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
