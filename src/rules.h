@@ -1508,6 +1508,11 @@ typedef struct {
     uint8_t burst_slot;
     /* Turning undead (cok_turning_routine). */
     uint8_t turning;
+    /* The computer's "Move/Attack, Move Left = N" on row 24 (3afb:095a): its colour (10, light
+     * green; dqk 5bb8:06b0's 7), and whether it has no trailing space from ten up (dqk 5bb8:06b0
+     * takes its format 5e0a for ten or more, 5ded, with the space, below). */
+    uint8_t moves_left_colour;
+    bool moves_left_bare_from_ten;
 } cok_rules_fight;
 /* The clouds on the battlefield (cloud.c), each the port's routines of
  * that game's original. */

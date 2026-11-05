@@ -140,6 +140,11 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over);
  * party's facing's way off the map (see ai.c), stepping where it can. */
 bool cok_ai_step(cok_adventure *game, cok_character *c);
 
+/* The row 24 line of a step (3afb:095a; dqk 5bb8:06b0): "Move/Attack, Move Left = N" with the
+ * moves (movement / 2), and a trailing space unless the rules leave it bare from ten up, into text
+ * (size bytes). */
+void cok_ai_moves_left_text(const cok_rules_fight *F, uint8_t movement, char *text, size_t size);
+
 /* 3afb:0743: whether c can step in dir turned by try (1-5) of its way of
  * moving (DS:0396): not off the map (*offmap), onto a cell it can walk on
  * and no one holds, costing (twice, three times on a diagonal, a byte)

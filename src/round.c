@@ -355,11 +355,7 @@ bool cok_combat_gods(cok_adventure *game)
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
     cok_combat *combat = &game->combat;
-    const cok_drawing *own = cok_adventure_drawing(game);
-    if (own != NULL && own->notice != NULL)
-        own->notice(game, "The Gods intervene!"); /* dqk 177e:153c */
-    else
-        cok_camp_notice(game, "The Gods intervene!"); /* 6346:1827 */
+    cok_arena_notice(game, "The Gods intervene!"); /* dqk 177e:153c */
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
         uint8_t *r = c->record;

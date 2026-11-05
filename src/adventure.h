@@ -250,6 +250,23 @@ typedef struct {
      * ground, kind 1 for an effect's text): drawn by the game (dqk 51c2:0731). NULL: the game's
      * own missile stops, cited. */
     bool (*arena_flash)(cok_adventure *game, cok_character *c, uint8_t kind, const char *text);
+    /* A text at cell x, y of the battle in colour fg on bg (cok_arena_text's place, dqk
+     * 1a62:0046: on row 24 boxed on the bar by prompt_box, above it on the window's grey by the
+     * attribute bg * 16 + fg; a background of 0 is the grey, and from row 23 down a white fg of 7
+     * or 8 is 15). NULL: cok_text_string. */
+    bool (*arena_text)(cok_adventure *game, int x, int y, const char *text, uint8_t fg,
+                       uint8_t bg);
+    /* The battle's text cleared (cok_arena_clear_text's place in mode 5, dqk 177e:1665: cells
+     * 0x17-0x26 by 0x0a-0x15 in the grey). NULL: arena.c's own clear. */
+    void (*arena_clear_text)(cok_adventure *game);
+    /* The battle's wait (cok_arena_wait's place, dqk 1df9:052a: one random draw for ms != 0),
+     * and its pause (cok_arena_pause's, dqk 1a62:0949: variable 0x12 times 100 ms through the
+     * same wait). NULL: cok_adventure_wait, at the speed. */
+    void (*wait)(cok_adventure *game, unsigned ms);
+    void (*pause)(cok_adventure *game);
+    /* The bottom bar blanked for the computer's turn (cok_arena_clear_bar's place, dqk
+     * 1bdb:036c: the bar drawn again). NULL: row 24 blanked. */
+    void (*clear_bar)(cok_adventure *game);
     /* The encounter's sprite and close-up at distance (dqk 6c70:0255), drawn in
      * place of monster.c's show: the SPRIT group distance + 1 in the 3D view and
      * the close-up picture at distance 0. NULL: monster.c's show (Champions',

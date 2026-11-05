@@ -3867,6 +3867,38 @@ static bool arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, con
                                  "dqk 51c2:0731 (2d99:0f09)");
 }
 
+/* 177e:1665 in the battle: cells 0x17-0x26 by 0x0a-0x15 in the window's grey. */
+static void arena_clear_text(cok_adventure *game)
+{
+    clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
+}
+
+/* 1a62:0046 (x, y, fg, bg, text). A background of 0 is the grey (8), and on row 23 or below a
+ * fg of 7 or 8 is white (15). Row 24 is boxed on the bar (prompt_box); above it the text is drawn
+ * in attribute bg * 16 + fg (2102:03a0, one cell 8 by 8). Row 23 in the battle takes another branch
+ * (1a62:01d0), not ported. */
+static bool arena_text(cok_adventure *game, int x, int y, const char *s, uint8_t fg, uint8_t bg)
+{
+    if (bg == 0) {
+        bg = 8;
+        if (y >= 0x17 && (fg == 7 || fg == 8)) fg = 0x0f;
+    }
+    if (y == 0x18) {
+        prompt_box(game, x, s, fg, bg);
+        return true;
+    }
+    if (game->vm.mode == 5 && y == 0x17)
+        return cok_adventure_not_yet(game, "a text on row 23 of the battle", "dqk 1a62:01d0");
+    text(game, 8 * y, 8 * x, s, (unsigned)(bg & 15) << 4 | (unsigned)(fg & 15));
+    return true;
+}
+
+/* 1a62:0949: the wait of variable 0x12 times 100 ms (its byte; one draw unless it is 0). */
+static void pause(cok_adventure *game)
+{
+    pass(game, 100u * (uint8_t)cok_ecl_load_var(&game->vm, 0x12));
+}
+
 /* Add Character (7368:08dc): "add from where? " Tdqk, Dkk or Exit; the
  * roster (none: "No characters to load.", DS:5f76); then "add a
  * character: " over its list ("Add Exit", DS:501a), each member's "* "
@@ -5475,6 +5507,11 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_panel = combat_panel,
     .arena_say = arena_say,
     .arena_flash = arena_flash,
+    .arena_text = arena_text,
+    .arena_clear_text = arena_clear_text,
+    .wait = cok_dark_queen_wait,
+    .pause = pause,
+    .clear_bar = queen_bottom_bar,
     .notice = queen_bar_message,
     .encounter = encounter,
     .round_clock = cok_dark_queen_round_clock,

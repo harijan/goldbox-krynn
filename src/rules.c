@@ -1804,6 +1804,7 @@ const cok_rules cok_rules_champions = {
             .missile_clamped = false,
             .burst_slot = 0x17, /* 6346:228c */
             .turning = COK_TURNING_CHAMPIONS, /* 432f:12b7 */
+            .moves_left_colour = 10, /* 3afb:095a */
         },
     .menus =
         {

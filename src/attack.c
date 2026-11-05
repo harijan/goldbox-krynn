@@ -168,7 +168,7 @@ static bool kill(cok_adventure *game, cok_character *c, int stale)
 
 static void wait_speed(cok_adventure *game)
 {
-    cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+    cok_arena_pause(game); /* 1521:0b4b; dqk 1a62:0949 */
 }
 
 /* The text's window is full: wait for a key (1614:025b), as PRINT pages. */
@@ -680,7 +680,7 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
         !cok_arena_pose(game, attacker, d, 1, false))
         return false;
     ca->target = target->record;
-    cok_adventure_wait(game, 100); /* 1962:029c */
+    cok_arena_wait(game, 100); /* 1962:029c; dqk 1df9:052a */
     /* The item is held across the strike: one that goes meanwhile, as an
      * effect can take it, the original goes on using freed, as its bytes
      * were. */
@@ -1058,7 +1058,7 @@ bool cok_combat_flee(cok_adventure *game, cok_character *c)
     if (away) {
         if (!cok_combat_leave(game, c, 3, W->got_away)) return false;
     } else {
-        cok_camp_notice(game, W->blocked); /* 6346:1827 */
+        cok_arena_notice(game, W->blocked); /* 6346:1827 */
     }
     cok_combat_end_turn(c);
     return true;

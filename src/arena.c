@@ -974,10 +974,64 @@ bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint
 
 void cok_arena_clear_text(cok_adventure *game)
 {
-    if (game->vm.mode == 5)
-        clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
-    else
+    if (game->vm.mode == 5) {
+        const cok_drawing *own = cok_adventure_drawing(game);
+        if (own != NULL && own->arena_clear_text != NULL)
+            own->arena_clear_text(game); /* dqk 177e:1665 */
+        else
+            clear_cells(game, 0x17, 0x0a, 0x26, 0x15);
+    } else {
         cok_camp_clear_text(game);
+    }
+}
+
+bool cok_arena_text(cok_adventure *game, int x, int y, const char *text, uint8_t fg, uint8_t bg)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->arena_text != NULL) {
+        if (own->arena_text(game, x, y, text, fg, bg)) return true;
+        /* As cok_arena_say: a failure that left the error text alone is reported here. */
+        if (!game->vm.abort) own_failed(game);
+        return false;
+    }
+    cok_text_string(&game->screen, &game->font, text, x, y, fg, bg);
+    return true;
+}
+
+void cok_arena_wait(cok_adventure *game, unsigned ms)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->wait != NULL)
+        own->wait(game, ms); /* dqk 1df9:052a */
+    else
+        cok_adventure_wait(game, ms);
+}
+
+void cok_arena_pause(cok_adventure *game)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->pause != NULL)
+        own->pause(game); /* dqk 1a62:0949 */
+    else
+        cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+}
+
+void cok_arena_clear_bar(cok_adventure *game)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->clear_bar != NULL)
+        own->clear_bar(game); /* dqk 1bdb:036c */
+    else
+        cok_text_clear(&game->screen, &game->font, 40, 0, 24, 0); /* 67b5:0c7b */
+}
+
+void cok_arena_notice(cok_adventure *game, const char *text)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->notice != NULL)
+        own->notice(game, text); /* dqk 177e:153c */
+    else
+        cok_camp_notice(game, text); /* 6346:1827 */
 }
 
 bool cok_arena_panel(cok_adventure *game, cok_character *c)
