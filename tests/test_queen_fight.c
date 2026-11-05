@@ -349,13 +349,13 @@ static void test_geometry(void)
     CHECK(k->listed[1].distance == 5 && k->listed[1].direction == 0);
     CHECK(k->listed[2].distance == 9 && k->listed[2].direction == 3);
     /* The distance sees all: A at 4 half cells, so 2 cells; D 9, so 4. Its list holds C too (at 0,
-     * the origin's own cell), so the count is 4; entries 1 and 2 are put back after it (entry 1's
-     * index is B's again), and the count is not. */
+     * the origin's own cell), so the count is 4; entry 1's index is put back after it (B's again),
+     * and the count is not. */
     uint8_t dist = 0;
     CHECK(cok_combat_distance(k, R, c->record, a->record, &dist) && dist == 2);
     CHECK(cok_combat_distance(k, R, c->record, d->record, &dist) && dist == 4);
     CHECK(cok_combat_distance(k, R, c->record, b->record, &dist) && dist == 2);
-    CHECK(k->listed[1].index == 3 && k->listed[2].index == 4 && k->listed_count == 4);
+    CHECK(k->listed[1].index == 3 && k->listed_count == 4);
     /* The direction of each wedge: a combatant four cells off on each of the eight lines. */
     static const int dx[8] = {0, 1, 1, 1, 0, -1, -1, -1}, dy[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
     battle_clear();

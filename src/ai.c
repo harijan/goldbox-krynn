@@ -135,11 +135,13 @@ static bool spell_byte(cok_adventure *game, uint8_t spell, unsigned column, uint
  * none of its own. */
 static bool give_back(cok_adventure *game, cok_character *c, bool *back)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
     for (size_t i = 0; i < game->party.count; ++i) {
         uint8_t *r = game->party.members[i]->record;
+        /* 5bb8:1050 compares the status as a word; Champions' byte (int_status_hostile false). */
         if (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80 &&
-            cok_field_u8(L, r, COK_FIELD_STATUS) != 1)
+            cok_combat_field_word(rules, r, COK_FIELD_STATUS) != 1)
             cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
     }
     if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) == 0) {
@@ -151,10 +153,11 @@ static bool give_back(cok_adventure *game, cok_character *c, bool *back)
     return true;
 }
 
-/* 5bb8:1050 (Dark Queen's): one key through the Dark Queen's reader (queen_read_code, 2093:0078),
- * with its codes. Alt-M (0xcc) toggles Magic On with its notice (177e:153c, the bar). Alt-X (0xd7)
- * gives the gods (52db:3feb), which tests the Helm itself (its password: the port's game->helm,
- * as the other callers test it), and nothing else here. */
+/* 5bb8:1050 (Dark Queen's): the keys waiting through the Dark Queen's reader (queen_read_code,
+ * 2093:0078: every key is read, the last one kept), with its codes. Alt-M (0xcc) toggles Magic
+ * On with its notice (177e:153c, the bar). Alt-X (0xd7) gives the gods (52db:3feb), which tests
+ * the Helm itself (its password: the port's game->helm, as the other callers test it), and
+ * nothing else here. */
 static bool dark_queen_keys(cok_adventure *game, cok_character *c, bool *back)
 {
     const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
@@ -189,9 +192,11 @@ static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
 {
     cok_combat *combat = &game->combat;
     *back = false;
-    if (!cok_adventure_key_pending(game)) return true; /* 1614:03c2 */
-    if (cok_game_rules(game)->fight.keys == COK_KEYS_DARK_QUEEN)
+    if (cok_game_rules(game)->fight.keys == COK_KEYS_DARK_QUEEN) {
+        if (!queen_key_waiting(game)) return true; /* 1df9:045b: the keyboard alone */
         return dark_queen_keys(game, c, back);
+    }
+    if (!cok_adventure_key_pending(game)) return true; /* 1614:03c2 */
     int key = cok_adventure_wait_key(game);
     if (key == 0 && !game->vm.abort) key = cok_adventure_wait_key(game);
     if (game->vm.abort) {

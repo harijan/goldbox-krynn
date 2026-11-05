@@ -5124,13 +5124,29 @@ int queen_read_input(cok_adventure *game, queen_input *in)
     return read_input(game, in);
 }
 
+bool queen_key_waiting(cok_adventure *game)
+{
+    /* 1df9:045b (251e:00dc, bioskey(1)): the keyboard alone, a mouse button down is not a key. */
+    return game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
+}
+
 int queen_read_code(cok_adventure *game)
 {
     input in;
     int key = read_input(game, &in);
     if (key < 0) return key;
     if (in.click) return 0; /* a click is read and gives no key (timed_wait's rule) */
-    return result_code(key);
+    if (key == 0) return 0;
+    int code = result_code(key);
+    /* 2093:0078's loop (0x114): while a key waits, read it; the last one read is kept. Its
+     * demonstration Escape (DS:ae59, DS:a890) is not ported: unreachable until part 15. */
+    while (queen_key_waiting(game)) {
+        input next;
+        int k = read_input(game, &next);
+        if (k < 0) break;
+        code = next.click ? 0 : result_code(k);
+    }
+    return code;
 }
 
 bool queen_hotkey(int h, int key)
