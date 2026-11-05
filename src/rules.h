@@ -1420,6 +1420,18 @@ typedef enum {
     COK_COMPUTER_CAST_DEATH_KNIGHTS,
 } cok_computer_cast_routine;
 
+/* The computer's keys (ai.c's cok_ai_keys), each the port's routine of that game's
+ * original. */
+typedef enum {
+    /* 3afb:1200: '2' toggles Magic, Space gives the turn back, '-' the gods with the Helm
+     * (cok_ai_keys reads one key, then one more for a 0). */
+    COK_KEYS_CHAMPIONS,
+    /* dqk 5bb8:1050: one key through queen_read_code (2093:0078's codes): Space as above,
+     * Alt-M (0xcc) toggles Magic with its notice, Alt-X (0xd7) gives the gods (52db:3feb, whose
+     * own Helm test the port reads as game->helm, as its callers do). */
+    COK_KEYS_DARK_QUEEN,
+} cok_computer_keys;
+
 /* Turning undead (attack.c), each the port's routine of that game's
  * original. */
 typedef enum {
@@ -1513,6 +1525,14 @@ typedef struct {
      * takes its format 5e0a for ten or more, 5ded, with the space, below). */
     uint8_t moves_left_colour;
     bool moves_left_bare_from_ten;
+    /* The computer's keys (cok_ai_keys): the routine (cok_computer_keys), and whether the
+     * keyboard is left unflushed after a key (Dark Queen's 5bb8:1050 does not flush: 3afb:12eb
+     * does, for Champions). */
+    cok_computer_keys keys;
+    bool keys_unflushed;
+    /* The pick of a target (cok_combat_pick_target_side; dqk 52db:3d9e): with the tries the
+     * number listed, not 20, after one draw that is not used (Dark Queen's). */
+    bool pick_tries_listed;
 } cok_rules_fight;
 /* The clouds on the battlefield (cloud.c), each the port's routines of
  * that game's original. */

@@ -3,8 +3,11 @@
  * its var 0x36, FLED): on records made by hand in its layout, the game opened on
  * DQKAssets/ (skipped without). */
 #include "adventure.h"
+#include "attack.h"
+#include "combat.h"
 #include "ecl.h"
 #include "party.h"
+#include "queen.h"
 #include "round.h"
 #include "rules.h"
 
@@ -205,6 +208,230 @@ static void test_aging(void)
     cok_party_free(&game.party);
 }
 
+/* A record as a combatant at x, y on the battle's map (test_dark_queen's place), with a combat
+ * record of its own. */
+static void place(cok_character *c, int8_t x, int8_t y)
+{
+    cok_combat *k = &game.combat;
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    cok_combatant *e = &k->combatant[k->count];
+    e->x = x;
+    e->y = y;
+    e->size = 1;
+    e->character = c;
+    ++k->count;
+    k->combatant[k->count].size = 0;
+    k->combatant[k->count].character = NULL;
+    CHECK(cok_combat_occupy(k, R));
+}
+
+/* An empty battle: the floor everywhere, no combatant but the one that count 1 leaves (combatant 0
+ * is no one's), no party, nothing listed, no one yelled. */
+static void battle_clear(void)
+{
+    cok_combat *k = &game.combat;
+    memset(k->cells, COK_COMBAT_FLOOR, sizeof k->cells);
+    memset(k->occupant, 0, sizeof k->occupant);
+    memset(k->combatant, 0, sizeof k->combatant);
+    memset(k->enemies, 0, sizeof k->enemies);
+    k->count = 1;
+    k->listed_count = 0;
+    k->see_all = 0;
+    k->yelled = NULL;
+    cok_party_free(&game.party);
+}
+
+/* The seed after n draws of d(sides) from seed, and the n-th draw's value (n from 1). */
+static uint32_t after_draws(uint32_t seed, unsigned n, uint8_t sides)
+{
+    for (unsigned i = 0; i < n; ++i) cok_dice(&seed, 1, sides);
+    return seed;
+}
+
+static uint8_t draw_number(uint32_t seed, unsigned n, uint8_t sides)
+{
+    seed = after_draws(seed, n - 1, sides);
+    return cok_dice(&seed, 1, sides);
+}
+
+/* The pick of a target with flag (dqk 52db:3d9e, Dark Queen's pick_tries_listed): one draw first,
+ * not used, then as many tries as listed. Three enemies, the first pick found: the seed is after
+ * two draws (the unused one and the pick), and the target is the pick's combatant. With 20 listed
+ * and the first of them yelled at (c holds effect 0x8c, COK_EFFECT_YELLED_AT), the yell takes the
+ * head at tries 19 with no draw: the seed is after the unused draw only. With 19 listed the yell
+ * does not apply: the try's pick is a draw, and a pick other than the head comes up here. */
+static void test_pick_listed(void)
+{
+    cok_combat *k = &game.combat;
+    bool found = false;
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, 5, 5);
+    place(record('A', 1, 0), 8, 5);
+    place(record('B', 1, 0), 5, 8);
+    place(record('D', 1, 0), 2, 5);
+    game.vm.seed = 0x1234;
+    uint32_t want = after_draws(game.vm.seed, 2, 3);
+    uint8_t pick = draw_number(game.vm.seed, 2, 3);
+    CHECK(cok_combat_pick_target(&game, c, 0xff, true, false, &found) && found);
+    CHECK(game.vm.seed == want);
+    CHECK(c->combat->target == k->combatant[k->enemies[pick]].character->record);
+
+    for (int listed = 20; listed >= 19; --listed) {
+        battle_clear();
+        c = record('C', 0, 0);
+        place(c, 25, 12);
+        cok_character *first = NULL;
+        for (int i = 0; i < 20; ++i) {
+            cok_character *m = record('M', 1, 0);
+            place(m, (int8_t)(2 + i), 2);
+            if (i == 0) first = m;
+        }
+        CHECK(cok_character_add_effect(c, 0x8c, 0, 0, false) != NULL);
+        k->yelled = first->record;
+        if (listed == 19) k->combatant[21].size = 0; /* the twentieth monster is not listed */
+        /* A seed whose second draw, the pick of 19, is not the head (the 19 case only). */
+        uint32_t seed = 1;
+        while (draw_number(seed, 2, 19) == 1) ++seed;
+        game.vm.seed = seed;
+        found = false;
+        if (listed == 20) {
+            want = after_draws(seed, 1, 20);
+            CHECK(cok_combat_pick_target(&game, c, 0xff, true, false, &found) && found);
+            CHECK(game.vm.seed == want && c->combat->target == first->record);
+        } else {
+            want = after_draws(seed, 2, 19);
+            uint8_t p = draw_number(seed, 2, 19);
+            CHECK(cok_combat_pick_target(&game, c, 0xff, true, false, &found) && found);
+            CHECK(game.vm.seed == want);
+            CHECK(c->combat->target == k->combatant[k->enemies[p]].character->record);
+            CHECK(c->combat->target != first->record);
+        }
+    }
+    battle_clear();
+}
+
+/* The geometry of the battle's lists on a made-up map (dqk 5d71's routines, identical to the
+ * shared ones: 0328 sight, 048f in_arc, 07d7 the list, 0b26 the distance, 5837:16dd the direction).
+ * The map is floor with a wall at 11, 10 (value 1 of DS:6197: cost 255, eye 1, block 2, which
+ * blocks the sight past eye 1). C is at 10, 10; A at 12, 10, behind the wall; B at 9, 8; D at
+ * 13, 13. */
+static void test_geometry(void)
+{
+    cok_combat *k = &game.combat;
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    cok_character *a = record('A', 1, 0), *b = record('B', 1, 0), *d = record('D', 1, 0);
+    place(c, 10, 10);
+    place(a, 12, 10);
+    place(b, 9, 8);
+    place(d, 13, 13);
+    k->cells[10][11] = 1;
+    /* The sight: the wall stops it at its cell (11, 10) after one step (2 half cells); with
+     * see_all, the sight goes on to 12, 10 at 4 half cells. */
+    int8_t x1 = 12, y1 = 10;
+    uint16_t range = 0xff;
+    bool seen = true;
+    CHECK(cok_combat_sight(k, R, 10, 10, &x1, &y1, &range, &seen) && !seen);
+    CHECK(x1 == 11 && y1 == 10 && range == 2);
+    k->see_all = 1;
+    x1 = 12;
+    y1 = 10;
+    range = 0xff;
+    CHECK(cok_combat_sight(k, R, 10, 10, &x1, &y1, &range, &seen) && seen && range == 4);
+    k->see_all = 0;
+    /* The list: A is hidden, so B (5 half cells, north) and D (9, south-east) are listed nearest
+     * first, in the order of the combatants and the directions 0 and 3. */
+    uint8_t n = 0;
+    CHECK(cok_combat_side_list(&game, c, 0xff, false, &n) && n == 2);
+    CHECK(k->enemies[1] == 3 && k->enemies[2] == 4);
+    CHECK(k->listed[1].distance == 5 && k->listed[1].direction == 0);
+    CHECK(k->listed[2].distance == 9 && k->listed[2].direction == 3);
+    /* The distance sees all: A at 4 half cells, so 2 cells; D 9, so 4. Its list holds C too (at 0,
+     * the origin's own cell), so the count is 4; entries 1 and 2 are put back after it (entry 1's
+     * index is B's again), and the count is not. */
+    uint8_t dist = 0;
+    CHECK(cok_combat_distance(k, R, c->record, a->record, &dist) && dist == 2);
+    CHECK(cok_combat_distance(k, R, c->record, d->record, &dist) && dist == 4);
+    CHECK(cok_combat_distance(k, R, c->record, b->record, &dist) && dist == 2);
+    CHECK(k->listed[1].index == 3 && k->listed[2].index == 4 && k->listed_count == 4);
+    /* The direction of each wedge: a combatant four cells off on each of the eight lines. */
+    static const int dx[8] = {0, 1, 1, 1, 0, -1, -1, -1}, dy[8] = {-1, -1, 0, 1, 1, 1, 0, -1};
+    battle_clear();
+    cok_character *ring[8];
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    for (unsigned w = 0; w < 8; ++w) {
+        ring[w] = record('W', 1, 0);
+        place(ring[w], (int8_t)(10 + 4 * dx[w]), (int8_t)(10 + 4 * dy[w]));
+    }
+    for (unsigned w = 0; w < 8; ++w) {
+        uint8_t dir = 9;
+        CHECK(cok_combat_direction(k, c, ring[w], &dir) && dir == w);
+    }
+    /* The arcs' corners: each neighbour of the combatant is in its own arc (and the cell itself)
+     * and not in the opposite one. */
+    for (unsigned w = 0; w < 8; ++w) {
+        bool in = false;
+        int8_t ahead_x = (int8_t)(10 + dx[w]), ahead_y = (int8_t)(10 + dy[w]);
+        int8_t behind_x = (int8_t)(10 - dx[w]), behind_y = (int8_t)(10 - dy[w]);
+        CHECK(cok_combat_in_arc(10, 10, ahead_x, ahead_y, (uint8_t)w, &in) && in);
+        CHECK(cok_combat_in_arc(10, 10, 10, 10, (uint8_t)w, &in) && in);
+        CHECK(cok_combat_in_arc(10, 10, behind_x, behind_y, (uint8_t)w, &in) && !in);
+    }
+    /* North's corner: (11, 8) is in the arc, (12, 8) is not; (9, 8) is, (8, 8) is not. */
+    bool in = false;
+    CHECK(cok_combat_in_arc(10, 10, 11, 8, 0, &in) && in);
+    CHECK(cok_combat_in_arc(10, 10, 12, 8, 0, &in) && !in);
+    CHECK(cok_combat_in_arc(10, 10, 9, 8, 0, &in) && in);
+    CHECK(cok_combat_in_arc(10, 10, 8, 8, 0, &in) && !in);
+    battle_clear();
+}
+
+/* The computer's spell choice's prefix (dqk 5bb8:0306, queen_ai.c): it casts nothing when fleeing,
+ * when var COK_VAR_NO_MAGIC is set, when it may not cast, or when it is a monster with Magic off;
+ * each of those returns with no stop. Anything else is the spell choice (part 29), a cited stop; so
+ * is a monster with Magic on, and an NPC (+0x9b 0x80) even with Magic off. */
+static void test_spell_choice(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 8, 5);
+    cok_character *n = record('N', 0, 1);
+    n->combat = calloc(1, sizeof *n->combat);
+    CHECK(n->combat != NULL);
+    bool cast = true;
+    m->combat->may_cast = 1;
+    game.combat.magic_on = false;
+    cok_ecl_set_var(&game.vm, COK_VAR_NO_MAGIC, 0);
+    /* Refusals: Magic off for a monster; fleeing; the var; may_cast 0 (with Magic on). */
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    m->combat->fleeing = 1;
+    game.combat.magic_on = true;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    m->combat->fleeing = 0;
+    cok_ecl_set_var(&game.vm, COK_VAR_NO_MAGIC, 1);
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    cok_ecl_set_var(&game.vm, COK_VAR_NO_MAGIC, 0);
+    m->combat->may_cast = 0;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    /* Past them: the choice, a cited stop, for a monster with Magic on, and for an NPC with it
+     * off. */
+    m->combat->may_cast = 1;
+    CHECK(!queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "dqk 5bb8:0306") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.combat.magic_on = false;
+    n->combat->may_cast = 1;
+    CHECK(!queen_spell_choice(&game, n, &cast) && !cast && game.vm.status == COK_ECL_UNPORTED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.combat.magic_on = false;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -219,6 +446,9 @@ int main(void)
     test_fled();
     test_combat_records();
     test_aging();
+    test_pick_listed();
+    test_geometry();
+    test_spell_choice();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

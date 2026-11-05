@@ -139,6 +139,13 @@ bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const 
  * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). False
  * where the run stopped; true, with the turn not ended, when the keys ran out. */
 bool queen_commands(cok_adventure *game, cok_character *c);
+/* The computer's turn's key (dqk 5bb8:1050 reads it through 2093:0078): one key's code as a
+ * menu's result gives it (Alt-M 0xcc, Alt-X 0xd7), 0 for none and for a click, -1 when the keys
+ * ran out. */
+int queen_read_code(cok_adventure *game);
+/* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast false where it casts nothing;
+ * else its choice is a cited stop. False where the run stopped. */
+bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);
 /* A frame record (FRAME.TLB) or a record of ALWAYS.TLB drawn at pixel
  * row, col. */
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);

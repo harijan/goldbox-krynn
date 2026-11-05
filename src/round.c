@@ -749,7 +749,9 @@ bool cok_combat_distance(cok_combat *combat, const cok_rules *rules, const uint8
         while (listed_record(combat, i) != target && i < combat->listed_count) ++i;
         *distance = (uint8_t)(combat->listed[i].distance >> 1);
     }
-    /* The entries after the count are put back, the count not. */
+    /* The entries after the count are put back, the count not. Dark Queen's 51c2:0b26 keeps and
+     * puts back only entry 0 and entry 1's index (4 bytes): nothing reads the rest after it (the
+     * lists are read afresh), so it is not copied here. */
     memcpy(&combat->listed[1], &saved[1], sizeof saved - sizeof saved[0]);
     return ok;
 }
