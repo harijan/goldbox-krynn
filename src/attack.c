@@ -12,13 +12,12 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The sound driver's commands for a thrown missile, a hit, a miss or a
- * missile, a step and an arrow: the words at DS:1e54-1e61. */
+/* The sound driver's commands for a thrown missile, a hit, a miss and an arrow: the words at
+ * DS:1e54-1e61 (a step's is the descriptor's step_sound). */
 enum {
     SOUND_THROWN = 6,  /* DS:1e54 */
     SOUND_HIT = 7,     /* DS:1e56 */
     SOUND_MISS = 9,    /* DS:1e5a */
-    SOUND_STEP = 0x0a, /* DS:1e5c */
     SOUND_ARROW = 0x0c /* DS:1e60 */
 };
 
@@ -885,6 +884,16 @@ bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t 
 
 /* Movement. */
 
+/* Whether e holds one of the effects that bar a free attack (52db:08e6's tests, the descriptor's
+ * free_attack_barred, 0-ended; none for Champions and Death Knights). */
+static bool barred(const cok_character *e, const uint8_t *ids)
+{
+    if (ids == NULL) return false;
+    for (; *ids != 0; ++ids)
+        if (cok_character_find_effect(e, *ids) != NULL) return true;
+    return false;
+}
+
 /* 432f:068f: each enemy beside c (6346:26e2) that guards and is not
  * helpless, while c can act, is shown, stops guarding and attacks it. */
 static bool guards(cok_adventure *game, cok_character *c)
@@ -946,7 +955,7 @@ bool cok_combat_step(cok_adventure *game, cok_character *c, uint8_t dir)
     if (combat->show_actions && !cok_arena_centre(game, nx, ny, margin, 8)) return false;
     cr->hits = 0;
     cr->turning = 0;
-    cok_arena_sound(game, SOUND_STEP);
+    cok_arena_sound(game, cok_game_rules(game)->fight.step_sound);
     if (!guards(game, c)) return false;
     if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0 ||
         cok_combat_helpless(c, cok_game_rules(game)))
@@ -1034,8 +1043,11 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
                 cok_field_set8_at(L, e->record, COK_FIELD_ATTACKS_LEFT, slot, 1);
             ce->attack_slot = slot;
             uint8_t *aimed = ce->target;
-            bool over;
-            if (!cok_combat_attack(game, e, c, true, 0, &over)) return false; /* DS:7199 */
+            /* A barred blow is not made, but the turn's free attack is used up all the same
+             * (dqk 52db:08e6: its tests end with done set and the target restored). */
+            if (!barred(e, cok_game_rules(game)->fight.free_attack_barred) &&
+                !cok_combat_attack(game, e, c, true, 0, &combat->attack_over)) /* DS:7199 */
+                return false;
             done = true;
             ce->target = aimed;
             if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) != 0) {
@@ -1049,15 +1061,20 @@ bool cok_combat_opportunity(cok_adventure *game, cok_character *c, uint8_t dir)
 
 bool cok_combat_flee(cok_adventure *game, cok_character *c)
 {
-    uint8_t n;
-    if (!cok_combat_enemies(game, c, 0xff, &n)) return false;
-    bool away = n == 0;
-    if (!away) {
-        uint8_t mine, theirs;
-        if (!cok_combat_movement(game, c, &mine) || !cok_combat_fastest_enemy(game, c, &theirs))
-            return false;
-        mine = (uint8_t)(mine >> 1);
-        away = theirs < mine || (theirs == mine && roll(game, 1, 2) == 1);
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    bool away = false;
+    /* 52db:0e26: with the ambush byte at 0x20 (DS:c2e7) no flight is made, and nothing is listed. */
+    if (!F->flee_blocked_by_ambush || game->ambush != 0x20) {
+        uint8_t n;
+        if (!cok_combat_enemies(game, c, 0xff, &n)) return false;
+        away = n == 0;
+        if (!away) {
+            uint8_t mine, theirs;
+            if (!cok_combat_movement(game, c, &mine) || !cok_combat_fastest_enemy(game, c, &theirs))
+                return false;
+            mine = (uint8_t)(mine >> 1);
+            away = theirs < mine || (theirs == mine && roll(game, 1, 2) == 1);
+        }
     }
     const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
     if (away) {

@@ -964,24 +964,26 @@ bool cok_combat_turn_tail(cok_adventure *game)
     return true;
 }
 
-/* The square test of each record at the round's end: the shared cok_cloud_square, or, where
- * the descriptor has square_unported (Dark Queen's 148f:12ab(rec, 0, 1)), a record that can act
- * (+0x18b) reads its footprint's marks (cok_combat_marks, probe 8: 5837:0bd1). A cloud kind 0x1b
- * or 0x1c, or acid (0x46), stops, cited; kind 0x1d is skipped at the round's end (12f0-12fc).
- * Its other branches are the clouds' (part 39), not run here. */
-static bool round_square(cok_adventure *game, cok_character *c)
+/* The square test: at a step (step, 148f:12ab(c, 0, 0) from 5bb8:06b0) or at the round's end
+ * (148f:12ab(rec, 0, 1) from 5045:0f6c). The shared cok_cloud_square, or, where the descriptor has
+ * square_unported (Dark Queen's), a record that can act (+0x18b) reads its footprint's marks
+ * (cok_combat_marks, probe 8: 5837:0bd1). A cloud kind 0x1b or 0x1c, or acid (0x46), stops, cited;
+ * kind 0x1d stops at a step only (its third argument, 12f6, skips it at the round's end). Its other
+ * branches are the clouds' (part 39), not run here. */
+bool cok_round_square(cok_adventure *game, cok_character *c, bool step)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_rules_combat *R = &rules->combat;
-    if (R->square_unported == NULL) return cok_cloud_square(game, c, false);
+    if (R->square_unported == NULL) return cok_cloud_square(game, c, step);
     const cok_character_layout *L = rules->character;
     if (cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0) return true;
     uint8_t kind;
     bool acid;
     if (!cok_combat_marks(&game->combat, rules, c->record, 8, &kind, &acid))
         return undefined(game, "a size past the footprints is read after them (6beb:0c9d)");
-    if (kind == 0x1b || kind == 0x1c || acid)
-        return cok_adventure_not_yet(game, "round's end", R->square_unported);
+    if (kind == 0x1b || kind == 0x1c || (kind == 0x1d && step) || acid)
+        return cok_adventure_not_yet(game, step ? "the step's square" : "round's end",
+                                     R->square_unported);
     return true;
 }
 
@@ -1004,7 +1006,7 @@ bool cok_combat_end_round(cok_adventure *game, bool *done)
     cok_combat_enemy_health(combat, &game->party, cok_game_rules(game));
     for (size_t i = 0; i < game->party.count; ++i) {
         cok_character *c = game->party.members[i];
-        if (!event(game, c, 0x13) || !round_square(game, c)) return false;
+        if (!event(game, c, 0x13) || !cok_round_square(game, c, false)) return false;
         if (cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS) != 5) continue;
         cok_combat_record *cr = record_of(game, c);
         if (cr == NULL) return false;

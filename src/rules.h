@@ -1433,6 +1433,26 @@ typedef enum {
     COK_KEYS_DARK_QUEEN,
 } cok_computer_keys;
 
+/* The computer's may-step test (ai.c's cok_ai_can_step), each the port's routine of that game's
+ * original. */
+typedef enum {
+    /* 3afb:0743: the shared test (the probe, the cloud's saving throw and the puddle). */
+    COK_CAN_STEP_CHAMPIONS,
+    /* dqk 5bb8:0438: the probe and marks of the square, the cost, and the effects and bits that
+     * free a cloud (queen_can_step, queen_ai.c). */
+    COK_CAN_STEP_DARK_QUEEN,
+} cok_computer_can_step;
+
+/* The computer's turn with no movement left and not fleeing (ai.c's no-move tail), each the
+ * port's routine of that game's original. */
+typedef enum {
+    /* The guard (cok_ai_guard). */
+    COK_NO_MOVE_GUARD,
+    /* dqk 5bb8:0af0: the spell choice first (5bb8:0306, queen_spell_choice), whose cast ends the
+     * turn; then the guard. */
+    COK_NO_MOVE_DARK_QUEEN,
+} cok_computer_no_move;
+
 /* Turning undead (attack.c), each the port's routine of that game's
  * original. */
 typedef enum {
@@ -1534,6 +1554,23 @@ typedef struct {
     /* The pick of a target (cok_combat_pick_target_side; dqk 52db:3d9e): with the tries the
      * number listed, not 20, after one draw that is not used (Dark Queen's). */
     bool pick_tries_listed;
+    /* The step's sound (52db:06c0's 0x0b for Dark Queen; 0x0a, DS:1e5c, for Champions and Death
+     * Knights). */
+    uint8_t step_sound;
+    /* Whether a class 5 holds whatever its slot 2 (dqk 5bb8:06b0); false tests that slot too
+     * (3afb:095a, dkk 3f63:08c6). */
+    bool step_no_slot_test;
+    /* The computer's may-step test (cok_computer_can_step) and its no-move tail
+     * (cok_computer_no_move). */
+    cok_computer_can_step can_step;
+    cok_computer_no_move no_move;
+    /* Whether the ambush byte at 0x20 (game->ambush) blocks a flight (dqk 52db:0e26: "Escape is
+     * blocked" with no test of the others'). */
+    bool flee_blocked_by_ambush;
+    /* The effects that bar a free attack's blow (dqk 52db:08e6's 177e:1734 tests), 0-ended, or NULL
+     * (Champions' and Death Knights' have none): the blow is not made, the target kept, and the
+     * turn's free attack used up. */
+    const uint8_t *free_attack_barred;
 } cok_rules_fight;
 /* The clouds on the battlefield (cloud.c), each the port's routines of
  * that game's original. */

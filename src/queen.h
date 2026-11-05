@@ -150,6 +150,11 @@ bool queen_key_waiting(cok_adventure *game);
 /* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast false where it casts nothing;
  * else its choice is a cited stop. False where the run stopped. */
 bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);
+/* The computer's step (dqk 5bb8:0438, may it step; the descriptor's can_step, queen_ai.c): ok where
+ * the square of try's way from dir may be stepped on; offmap where it is off the map. False where the
+ * run stopped. */
+bool queen_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_t dir, bool *offmap,
+                    bool *ok);
 /* A frame record (FRAME.TLB) or a record of ALWAYS.TLB drawn at pixel
  * row, col. */
 void queen_draw_frame(cok_adventure *game, unsigned id, int row, int col);

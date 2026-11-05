@@ -877,6 +877,9 @@ static bool turned(cok_adventure *game, const cok_combat_record *cr, uint8_t try
 bool cok_ai_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_t dir,
                      bool *offmap, bool *ok)
 {
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    if (F->can_step == COK_CAN_STEP_DARK_QUEEN)
+        return queen_can_step(game, c, try_, dir, offmap, ok);
     const cok_character_layout *L = cok_game_rules(game)->character;
     const uint8_t *r = c->record;
     *offmap = false;
@@ -936,11 +939,27 @@ static bool moves_left(cok_adventure *game, uint8_t movement)
     return cok_arena_text(game, 0, 24, text, F->moves_left_colour, 0);
 }
 
+/* The no-move tail (5bb8:0af0): with no movement and not fleeing, the computer's spell choice
+ * first where the descriptor's no_move says so (its cast ends the turn), then the guard. */
+static bool no_move(cok_adventure *game, cok_character *c)
+{
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    cok_combat_record *cr = record_of(game, c);
+    if (cr == NULL) return false;
+    if (F->no_move == COK_NO_MOVE_DARK_QUEEN && cr->movement >> 1 == 0 && cr->fleeing == 0) {
+        bool cast = false;
+        if (!queen_spell_choice(game, c, &cast)) return false;
+        if (cast) return true;
+    }
+    return cok_ai_guard(game, c);
+}
+
 bool cok_ai_step(cok_adventure *game, cok_character *c)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     cok_rolls *rolls = &game->effects.rolls;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
@@ -948,14 +967,15 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
     bool back;
     if (!cok_ai_keys(game, c, &back)) return false;
     if (back) return true;
-    if (cr->movement >> 1 == 0 || cr->initiative <= 0) return cok_ai_guard(game, c);
+    if (cr->movement >> 1 == 0 || cr->initiative <= 0) return no_move(game, c);
     if (cok_field_u8(L, r, COK_FIELD_NPC) >= 0x80) {
         unsigned d = roll(game, 1, 100);
         if (combat->enemy_health > d + rolls->morale && cok_field_u8(L, r, COK_FIELD_HOSTILE) != 1)
-            return cok_ai_guard(game, c);
+            return no_move(game, c);
     }
-    if (cr->fleeing == 0 && c->slots[2] == 0 && cok_field_u8(L, r, COK_FIELD_CLASS) == 5)
-        return cok_ai_guard(game, c);
+    if (cr->fleeing == 0 && (F->step_no_slot_test || c->slots[2] == 0) &&
+        cok_field_u8(L, r, COK_FIELD_CLASS) == 5)
+        return no_move(game, c);
     uint8_t dir;
     if (cr->fleeing == 0) {
         cok_character *target = cr->target != NULL ? member_of(game, cr->target) : NULL;
@@ -1037,7 +1057,7 @@ bool cok_ai_step(cok_adventure *game, cok_character *c)
     if (cr->movement > 0 && !cok_combat_step(game, c, cr->facing)) return false;
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || cok_combat_helpless(c, cok_game_rules(game)))
         cok_combat_end_turn(c);
-    return cok_cloud_square(game, c, true);
+    return cok_round_square(game, c, true);
 }
 
 /* 0d49: the last step (DS:43c8) none, not stuck (43c9, and 43ca), event
