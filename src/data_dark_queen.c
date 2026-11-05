@@ -820,8 +820,8 @@ static const uint8_t terrain[308] = {
 };
 
 /* DS:62cb: by size, 12 bytes: 2 * cell + axis (dqk 5045:7f46 in 5837:000a: 12 * size + 2 * cell +
- * axis; size 0 is never read there). Six cells (5837:01b9 loops 0-5, where
- * COK_COMBAT_FOOTPRINT_CELLS is 4); eight sizes here, the count the code bounds is not found. */
+ * axis; size 0 is never read there). Six cells (5837:01b9 loops 0-5, which
+ * COK_COMBAT_FOOTPRINT_CELLS holds); eight sizes here, the count the code bounds is not found. */
 static const uint8_t footprints[96] = {
     0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
     0x00, 0x00, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,

@@ -618,6 +618,14 @@ static int read_input(cok_adventure *game, input *in)
     return in->key = key;
 }
 
+/* The code a key gives as a menu's result or a computer's key (0cd7's c2f5 filter, 5bb8:1050's
+ * compares): an extended key from 0x100 gives 0x80 + its number, Alt and a letter (0xff +
+ * the letter) gives 0xc0 + the letter's place (Alt-A 0xc0, Alt-M 0xcc, Alt-Q 0xd0, Alt-X 0xd7). */
+static int result_code(int key)
+{
+    return key > 0xff ? (key & 0x7f) + 0x80 : key;
+}
+
 /* 2aa6:000e: whether hotkey h takes key: '@' Return (0x0d or 0x0a), '#'
  * Escape (or '`'), '*' any, below 0x20 the extended code h + 0x100, else
  * the letter in either case (10d7:25b1 lowers AL alone: an extended key
@@ -931,7 +939,7 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
                             (dirs && ((k >= KEY_PAD5 && k <= KEY_UP) ||
                                       (k >= KEY_ALT + 'A' && k <= KEY_ALT + 'Z')));
             if (filtered) {
-                result = k > 0xff ? (k & 0x7f) + 0x80 : k == 0x60 ? 0x1b : k;
+                result = k == 0x60 ? 0x1b : result_code(k);
                 break;
             }
             for (size_t i = 0; i < count && picked < 0; ++i)
@@ -5114,6 +5122,31 @@ static cok_ecl_status start(cok_adventure *game)
 int queen_read_input(cok_adventure *game, queen_input *in)
 {
     return read_input(game, in);
+}
+
+bool queen_key_waiting(cok_adventure *game)
+{
+    /* 1df9:045b (251e:00dc, bioskey(1)): the keyboard alone, a mouse button down is not a key. */
+    return game->hooks.key_pending != NULL && game->hooks.key_pending(game, game->hooks.context);
+}
+
+int queen_read_code(cok_adventure *game)
+{
+    input in;
+    int key = read_input(game, &in);
+    if (key < 0) return key;
+    if (in.click) return 0; /* a click is read and gives no key (timed_wait's rule) */
+    if (key == 0) return 0;
+    int code = result_code(key);
+    /* 2093:0078's loop (0x114): while a key waits, read it; the last one read is kept. Its
+     * demonstration Escape (DS:ae59, DS:a890) is not ported: unreachable until part 15. */
+    while (queen_key_waiting(game)) {
+        input next;
+        int k = read_input(game, &next);
+        if (k < 0) break;
+        code = next.click ? 0 : result_code(k);
+    }
+    return code;
 }
 
 bool queen_hotkey(int h, int key)

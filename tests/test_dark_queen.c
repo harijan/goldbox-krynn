@@ -1580,6 +1580,9 @@ typedef struct {
     char all[512];      /* every "menu" line, each ended with ';' */
     char messages[256]; /* the messages logged, each ended with ';' */
     char prints[128];   /* the texts said (the "print" lines), each ended with ';' */
+    bool pending;       /* a key waits while keys are left (the computer's keys' test only) */
+    bool once;          /* a key read clears pending: the next waits only once the test sets it */
+    int flushes;        /* the keyboard's flushes */
 } menu_script;
 
 static menu_script script;
@@ -1605,12 +1608,26 @@ static int menu_keys(void *context)
     if (s->keys[s->at] == '\0') return -1;
     char c = s->keys[s->at++];
     menu_game.pointer.clicked = c == '\x01';
+    if (s->once) s->pending = false;
     if (c == '\x01') {
         menu_game.pointer.x = click_x;
         menu_game.pointer.y = click_y;
         return 0;
     }
     return c == '~' ? 0 : (unsigned char)c;
+}
+
+static bool menu_pending(cok_adventure *game, void *context)
+{
+    (void)game;
+    menu_script *s = context;
+    return s->pending && s->keys[s->at] != '\0';
+}
+
+static void menu_flush(cok_adventure *game, void *context)
+{
+    (void)game;
+    ((menu_script *)context)->flushes++;
 }
 
 static void menu_log(cok_adventure *game, const char *kind, const char *text, void *context)
@@ -1645,6 +1662,8 @@ static void menu_open(void)
     cok_adventure_hooks hooks = {0};
     hooks.log = menu_log;
     hooks.context = &script;
+    hooks.key_pending = menu_pending;
+    hooks.flush = menu_flush;
     CHECK(cok_adventure_open(&menu_game, &rules, "DQKAssets", &keys, &hooks));
     menu_is_open = true;
     const cok_character_layout *L = R->character;
@@ -2574,6 +2593,125 @@ static void test_battle_waits(void)
     menu_close();
 }
 
+/* A party record of its own (not a monster, not an NPC) for the computer's keys' test: appended to
+ * the party with a combat record, its computer flag and status set. */
+static cok_character *keys_member(uint8_t npc, uint8_t status, uint8_t computer)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *c = calloc(1, sizeof *c);
+    CHECK(c != NULL && cok_party_append(&menu_game.party, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    cok_field_set8(L, c->record, COK_FIELD_NPC, npc);
+    cok_field_set8(L, c->record, COK_FIELD_STATUS, status);
+    cok_field_set8(L, c->record, COK_FIELD_COMPUTER, computer);
+    return c;
+}
+
+/* The computer's keys (dqk 5bb8:1050, cok_ai_keys through the Dark Queen's reader,
+ * queen_read_code): nothing is read with no key waiting, and a mouse button down is not a key (the
+ * keyboard alone, 1df9:045b); Space gives the turn back (initiative 0x14) and clears the computer
+ * flag of the party's records that are not NPCs and not status 1 (the status a word: a record
+ * with +0x65 set and its low byte 1 is cleared); with Alt-M (scan 0x32, "~2") and Space both
+ * waiting, the reader reads every key waiting and keeps the last, so Space alone acts: Magic is
+ * not toggled, no notice, no draw; with the Space waiting only after Alt-M, Alt-M toggles Magic On
+ * with its notice, after one draw for its wait, and nothing is flushed; Alt-X (scan 0x2d, "~-")
+ * gives the gods only with the Helm (52db:3feb tests it itself). Skipped without DQKAssets/. */
+static void test_computer_keys(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the computer's keys not checked");
+        return;
+    }
+    menu_open();
+    const cok_character_layout *L = R->character;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 4);
+    cok_character *plain = keys_member(0, 0, 1), *npc = keys_member(0x80, 0, 1);
+    cok_character *fled = keys_member(0, 1, 1);
+    cok_character *word1 = keys_member(0, 0, 1); /* status word 0x0101: its low byte 1, not 1 */
+    cok_combat_set_field_word(R, word1->record, COK_FIELD_STATUS, 0x101);
+    bool back = true;
+    /* No key waiting: nothing read, nothing flushed. */
+    script.pending = false;
+    script.flushes = 0;
+    script.keys = "";
+    script.at = 0;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && !back && script.at == 0 && script.flushes == 0);
+    /* A mouse button down and no key: nothing is read, the button stays down (the keyboard alone
+     * is tested). The Space in the queue is not waiting. */
+    menu_game.mouse.on = true;
+    menu_game.mouse.driver.buttons = 1;
+    script.keys = " ";
+    script.at = 0;
+    menu_c->combat->initiative = 5;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && !back && script.at == 0);
+    CHECK(menu_c->combat->initiative == 5 && menu_game.mouse.driver.buttons == 1);
+    menu_game.mouse.driver.buttons = 0;
+    menu_game.mouse.on = false;
+    /* Space: the party's computer flags cleared (not the NPC's nor the status 1 one's; the word-1
+     * one's status word is 0x101, not 1, so it is cleared), and CINDER's turn given back. */
+    script.keys = " ";
+    script.at = 0;
+    script.pending = true;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && back && menu_c->combat->initiative == 0x14);
+    CHECK(script.at == 1 && script.flushes == 0);
+    CHECK(cok_field_u8(L, plain->record, COK_FIELD_COMPUTER) == 0);
+    CHECK(cok_field_u8(L, npc->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(cok_field_u8(L, fled->record, COK_FIELD_COMPUTER) == 1);
+    CHECK(cok_field_u8(L, word1->record, COK_FIELD_COMPUTER) == 0);
+    /* Alt-M and Space both waiting: the reader reads both and keeps Space, so the turn is given
+     * back, and Magic is not toggled (no notice, no draw, nothing left waiting). */
+    menu_game.combat.magic_on = false;
+    script.keys = "~2 ";
+    script.at = 0;
+    script.pending = true;
+    script.messages[0] = '\0';
+    uint32_t seed = menu_game.vm.seed;
+    back = false;
+    menu_c->combat->initiative = 5;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && back && menu_c->combat->initiative == 0x14);
+    CHECK(script.at == 3 && !menu_game.combat.magic_on && menu_game.vm.seed == seed);
+    CHECK(script.messages[0] == '\0' && script.flushes == 0);
+    /* Alt-M with the Space not waiting during the call (once: a read clears the wait, so the
+     * Space starts waiting only after it): Magic On and its notice, one draw for the notice's wait,
+     * and nothing is flushed. */
+    menu_game.combat.magic_on = false;
+    script.keys = "~2 ";
+    script.at = 0;
+    script.pending = true;
+    script.once = true;
+    script.messages[0] = '\0';
+    uint32_t want = menu_game.vm.seed;
+    cok_tp_random(&want, 1000);
+    back = true;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && !back && menu_game.combat.magic_on);
+    CHECK(strcmp(script.messages, "Magic On;") == 0 && menu_game.vm.seed == want);
+    CHECK(script.at == 2 && script.flushes == 0);
+    /* The Space waits now: the next poll reads it and gives the turn back, Magic still on. */
+    script.once = false;
+    script.pending = true;
+    back = false;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && back && menu_c->combat->initiative == 0x14);
+    CHECK(script.at == 3 && menu_game.combat.magic_on && script.flushes == 0);
+    /* Alt-X without the Helm: nothing. With it: the gods (the notice, then the battle's end of the
+     * turns; no value back). */
+    script.keys = "~-";
+    script.at = 0;
+    script.messages[0] = '\0';
+    menu_game.helm = false;
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && !back && script.at == 2);
+    CHECK(strstr(script.messages, "Gods") == NULL && script.flushes == 0);
+    script.at = 0;
+    menu_game.helm = true;
+    battle_map(); /* the battle's ground: the gods centre the arena (6beb:096b) */
+    CHECK(cok_ai_keys(&menu_game, menu_c, &back) && !back);
+    CHECK(strstr(script.messages, "The Gods intervene!") != NULL && script.flushes == 0);
+    menu_game.combat.active = false;
+    menu_game.helm = false;
+    script.pending = false;
+    menu_close();
+}
+
 int main(void)
 {
     test_wilderness();
@@ -2616,6 +2754,7 @@ int main(void)
     test_battle_text();
     test_battle_bar();
     test_battle_waits();
+    test_computer_keys();
     puts("dark queen tests passed");
     return 0;
 }

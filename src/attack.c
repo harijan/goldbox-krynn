@@ -847,6 +847,11 @@ bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t 
         if (pass && !force) combat->see_all = 1;
         uint8_t tries = 20, n;
         if (!cok_combat_side_list(game, c, range, allies, &n)) return false;
+        if (cok_game_rules(game)->fight.pick_tries_listed && n > 0) {
+            /* dqk 52db:3d9e: a draw first, its pick not used; then as many tries as listed. */
+            roll(game, 1, n);
+            tries = n;
+        }
         while (tries > 0 && !*found && n > 0) {
             --tries;
             uint8_t pick;

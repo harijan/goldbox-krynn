@@ -764,12 +764,32 @@ const cok_rules cok_rules_dark_queen = {
     .fight =
         {
             /* Bandaging (dqk 5045:0adb, 51c2:0d63's say at 177e:156e): the only fight word
-             * Dark Queen's combat says so far (DS:5a33). */
-            .words = {.bandaged = "is bandaged"},
+             * Dark Queen's combat says so far (DS:5a33). The computer's: one in panic (5bb8:0000,
+             * DS:5dde), Magic On and Off (5bb8:1050, DS:5e26, 5e2f) and Guarding (5bb8:0fec,
+             * 51c2:0c52, DS:5a2a), by the bar message (177e:153c). */
+            .words =
+                {
+                    .bandaged = "is bandaged",
+                    .panic = "flees in panic",
+                    .magic_on = "Magic On",
+                    .magic_off = "Magic Off",
+                    .guarding = "Guarding",
+                },
             /* 5bb8:06b0's "Move/Attack, Move Left = N" (5ded, 5e0a): 7, which 1a62:0046 makes
              * white on the bar's grey. */
             .moves_left_colour = 7,
             .moves_left_bare_from_ten = true,
+            /* 5bb8:06b0's step: the turn added to the way from the party (1), and the ways of
+             * moving read only for a try below 6 (5bb8:0902's table, DS:5db4). */
+            .flee_turn = 1,
+            .ways_guarded = true,
+            /* 52db:1030: an enemy of the attacker's side is not a target (its hostile bytes). */
+            .attack_sides = true,
+            /* 5bb8:1050: the keys read through the Dark Queen's reader, not flushed after. */
+            .keys = COK_KEYS_DARK_QUEEN,
+            .keys_unflushed = true,
+            /* 52db:3d9e: tries the number listed, after one draw unused. */
+            .pick_tries_listed = true,
         },
     .effects =
         {

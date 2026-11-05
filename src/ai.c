@@ -8,6 +8,7 @@
 #include "command.h"
 #include "items.h"
 #include "magic.h"
+#include "queen.h"
 #include "round.h"
 
 #include <stdarg.h>
@@ -129,22 +130,72 @@ static bool spell_byte(cok_adventure *game, uint8_t spell, unsigned column, uint
 
 /* The keys. */
 
+/* Space (3afb:1200's, and 5bb8:1050's): the party's records that are not NPCs and not status 1
+ * lose their computer flag, and c's turn goes back to the player (initiative 0x14) when c has
+ * none of its own. */
+static bool give_back(cok_adventure *game, cok_character *c, bool *back)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        uint8_t *r = game->party.members[i]->record;
+        /* 5bb8:1050 compares the status as a word; Champions' byte (int_status_hostile false). */
+        if (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80 &&
+            cok_combat_field_word(rules, r, COK_FIELD_STATUS) != 1)
+            cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
+    }
+    if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) == 0) {
+        cok_combat_record *cr = record_of(game, c);
+        if (cr == NULL) return false;
+        cr->initiative = 0x14;
+        *back = true;
+    }
+    return true;
+}
+
+/* 5bb8:1050 (Dark Queen's): the keys waiting through the Dark Queen's reader (queen_read_code,
+ * 2093:0078: every key is read, the last one kept), with its codes. Alt-M (0xcc) toggles Magic
+ * On with its notice (177e:153c, the bar). Alt-X (0xd7) gives the gods (52db:3feb), which tests
+ * the Helm itself (its password: the port's game->helm, as the other callers test it), and
+ * nothing else here. */
+static bool dark_queen_keys(cok_adventure *game, cok_character *c, bool *back)
+{
+    const cok_rules_fight_words *W = &cok_game_rules(game)->fight.words;
+    int key = queen_read_code(game);
+    if (game->vm.abort) {
+        *back = true;
+        return true;
+    }
+    if (key == ' ') return give_back(game, c, back);
+    if (key == 0xcc) {
+        cok_combat *combat = &game->combat;
+        combat->magic_on = !combat->magic_on;
+        cok_arena_notice(game, combat->magic_on ? W->magic_on : W->magic_off); /* 177e:153c */
+    } else if (key == 0xd7 && game->helm) {
+        if (!cok_combat_gods(game)) return false; /* 52db:3feb */
+    }
+    return true;
+}
+
 /* 3afb:1200 flushes the keyboard as it returns (3afb:12eb), whether or
- * not a key was waiting. */
+ * not a key was waiting; Dark Queen's 5bb8:1050 does not (keys_unflushed). */
 static bool poll_keys(cok_adventure *game, cok_character *c, bool *back);
 
 bool cok_ai_keys(cok_adventure *game, cok_character *c, bool *back)
 {
     bool ok = poll_keys(game, c, back);
-    if (ok) cok_adventure_flush(game);
+    if (ok && !cok_game_rules(game)->fight.keys_unflushed) cok_adventure_flush(game);
     return ok;
 }
 
 static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
     *back = false;
+    if (cok_game_rules(game)->fight.keys == COK_KEYS_DARK_QUEEN) {
+        if (!queen_key_waiting(game)) return true; /* 1df9:045b: the keyboard alone */
+        return dark_queen_keys(game, c, back);
+    }
     if (!cok_adventure_key_pending(game)) return true; /* 1614:03c2 */
     int key = cok_adventure_wait_key(game);
     if (key == 0 && !game->vm.abort) key = cok_adventure_wait_key(game);
@@ -157,18 +208,7 @@ static bool poll_keys(cok_adventure *game, cok_character *c, bool *back)
         combat->magic_on = !combat->magic_on;
         cok_arena_notice(game, combat->magic_on ? W->magic_on : W->magic_off); /* 6346:1827 */
     } else if (key == ' ') {
-        for (size_t i = 0; i < game->party.count; ++i) {
-            uint8_t *r = game->party.members[i]->record;
-            if (cok_field_u8(L, r, COK_FIELD_NPC) < 0x80 &&
-                cok_field_u8(L, r, COK_FIELD_STATUS) != 1)
-                cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
-        }
-        if (cok_field_u8(L, c->record, COK_FIELD_COMPUTER) == 0) {
-            cok_combat_record *cr = record_of(game, c);
-            if (cr == NULL) return false;
-            cr->initiative = 0x14;
-            *back = true;
-        }
+        if (!give_back(game, c, back)) return false;
     } else if (key == 0x2d && game->helm) {
         if (!cok_combat_gods(game)) return false; /* 432f:41e2 */
     }

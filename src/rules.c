@@ -1805,6 +1805,9 @@ const cok_rules cok_rules_champions = {
             .burst_slot = 0x17, /* 6346:228c */
             .turning = COK_TURNING_CHAMPIONS, /* 432f:12b7 */
             .moves_left_colour = 10, /* 3afb:095a */
+            .keys = COK_KEYS_CHAMPIONS, /* 3afb:1200 */
+            .keys_unflushed = false,    /* 3afb:12eb flushes */
+            .pick_tries_listed = false, /* 20 tries, as the port has it (432f:3f9f) */
         },
     .menus =
         {
