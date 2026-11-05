@@ -1171,7 +1171,7 @@ bool cok_combat_computer(cok_adventure *game, cok_character *c)
         !cok_combat_pick_target(game, c, 0xff, true, false, &done))
         return false;
     if (!cok_ai_keys(game, c, &over)) return false;
-    cok_arena_clear_bar(game); /* 5bb8:006a */
+    cok_arena_clear_bar(game); /* 67b5:0c7b; dqk 5bb8:006a */
     cok_arena_clear_text(game);
     if (cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0) {
         cok_combat_end_turn(c);

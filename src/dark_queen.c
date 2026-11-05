@@ -3894,7 +3894,7 @@ static bool arena_text(cok_adventure *game, int x, int y, const char *s, uint8_t
 }
 
 /* 1a62:0949: the wait of variable 0x12 times 100 ms (its byte; one draw unless it is 0). */
-static void pause(cok_adventure *game)
+static void battle_pause(cok_adventure *game)
 {
     pass(game, 100u * (uint8_t)cok_ecl_load_var(&game->vm, 0x12));
 }
@@ -5510,7 +5510,7 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_text = arena_text,
     .arena_clear_text = arena_clear_text,
     .wait = cok_dark_queen_wait,
-    .pause = pause,
+    .pause = battle_pause,
     .clear_bar = queen_bottom_bar,
     .notice = queen_bar_message,
     .encounter = encounter,

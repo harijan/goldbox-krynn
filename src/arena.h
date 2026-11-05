@@ -215,7 +215,7 @@ bool cok_arena_text(cok_adventure *game, int x, int y, const char *text, uint8_t
 void cok_arena_wait(cok_adventure *game, unsigned ms);
 void cok_arena_pause(cok_adventure *game);
 
-/* The bottom bar blanked at the computer's turn's start (6346:196a's row 24, or
+/* The bottom bar blanked at the computer's turn's start (67b5:0c7b, or
  * cok_drawing.clear_bar: Dark Queen's 1bdb:036c). */
 void cok_arena_clear_bar(cok_adventure *game);
 
