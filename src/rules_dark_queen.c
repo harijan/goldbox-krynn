@@ -449,6 +449,8 @@ static const cok_combat_block dark_queen_combat_block = {
     .facing_effect = 0xd5,
     .gate_effect = 0x95,
     .gate_var = COK_VAR_RECORD_EFFECT,
+    .pattern = 0x16,
+    .target = 0x0b,
 };
 
 /* What a block's start sets besides (6c70:0001): 0x2b and 0x2c. */
@@ -722,6 +724,8 @@ const cok_rules cok_rules_dark_queen = {
             .may_use_needs_no_cloud = true,
             .ammunition_gated = true,
             .ammunition_also = 0x0c,
+            /* 51c2:0b26 (the distance) puts back only 4 bytes of the listing it saved. */
+            .distance_kept_bytes = 4,
             .enemy_health_skip_status_9 = true,
             .sides_skip_status_9 = true,
             .sides_ambush_0x20 = true,

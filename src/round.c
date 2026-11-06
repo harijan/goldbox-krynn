@@ -753,10 +753,13 @@ bool cok_combat_distance(cok_combat *combat, const cok_rules *rules, const uint8
         while (listed_record(combat, i) != target && i < combat->listed_count) ++i;
         *distance = (uint8_t)(combat->listed[i].distance >> 1);
     }
-    /* The entries after the count are put back, the count not: the port puts back every entry.
-     * Dark Queen's 51c2:0b26 puts back only 4 bytes (entry 0 and entry 1's index); part 15c ports
-     * that. */
-    memcpy(&combat->listed[1], &saved[1], sizeof saved - sizeof saved[0]);
+    /* The entries after the count are put back, the count not. Dark Queen's 51c2:0b26 puts back
+     * only the first 4 bytes of the listing (1df9:0432 -> 10d7:2776: entry 0 and entry 1's index,
+     * distance_kept_bytes 4); the rest is kept as the list left it. */
+    if (rules->combat.distance_kept_bytes != 0)
+        memcpy(combat->listed, saved, rules->combat.distance_kept_bytes);
+    else
+        memcpy(&combat->listed[1], &saved[1], sizeof saved - sizeof saved[0]);
     return ok;
 }
 

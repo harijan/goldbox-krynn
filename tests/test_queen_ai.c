@@ -58,6 +58,10 @@ static cok_character *record(char name, uint8_t hostile, int npc)
     cok_field_set8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 10);
     cok_field_set8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 1, 3);
     cok_field_set8(L, c->record, COK_FIELD_HIT_POINTS, 10);
+    /* A combat icon in slot 1 (CBODY 1, 604b:05d7), so that a pose is drawn, not stopped. */
+    cok_field_set8(L, c->record, COK_FIELD_ICON_BODY, 1);
+    cok_field_set8(L, c->record, COK_FIELD_ICON, 1);
+    CHECK(queen_added_icons(&game, c->record));
     c->combat->initiative = 5;
     c->combat->movement = 12;
     c->combat->pattern = 1;
@@ -435,22 +439,22 @@ static void test_computer_inactive(void)
 }
 
 /* 5bb8:0101 and 008d: the pattern's draws equal ai.c's (seeded: pattern 0 draws d8, then d2 or
- * d4), and the turn stops at 5bb8:0209 after them. */
+ * d4), and the turn goes on past them to its end (the fight, step 14, runs; no stop). */
 static void test_computer_pattern(void)
 {
     cok_character *a;
     cok_character *m = computer_pair(1, &a);
     uint32_t seed = game.vm.seed;
     m->combat->pattern = 0;
-    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(cok_ai_pattern(&game, m) && game.vm.seed != seed);
     uint8_t p1 = m->combat->pattern;
     uint32_t s1 = game.vm.seed;
-    CHECK(s1 != seed);
     game.vm.seed = seed;
-    game.vm.status = COK_ECL_OK;
     m->combat->pattern = 0;
     CHECK(cok_ai_pattern(&game, m) && m->combat->pattern == p1 && game.vm.seed == s1);
+    m = computer_pair(1, &a);
+    m->combat->pattern = 0;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
 }
 
 /* 5bb8:0116: one fleeing and not forced says "flees in panic" (177e:156e), even ended. */
@@ -470,8 +474,8 @@ static void test_computer_panic(void)
     game.undead = 5;
     m->combat->fleeing = 1;
     m->combat->forced = 1;
-    CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
-          !LOGGED("flees in panic") && strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(queen_computer(&game, m) && LOGGED("is forced to flee") &&
+          !LOGGED("flees in panic") && game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
     (void)a;
 }
@@ -595,13 +599,12 @@ static void test_computer_undead(void)
     game.vm.status = COK_ECL_OK;
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 2);
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
     m->combat->forced = 1;
-    CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
-          strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(queen_computer(&game, m) && LOGGED("is forced to flee") && game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
 }
 
@@ -619,8 +622,8 @@ static void test_computer_undead_count(void)
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
     m->combat->turns = 5;
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") == NULL &&
-          strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(queen_computer(&game, m) && strstr(game.error, "52db:135e") == NULL &&
+          game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
 }
 
@@ -634,8 +637,7 @@ static void test_computer_pick(void)
     place(a, 12, 10);
     place(m, 10, 10);
     m->combat->target = NULL;
-    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "5bb8:0209") != NULL);
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
     CHECK(m->combat->target == a->record);
     game.vm.status = COK_ECL_OK;
 }
@@ -1023,6 +1025,254 @@ static void test_weapon_monster(void)
     battle_clear();
 }
 
+/* 5bb8:0b3d, the fight's steps: a monster with its party's record 20 cells east (no enemy in reach)
+ * steps toward it once a pass (6b0, the pick found) until its movement is spent (movement / 2 is 0);
+ * then it guards each pass (no_move, 0fec) and the fight is over at the 21st pass (count above 20). */
+static void test_fight_steps(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 30, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->target = a->record;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && over && game.vm.status == COK_ECL_OK);
+    /* Two half squares a straight step: five steps take it from 10 to 15 with movement 2 left. A
+     * sixth needs more than its cost (5bb8:0438's movement above the cost), so it is stuck three
+     * times (movement spent) and guards at the end of its turn. */
+    CHECK(cok_combat_x(&game.combat, m->record) == 15 && m->combat->movement == 0 &&
+          m->combat->initiative == 0);
+    /* With no enemy at all the pick finds none: it guards, and the computer's turn is over. */
+    battle_clear();
+    m = record('M', 1, 0);
+    place(m, 10, 10);
+    CHECK(queen_computer(&game, m) && m->combat->guarding == 1 && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's spell test: a step that began a spell (spell above 0 after 6b0) ends the fight, over,
+ * after one step: the movement is spent by that one only. */
+static void test_fight_spell(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 30, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->target = a->record;
+    m->combat->spell = 3;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && over && game.vm.status == COK_ECL_OK);
+    CHECK(m->combat->movement > 0 && m->combat->movement < 12);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's underwater test: a monster with a bow (range 6, a missile weapon, no arrows) and a
+ * party's record 4 cells away, in reach of the bow but not a square away: underwater (var 0x3c) the
+ * weapon's choice is made with the one draw of the pick and no attack, and the pass is done (not
+ * over: the loop of queen_computer picks again). Out of water the bow reaches the record, and an
+ * attack is made. */
+static void test_fight_underwater(void)
+{
+    weapon_types();
+    game.item_types.type[128][12] = 6;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 14, 10);
+    m->slots[0] = give(m, 128, 1, 0);
+    game.vm.character = m->record;
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    uint32_t seed = game.vm.seed;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && !over && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == after_draws(seed, 1, 1) && !LOGGED("Misses") && !LOGGED("Hitting"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    m->combat->initiative = 5;
+    game.vm.seed = seed;
+    over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed != after_draws(seed, 1, 1));
+    battle_clear();
+}
+
+/* 5bb8:0b3d's count: a monster with movement left and a target 35 cells east steps once a pass
+ * (straight east, way 1's first try, through 6b0); the guard of the 21st pass (count above 20) ends
+ * its turn (a guard is cok_combat_end_turn, which clears the movement) before that pass's step, and
+ * the fight is over: 20 steps, x 30. */
+static void test_fight_count(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 45, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->target = a->record;
+    m->combat->movement = 255;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && over && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_x(&game.combat, m->record) == 30 && m->combat->initiative == 0);
+    battle_clear();
+}
+
+/* 52db:3d9e's pick among the enemies within reach (d(1, n), 148f:1968): a seed rolling 2 picks the
+ * second enemy listed, which is booked (its hits +1, cok_combat_book) and not the first. */
+static void test_fight_pick(void)
+{
+    battle_clear();
+    cok_character *p = record('P', 0, 0), *q = record('Q', 0, 0);
+    place(p, 10, 11);
+    place(q, 9, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->target = NULL;
+    uint32_t seed = 1;
+    while (true) {
+        uint32_t t = seed;
+        if (cok_dice(&t, 1, 2) == 2) break;
+        ++seed;
+    }
+    game.vm.seed = seed;
+    uint8_t n = 0;
+    CHECK(cok_combat_enemies(&game, m, 1, &n) && n == 2);
+    cok_character *picked = game.combat.combatant[game.combat.enemies[2]].character;
+    cok_character *other = picked == p ? q : p;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    CHECK(picked->combat->hits >= 1 && other->combat->hits == 0);
+    battle_clear();
+}
+
+/* 52e4's sweep (the side list of range 1, 51c2:0980, has more enemies than the attacks left): the
+ * sweep ends the turn (51c2:0c11) and the fight's pass is done, not over. */
+static void test_fight_sweep(void)
+{
+    battle_clear();
+    cok_character *p = record('P', 0, 0), *q = record('Q', 0, 0);
+    place(p, 10, 11);
+    place(q, 9, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->target = p->record;
+    m->combat->sweeps = 2;
+    cok_field_set8_at(R->character, m->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.character = m->record;
+    bool over = true;
+    CHECK(queen_fight(&game, m, &over) && !over && m->combat->initiative == 0);
+    CHECK(LOGGED("sweeps"));
+    battle_clear();
+}
+
+/* 51c2:0b26 (the distance) puts back only 4 bytes of the listing (distance_kept_bytes 4): entry 2,
+ * which the listing wrote, is kept; with 0, the whole listing is put back, entry 2 as it was. */
+static void test_distance_kept(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(a, 12, 10);
+    place(m, 10, 10);
+    CHECK(R->combat.distance_kept_bytes == 4); /* rules_dark_queen.c: 51c2:0b26 keeps 4 bytes */
+    static cok_rules four, whole;
+    four = whole = *R;
+    four.combat.distance_kept_bytes = 4;
+    whole.combat.distance_kept_bytes = 0;
+    uint8_t d = 0;
+    game.combat.listed[2].index = 0x77;
+    CHECK(cok_combat_distance(&game.combat, &four, m->record, a->record, &d) &&
+          game.combat.listed_count >= 2 && game.combat.listed[2].index != 0x77);
+    game.combat.listed[2].index = 0x77;
+    CHECK(cok_combat_distance(&game.combat, &whole, m->record, a->record, &d) &&
+          game.combat.listed[2].index == 0x77);
+    battle_clear();
+}
+
+/* 5bb8:0209's initiative test: a monster with initiative 0 does not fight, even with a party record
+ * 20 cells east (the pick finds it): its loop guards at once (cok_ai_guard, the end of its turn, which
+ * spends its movement), with no step. */
+static void test_loop_initiative(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 30, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->initiative = 0;
+    game.vm.character = m->record;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_x(&game.combat, m->record) == 10 && m->combat->movement == 0);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's prologue: a party record (hostile 0) is bandaged first (51c2:0d63, cok_combat_bandage: a
+ * party record with status 5 is bandaged, status 4, "is bandaged"), and its initiative is 0, so its
+ * fight is over at once. */
+static void test_fight_bandage(void)
+{
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, 10, 10);
+    cok_character *d = record('D', 0, 0);
+    place(d, 12, 10);
+    cok_combat_set_field_word(R, d->record, COK_FIELD_STATUS, 5);
+    d->combat->dying = 1;
+    game.vm.character = c->record;
+    bool over = false;
+    CHECK(queen_fight(&game, c, &over) && over && game.vm.status == COK_ECL_OK);
+    CHECK(c->combat->initiative == 0 && LOGGED("bandaged") && d->combat->dying == 0 &&
+          cok_combat_field_word(R, d->record, COK_FIELD_STATUS) == 4);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's thrown weapon at distance 1 (a bow whose type has the thrown flags 0x14, readied, with
+ * the ammunition in its own slot): the ammunition is dropped (f6a-f87), so the attack is the readied
+ * weapon's blow. With the ammunition kept it would be a missile's flight, unported: not_yet. */
+static void test_fight_thrown(void)
+{
+    weapon_types();
+    game.item_types.type[128][12] = 6;
+    game.item_types.type[128][14] = 0x14;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 11, 10);
+    m->slots[0] = give(m, 128, 1, 0);
+    m->combat->target = a->record;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 51c2:10c3's ammunition (in_reach = has): a bow with no arrows (slot 11 empty) and a seen target two
+ * cells away is in reach, then 10c3 finds no ammunition, so in_reach is false after the pass (the blow
+ * is still made with no item, 18d6). The flag is the only thing it sets for Dark Queen: nothing else
+ * reads it, so the test reads the flag. */
+static void test_fight_no_ammunition(void)
+{
+    weapon_types();
+    game.item_types.type[128][12] = 6;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 12, 10);
+    m->slots[0] = give(m, 128, 1, 0);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    m->combat->target = a->record;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    CHECK(!game.combat.in_reach);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -1066,6 +1316,17 @@ int main(void)
     test_weapon_swap();
     test_weapon_keep();
     test_weapon_shield();
+    test_fight_steps();
+    test_fight_spell();
+    test_fight_underwater();
+    test_fight_count();
+    test_fight_pick();
+    test_fight_sweep();
+    test_distance_kept();
+    test_loop_initiative();
+    test_fight_bandage();
+    test_fight_thrown();
+    test_fight_no_ammunition();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
     return 0;

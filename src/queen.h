@@ -169,6 +169,9 @@ uint8_t queen_weapon_score(const cok_rules *rules, uint8_t hands, const uint8_t 
 /* The computer's weapon choice (dqk 5bb8:1396, queen_ai.c) for c, with target (a record, or NULL):
  * its ready and stats are the View's. False where the run stopped. */
 bool queen_choose_weapon(cok_adventure *game, cok_character *c, const uint8_t *target);
+/* The computer's fight of one pass (dqk 5bb8:0b3d, queen_ai.c), with the target queen_computer's
+ * loop picked: over is set when the fight is over (its !going). False where the run stopped. */
+bool queen_fight(cok_adventure *game, cok_character *c, bool *over);
 /* The computer's step (dqk 5bb8:0438, may it step; the descriptor's can_step, queen_ai.c): ok where
  * the square of try's way from dir may be stepped on; offmap where it is off the map. False where the
  * run stopped. */
