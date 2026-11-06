@@ -12,11 +12,10 @@
 #include <stdio.h>
 #include <string.h>
 
-/* The sound driver's commands for a thrown missile, a hit, a miss and an arrow: the words at
- * DS:1e54-1e61 (a step's is the descriptor's step_sound). */
+/* The sound driver's commands for a thrown missile, a miss and an arrow: the words at DS:1e54-1e61
+ * (a step's and a strike's hit and miss are the descriptor's). */
 enum {
     SOUND_THROWN = 6,  /* DS:1e54 */
-    SOUND_HIT = 7,     /* DS:1e56 */
     SOUND_MISS = 9,    /* DS:1e5a */
     SOUND_ARROW = 0x0c /* DS:1e60 */
 };
@@ -24,6 +23,22 @@ enum {
 static int8_t s8(int value)
 {
     return (int8_t)(uint8_t)value;
+}
+
+/* The item type an item record keeps at the game's item_record.type (types->record_type_at: 0x2e
+ * for Champions and Death Knights, 0x28 for Dark Queen's, 177e:0be2). */
+static uint8_t item_type_of(const cok_adventure *game, const uint8_t *item)
+{
+    const cok_item_types *types = &game->item_types;
+    return item[types->record_type_at != 0 ? types->record_type_at : 0x2e];
+}
+
+/* Whether value is in the 0-ended list (NULL none). */
+static bool listed(const uint8_t *list, uint8_t value)
+{
+    for (; list != NULL && *list != 0; ++list)
+        if (*list == value) return true;
+    return false;
 }
 
 static bool undefined(cok_adventure *game, const char *format, ...)
@@ -133,7 +148,7 @@ static bool weapon_type(cok_adventure *game, const cok_character *c, const uint8
     *type = NULL;
     size_t weapon = c->slots[0];
     if (weapon == 0 || weapon > c->item_count) return true;
-    uint8_t t = c->items[weapon - 1][0x2e];
+    uint8_t t = item_type_of(game, c->items[weapon - 1]);
     if (t >= COK_ITEM_TYPES)
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
     *type = game->item_types.type[t];
@@ -179,11 +194,16 @@ static void page(void *context)
 void cok_combat_forget(const cok_rules *rules, uint8_t *c, uint8_t spell)
 {
     const cok_character_layout *L = rules->character;
-    uint8_t mark = rules->fight.forget_mark;
-    for (size_t i = 0; i < cok_field_count(L, COK_FIELD_MEMORIZED); ++i)
-        if (cok_field_u8_at(L, c, COK_FIELD_MEMORIZED, i) == spell) {
-            cok_field_set8_at(L, c, COK_FIELD_MEMORIZED, i,
-                              mark != 0 ? (uint8_t)(spell | mark) : 0);
+    const cok_rules_fight *F = &rules->fight;
+    uint8_t mark = F->forget_mark;
+    /* From the memorized field's first byte, for the field's count or the descriptor's (Dark
+     * Queen's 0x89 bytes, past the field's 0x4a: 177e:1346). */
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED);
+    size_t count =
+        F->forget_bytes != 0 ? F->forget_bytes : cok_field_count(L, COK_FIELD_MEMORIZED);
+    for (size_t i = 0; i < count; ++i)
+        if (c[at + i] == spell) {
+            c[at + i] = mark != 0 ? (uint8_t)(spell | mark) : 0;
             return;
         }
 }
@@ -199,27 +219,42 @@ bool cok_combat_reveal(cok_adventure *game, cok_character *c)
     return true;
 }
 
+/* The to-hit bonus of a roll by a party member (party) or a monster (cok_hit_bonus). Champions':
+ * var 0x7f71 for the party's side, else 0x7f70, as a signed byte; the party's then meets a case on
+ * the constant 500 (60f4:10c8) that never matches. Dark Queen's (148f:1771): the party's var 0x2f
+ * plus the difficulty's (1 +2, 2 +1, 3 0, 4 -1, 5 -2, else 0), as a byte; a monster's var 0x01. */
+static int8_t hit_bonus(cok_adventure *game, bool party)
+{
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    if (F->hit_bonus == COK_HIT_BONUS_PAIR)
+        return s8(cok_ecl_var_at(&game->vm, COK_VAR_HIT_BONUS, party ? 1 : 0));
+    if (!party) return s8(cok_ecl_var(&game->vm, COK_VAR_HIT_MONSTERS));
+    uint16_t difficulty = cok_ecl_var(&game->vm, COK_VAR_DIFFICULTY);
+    int adjust = difficulty == 1 ? 2 : difficulty == 2 ? 1 : difficulty == 4 ? -1
+                 : difficulty == 5 ? -2 : 0;
+    return s8(cok_ecl_var(&game->vm, COK_VAR_HIT_PARTY) + adjust);
+}
+
 bool cok_combat_hit(cok_adventure *game, cok_character *attacker, cok_character *target,
                     uint8_t ac, bool *hit)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
     cok_rolls *rolls = &game->effects.rolls;
     *hit = false;
     if (!cok_combat_reveal(game, attacker)) return false;
     rolls->attack_roll = roll(game, 1, 20);
     if ((int8_t)rolls->attack_roll <= 1) return true;
+    /* A natural 17-20 is critical (DS:c6b9, for 148f:16e0), when it hits: 20 is read as 100. */
+    rolls->critical = (int8_t)rolls->attack_roll > 16;
     if (rolls->attack_roll == 20) rolls->attack_roll = 100;
     if (!event(game, attacker, 0x0a) || !event(game, target, 0x10)) return false;
-    /* Var 0x7f71 for the party's side, else 0x7f70, as a signed byte; the
-     * party's then meets a case on the constant 500 (60f4:10c8) that never
-     * matches. */
-    uint16_t var =
-        cok_ecl_var_at(&game->vm, COK_VAR_HIT_BONUS,
-                       cok_field_u8(L, attacker->record, COK_FIELD_HOSTILE) == 0 ? 1 : 0);
-    int8_t bonus = s8(var);
-    if ((int8_t)rolls->attack_roll < 0) return true;
-    *hit = (int8_t)rolls->attack_roll + cok_field_u8(L, attacker->record, COK_FIELD_THAC0) +
-               bonus >= ac;
+    bool party = cok_combat_field_word(rules, attacker->record, COK_FIELD_HOSTILE) == 0;
+    int8_t bonus = hit_bonus(game, party);
+    if ((int8_t)rolls->attack_roll >= 0)
+        *hit = (int8_t)rolls->attack_roll + cok_field_u8(rules->character, attacker->record,
+                                                       COK_FIELD_THAC0) +
+                   bonus >= ac;
+    rolls->critical = rolls->critical && *hit;
     return true;
 }
 
@@ -240,18 +275,26 @@ bool cok_combat_book(cok_adventure *game, cok_character *attacker, cok_character
 bool cok_combat_backstab(cok_adventure *game, cok_character *attacker, cok_character *target,
                          bool *backstab)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_fight *F = &rules->fight;
+    const cok_character_layout *L = rules->character;
     const uint8_t *a = attacker->record;
     *backstab = false;
-    bool thief = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) > 0 ||
-                 (cok_character_former_level(cok_game_rules(game), a, 6) > 0 &&
-                  cok_character_former_class(a, cok_game_rules(game)));
+    bool thief;
+    if (F->backstab == COK_BACKSTAB_DARK_QUEEN)
+        /* 52db:278f: any non-zero level (unsigned) is a thief. */
+        thief = cok_field_u8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) != 0 ||
+                (F->backstab_effect != 0 &&
+                 cok_character_find_effect(attacker, F->backstab_effect) != NULL);
+    else
+        thief = cok_field_s8_at(L, a, COK_FIELD_CLASS_LEVEL, 6) > 0 ||
+                (cok_character_former_level(rules, a, 6) > 0 &&
+                 cok_character_former_class(a, rules));
     if (!thief) return true;
     size_t weapon = attacker->slots[0];
-    if (weapon != 0) {
-        uint8_t t = attacker->items[weapon - 1][0x2e];
-        if (t != 0x43 && t != 3 && t != 4 && !(t > 0x10 && t < 0x14)) return true;
-    }
+    if (weapon != 0 &&
+        !listed(F->backstab_weapons, item_type_of(game, attacker->items[weapon - 1])))
+        return true;
     cok_combat_record *cr = record_of(game, target);
     if (cr == NULL) return false;
     if (cr->hits <= 1) return true;
@@ -300,12 +343,23 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
          sides = cok_field_offset_unchecked(L, COK_FIELD_DICE_SIDES, 0, slot),
          bonus = cok_field_offset_unchecked(L, COK_FIELD_DAMAGE_BONUS, 0, slot);
     uint8_t n = cok_dice_count(&game->vm.seed, a[dice], a[sides], &rolls->dice);
-    /* The test for a negative total compares unsigned and never holds. */
-    rolls->amount = (uint8_t)(n + (int8_t)a[bonus]);
+    /* Champions' and Death Knights' total is a byte (its test for a negative one compares unsigned
+     * and never holds); Dark Queen's is a word, not below 0 (52db:01dd's jge). */
+    int total = n + (int8_t)a[bonus];
+    rolls->amount16 = (int16_t)(total < 0 ? 0 : total);
+    rolls->amount = (uint8_t)(cok_game_rules(game)->fight.damage_word ? rolls->amount16 : total);
     if (!event(game, attacker, 4) || !event(game, target, 5)) return false;
     bool backstab;
     if (!cok_combat_backstab(game, attacker, target, &backstab)) return false;
-    if (backstab) {
+    if (backstab && cok_game_rules(game)->fight.backstab == COK_BACKSTAB_DARK_QUEEN) {
+        /* 52db:01dd: 5 for a thief of level 0 (by its effect), else (level - 1) / 4 + 2, at most
+         * 5, times the word. */
+        int level = cok_field_u8_at(L, a, COK_FIELD_CLASS_LEVEL, 6);
+        int times = level == 0 ? 5 : (level - 1) / 4 + 2;
+        if (times > 5) times = 5;
+        rolls->amount16 = (int16_t)(rolls->amount16 * times);
+        rolls->amount = (uint8_t)rolls->amount16;
+    } else if (backstab) {
         /* 2 + (thief levels - 1) / 4 as words, the former ones counted when
          * a human may use them (66c2:0efb); the product a byte. */
         uint16_t former = cok_character_former_class(a, cok_game_rules(game)) ? 1 : 0;
@@ -330,10 +384,11 @@ bool cok_combat_damage_roll(cok_adventure *game, cok_character *attacker, cok_ch
  * event 0x0d and, unless exploding (10), dies on the screen
  * (6beb:0e08). */
 static bool report(cok_adventure *game, cok_character *attacker, cok_character *target,
-                   uint8_t mode, uint8_t dealt, uint8_t shown, bool hit)
+                   uint8_t mode, uint16_t dealt, uint16_t shown, bool hit)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
-    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_rules_fight *F = &rules->fight;
     const cok_rules_fight_words *W = &F->words;
     uint8_t *t = target->record;
     const char *header = mode == 2 ? W->backstabs : mode == 3 ? W->slays : W->attacks;
@@ -356,7 +411,7 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
     } else {
         strncat(text, W->misses, sizeof text - strlen(text) - 1);
     }
-    if (cok_field_u8(L, t, COK_FIELD_STATUS) != 8) {
+    if (cok_combat_field_word(rules, t, COK_FIELD_STATUS) != 8) {
         char name[16], line[128];
         name_of(L, t, name);
         snprintf(line, sizeof line, "%s %s", name, text);
@@ -385,12 +440,12 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         bool quiet = (cok_field_u8_at(L, t, COK_FIELD_CREATURE_FLAGS, 1) & F->quiet_flag) != 0;
         if (!quiet) {
             row = (uint8_t)(row + 2);
-            if (cok_field_u8(L, t, COK_FIELD_STATUS) == 5) {
+            if (cok_combat_field_word(rules, t, COK_FIELD_STATUS) == 5) {
                 cok_adventure_log(game, "attack", W->dying);
                 cok_text_string(&game->screen, &game->font, W->dying, 0x17, row, 10, 0);
             }
-            if (cok_field_u8(L, t, COK_FIELD_STATUS) >= 6 &&
-                cok_field_u8(L, t, COK_FIELD_STATUS) <= 8 &&
+            if (cok_combat_field_word(rules, t, COK_FIELD_STATUS) >= 6 &&
+                cok_combat_field_word(rules, t, COK_FIELD_STATUS) <= 8 &&
                 !cok_arena_say(game, target, W->killed, row, false))
                 return false;
         }
@@ -409,10 +464,20 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
 
 /* An attack. */
 
-bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_character *target,
-                       bool behind, bool *over)
+/* The damage the strike deals and reports: Dark Queen's word (DS:ae55), else the byte of Champions'
+ * and Death Knights' (DS:6b30), which the events may change. */
+static int16_t damage_of(cok_adventure *game)
 {
-    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rolls *rolls = &game->effects.rolls;
+    return cok_game_rules(game)->fight.damage_word ? rolls->amount16 : rolls->amount;
+}
+
+bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_character *target,
+                       bool behind, bool item, bool *over)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_fight *F = &rules->fight;
+    const cok_character_layout *L = rules->character;
     cok_combat *combat = &game->combat;
     cok_rolls *rolls = &game->effects.rolls;
     uint8_t *a = attacker->record, *t = target->record;
@@ -423,9 +488,10 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
     combat->swings[1] = combat->swings[2] = 0;
     bool any = false, down = false;
     rolls->amount = 0;
+    rolls->amount16 = 0;
     ca->attacked = 1;
-    if (cok_combat_helpless(target, cok_game_rules(game))) {
-        cok_arena_sound(game, SOUND_HIT);
+    if (cok_combat_helpless(target, rules)) {
+        cok_arena_sound(game, F->hit_sound);
         /* From the slot in progress down to one with attacks left, past
          * slot 1 to 0, +0x18e, the armour class from behind. */
         for (;;) {
@@ -440,8 +506,10 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
             return undefined(game, "attack slot %u counts its attacks past DS:7196 (432f:160e)",
                              ca->attack_slot);
         ++combat->swings[ca->attack_slot];
-        if (!report(game, attacker, target, 3,
-                    (uint8_t)(cok_field_u8(L, t, COK_FIELD_HIT_POINTS) + 5), 1, true) ||
+        /* hp + 5: a word in Dark Queen's, a byte in the others'. */
+        unsigned hp = cok_field_u8(L, t, COK_FIELD_HIT_POINTS) + 5u;
+        uint16_t dealt = F->damage_word ? (uint16_t)hp : (uint8_t)hp;
+        if (!report(game, attacker, target, 3, dealt, 1, true) ||
             !cok_combat_reveal(game, attacker))
             return false;
         cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1, 0);
@@ -494,15 +562,23 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
                 ++combat->swings[slot];
                 bool hit;
                 if (!cok_combat_hit(game, attacker, target, ac, &hit)) return false;
-                if (hit || cok_combat_helpless(target, cok_game_rules(game))) {
+                if (hit || cok_combat_helpless(target, rules)) {
                     ++rolls->hits[slot - 1]; /* DS:6b3b + slot */
-                    cok_arena_sound(game, SOUND_HIT);
+                    cok_arena_sound(game, F->hit_sound);
                     any = true;
                     if (!cok_combat_damage_roll(game, attacker, target, slot)) return false;
+                    int16_t amount = damage_of(game);
                     if (cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
-                        !report(game, attacker, target, mode, rolls->amount, rolls->amount, true))
+                        !report(game, attacker, target, mode, (uint16_t)amount, (uint16_t)amount,
+                                true))
                         return false;
-                    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 && rolls->amount > 0 &&
+                    /* The next blow's event on a target still up, when the blow did damage or the
+                     * attacker holds the hit event's effect (52db:1417's 0xb8 test). */
+                    bool event_hit =
+                        damage_of(game) > 0 ||
+                        (F->hit_event_effect != 0 &&
+                         cok_character_find_effect(attacker, F->hit_event_effect) != NULL);
+                    if (cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 && event_hit &&
                         !event(game, attacker, (uint8_t)(slot + 1)))
                         return false;
                     /* Only after a hit: a target that dropped otherwise
@@ -513,17 +589,21 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
                     if (cok_field_u8(L, a, COK_FIELD_ACTIVE) == 0)
                         cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, slot, 0);
                 }
-                if (cok_game_rules(game)->combat.explode && !cok_combat_explode(game))
-                    return false;
+                if (rules->combat.explode && !cok_combat_explode(game)) return false;
             }
+            /* After each slot's attacks, the pending lists (52db:1417's 148f:2ab8, 2c4f and
+             * 2d9b): Dark Queen's stop here when one is not empty. */
+            if (!cok_combat_pending_lists(game, "a strike's pending lists")) return false;
         }
         if (!any) {
-            cok_arena_sound(game, SOUND_MISS);
+            /* 52db:1417: the miss's sound only with no item, for Dark Queen's. */
+            if (!F->miss_sound_no_item || !item) cok_arena_sound(game, F->miss_sound);
             if (!report(game, attacker, target, mode, 0, 0, false)) return false;
         }
         *over = cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1) == 0 &&
                 cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 2) == 0;
-        ca->sweeps = 0;
+        /* Dark Queen's strike keeps the sweeps (52db:1417 writes none). */
+        if (!F->strike_keeps_sweeps) ca->sweeps = 0;
     }
     if (cok_field_u8(L, a, COK_FIELD_ACTIVE) == 0) *over = true;
     if (*over) cok_combat_end_turn(attacker);
@@ -689,8 +769,9 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
     if (item != 0) memcpy(freed, attacker->items[item - 1], sizeof freed);
     bool ok = item == 0 || missile(game, attacker, target, attacker->items[item - 1]);
     size_t weapon = attacker->slots[0];
-    if (ok && weapon != 0 && (attacker->items[weapon - 1][0x2e] == 0x1c ||
-                              attacker->items[weapon - 1][0x2e] == 0x1d))
+    if (ok && weapon != 0 &&
+        (item_type_of(game, attacker->items[weapon - 1]) == 0x1c ||
+         item_type_of(game, attacker->items[weapon - 1]) == 0x1d))
         ok = missile(game, attacker, target, attacker->items[weapon - 1]);
     *over = true;
     if (ok &&
@@ -698,7 +779,7 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
          cok_field_u8_at(L, a, COK_FIELD_ATTACKS_LEFT, 2) > 0)) {
         uint8_t *selected = game->vm.character;
         game->vm.character = a;
-        ok = cok_combat_strike(game, attacker, target, behind, over);
+        ok = cok_combat_strike(game, attacker, target, behind, item != 0, over);
         if (ok && item != 0) {
             if (attacker->held == 0)
                 ok = use_up_freed(game, attacker, freed);

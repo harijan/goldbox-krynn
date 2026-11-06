@@ -853,6 +853,7 @@ static void test_named_variables(void)
         {COK_VAR_VAULT, 0, 0x4d00, 1},           {COK_VAR_RIVER, 0, 0x4bf3, 1},
         {COK_VAR_TURNING, 0, 0x4cff, 1},         {COK_VAR_RECORD_EFFECT, 0, 0, 1},
         {COK_VAR_ABYSS, 0, 0, 1},
+        {COK_VAR_HIT_PARTY, 0, 0, 1},            {COK_VAR_HIT_MONSTERS, 0, 0, 1},
     };
     CHECK(sizeof names / sizeof *names == COK_VARS);
     for (size_t i = 0; i < COK_VARS; ++i) {

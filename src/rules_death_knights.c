@@ -1119,6 +1119,9 @@ static const uint8_t death_knights_resisted_pending[] = {0x5b, 0x52, 0};
 /* The item types the missile's flight draws as arrows (5340:28a0):
  * Champions' and 0x42. */
 static const uint8_t death_knights_arrows[] = {5, 7, 0x0c, 0x1e, 0x42, 0};
+/* The readied weapon's item types that allow a backstab, as the shared test has them (the port's
+ * SOUND_HIT and SOUND_MISS are below), 0-ended. */
+static const uint8_t death_knights_backstab_weapons[] = {3, 4, 0x11, 0x12, 0x13, 0x43, 0};
 
 /* Display (4381:15aa): the effects named by the first spell 1-0x3f that
  * adds them, and the texts of others (4381:1484-158c). */
@@ -1917,6 +1920,11 @@ const cok_rules cok_rules_death_knights = {
             .keys_unflushed = false,
             .pick_tries_listed = false, /* 20 tries, as the port has it (dkk 5340:3cac) */
             .step_sound = 0x0a,         /* dkk 5340:0654 (the shared step) */
+            .hit_bonus = COK_HIT_BONUS_PAIR, /* the shared roll's, as the port has it: var 0x7f70 */
+            .hit_sound = 7,                  /* the shared strike's SOUND_HIT and SOUND_MISS */
+            .miss_sound = 9,
+            .backstab = COK_BACKSTAB_FORMER, /* the shared backstab, as the port has it */
+            .backstab_weapons = death_knights_backstab_weapons,
         },
     .menus =
         {

@@ -154,6 +154,9 @@ typedef enum {
     COK_VAR_ABYSS,         /* dqk 0x1a2: the Abyss's encounter state (only blocks 64 and 66
                             * store it: 0, 1, 2, 4); the open ground's flags index (59c7:0e3b
                             * stores it at DS:a960, 0783 reads DS:5d7b there); the others none */
+    COK_VAR_HIT_PARTY,     /* dqk 0x2f: the party's to-hit bonus, a signed byte (148f:1771);
+                            * Champions none (COK_VAR_HIT_BONUS) */
+    COK_VAR_HIT_MONSTERS,  /* dqk 0x01: the monsters' to-hit bonus (148f:1771); Champions none */
     COK_VARS
 } cok_var;
 
