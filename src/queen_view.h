@@ -23,6 +23,9 @@ bool queen_view_drop(cok_adventure *game, cok_character *character);
 /* 86b8:1965's readied branch (Rdy off, DESTROY ITEMS and ROB): false where the
  * run stopped. */
 bool queen_item_unready(cok_adventure *game, uint8_t *item);
+/* 86b8:1965: ready or unready the item (index) of character, who must be the one the View shows
+ * (ad67's record). False where the run stopped. */
+bool queen_item_ready(cok_adventure *game, cok_character *character, size_t index);
 
 /* What dark_queen.c's window library lends them beyond queen.h. */
 

@@ -561,6 +561,7 @@ const cok_rules cok_rules_dark_queen = {
             .type = 0x28,    /* 177e:0be2 */
             .count = 0x35,
             .weight = 0x2c, .readied = 0x32, .bonus = 0x30, .save_bonus = 0x31,
+            .cursed = 0x34, /* 5bb8:1271 (queen_ai.c) */
             .container = 0x49, /* 604b:05fd: a scroll's spells */
         },
     .ecl =

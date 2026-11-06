@@ -2367,6 +2367,10 @@ typedef struct {
      * its bonus (signed) and its saving throw bonus: what the stats read
      * (6346:0d20; dqk 177e:0be2). */
     uint8_t weight, readied, bonus, save_bonus;
+    /* The byte that is set while it is cursed (Dark Queen's +0x34, read by
+     * the computer's weapon choice, dqk 5bb8:1271 and 1396, queen_ai.c); 0
+     * where the port does not read it yet (Champions' and Death Knights'). */
+    uint8_t cursed;
     /* The type whose items are followed in a file by count items, their
      * contents (Dark Queen's scrolls, 0x49: dqk 604b:05fd, 604b:2200); 0
      * for none. */

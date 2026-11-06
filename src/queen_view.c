@@ -168,8 +168,8 @@ bool queen_item_unready(cok_adventure *game, uint8_t *item)
     return true;
 }
 
-/* 86b8:1965: ready or unready item. */
-static bool ready_item(cok_adventure *game, cok_character *character, size_t index)
+/* 86b8:1965: ready or unready item (View's Ready, and the computer's weapon choice, queen_ai.c). */
+bool queen_item_ready(cok_adventure *game, cok_character *character, size_t index)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
@@ -403,7 +403,7 @@ bool queen_view_items(cok_adventure *game, cok_character *character, bool *done)
         size_t index = at < character->item_count ? at : 0;
         bool ok = true;
         switch (choice) {
-        case B_READY: ok = ready_item(game, character, index); break;
+        case B_READY: ok = queen_item_ready(game, character, index); break;
         case B_USE:
             if (character->items[index][ITEM_READIED] == 0)
                 queen_bar_message(game, "Must be readied");

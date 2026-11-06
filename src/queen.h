@@ -153,6 +153,22 @@ bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);
 /* The computer's turn (dqk 5bb8:0000, queen_ai.c; ai.c's cok_combat_computer dispatches to it by
  * the descriptor's computer_routine): its steps as far as the port carries them. */
 bool queen_computer(cok_adventure *game, cok_character *c);
+/* The computer's weapon's needs (dqk 5bb8:1396's aca8-acab, set from the target's effects by
+ * queen_weapon_needs_of): need is a weapon's bonus below which it is worth nothing, need_flagged
+ * the same for one whose flags have 8 or 0x10; effect_42 and effect_43 halve some weapons. */
+typedef struct {
+    uint8_t need, need_flagged;
+    bool effect_42, effect_43;
+} queen_weapon_needs;
+/* The needs of a target (NULL for none: all zero). */
+void queen_weapon_needs_of(const cok_character *target, queen_weapon_needs *needs);
+/* A weapon's worth to a character with hands held (dqk 5bb8:1271): item and its type's 16 bytes;
+ * underwater is var 0x3c (COK_VAR_RECORD_EFFECT). */
+uint8_t queen_weapon_score(const cok_rules *rules, uint8_t hands, const uint8_t *item,
+                           const uint8_t *type, const queen_weapon_needs *needs, bool underwater);
+/* The computer's weapon choice (dqk 5bb8:1396, queen_ai.c) for c, with target (a record, or NULL):
+ * its ready and stats are the View's. False where the run stopped. */
+bool queen_choose_weapon(cok_adventure *game, cok_character *c, const uint8_t *target);
 /* The computer's step (dqk 5bb8:0438, may it step; the descriptor's can_step, queen_ai.c): ok where
  * the square of try's way from dir may be stepped on; offmap where it is off the map. False where the
  * run stopped. */
