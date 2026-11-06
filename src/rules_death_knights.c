@@ -1925,6 +1925,7 @@ const cok_rules cok_rules_death_knights = {
             .miss_sound = 9,
             .backstab = COK_BACKSTAB_FORMER, /* the shared backstab, as the port has it */
             .backstab_weapons = death_knights_backstab_weapons,
+            .dying_colour = 10, /* 5340:0230's ", and is dying" (cok_text_string, 10, 0) */
         },
     .menus =
         {

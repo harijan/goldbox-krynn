@@ -3865,6 +3865,19 @@ static bool arena_say(cok_adventure *game, cok_character *c, const char *text, u
     return true;
 }
 
+/* A name in the battle at x, y (177e:1697, queen_name_line). */
+static void arena_name(cok_adventure *game, cok_character *c, int x, int y)
+{
+    queen_name_line(game, c, x, y, false);
+}
+
+/* The attack's text in the battle's window (52db:02c0's 1a62:0311 on cells 0x17-0x26 by its rows,
+ * 13-16): grey, the window cleared first. */
+static bool arena_report(cok_adventure *game, const char *text, cok_text_window window)
+{
+    return print_window(game, text, window.left, window.top, window.right, window.bottom, 7, true);
+}
+
 /* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5: kind 1 is an effect's, the
  * four-frame missile, its sound and passes, the draws of each frame), not ported: its own part. A
  * kind 0 flash (a burst) is not checked against the original: it stops under the same citation. */
@@ -5540,6 +5553,8 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_load_icon = arena_load_icon,
     .arena_panel = combat_panel,
     .arena_say = arena_say,
+    .arena_name = arena_name,
+    .arena_report = arena_report,
     .arena_flash = arena_flash,
     .arena_text = arena_text,
     .arena_clear_text = arena_clear_text,

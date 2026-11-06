@@ -185,12 +185,6 @@ static void wait_speed(cok_adventure *game)
     cok_arena_pause(game); /* 1521:0b4b; dqk 1a62:0949 */
 }
 
-/* The text's window is full: wait for a key (1614:025b), as PRINT pages. */
-static void page(void *context)
-{
-    cok_adventure_wait_key(context);
-}
-
 void cok_combat_forget(const cok_rules *rules, uint8_t *c, uint8_t spell)
 {
     const cok_character_layout *L = rules->character;
@@ -394,7 +388,7 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
     const char *header = mode == 2 ? W->backstabs : mode == 3 ? W->slays : W->attacks;
     if (!cok_arena_say(game, attacker, header, 10, false)) return false;
     uint8_t row = 12;
-    cok_item_draw_name(game, t, 0x17, row, false); /* 6346:199d */
+    cok_arena_name(game, target, 0x17, row); /* 6346:199d; dqk 177e:1697 */
     ++row;
     char text[96];
     snprintf(text, sizeof text, "%s", mode == 1 ? W->behind : "");
@@ -416,8 +410,8 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         name_of(L, t, name);
         snprintf(line, sizeof line, "%s %s", name, text);
         cok_adventure_log(game, "attack", line);
-        cok_adventure_wrap(game, &game->vm.cursor, text,
-                           (cok_text_window){0x17, row, 0x26, row + 3}, 10, true, page);
+        if (!cok_arena_report(game, text, (cok_text_window){0x17, row, 0x26, row + 3}))
+            return false;
     }
     row = (uint8_t)(game->vm.cursor.y + 1); /* DS:6135 */
     cok_combat_record *cr = record_of(game, target);
@@ -442,7 +436,7 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
             row = (uint8_t)(row + 2);
             if (cok_combat_field_word(rules, t, COK_FIELD_STATUS) == 5) {
                 cok_adventure_log(game, "attack", W->dying);
-                cok_text_string(&game->screen, &game->font, W->dying, 0x17, row, 10, 0);
+                if (!cok_arena_text(game, 0x17, row, W->dying, F->dying_colour, 0)) return false;
             }
             if (cok_combat_field_word(rules, t, COK_FIELD_STATUS) >= 6 &&
                 cok_combat_field_word(rules, t, COK_FIELD_STATUS) <= 8 &&
@@ -452,7 +446,10 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         int stale;
         if (!battle_only(game, target, &stale) || !event(game, target, 0x0d)) return false;
         if (cok_field_u8(L, t, COK_FIELD_ACTIVE) == 0 &&
-            cok_field_u8(L, t, COK_FIELD_STATUS) != 10) {
+            cok_combat_field_word(rules, t, COK_FIELD_STATUS) != 10) {
+            if (F->kill_unported != NULL)
+                return cok_adventure_not_yet(game, "a death on the battlefield",
+                                             F->kill_unported);
             if (!kill(game, target, stale)) return false;
         } else {
             wait_speed(game);
@@ -725,6 +722,17 @@ static bool use_up_freed(cok_adventure *game, cok_character *attacker, uint8_t *
     return true;
 }
 
+/* The facing a target turns to on a blow from d (52db:18d6): 2 for a record with the battle's
+ * facing effect (0xd5, 177e:1734), else (d + 4) % 8. */
+static uint8_t turned(cok_adventure *game, const cok_character *target, uint8_t d)
+{
+    const cok_combat_block *B = cok_game_rules(game)->combat.combat_block;
+    if (B != NULL && B->facing_effect != 0 &&
+        cok_character_find_effect(target, B->facing_effect) != NULL)
+        return 2;
+    return (uint8_t)((d + 4) % 8);
+}
+
 bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_character *target,
                        bool behind, size_t item, bool *over)
 {
@@ -745,12 +753,12 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
     bool shown;
     if (ct->hits < 2 && !behind) {
         if (!direction(game, target, attacker, &d)) return false;
-        ct->facing = (uint8_t)((d + 4) % 8);
+        ct->facing = turned(game, target, d);
     } else {
         if (!visible(game, target, false, &shown)) return false;
         if (shown) {
             d = ct->facing;
-            if (!behind) ct->facing = (uint8_t)((d + 4) % 8);
+            if (!behind) ct->facing = turned(game, target, d);
         }
     }
     if (!visible(game, target, false, &shown)) return false;
@@ -760,6 +768,18 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
         return false;
     ca->target = target->record;
     cok_arena_wait(game, 100); /* 1962:029c; dqk 1df9:052a */
+    /* An item, or a readied weapon of type 0x1c or 0x1d (dqk 52db:18d6), is flown by the missile's
+     * flight (432f:2beb), which only a game with it ported has. With no readied weapon Dark
+     * Queen's test reads the IVT (scope 4), taken here as none. */
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    if (F->missile_unported != NULL) {
+        size_t readied = attacker->slots[0];
+        uint8_t type = readied != 0 && readied <= attacker->item_count
+                           ? item_type_of(game, attacker->items[readied - 1])
+                           : 0;
+        if (item != 0 || type == 0x1c || type == 0x1d)
+            return cok_adventure_not_yet(game, "a missile's flight", F->missile_unported);
+    }
     /* The item is held across the strike: one that goes meanwhile, as an
      * effect can take it, the original goes on using freed, as its bytes
      * were. */
@@ -801,6 +821,7 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
                       bool *swept)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     cok_combat *combat = &game->combat;
     uint8_t *a = attacker->record;
     *swept = false;
@@ -812,7 +833,7 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
     uint8_t d, n;
     if (!distance(game, attacker, target, &d)) return false;
     if (d != 1) return true;
-    if (!cok_combat_enemies(game, attacker, 1, &n)) return false;
+    if (!cok_combat_side_list(game, attacker, 1, false, !F->sweep_no_yell, &n)) return false;
     uint8_t count = 0;
     unsigned at = 0;
     for (unsigned i = 1; i <= n; ++i) {
@@ -838,10 +859,10 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
         cok_character *e = combatant(game, combat->enemies[i], "432f:0fce");
         if (e == NULL) return false;
         if (count == 0 || cok_field_u8(L, e->record, COK_FIELD_HIGHEST_LEVEL) != 0) continue;
-        bool over;
         if (!cok_combat_book(game, attacker, e)) return false;
         cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1, 1);
-        if (!cok_combat_attack(game, attacker, e, false, 0, &over)) return false; /* DS:7199 */
+        /* DS:7199 (52e4 passes DS:bd2e, the over flag, combat->attack_over). */
+        if (!cok_combat_attack(game, attacker, e, false, 0, &combat->attack_over)) return false;
         --count;
     }
     *swept = true;
@@ -926,7 +947,7 @@ bool cok_combat_pick_target_side(cok_adventure *game, cok_character *c, uint8_t 
         last = pass;
         if (pass && !force) combat->see_all = 1;
         uint8_t tries = 20, n;
-        if (!cok_combat_side_list(game, c, range, allies, &n)) return false;
+        if (!cok_combat_side_list(game, c, range, allies, true, &n)) return false;
         if (cok_game_rules(game)->fight.pick_tries_listed && n > 0) {
             /* dqk 52db:3d9e: a draw first, its pick not used; then as many tries as listed. */
             roll(game, 1, n);

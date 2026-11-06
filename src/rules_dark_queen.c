@@ -853,6 +853,16 @@ const cok_rules cok_rules_dark_queen = {
             .hit_event_effect = 0xb8,
             /* 52db:1417 clears no sweeps. */
             .strike_keeps_sweeps = true,
+            /* 1a62:0046's grey (7) for "and is Dying". */
+            .dying_colour = 7,
+            /* 52db:0529-0532: testb $8, +0xc8; jne 0x58f. One with bit 8 of its creature flags goes
+             * down only: no "and is Dying", no "is killed". */
+            .quiet_flag = 8,
+            /* 52db:2888 (the flight, part 17) and 5837:0d55 (the death, part 16): not yet. */
+            .missile_unported = "dqk 52db:2888, part 17",
+            .kill_unported = "dqk 5837:0d55, part 16",
+            /* 52db:54b5 lists the enemies with no yell swap. */
+            .sweep_no_yell = true,
         },
     .effects =
         {

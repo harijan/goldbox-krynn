@@ -59,8 +59,8 @@ static cok_character *record(char name, uint8_t hostile, int npc)
     const cok_character_layout *L = R->character;
     cok_character *c = calloc(1, sizeof *c);
     CHECK(c != NULL && cok_party_append(&game.party, c));
-    cok_field_set8_at(L, c->record, COK_FIELD_NAME, 0, 1);
-    cok_field_set8_at(L, c->record, COK_FIELD_NAME, 1, (uint8_t)name);
+    char text[2] = {name, '\0'}; /* Dark Queen's name is a C string */
+    cok_field_set_name(L, c->record, text, 1);
     cok_field_set8(L, c->record, COK_FIELD_HOSTILE, hostile);
     cok_field_set8(L, c->record, COK_FIELD_NPC, npc ? 0x80 : 0);
     cok_field_set8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 10);
@@ -346,7 +346,7 @@ static void test_geometry(void)
     /* The list: A is hidden, so B (5 half cells, north) and D (9, south-east) are listed nearest
      * first, in the order of the combatants and the directions 0 and 3. */
     uint8_t n = 0;
-    CHECK(cok_combat_side_list(&game, c, 0xff, false, &n) && n == 2);
+    CHECK(cok_combat_side_list(&game, c, 0xff, false, true, &n) && n == 2);
     CHECK(k->enemies[1] == 3 && k->enemies[2] == 4);
     CHECK(k->listed[1].distance == 5 && k->listed[1].direction == 0);
     CHECK(k->listed[2].distance == 9 && k->listed[2].direction == 3);
@@ -551,18 +551,24 @@ static void test_forget(void)
     battle_clear();
 }
 
+/* The icon slot the fight's records draw from: the monsters' CPIC 64 (both images), loaded by
+ * main, so that a facing above 3 has a picture to mirror. */
+#define ICON_SLOT 8
+
 /* A swing's attacker: one party record with slot 1's two attacks, 1d4 with no bonus, thac0 10, and
  * a target beside it, a monster of 10 hit points, both up (record() leaves ACTIVE 0). Var 0x12 (the
  * speed) is 0, so the waits draw nothing. */
-static void duel(cok_character **a, cok_character **t)
+static void duel_at(cok_character **a, cok_character **t, int8_t tx, int8_t ty)
 {
     battle_clear();
     *a = record('A', 0, 0);
     place(*a, 5, 5);
     *t = record('M', 1, 0);
-    place(*t, 6, 5);
+    place(*t, tx, ty);
     cok_field_set8(R->character, (*a)->record, COK_FIELD_ACTIVE, 1);
     cok_field_set8(R->character, (*t)->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, (*a)->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8(R->character, (*t)->record, COK_FIELD_ICON, ICON_SLOT);
     (*a)->combat->attack_slot = 1;
     cok_field_set8_at(R->character, (*a)->record, COK_FIELD_ATTACKS_LEFT, 1, 2);
     dice(*a, 1, 4, 0);
@@ -573,6 +579,11 @@ static void duel(cok_character **a, cok_character **t)
     log_text[0] = '\0';
     game.error[0] = '\0';
     game.vm.status = COK_ECL_OK;
+}
+
+static void duel(cok_character **a, cok_character **t)
+{
+    duel_at(a, t, 6, 5);
 }
 
 /* Dark Queen's strike (dqk 52db:1417): a swing that misses (d20 1), then one that hits (d20 20,
@@ -650,6 +661,289 @@ static void test_helpless_blow(void)
     bool over = false;
     cok_combat_strike(&game, a, t, false, false, &over);
     CHECK(cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 5);
+    CHECK(LOGGED("print: slays helpless;") && LOGGED("attack: M with one cruel blow;"));
+    battle_clear();
+}
+
+/* Dark Queen's report (dqk 52db:02c0's words through cok_arena_say and the log): a hit for 1 and
+ * for 5 (the point and the points), a miss, a backstab (the header "-Backstabs-") and one from
+ * behind ("(from behind) "). The strikes are made with one swing: d20 20 hits (a critical), then
+ * the 1d4 with bonus -3 (1 damage) or +4 (5 damage); a miss is a d20 of 1. */
+static void test_report_text(void)
+{
+    cok_character *a, *t;
+    struct { int bonus; uint8_t roll; bool behind; const char *text; } hits[] = {
+        {-3, 4, false, "attack: M Hitting for 1 point of damage;"},
+        {4, 1, false, "attack: M Hitting for 5 points of damage;"},
+        {-3, 4, true, "attack: M (from behind) Hitting for 1 point of damage;"}};
+    for (size_t i = 0; i < sizeof hits / sizeof *hits; ++i) {
+        duel(&a, &t);
+        dice(a, 1, 4, (int8_t)hits[i].bonus);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+        /* The target's rear armour class is 254 here (its stats, with no armour): the blow needs
+         * a thac0 of 0xff to reach it from behind. */
+        cok_field_set8(R->character, a->record, COK_FIELD_THAC0, 0xff);
+        game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, hits[i].roll, hits[i].roll});
+        bool over = false;
+        CHECK(cok_combat_strike(&game, a, t, hits[i].behind, false, &over) && over);
+        CHECK(LOGGED(hits[i].text));
+    }
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    bool over = false;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    CHECK(LOGGED("attack: M and Misses;"));
+    /* A backstab: a thief (class level 6), the target hit twice and facing the attacker. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 6, 1);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    cok_field_set8(R->character, a->record, COK_FIELD_THAC0, 0xff); /* against the rear AC, 250 */
+    uint8_t d;
+    CHECK(cok_combat_direction(&game.combat, a, t, &d));
+    t->combat->hits = 2;
+    t->combat->facing = d;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 2, 2});
+    over = false;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    CHECK(LOGGED("print: -Backstabs-;") && LOGGED("attack: M Hitting for "));
+    battle_clear();
+}
+
+/* The report's cells (dqk 52db:02c0's 1a62:0311 from 0x17, 13 to 0x26, 16, in 177e:156e's
+ * cleared rows 12-21): with the pause passing, the text is drawn on row 13 in cells 0x17-0x26, row
+ * 12 past the name's cell is still the window's grey, and row 17 there too (the pixel of row 21's
+ * cell). The screen is VGA: a byte a pixel, 8 units of 8 to a row. */
+static int spy_armed;
+static size_t spy_row12, spy_row13, spy_row17;
+
+/* The pixels in row's cells from x1 to 0x26 that differ from grey. */
+static size_t ink(const cok_adventure *g, int row, int x1, uint8_t grey)
+{
+    size_t n = 0;
+    const cok_picture *p = &g->screen;
+    for (int y = row * 8; y < row * 8 + 8; ++y)
+        for (int x = x1 * 8; x < (0x26 + 1) * 8; ++x)
+            n += p->pixels[(size_t)y * p->units * 8 + (size_t)x] != grey;
+    return n;
+}
+
+static void delay_spy(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (!spy_armed || ms == 0) return;
+    spy_armed = 0;
+    uint8_t grey = g->screen.pixels[21 * 8 * g->screen.units * 8 + 0x17 * 8];
+    spy_row12 = ink(g, 12, 0x18, grey); /* past the name's cell 0x17 */
+    spy_row13 = ink(g, 13, 0x17, grey);
+    spy_row17 = ink(g, 17, 0x17, grey);
+}
+
+static void test_report_cells(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 4);
+    dice(a, 1, 4, -3);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 4, 4});
+    game.hooks.delay = delay_spy;
+    spy_armed = 1;
+    bool over = false;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    game.hooks.delay = NULL;
+    CHECK(spy_row12 == 0 && spy_row13 > 0 && spy_row17 == 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    battle_clear();
+}
+
+/* The report's pause (dqk 1a62:0949: var 0x12 times 100 ms, one draw unless it is 0): one draw per
+ * report, a hit (after its d20 and damage) or a miss (after its d20); none at speed 0. */
+static void test_report_pause(void)
+{
+    for (int speed = 0; speed < 5; speed += 4) {
+        cok_character *a, *t;
+        duel(&a, &t);
+        cok_ecl_set_var(&game.vm, COK_VAR_SPEED, (uint16_t)speed);
+        dice(a, 1, 4, -3);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+        game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 4, 4});
+        uint32_t seed = game.vm.seed;
+        bool over = false;
+        CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+        CHECK(game.vm.seed == after_draws(seed, speed != 0 ? 3 : 2, 20));
+        duel(&a, &t);
+        cok_ecl_set_var(&game.vm, COK_VAR_SPEED, (uint16_t)speed);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+        seed = game.vm.seed;
+        CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+        CHECK(game.vm.seed == after_draws(seed, speed != 0 ? 2 : 1, 20));
+    }
+    battle_clear();
+}
+
+/* A hit on a target casting (dqk 52db:02c0's "lost a spell", 177e:156e with its wait, then
+ * 177e:1346 and 51c2:0c11): the pause and the say's wait are two draws, the memorized byte is
+ * marked 0x80 and the target's turn ends (spell and initiative 0). */
+static void test_report_spell(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 4);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    dice(a, 1, 4, -3);
+    memset(t->record + 0xce, 0, 0x89);
+    t->record[0xce + 0x50] = 0x21;
+    t->combat->spell = 0x21;
+    t->combat->initiative = 5;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 4, 4});
+    uint32_t seed = game.vm.seed;
+    bool over = false;
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    CHECK(game.vm.seed == after_draws(seed, 4, 20));
+    CHECK(LOGGED("print: lost a spell;") && t->record[0xce + 0x50] == 0xa1);
+    CHECK(t->combat->spell == 0 && t->combat->initiative == 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    battle_clear();
+}
+
+/* A target brought down (dqk 52db:02c0's 5837:0d55 after "is killed" and the event 0x0d): the
+ * report stops there, cited, as the death on the battlefield is not ported (part 16). */
+static void test_report_kill(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    dice(a, 1, 4, 20);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
+    bool over = false;
+    CHECK(!cok_combat_strike(&game, a, t, false, false, &over));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5837:0d55") != NULL);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+}
+
+/* One brought down whose creature flags hold bit 8 (dqk 52db:0529-0532, +0xc8 & 8) only goes
+ * down: "goes down" is said, but neither "and is Dying" nor "is killed", and the death still stops
+ * at 5837:0d55. */
+static void test_report_quiet(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1,
+                      cok_field_u8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1) | 8);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    dice(a, 1, 4, 20);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
+    bool over = false;
+    CHECK(!cok_combat_strike(&game, a, t, false, false, &over));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5837:0d55") != NULL);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    CHECK(LOGGED("goes down;"));
+    CHECK(!LOGGED("and is Dying") && !LOGGED("is killed"));
+    battle_clear();
+}
+
+/* The target's facing (dqk 52db:18d6's 16dd: the direction from the target to the attacker, then
+ * (d + 4) % 8), or 2 for a record with effect 0xd5 (177e:1734). */
+static void test_attack_facing(void)
+{
+    /* The target below the attacker (the direction d from it is 0), hidden (its size 0: no pose
+     * draws it, and a pose sets the facing as it is drawn): (d + 4) % 8, or 2 with effect 0xd5. */
+    for (int with = 0; with < 2; ++with) {
+        cok_character *a, *t;
+        duel_at(&a, &t, 5, 6);
+        cok_combat *k = &game.combat;
+        k->combatant[cok_combat_index(k, t->record)].size = 0;
+        dice(a, 1, 4, 0);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+        if (with) CHECK(cok_character_add_effect(t, 0xd5, 0, 0, false) != NULL);
+        uint8_t d;
+        CHECK(cok_combat_direction(k, t, a, &d) && d == 0);
+        game.vm.seed = 1;
+        bool over = false;
+        CHECK(cok_combat_attack(&game, a, t, false, 0, &over) && over);
+        CHECK(t->combat->facing == (with ? 2 : 4));
+    }
+    battle_clear();
+}
+
+/* An attack's wait (dqk 52db:18d6's 1df9:052a, 100 ms): one draw before the swing's d20. The
+ * swing is a miss (the d20 of 1), the seed after the wait's draw and that d20. */
+static void test_attack_wait(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    dice(a, 1, 4, 0);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    uint32_t s = 1;
+    while (draw_number(s, 2, 20) != 1) ++s;
+    game.vm.seed = s;
+    bool over = false;
+    CHECK(cok_combat_attack(&game, a, t, false, 0, &over) && over);
+    CHECK(game.vm.seed == after_draws(s, 2, 20) && LOGGED("attack: M and Misses;"));
+    battle_clear();
+}
+
+/* An item or a readied weapon of type 0x1c (dqk 52db:18d6's 2888 calls, part 17): not ported, so
+ * the attack stops, cited, after the wait. */
+static void test_attack_missile(void)
+{
+    cok_character *a, *t;
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    for (int weapon = 0; weapon < 2; ++weapon) {
+        duel(&a, &t);
+        CHECK(cok_character_insert_item(a, 0, item));
+        if (weapon) {
+            a->items[0][0x28] = 0x1c;
+            a->slots[0] = 1;
+        }
+        bool over = false;
+        CHECK(!cok_combat_attack(&game, a, t, false, weapon ? 0 : 1, &over));
+        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "52db:2888") != NULL);
+    }
+    battle_clear();
+}
+
+/* The sweep (dqk 52db:52e4): the list is not swapped for the one yelled at (54b5 has no swap), so
+ * with the target second listed and the third yelled at, the swept are the target and the first
+ * listed, the target put first; the third is not swept. Two sweeps with three listed and one attack
+ * left: the sweep says "sweeps" first. */
+static void test_sweep(void)
+{
+    cok_combat *k = &game.combat;
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_character *x = record('X', 1, 0), *y = record('Y', 1, 0), *z = record('Z', 1, 0);
+    cok_field_set8(R->character, a->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8(R->character, x->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8(R->character, y->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8(R->character, z->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, y->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, z->record, COK_FIELD_ACTIVE, 1);
+    place(x, 6, 5);
+    place(y, 5, 6);
+    place(z, 4, 5);
+    CHECK(cok_character_add_effect(a, 0x8c, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    a->combat->sweeps = 2;
+    dice(a, 1, 4, 0);
+    uint8_t n;
+    CHECK(cok_combat_side_list(&game, a, 1, false, false, &n) && n == 3);
+    cok_character *target = k->combatant[k->enemies[2]].character;
+    cok_character *first = k->combatant[k->enemies[1]].character;
+    cok_character *third = k->combatant[k->enemies[3]].character;
+    k->yelled = third->record;
+    game.vm.seed = 1;
+    bool swept = false;
+    CHECK(cok_combat_sweep(&game, a, target, &swept) && swept);
+    CHECK(k->combatant[k->enemies[1]].character == target);
+    CHECK(target->combat->hits == 1 && first->combat->hits == 1 && third->combat->hits == 0);
+    CHECK(LOGGED("print: sweeps;"));
     battle_clear();
 }
 
@@ -665,6 +959,7 @@ int main(void)
     CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
     /* The battle's ground (set 1: no palette cycle, so no draw), for the report's window. */
     CHECK(cok_adventure_drawing(&game)->arena_tiles(&game, false, 1));
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, ICON_SLOT));
     test_leadership();
     test_fled();
     test_combat_records();
@@ -678,6 +973,16 @@ int main(void)
     test_strike();
     test_hit_event();
     test_helpless_blow();
+    test_report_text();
+    test_report_cells();
+    test_report_pause();
+    test_report_spell();
+    test_report_kill();
+    test_report_quiet();
+    test_attack_facing();
+    test_attack_wait();
+    test_attack_missile();
+    test_sweep();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

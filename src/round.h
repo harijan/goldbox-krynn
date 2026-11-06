@@ -260,9 +260,11 @@ bool cok_combat_list(cok_combat *combat, const cok_rules *rules, int8_t x, int8_
  * goes first. Returns false where the list cannot be made. */
 bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, uint8_t *count);
 /* The same with dkk 65cd:2913's first parameter: allies lists c's own
- * side instead (the computer's pick of a spell's target, dkk 5340:1da5). */
+ * side instead (the computer's pick of a spell's target, dkk 5340:1da5).
+ * yell gives the one yelled at (effect 0x8c) the head, as cok_combat_enemies
+ * does; without it (Dark Queen's sweep, 52db:54b5) the list is not swapped. */
 bool cok_combat_side_list(cok_adventure *game, cok_character *c, uint8_t range, bool allies,
-                          uint8_t *count);
+                          bool yell, uint8_t *count);
 
 /* 6346:2888: the distance from origin to target in squares (the listed
  * length / 2) with sight not blocked; the list it makes is put back but

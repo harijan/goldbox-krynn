@@ -243,6 +243,13 @@ typedef struct {
      * stops, cited. */
     bool (*arena_say)(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
                       bool wait);
+    /* A name in the battle at x, y (cok_arena_name; dqk 177e:1697: dark where it cannot act, else
+     * by its state). NULL: cok_item_draw_name (Champions', 6346:199d). */
+    void (*arena_name)(cok_adventure *game, cok_character *c, int x, int y);
+    /* The attack's text in the battle's window (cok_arena_report; dqk 1a62:0311, grey, cleared
+     * first, the cursor homed): false with the game's error set. NULL: the wrap in colour 10
+     * (Champions', 432f:033e). */
+    bool (*arena_report)(cok_adventure *game, const char *text, cok_text_window window);
     /* A notice in the battle, in place of cok_camp_notice (the gods' "The Gods intervene!", dqk
      * 177e:153c: the bar message). NULL: cok_camp_notice. */
     void (*notice)(cok_adventure *game, const char *text);

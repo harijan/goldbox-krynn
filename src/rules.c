@@ -1816,6 +1816,7 @@ const cok_rules cok_rules_champions = {
             .miss_sound = 9,                 /* SOUND_MISS (DS:1e5a), always made */
             .backstab = COK_BACKSTAB_FORMER, /* 432f:278f */
             .backstab_weapons = champions_backstab_weapons,
+            .dying_colour = 10, /* 432f:033e's "and is Dying" (cok_text_string, 10, 0) */
         },
     .menus =
         {
