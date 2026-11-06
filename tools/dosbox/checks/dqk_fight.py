@@ -602,9 +602,13 @@ def blocks_agree(v, original, path, tag):
             + " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
 
 
-# The record bytes the weapon choice's stats (177e:0be2: THAC0 +0x18d, AC +0x18e) and attacks
-# (52db:0edf: +0x190 on, the words after it) write, up to the hit points at +0x198.
-WEAPON_ATTACK_BYTES = range(0x18d, 0x198)
+# The weapon choice's end (5bb8:1396's last call, the side panel, 177e:085f): the stop the weapon
+# checks compare at. The panel is in the root image (177e: below 1f4e, always resident), so its entry
+# is written directly, with no overlay copy to find. The call is at 5bb8:19a5 (a far call, so its
+# return IP is 19aa, the frame the entry's stack holds).
+PANEL_CALLEE = (0x177E, 0x085F)
+PANEL_CALL = 0x19A5
+PANEL_RETURN = 0x19AA
 
 
 def masked(raw_hex):
@@ -1837,7 +1841,7 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 QUICK_STOP = re.compile(r".*5bb8:0000.*")     # Quick's hand-on (5045:0a56): cites the turn 5bb8:0000
-FIGHT_STOP = re.compile(r".*5bb8:0b3d.*")     # the computer's fight, after its weapon (queen_ai.c, 15c)
+FIGHT_STOP = re.compile(r".*5bb8:0209.*")     # the computer's fight, after its weapon (queen_ai.c, 15c)
 
 
 def wait_trap(box, t, where):
@@ -1926,71 +1930,39 @@ EVENT1_IDS = (0x19, 0x25, 0x45)  # 148f:055c: the handlers event 1 runs on the t
 
 
 def weapon_draws(enemies):
-    """The RandSeed draws the computer's turn (5bb8:0000) makes from its entry to its fight's stop
-    (5bb8:0b3d, past the weapon's choice 5bb8:1396 and the keys 5bb8:1050, which draw none: no key
-    is read, and 1396 only reads and readies), exactly, with ENEMIES the other side's count
-    (s["sides"]): the pattern from 0
-    (5bb8:008d, d8, then d2 or d4): 2 draws. The pick (52db:3d9e, no target): one d(1, n) unused
-    (3e74), then one d(1, n) for the first try (3ed5), which 52db:1030 accepts (it refuses only by
-    event 1's handlers, the guard in command_state); none for n < 2 (2102:0234). So 2 + 2 if n >= 2."""
+    """The RandSeed draws the computer's turn (5bb8:0000) makes from its entry to its stop (5bb8:0209,
+    after the weapon's choice 5bb8:1396 and the keys 5bb8:1050: none of them draws here, no key is
+    read and 1396 draws none: no message shows, Ready's messages would draw once, 177e:153c), exactly,
+    with ENEMIES the other side's count (s["sides"]): the pattern from 0 (5bb8:008d, d8, then d2 or
+    d4): 2 draws. The pick at the top of 0000 (52db:3d9e, no target): one d(1, n) unused (3e74), then
+    one d(1, n) for the first try (3ed5), which 52db:1030 accepts (it refuses only by event 1's
+    handlers, the guard in weapon_state); none for n < 2 (2102:0234). So 2 + 2 if n >= 2. The loop's
+    pick (52db:3d9e again, after 0209) is not counted: the stop is before it."""
     return 2 + (2 if enemies >= 2 else 0)
 
 
-def command_state(v, tag, s, p, m_seed, weapon=None):
+def ported_records(p):
+    """eclplay's --records file at the stop as hex, one record a line (the list order)."""
+    data = p["base"].with_suffix(".records").read_bytes() if p["base"].with_suffix(".records").exists() else b""
+    return [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
+
+
+def command_state(v, tag, s, p, m_seed):
     """The stop's state against eclplay's: the RandSeed, the records (pointers masked), the
-    combat blocks and the turn list. Returns the original's RandSeed draws past the menu's.
-    WEAPON (the stops at 5bb8:0b3d; the index into s["sides"] of the enemies' side, 0 for the
-    party, 1 for the monsters): eclplay's RandSeed is the original's entry seed plus the turn's
-    draws to 0b3d (weapon_draws, exact), and the record's pattern and target are 0 at the entry:
-    eclplay's --blocks writes neither (+0x16, +0x0b), so they are checked only here, at the entry."""
+    combat blocks and the turn list. Returns the original's RandSeed draws past the menu's."""
     draws = L.draws(m_seed, s["seed"])
     field = p["base"].with_suffix(".field")
     if not field.exists():
         v.check(False, f"eclplay writes its battlefield at the stop after {tag}", p["last"])
-    elif weapon is not None:
-        seed = parse_field(field)[0]
-        d = L.draws(s["seed"], seed)
-        expected = weapon_draws(s["sides"][weapon])
-        # The pick's first try is accepted only if 52db:1030 refuses no enemy: it refuses only by
-        # event 1's handlers, so no chain (of any record: the party's and the enemies') may hold one.
-        held = [i for i, nodes in enumerate(s["chains"]) if any(n[0] in EVENT1_IDS for n in nodes)]
-        v.check(not held, f"no record holds an event-1 effect (0x19, 0x25, 0x45) at the fight's "
-                f"stop after {tag}: 52db:1030 would refuse the pick's first try and the count would "
-                "not be exact", f"records {held}")
-        v.check(d is not None and d == expected,
-                f"RandSeed at the fight's stop after {tag} is the original's entry seed "
-                f"({s['seed']:#x}) plus the turn's {expected} draws to 5bb8:0b3d (the pattern's 2, "
-                "then the pick: one roll unused and one for its first try, which finds a target "
-                f"with {s['sides'][weapon]} enemies, none if fewer than 2)",
-                f"eclplay {seed:#x}, {d} draws")
-        pre = [bytes.fromhex(b) for b in s["blocks"]]
-        v.check(all(b[0x16] == 0 and b[0x0B:0x0F] == bytes(4) for b in pre),
-                f"the pattern (+0x16) and target (+0x0b) of every record are 0 at the entry after "
-                f"{tag}: the pattern draws 2 (d8, then d2 or d4)",
-                [i for i, b in enumerate(pre) if b[0x16] or any(b[0x0B:0x0F])])
     else:
         seed = parse_field(field)[0]
         v.check(seed == s["seed"], f"RandSeed at the stop after {tag} is the original's "
                 f"({s['seed']:#x})", f"eclplay {seed:#x}")
-    data = p["base"].with_suffix(".records").read_bytes() if p["base"].with_suffix(".records").exists() else b""
-    ported = [data[i:i + L.RECORD].hex() for i in range(0, len(data) - 3, L.RECORD)]
-    # At the weapon's stop the choice (5bb8:1396) has run in eclplay and not in the original's entry
-    # snapshot: its stats (177e:0be2) and attacks (52db:0edf) write THAC0, AC and the attack bytes of
-    # the record that chose, so those alone may differ there. Nothing else may.
-    def differs(a, b):
-        if masked(a) == masked(b):
-            return False
-        if weapon is None:
-            return True
-        x, y = masked(a), masked(b)
-        return len(x) != len(y) or any(x[i] != y[i] for i in range(len(x))
-                                       if i not in WEAPON_ATTACK_BYTES)
+    ported = ported_records(p)
     differ = [i for i in range(min(len(ported), len(s["records"])))
-              if differs(ported[i], s["records"][i])]
+              if masked(ported[i]) != masked(s["records"][i])]
     v.check(not differ and len(ported) == len(s["records"]),
-            f"every record agrees at the stop after {tag} (pointers masked"
-            + ("; at the weapon's stop THAC0, AC and the attack bytes +0x18d-0x197 aside, which the choice writes"
-               if weapon is not None else "") + ")",
+            f"every record agrees at the stop after {tag} (pointers masked)",
             f"{len(ported)} against {len(s['records'])}; differ: {' '.join(map(str, differ))}")
     path = p["base"].with_suffix(".blocks")
     data = path.read_bytes() if path.exists() else b""
@@ -2002,6 +1974,101 @@ def command_state(v, tag, s, p, m_seed, weapon=None):
             " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
     turns_agree(v, s["turns"], p["base"].with_suffix(".turns"), f" at the stop after {tag}")
     return draws
+
+
+def panel_frames(box, seg):
+    """The stack's frames that call the side panel (the far call lcall SEG:0x085f, SEG the panel's
+    real segment) from 5bb8:19a5, so that they return to 19aa: (the frame's offset in the stack
+    segment, the caller's segment). The stack segment is the hook's SS (taken at the last key read:
+    the game's stack does not move between them); the scan is of the whole 64 KB segment."""
+    ss = box.hook("ss")
+    stack = box.read(ss * 16, 0x10000)
+    call = b"\x9a" + struct.pack("<HH", PANEL_CALLEE[1], seg)
+    frames = []
+    for i in range(0, len(stack) - 3, 2):
+        ip, cs = struct.unpack_from("<HH", stack, i)
+        if ip == PANEL_RETURN and box.read(cs * 16 + PANEL_CALL, len(call)) == call:
+            frames.append((i, cs))
+    return frames
+
+
+def weapon_original(work, patched, verbose, tag, keys):
+    """The original's state at the computer's weapon choice's end, for the weapon checks: the first
+    turn's menu (to_menu), KEYS(box) typed there, the computer's dispatch (5045:0891, COMPUTER) spun
+    as the entry, then given back once the panel's entry (177e:085f, PANEL_CALLEE) is spun in its
+    place, held. Returns the snapshot there (stop) and panel_frames (the calls it is in, weapon_guard)."""
+    with cokbox.Box(workdir=work / f"box-{tag}-weapon", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], COMPUTER)
+        keys(box)
+        wait_trap(box, t, "5045:0891")
+        seg, off = box.from_ghidra(*PANEL_CALLEE)
+        panel = [(seg * 16 + off, box.read(seg * 16 + off, 2))]
+        box.write_paused([(addr, b"\xeb\xfe") for addr, _ in panel])
+        L.untrap(box, t)                       # the panel is armed first: the dispatch runs on
+        wait_trap(box, panel, "177e:085f")
+        stop = snapshot(box)
+        frames = panel_frames(box, seg)
+    return dict(stop=stop, frames=frames)
+
+
+def weapon_guard(v, w, tag):
+    """The panel's first call is the weapon choice's: one frame on the stack returns to 5bb8:19aa,
+    from the call at 19a5 (panel_frames)."""
+    v.check(len(w["frames"]) == 1, f"the panel's entry (177e:085f) is first called from the weapon "
+            f"choice's call (5bb8:19a5, return 19aa) after {tag}", f"frames {w['frames']}")
+
+
+def weapon_state(v, tag, entry, stop, p, weapon):
+    """The computer's weapon choice (5bb8:1396, the stop at the panel's call: weapon_original)
+    against eclplay's stop (5bb8:0209). The RandSeed is the stop's, and the draws from the entry to
+    it are weapon_draws, exact: the entry's pattern and the pick at the top of 0000, and no draw in
+    the choice. The records are the stop's, every byte (pointers masked): the choice writes THAC0,
+    AC and the attacks. The combat blocks and the turn list are the entry's: eclplay's --blocks
+    writes neither the pattern nor the target, which are 0 at the entry (checked here). WEAPON is the
+    index into entry["sides"] of the enemies' side (0 for the party, 1 for the monsters)."""
+    field = p["base"].with_suffix(".field")
+    if not field.exists():
+        v.check(False, f"eclplay writes its battlefield at the stop after {tag}", p["last"])
+        return
+    seed = parse_field(field)[0]
+    d = L.draws(entry["seed"], stop["seed"])
+    expected = weapon_draws(entry["sides"][weapon])
+    # The pick's first try is accepted only if 52db:1030 refuses no enemy: it refuses only by
+    # event 1's handlers, so no chain (of any record: the party's and the enemies') may hold one.
+    held = [i for i, nodes in enumerate(entry["chains"]) if any(n[0] in EVENT1_IDS for n in nodes)]
+    v.check(not held, f"no record holds an event-1 effect (0x19, 0x25, 0x45) at the fight's "
+            f"stop after {tag}: 52db:1030 would refuse the pick's first try and the count would "
+            "not be exact", f"records {held}")
+    v.check(d == expected and seed == stop["seed"],
+            f"RandSeed at the fight's stop after {tag} is the panel call's ({stop['seed']:#x}), the "
+            f"entry's seed plus exactly {expected} draws (the pattern's 2, then the pick: one roll "
+            f"unused and one for its first try, which finds a target with {entry['sides'][weapon]} "
+            "enemies, none if fewer than 2)", f"eclplay {seed:#x}, {d} draws")
+    pre = [bytes.fromhex(b) for b in entry["blocks"]]
+    v.check(all(b[0x16] == 0 and b[0x0B:0x0F] == bytes(4) for b in pre),
+            f"the pattern (+0x16) and target (+0x0b) of every record are 0 at the entry after "
+            f"{tag}: the pattern draws 2 (d8, then d2 or d4)",
+            [i for i, b in enumerate(pre) if b[0x16] or any(b[0x0B:0x0F])])
+    ported = ported_records(p)
+    differ = [i for i in range(min(len(ported), len(stop["records"])))
+              if masked(ported[i]) != masked(stop["records"][i])]
+    v.check(not differ and len(ported) == len(stop["records"]),
+            f"every record agrees at the stop after {tag} (pointers masked; THAC0, AC and the "
+            "attack bytes written by the choice included)",
+            f"{len(ported)} against {len(stop['records'])}; differ: {' '.join(map(str, differ))}")
+    path = p["base"].with_suffix(".blocks")
+    data = path.read_bytes() if path.exists() else b""
+    blocks = [data[i:i + COMBAT_BLOCK].hex() for i in range(0, len(data), COMBAT_BLOCK)]
+    diffs = block_diffs(entry["blocks"], blocks)
+    v.check(not diffs and len(blocks) == len(entry["blocks"]),
+            f"every record's combat block agrees at the entry before {tag} (0x18 bytes)",
+            f"{len(blocks)} against {len(entry['blocks'])}; (record, offset, original, eclplay): " +
+            " ".join(f"({i}, {k}, {a}, {b})" for i, k, a, b in diffs[:12]))
+    turns_agree(v, entry["turns"], p["base"].with_suffix(".turns"), f" at the entry before {tag}")
 
 
 def command_screen(v, what, o_screen, png, mask):
@@ -2046,13 +2113,20 @@ def quick_check(v, work, patched, opts):
     command_screen(v, "after the flip after Q", o["flip_screen"], bmp, MENU_POINTER)
 
 
+def alt_q_keys(box):
+    box.keys("\\@Q")
+
+
 def alt_q_check(v, work, patched, opts):
     o = command_original(work, patched, "AltQ", opts.verbose)
+    w = weapon_original(work, patched, opts.verbose, "AltQ", alt_q_keys)
     p = command_port(work, patched, "AltQ", "\\@Q")
     s, m = o["stop"], o["menu"]
     v.check(FIGHT_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at the computer's fight (5bb8:0b3d, part 15c) after Alt-Q", p["last"])
-    draws = command_state(v, "AltQ", s, p, m["seed"], weapon=1)
+            "eclplay stops at the computer's fight (5bb8:0209, part 15c) after Alt-Q", p["last"])
+    weapon_guard(v, w, "Alt-Q")
+    weapon_state(v, "AltQ", s, w["stop"], p, weapon=1)
+    draws = L.draws(m["seed"], s["seed"])
     v.check(draws == 1, "the original's RandSeed past the menu after Alt-Q is one draw (the bar "
             "message's wait, 1df9:052a)", f"{draws} draws")
     v.check(s["state"]["turn"] == 1, "the original's turn index (DS:bd2d) at the computer's dispatch "
@@ -2180,9 +2254,16 @@ def turns_original(work, patched, verbose):
                     flip_screen=flip_screen)
 
 
+def turns_keys(box):
+    for i in range(TURNS_KEYS):
+        box.keys("E")
+        if i < TURNS_KEYS - 1:
+            box.settled(quiet=1.0, tolerance=0)
+
+
 def turns(v, work, opts):
     """The turns flow: five E keys from the first turn's menu, to SHARKMAN's computer turn (5045:0891;
-    eclplay stops at 5bb8:0b3d, its fight, after its weapon's choice (5bb8:1396) and the keys):
+    eclplay stops at 5bb8:0209, its fight, after its weapon's choice (5bb8:1396) and the keys):
     the records, blocks, turn list (DS:bd2d 6), RandSeed (0x1756582c, no draw
     past the menu), the sides [6, 2], DS:bebd 0, the pending counts 0, DS:c2d6 NULL, DS:1cb5 0 and the
     screen at the stop and after the flip."""
@@ -2198,12 +2279,15 @@ def turns(v, work, opts):
                            screen=base.with_suffix(".bmp"), effects=base.with_suffix(".effects"))
     chains_agree(v, s["chains"], base.with_suffix(".effects"), " (turns)")
     v.check(FIGHT_STOP.fullmatch(last or "") is not None,
-            "eclplay stops at the computer's fight (5bb8:0b3d, part 15c) after five E", last)
+            "eclplay stops at the computer's fight (5bb8:0209, part 15c) after five E", last)
     lines = (work / "port-turns.txt").read_text().splitlines()
     v.check([line for line in lines if line.startswith("turn:")][-1:] == [TURNS_LINE],
             "eclplay's last turn is SHARKMAN (initiative 5)",
             [line for line in lines if line.startswith("turn:")][-1:])
-    draws = command_state(v, "turns", s, dict(base=base, last=last), o["menu"]["seed"], weapon=0)
+    w = weapon_original(work, patched, opts.verbose, "turns", turns_keys)
+    weapon_guard(v, w, "SHARKMAN's turn")
+    weapon_state(v, "turns", s, w["stop"], dict(base=base, last=last), weapon=0)
+    draws = L.draws(o["menu"]["seed"], s["seed"])
     v.check(s["seed"] == TURNS_SEED and draws == 0, f"RandSeed at SHARKMAN's turn is "
             f"{TURNS_SEED:#x}, no draw past the menu", f"{s['seed']:#x}, {draws} draws")
     v.check(s["state"]["turn"] == 6, "the original's turn index (DS:bd2d) at SHARKMAN's turn is 6",

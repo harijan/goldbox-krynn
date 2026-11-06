@@ -363,7 +363,8 @@ bool queen_choose_weapon(cok_adventure *game, cok_character *c, const uint8_t *t
  * the port's use_item must not run here). A pending spell's cast (849a:145b) is the stop; then
  * turn undead (0268, turn_undead), the spell choice (0306, queen_spell_choice; a cast ends the
  * turn), and the weapon's choice (1396, queen_choose_weapon), then the keys again (1050: over ends
- * the turn). The loop of step 14 (0b3d, the fight) is the stop: its pick and fight are part 15c.
+ * the turn). The stop is 0209, after the keys: the loop of step 14 (its pick, 52db:3d9e, and its
+ * fight at 0b3d) is part 15c, and the pick draws, so the stop's draws exclude it.
  * DS:ae48, the effect handlers' "hook done" byte, is written by 0000:01bf (0c11's result, 1) after
  * 0268 returns 1; 0268 itself does not write it. Each handler writes it before it reads it (scope
  * 0000, step 11), so it is not modelled. */
@@ -412,5 +413,5 @@ bool queen_computer(cok_adventure *game, cok_character *c)
     if (!queen_choose_weapon(game, c, cr->target)) return false;
     if (!cok_ai_keys(game, c, &over)) return false; /* 5bb8:1050 again: over ends the turn */
     if (over) return true;
-    return cok_adventure_not_yet(game, "the computer's fight", "dqk 5bb8:0b3d (part 15c)");
+    return cok_adventure_not_yet(game, "the computer's fight", "dqk 5bb8:0209 (part 15c)");
 }

@@ -435,7 +435,7 @@ static void test_computer_inactive(void)
 }
 
 /* 5bb8:0101 and 008d: the pattern's draws equal ai.c's (seeded: pattern 0 draws d8, then d2 or
- * d4), and the turn stops at 5bb8:0b3d after them. */
+ * d4), and the turn stops at 5bb8:0209 after them. */
 static void test_computer_pattern(void)
 {
     cok_character *a;
@@ -443,7 +443,7 @@ static void test_computer_pattern(void)
     uint32_t seed = game.vm.seed;
     m->combat->pattern = 0;
     CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "5bb8:0b3d") != NULL);
+          strstr(game.error, "5bb8:0209") != NULL);
     uint8_t p1 = m->combat->pattern;
     uint32_t s1 = game.vm.seed;
     CHECK(s1 != seed);
@@ -471,7 +471,7 @@ static void test_computer_panic(void)
     m->combat->fleeing = 1;
     m->combat->forced = 1;
     CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
-          !LOGGED("flees in panic") && strstr(game.error, "5bb8:0b3d") != NULL);
+          !LOGGED("flees in panic") && strstr(game.error, "5bb8:0209") != NULL);
     game.vm.status = COK_ECL_OK;
     (void)a;
 }
@@ -595,13 +595,13 @@ static void test_computer_undead(void)
     game.vm.status = COK_ECL_OK;
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 2);
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "5bb8:0b3d") != NULL);
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "5bb8:0209") != NULL);
     game.vm.status = COK_ECL_OK;
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
     m->combat->forced = 1;
     CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
-          strstr(game.error, "5bb8:0b3d") != NULL);
+          strstr(game.error, "5bb8:0209") != NULL);
     game.vm.status = COK_ECL_OK;
 }
 
@@ -620,7 +620,7 @@ static void test_computer_undead_count(void)
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
     m->combat->turns = 5;
     CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") == NULL &&
-          strstr(game.error, "5bb8:0b3d") != NULL);
+          strstr(game.error, "5bb8:0209") != NULL);
     game.vm.status = COK_ECL_OK;
 }
 
@@ -635,7 +635,7 @@ static void test_computer_pick(void)
     place(m, 10, 10);
     m->combat->target = NULL;
     CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "5bb8:0b3d") != NULL);
+          strstr(game.error, "5bb8:0209") != NULL);
     CHECK(m->combat->target == a->record);
     game.vm.status = COK_ECL_OK;
 }
@@ -770,7 +770,8 @@ static void test_weapon_score(void)
 
 /* The made-up types of the weapon choice: 127 a dagger (one hand, 1d4, melee); 128 a bow (one
  * hand, 1d6, flags 9: arrows in slot 11); 126 a bow with flags 0x0a (no ammunition); 125 arrows
- * (type 2: neither weapon nor shield). Type 128 and 127 are the table's spare entries. */
+ * (type 2: neither weapon nor shield). Type 128 is made up too: Dark Queen's type table (64b2:0006,
+ * 0x800 bytes) does not reach it, so it is only a type this test gives an item. */
 static void weapon_types(void)
 {
     uint8_t *t = game.item_types.type[127];
@@ -866,6 +867,110 @@ static void test_weapon_cursed(void)
     battle_clear();
 }
 
+/* The made-up types of the swap and keep tests: 121 a zero-hand weapon (melee, 1d4), 122 a
+ * two-hander (2 hands, 2d6, melee), 123 a shield (one hand, bonus byte's score). */
+static void swap_types(void)
+{
+    uint8_t *t = game.item_types.type[121];
+    memset(t, 0, 16);
+    t[1] = 0, t[9] = 1, t[10] = 4, t[13] = 0xff;
+    t = game.item_types.type[122];
+    memset(t, 0, 16);
+    t[1] = 2, t[9] = 2, t[10] = 6, t[13] = 0xff;
+    t = game.item_types.type[123];
+    memset(t, 0, 16);
+    t[0] = 1, t[1] = 1, t[13] = 0xff;
+}
+
+/* The record's hands from its readied items (177e:0be2, as the game's stats), before a choice. */
+static void stats_of(cok_character *c)
+{
+    char error[300];
+    CHECK(cok_character_stats(c, R, &game.item_types, error, sizeof error));
+}
+
+/* A readied item's flag, as the record holds it. */
+static uint8_t readied(cok_character *c, size_t item)
+{
+    return c->items[item - 1][R->item_record.readied];
+}
+
+/* 5bb8:1396's swap, slot 1's hands (1851-188c): a one-handed dagger in slot 0 and a shield in slot 1
+ * leave 1 hand after the swap unreadies the dagger, so the shield's hand is taken off (0 left) and
+ * the two-hander (type 122) can be readied. Without that subtraction the Ready refuses it (1 + 2 >
+ * 2), so the shield stays readied and slot 0 is empty. The hands end at 2 with the two-hander
+ * readied, the shield unreadied (slot 1's Ready, the hands above 2), and the panel drawn. */
+static void test_weapon_swap(void)
+{
+    weapon_types();
+    swap_types();
+    cok_character *a = fighter();
+    size_t dagger = give(a, 127, 1, 0), shield = give(a, 123, 1, 0), two = give(a, 122, 0, 0);
+    a->slots[0] = dagger;
+    a->slots[1] = shield;
+    stats_of(a);
+    game.vm.character = a->record;
+    game.combat.panel = true;
+    CHECK(queen_choose_weapon(&game, a, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(a->slots[0] == two && readied(a, two) != 0);
+    CHECK(readied(a, dagger) == 0 && readied(a, shield) == 0);
+    CHECK(!game.combat.panel); /* changed: cok_arena_panel ran */
+    battle_clear();
+}
+
+/* 5bb8:1396's keep (18d5): a cursed zero-hand weapon in slot 0 is kept (no swap), and the best
+ * shield readied in slot 1 is kept too (free is false for the shield). The hands are 1, below 2,
+ * but nothing changes, so the panel is not drawn. Without the shield's test the shield is
+ * unreadied and readied again, and the panel is drawn. */
+static void test_weapon_keep(void)
+{
+    weapon_types();
+    swap_types();
+    cok_character *a = fighter();
+    size_t cursed = give(a, 121, 1, 1), shield = give(a, 123, 1, 0);
+    a->slots[0] = cursed;
+    a->slots[1] = shield;
+    stats_of(a);
+    game.vm.character = a->record;
+    game.combat.panel = true;
+    CHECK(queen_choose_weapon(&game, a, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(a->slots[0] == cursed && a->slots[1] == shield);
+    CHECK(readied(a, cursed) != 0 && readied(a, shield) != 0);
+    CHECK(game.combat.panel); /* nothing changed: cok_arena_panel did not run */
+    battle_clear();
+}
+
+/* 5bb8:1396's hands below 2 (the free slot 1, 18f5-1950) readies the best shield, and a shield's
+ * score is its bonus + 1, so a +0 shield (score 1) is chosen over none. A dagger readied in slot 0
+ * (1 hand) leaves 1 hand and slot 1 free: the +0 shield is readied and the panel drawn. Then a +0
+ * shield readied in slot 1 with a +2 unreadied: the +2 (score 3) is readied and the +0 unreadied. */
+static void test_weapon_shield(void)
+{
+    weapon_types();
+    swap_types();
+    cok_character *a = fighter();
+    size_t dagger = give(a, 127, 1, 0), shield = give(a, 123, 0, 0);
+    a->slots[0] = dagger;
+    stats_of(a);
+    game.vm.character = a->record;
+    game.combat.panel = true;
+    CHECK(queen_choose_weapon(&game, a, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(readied(a, shield) != 0 && readied(a, dagger) != 0);
+    CHECK(!game.combat.panel);
+    a = fighter();
+    size_t worn = give(a, 123, 1, 0);
+    size_t better = give(a, 123, 0, 0);
+    a->items[better - 1][R->item_record.bonus] = 2;
+    a->slots[1] = worn;
+    stats_of(a);
+    game.vm.character = a->record;
+    game.combat.panel = true;
+    CHECK(queen_choose_weapon(&game, a, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(readied(a, better) != 0 && readied(a, worn) == 0);
+    CHECK(!game.combat.panel);
+    battle_clear();
+}
+
 /* A battle with one monster (hostile 1) at 10, 10 and no items. */
 static cok_character *fighter_monster(void)
 {
@@ -958,6 +1063,9 @@ int main(void)
     test_weapon_choice();
     test_weapon_cursed();
     test_weapon_monster();
+    test_weapon_swap();
+    test_weapon_keep();
+    test_weapon_shield();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
     return 0;
