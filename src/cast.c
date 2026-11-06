@@ -295,6 +295,7 @@ bool cok_cast_damage(cok_adventure *game, cok_character *c, uint8_t amount, uint
     if (cok_field_u8(L, record, COK_FIELD_ACTIVE) == 0) {
         /* dkk 638c:1c52: one whose creature flags hold the quiet bit only
          * goes down. */
+        /* Dark Queen's spell report's quiet test is unverified (the spell parts, 28-29). */
         bool quiet = (cok_field_u8_at(L, record, COK_FIELD_CREATURE_FLAGS, 1) &
                       cok_game_rules(game)->fight.quiet_flag) != 0;
         snprintf(text, sizeof text, "%s%s", K->goes_down,

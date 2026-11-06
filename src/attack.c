@@ -859,10 +859,10 @@ bool cok_combat_sweep(cok_adventure *game, cok_character *attacker, cok_characte
         cok_character *e = combatant(game, combat->enemies[i], "432f:0fce");
         if (e == NULL) return false;
         if (count == 0 || cok_field_u8(L, e->record, COK_FIELD_HIGHEST_LEVEL) != 0) continue;
-        bool over;
         if (!cok_combat_book(game, attacker, e)) return false;
         cok_field_set8_at(L, a, COK_FIELD_ATTACKS_LEFT, 1, 1);
-        if (!cok_combat_attack(game, attacker, e, false, 0, &over)) return false; /* DS:7199 */
+        /* DS:7199 (52e4 passes DS:bd2e, the over flag, combat->attack_over). */
+        if (!cok_combat_attack(game, attacker, e, false, 0, &combat->attack_over)) return false;
         --count;
     }
     *swept = true;

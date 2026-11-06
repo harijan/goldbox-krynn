@@ -824,6 +824,27 @@ static void test_report_kill(void)
     battle_clear();
 }
 
+/* One brought down whose creature flags hold bit 8 (dqk 52db:0529-0532, +0xc8 & 8) only goes
+ * down: "goes down" is said, but neither "and is Dying" nor "is killed", and the death still stops
+ * at 5837:0d55. */
+static void test_report_quiet(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1,
+                      cok_field_u8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1) | 8);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    dice(a, 1, 4, 20);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
+    bool over = false;
+    CHECK(!cok_combat_strike(&game, a, t, false, false, &over));
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5837:0d55") != NULL);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    CHECK(LOGGED("goes down;"));
+    CHECK(!LOGGED("and is Dying") && !LOGGED("is killed"));
+    battle_clear();
+}
+
 /* The target's facing (dqk 52db:18d6's 16dd: the direction from the target to the attacker, then
  * (d + 4) % 8), or 2 for a record with effect 0xd5 (177e:1734). */
 static void test_attack_facing(void)
@@ -957,6 +978,7 @@ int main(void)
     test_report_pause();
     test_report_spell();
     test_report_kill();
+    test_report_quiet();
     test_attack_facing();
     test_attack_wait();
     test_attack_missile();
