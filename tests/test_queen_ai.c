@@ -512,6 +512,24 @@ static void test_morale_var(void)
     CHECK(cok_ai_morale(&game, m, &over) && !over && m->combat->fleeing == 1);
 }
 
+/* 5bb8:1117's need is a signed word (dqk 5bb8:11da's jg, morale_signed): with var 0xc8 it is
+ * 100 - 200 = -100, and a morale of 5 holds (no flight); as an unsigned word it would flee. */
+static void test_morale_signed(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(m, 10, 10);
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x81);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 5);
+    game.combat.enemy_health = 5;
+    bool over = true;
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, 0xc8);
+    CHECK(cok_ai_morale(&game, m, &over) && !over && m->combat->fleeing == 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, 100);
+}
+
 /* 5bb8:1117's surrender (a faster enemy, intelligence above 5): the stop cites 148f:1a69 (part 16),
  * not cok_combat_leave's own leave. */
 static void test_morale_surrender(void)
@@ -587,6 +605,41 @@ static void test_computer_undead(void)
     game.vm.status = COK_ECL_OK;
 }
 
+/* 5bb8:0268: a record that has turned as often as the undead count (+0x12 turns, unsigned, against
+ * DS:c2ed) does not turn: at the count it goes on to the weapon's stop, one short of it searches. */
+static void test_computer_undead_count(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    m->combat->turns = 4;
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
+    game.vm.status = COK_ECL_OK;
+    m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    m->combat->turns = 5;
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") == NULL &&
+          strstr(game.error, "5bb8:1396") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 5bb8:0000's first step: a record with no target picks one (52db:3d9e, the shared pick). Its only
+ * enemy is a, so the pick sets a as the target, which computer_pair otherwise sets itself. */
+static void test_computer_pick(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(a, 12, 10);
+    place(m, 10, 10);
+    m->combat->target = NULL;
+    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "5bb8:1396") != NULL);
+    CHECK(m->combat->target == a->record);
+    game.vm.status = COK_ECL_OK;
+}
+
 /* 5bb8:0306's prefix with Magic off: a monster (+0x9b below 0x7f) casts nothing; from 0x7f on it
  * is the spell choice's stop (1b1e, part 29). */
 static void test_spell_choice(void)
@@ -634,10 +687,13 @@ int main(void)
     test_computer_panic();
     test_morale_uncapped();
     test_morale_var();
+    test_morale_signed();
     test_morale_surrender();
     test_morale_divide();
     test_computer_spell();
     test_computer_undead();
+    test_computer_undead_count();
+    test_computer_pick();
     test_spell_choice();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
