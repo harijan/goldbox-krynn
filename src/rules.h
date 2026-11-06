@@ -1619,6 +1619,16 @@ typedef struct {
     /* Whether a strike keeps the attacker's sweeps left (cok_combat_record's sweeps; dqk 52db:1417
      * clears none). */
     bool strike_keeps_sweeps;
+    /* The colour of "and is Dying" on the window's grey (cok_arena_text at 0x17, the row, bg 0:
+     * dqk 1a62:0046's 7; Champions' and Death Knights' 10). */
+    uint8_t dying_colour;
+    /* The stops for what the port does not carry out for a game yet (cited, cok_adventure_not_yet):
+     * a missile's flight of an item or a readied weapon of type 0x1c or 0x1d (dqk 52db:2888, part
+     * 17), and a death on the battlefield (dqk 5837:0d55, part 16). NULL: the port's own. */
+    const char *missile_unported, *kill_unported;
+    /* Whether the sweep's list is not swapped for one yelled at (dqk 52db:54b5 has no swap;
+     * Champions' 432f:0fce does). */
+    bool sweep_no_yell;
 } cok_rules_fight;
 /* The clouds on the battlefield (cloud.c), each the port's routines of
  * that game's original. */

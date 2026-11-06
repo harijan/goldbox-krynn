@@ -691,11 +691,11 @@ static const uint8_t *listed_record(const cok_combat *combat, unsigned i)
 
 bool cok_combat_enemies(cok_adventure *game, cok_character *c, uint8_t range, uint8_t *count)
 {
-    return cok_combat_side_list(game, c, range, false, count);
+    return cok_combat_side_list(game, c, range, false, true, count);
 }
 
 bool cok_combat_side_list(cok_adventure *game, cok_character *c, uint8_t range, bool allies,
-                          uint8_t *count)
+                          bool yell, uint8_t *count)
 {
     const cok_character_layout *L = cok_game_rules(game)->character;
     cok_combat *combat = &game->combat;
@@ -723,7 +723,7 @@ bool cok_combat_side_list(cok_adventure *game, cok_character *c, uint8_t range, 
         combat->listed_count = kept;
     }
     for (unsigned i = 1; i <= n; ++i) combat->enemies[i] = combat->listed[i].index;
-    if (cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_YELLED_AT) != NULL) {
+    if (yell && cok_character_find_named(c, cok_game_rules(game), COK_EFFECT_YELLED_AT) != NULL) {
         bool swapped = false;
         for (unsigned i = 1; i <= n && !swapped; ++i) {
             uint8_t e = combat->enemies[i];

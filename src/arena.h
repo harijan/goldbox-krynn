@@ -200,6 +200,12 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c);
 bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint8_t row,
                    bool wait);
 
+/* A name in the battle at x, y (6346:199d; cok_drawing.arena_name where the game draws it), and the
+ * attack's text in a window (52db:02c0; cok_drawing.arena_report where the game draws it; else the
+ * wrap in colour 10, which clears the window first). False with the game's error set. */
+void cok_arena_name(cok_adventure *game, cok_character *c, int x, int y);
+bool cok_arena_report(cok_adventure *game, const char *text, cok_text_window window);
+
 /* Clear the text (6346:196a): in combat the panel's rows 10-21, outside
  * it rows 18-22. */
 void cok_arena_clear_text(cok_adventure *game);

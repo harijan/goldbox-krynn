@@ -972,6 +972,28 @@ bool cok_arena_say(cok_adventure *game, cok_character *c, const char *text, uint
     return true;
 }
 
+void cok_arena_name(cok_adventure *game, cok_character *c, int x, int y)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own != NULL && own->arena_name != NULL)
+        own->arena_name(game, c, x, y); /* dqk 177e:1697 */
+    else
+        cok_item_draw_name(game, c->record, x, y, false); /* 6346:199d */
+}
+
+bool cok_arena_report(cok_adventure *game, const char *text, cok_text_window window)
+{
+    const cok_drawing *own = cok_adventure_drawing(game);
+    if (own == NULL || own->arena_report == NULL) {
+        wrap(game, text, window);
+        return true;
+    }
+    if (own->arena_report(game, text, window)) return true;
+    /* As cok_arena_say: a failure that left the error text alone is reported here. */
+    if (!game->vm.abort) own_failed(game);
+    return false;
+}
+
 void cok_arena_clear_text(cok_adventure *game)
 {
     if (game->vm.mode == 5) {
