@@ -170,6 +170,12 @@ static void save_blocks(const cok_adventure *game, const char *path)
             block[B->forced] = cr->forced;
             block[B->turns] = cr->turns;
             block[B->turning] = cr->turning;
+            block[B->pattern] = cr->pattern;
+            /* The target (a pointer in the original): its party index plus 1, 0 for none, 0xff for
+             * one that is not in the party (dqk_fight's normal_block says the same of the original's). */
+            const uint8_t *t = cr->target;
+            size_t at = t == NULL ? 0 : cok_party_index(&game->party, t);
+            block[B->target] = t == NULL ? 0 : at < game->party.count ? (uint8_t)(at + 1) : 0xff;
         }
         fwrite(block, 1, sizeof block, f);
     }

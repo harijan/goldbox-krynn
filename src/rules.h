@@ -1113,8 +1113,8 @@ typedef enum {
 /* Dark Queen's combat block (59c7:0f7b): the 0x18 bytes a record's far pointer
  * +0x40 keeps, beside the port's cok_combat_record (party.h), which holds the same
  * meanings at its own offsets. Its named bytes, by their offset in the block; the
- * others are unnamed (0x01-0x09, 0x0b-0x13, 0x15, 0x16: read as 0 by eclplay's
- * --blocks, and checked as 0 at the placement by dqk_fight). The records' differences
+ * others are unnamed (0x01-0x09, 0x0c-0x13, 0x15: read as 0 by eclplay's --blocks, and
+ * checked as 0 at the placement by dqk_fight). The records' differences
  * from cok_combat_records (59c7:0f7b) are here too: a record with the effect
  * facing_effect faces 2, and a record that is not hostile gets gate_effect when
  * gate_var is set. */
@@ -1139,6 +1139,11 @@ typedef struct {
      * Dark Queen's command menu (queen_commands.c) and read by its conditions and the
      * placement's checks; eclplay's --blocks writes them. */
     uint8_t guarding, dying, hits, forced, turns, turning;
+    /* The combat record's pattern (+0x16: the way of moving, 5bb8:0000's 008d) and target (+0x0b:
+     * a far pointer to the record it aims at). eclplay's --blocks writes the pattern, and the
+     * target's place in the party list plus 1 (0 for none) at +0x0b: the port has no pointers, and
+     * dqk_fight masks the original's to the same. */
+    uint8_t pattern, target;
 } cok_combat_block;
 
 /* The encounter and the battle's frame where the games differ (monster.c,
@@ -1244,6 +1249,11 @@ typedef struct {
      * well as 0x0a. */
     bool ammunition_gated;
     uint8_t ammunition_also;
+    /* The listing's bytes that the distance (51c2:0b26, cok_combat_distance) puts back after it
+     * (1df9:0432 -> 10d7:2776 moves 4 bytes: DS:c2f3[0..3], entry 0 and entry 1's index; Dark
+     * Queen's 4). 0, the default, puts back the whole listing but its first entry (Champions',
+     * Death Knights'). */
+    uint8_t distance_kept_bytes;
     /* The enemy health (52db:29f1, the side count's own test at 51c2:094c): a record of status 9
      * is left out of it (dqk; Champions and DKK count it). */
     bool enemy_health_skip_status_9;

@@ -351,6 +351,216 @@ bool queen_choose_weapon(cok_adventure *game, cok_character *c, const uint8_t *t
     return !changed || cok_arena_panel(game, c); /* 177e:085f */
 }
 
+/* Event ev for c (148f:0512; ai.c's event). */
+static bool event(cok_adventure *game, cok_character *c, uint8_t ev)
+{
+    if (cok_effects_dispatch(&game->effects, c, ev)) return true;
+    return cok_adventure_effect_failed(game);
+}
+
+/* An undefined stop of the computer's fight (a message, and the run ends there). */
+static bool undefined_fight(cok_adventure *game, const char *what)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", what);
+    return false;
+}
+
+/* The item type of the item past the types' end (DS:ae3e + 16 * type, 5bb8:0b3d's reads). */
+static bool type_past(cok_adventure *game)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                       "an item type past ITEMS reads past the table (DS:ae3e, 5bb8:0b3d)");
+    return false;
+}
+
+/* The distance of 5bb8:0b3d's 0b26 (cok_combat_distance, which puts the listing back: 4 bytes of it
+ * for Dark Queen). */
+static bool distance_to(cok_adventure *game, const cok_character *origin,
+                        const cok_character *target, uint8_t *d)
+{
+    if (cok_combat_distance(&game->combat, cok_game_rules(game), origin->record, target->record, d))
+        return true;
+    return undefined_fight(game, "the distance (51c2:0b26, 5bb8:0b3d) lists the combatants "
+                                 "around one (6b30:08d8) past its tables");
+}
+
+/* The direction of 5bb8:0b3d's 16dd from a to b (6346:34e9). */
+static bool direction_to(cok_adventure *game, const cok_character *a, const cok_character *b,
+                         uint8_t *d)
+{
+    if (cok_combat_direction(&game->combat, a, b, d)) return true;
+    return undefined_fight(game, "no direction's wedge holds the other (6346:34e9, 5bb8:0b3d), "
+                                 "where the original loops for ever");
+}
+
+/* The record of combatant n (DS:b2f8 + 4n, the combatant the pick names). */
+static bool combatant_of(cok_adventure *game, uint8_t n, cok_character **c)
+{
+    *c = n <= COK_COMBATANTS ? game->combat.combatant[n].character : NULL;
+    if (*c != NULL) return true;
+    return undefined_fight(game, "a combatant picked has no record, read through NULL (5bb8:0b3d)");
+}
+
+/* The computer's fight of one pass (dqk 5bb8:0b3d), with the target the loop of queen_computer
+ * picked (its record found and active; the fight is entered only then). The original's frame: the
+ * last step 8 and stuck, stuck_more 0 (aca5-aca7), the pass's count, going and done. The steps, by
+ * offset:
+ * 0b43-0b5e: the prologue, event 0x0e; a party record (hostile word 0) bandaged first
+ *   (51c2:0d63(1), cok_combat_bandage) ends its initiative; initiative 0 is not going.
+ * 0b6e-0bec: while going and not done, the fleeing test once (+0x15); then, fleeing with movement
+ *   left and an initiative of 0 to 0x13, 6b0 (cok_ai_step) until one of those ends.
+ * 0bec-0c21: initiative 0 or 0x14 ends going; the loop goes on while going and not done.
+ * 0c24-0c44: the count (a byte) above 20: done, the guard (0fec), going 0; the pass goes on.
+ * 0c47-0c8f: the reach, the weapon's type[12] (1 for 0 or 0xff; no reach_less for Dark Queen).
+ * 0c88-0cba: the kept target, dropped where it is inactive (+0x18b 0) or on the other side
+ *   (hostile word 0); one kept and able to be attacked (52db:1030) is seen within the reach
+ *   (5d71:0328, see_all 0, map +8): in reach if its range halved is at most the reach.
+ * 0d56-0d7b: not in reach, the enemies within the reach (51c2:0980); none: the pick (52db:3d9e
+ *   with 0xff, 0, 0, 0), found: 6b0 and, a spell begun (spell > 0), going 0; not found: the guard
+ *   and done. Some: d(1, n) (148f:1968) picks combatant bce7[pick] (its record, the target).
+ * 0dd0-0e62: the missile weapon not thrown (51c2:0cbf, 0cfe) with an enemy a square away (0980 with
+ *   range 1), or underwater (var 0x3c): 1396 with the block's target (queen_choose_weapon), done.
+ *   Otherwise the distance (0b26); one a square away, or one able to be attacked, is in reach.
+ * 0e9c-0ee6: in reach: the direction (16dd) and centre (5837:0846, margin 2); a sweep (52e4) ends
+ *   the turn and done; else booked (1853) and, a missile weapon, its ammunition (10c3: in reach is
+ *   its has); a thrown one a square away has none; the attack (18d6) with done. Then done: going 0;
+ *   a target that is inactive is done.
+ * Returns !going, the loop of queen_computer's over. Its pick draws come from the caller. */
+bool queen_fight(cok_adventure *game, cok_character *c, bool *over)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_combat *combat = &game->combat;
+    const uint8_t *r = c->record;
+    cok_combat_record *cr = c->combat;
+    uint8_t count = 0;
+    bool going = true, done = false;
+    if (cr == NULL)
+        return undefined_fight(game, "a combatant has no combat record, read through NULL (5bb8:0b3d)");
+    combat->last_step = 8;
+    combat->stuck = 0;
+    combat->stuck_more = 0;
+    if (!event(game, c, 0x0e)) return false;
+    if (cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) == 0 && cok_combat_bandage(game, true))
+        cr->initiative = 0;
+    if (cr->initiative == 0) going = false;
+    while (!done && going) {
+        bool fleeing = cr->fleeing != 0; /* 0b6e: tested once per pass */
+        while (fleeing && cr->movement > 0 && cr->initiative > 0 && cr->initiative < 0x14)
+            if (!cok_ai_step(game, c)) return false;
+        if (cr->initiative == 0 || cr->initiative == 0x14) going = false;
+        if (!going) break;
+        if (++count > 20) { /* 0c24 */
+            done = true;
+            if (!cok_ai_guard(game, c)) return false; /* 0fec */
+            going = false;
+        }
+        combat->in_reach = false;
+        uint8_t reach = 1;
+        if (c->slots[0] != 0) {
+            const uint8_t *type = NULL;
+            if (!type_of(game, c->items[c->slots[0] - 1], &type)) return false;
+            reach = type[12];
+        }
+        if (reach == 0 || reach == 0xff) reach = 1;
+        /* The kept target; a NULL one reads nothing in the port (dropped). */
+        cok_character *target = NULL;
+        const uint8_t *t = cr->target;
+        if (t != NULL && cok_field_u8(L, t, COK_FIELD_ACTIVE) != 0 &&
+            cok_combat_field_word(rules, t, COK_FIELD_HOSTILE) != 0) {
+            target = member_at(game, t);
+            if (target == NULL) return undefined_fight(game, "the target is not in the list (5bb8:0b3d)");
+            bool can = false;
+            if (!cok_combat_can_attack(game, c, t, &can)) return false;
+            if (can) {
+                int8_t x1 = cok_combat_x(combat, t), y1 = cok_combat_y(combat, t);
+                uint16_t range = reach;
+                bool seen = false;
+                combat->see_all = 0; /* DS:bedb + 8 */
+                if (!cok_combat_sight(combat, rules, cok_combat_x(combat, r),
+                                      cok_combat_y(combat, r), &x1, &y1, &range, &seen))
+                    return undefined_fight(game, "a cell's terrain is past the table (5d71:0328, 5bb8:0b3d)");
+                if (seen && range >> 1 <= reach) combat->in_reach = true;
+            }
+        }
+        if (!combat->in_reach) {
+            uint8_t n = 0;
+            if (!cok_combat_enemies(game, c, reach, &n)) return false; /* 51c2:0980 */
+            if (n == 0) {
+                bool found = false;
+                if (!cok_combat_pick_target(game, c, 0xff, false, false, &found)) return false;
+                if (found) {
+                    if (!cok_ai_step(game, c)) return false;
+                    if (cr->spell > 0) going = false; /* 0d9b: 6b0 began a spell */
+                } else {
+                    if (!cok_ai_guard(game, c)) return false;
+                    done = true;
+                }
+            } else {
+                uint8_t pick = cok_dice(&game->vm.seed, 1, n); /* 148f:1968(1, n) */
+                if (!combatant_of(game, combat->enemies[pick], &target)) return false;
+                bool missile = false, thrown = false;
+                if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return type_past(game);
+                bool use = false;
+                if (missile) {
+                    if (!cok_combat_thrown(&game->item_types, c, &thrown)) return type_past(game);
+                    if (!thrown) {
+                        uint8_t near = 0;
+                        if (!cok_combat_enemies(game, c, 1, &near)) return false;
+                        /* DS:b20f + 0x3c, underwater: the weapon's choice whether or not one is near */
+                        use = near > 0 || cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
+                    }
+                }
+                if (use) {
+                    if (!queen_choose_weapon(game, c, cr->target)) return false;
+                    done = true;
+                } else {
+                    uint8_t d = 0;
+                    bool can = false;
+                    if (!distance_to(game, c, target, &d)) return false;
+                    if (d != 1 && !cok_combat_can_attack(game, c, target->record, &can)) return false;
+                    if (d == 1 || can) combat->in_reach = true;
+                }
+            }
+        }
+        if (!combat->in_reach) continue;
+        uint8_t d = 0;
+        if (!direction_to(game, c, target, &d) ||
+            !cok_arena_centre(game, cok_combat_x(combat, r), cok_combat_y(combat, r), 2, d))
+            return false;
+        bool swept = false;
+        if (!cok_combat_sweep(game, c, target, &swept)) return false;
+        if (swept) {
+            cok_combat_end_turn(c); /* 51c2:0c11 */
+            done = true;
+            continue;
+        }
+        if (!cok_combat_book(game, c, target)) return false;
+        size_t ammunition = 0;
+        bool missile = false;
+        if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return type_past(game);
+        if (missile) {
+            bool has = false, thrown = false;
+            if (!cok_combat_ammunition(game, c, &ammunition, &has)) return type_past(game);
+            combat->in_reach = has;
+            if (!cok_combat_thrown(&game->item_types, c, &thrown)) return type_past(game);
+            if (thrown) {
+                uint8_t dd = 0;
+                if (!distance_to(game, c, target, &dd)) return false;
+                if (dd == 1) ammunition = 0;
+            }
+        }
+        if (!cok_combat_attack(game, c, target, false, ammunition, &done)) return false;
+        if (done) {
+            going = false;
+            continue;
+        }
+        if (cok_field_u8(L, target->record, COK_FIELD_ACTIVE) == 0) done = true;
+    }
+    *over = !going;
+    return true;
+}
+
 /* The computer's turn (dqk 5bb8:0000). ai.c's cok_combat_computer hands a Dark Queen record's turn
  * here (the descriptor's computer_routine). The steps in the original's order, cited by offset:
  * a record with no target picks one first (52db:3d9e with 0xff, 1, 0, 0; its result unused: the
@@ -363,8 +573,7 @@ bool queen_choose_weapon(cok_adventure *game, cok_character *c, const uint8_t *t
  * the port's use_item must not run here). A pending spell's cast (849a:145b) is the stop; then
  * turn undead (0268, turn_undead), the spell choice (0306, queen_spell_choice; a cast ends the
  * turn), and the weapon's choice (1396, queen_choose_weapon), then the keys again (1050: over ends
- * the turn). The stop is 0209, after the keys: the loop of step 14 (its pick, 52db:3d9e, and its
- * fight at 0b3d) is part 15c, and the pick draws, so the stop's draws exclude it.
+ * the turn). Then the loop of step 14 (0209: its pick, 52db:3d9e, and the fight, 0b3d, queen_fight).
  * DS:ae48, the effect handlers' "hook done" byte, is written by 0000:01bf (0c11's result, 1) after
  * 0268 returns 1; 0268 itself does not write it. Each handler writes it before it reads it (scope
  * 0000, step 11), so it is not modelled. */
@@ -413,5 +622,24 @@ bool queen_computer(cok_adventure *game, cok_character *c)
     if (!queen_choose_weapon(game, c, cr->target)) return false;
     if (!cok_ai_keys(game, c, &over)) return false; /* 5bb8:1050 again: over ends the turn */
     if (over) return true;
-    return cok_adventure_not_yet(game, "the computer's fight", "dqk 5bb8:0209 (part 15c)");
+    /* 5bb8:0209-0262, step 14: while not over, pick a target (52db:3d9e with 0xff, 1, 0, 0); one
+     * found, with initiative above 0 and +0x18b, fights (queen_fight, 0b3d) and is over when it
+     * says so; else it guards and is over. Each pass but the last fells a target or readies
+     * another weapon, as ai.c's loop: past 2 * COK_COMBATANTS + 8 passes the original loops for
+     * ever (the bound is the port's). */
+    for (unsigned passes = 0; !over; ++passes) {
+        if (passes > 2 * COK_COMBATANTS + 8)
+            return undefined_fight(game, "the computer's turn never ends (5bb8:0209), where the "
+                                         "original loops for ever");
+        bool picked = false;
+        if (!cok_combat_pick_target(game, c, 0xff, true, false, &picked)) return false;
+        if (picked && cr->initiative > 0 && cok_field_u8(L, r, COK_FIELD_ACTIVE) != 0) {
+            if (!queen_fight(game, c, &over)) return false;
+        } else {
+            if (!cok_ai_guard(game, c)) return false; /* 5bb8:0fec */
+            over = true;
+        }
+        if (game->vm.abort) break;
+    }
+    return true;
 }
