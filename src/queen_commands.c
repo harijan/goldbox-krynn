@@ -194,8 +194,12 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         cok_adventure_flush(game);
         cok_dark_queen_wait(game, 200);
         *done = true;
-        return cok_adventure_not_yet(game, "computer's turn",
-                                     cok_game_rules(game)->combat.computer_unported);
+        /* The hand-on is not taken here: the stop stays where the state was checked against the
+         * original's (dqk_fight's quick_check, at 0a56), though the turn it hands on, 5bb8:0000
+         * (queen_computer), is ported. */
+        return cok_adventure_not_yet(
+            game, "computer's turn",
+            "dqk 5045:0a56, the computer's turn for c (2d99:0ff9 = 5bb8:0000)");
     case ITEM_DELAY:
         /* 0a60: command.c's delay (initiative 1, the turn list shifted). */
         cok_combat_delay(game, c);

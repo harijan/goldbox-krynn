@@ -1831,7 +1831,8 @@ ALT_Q_AUTO = (1, 1, 1, 1, 1, 1, 1, 1)   # after Alt-Q every record of the list, 
 TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
-COMPUTER_STOP = re.compile(r".*5bb8:0000.*")
+QUICK_STOP = re.compile(r".*5bb8:0000.*")     # Quick's hand-on (5045:0a56): cites the turn 5bb8:0000
+WEAPON_STOP = re.compile(r".*5bb8:1396.*")    # the computer's turn's weapon choice (queen_ai.c, part 15b)
 
 
 def wait_trap(box, t, where):
@@ -1882,6 +1883,7 @@ def command_original(work, patched, flow, verbose):
             box.keys({"Q": "Q", "AltQ": "\\@Q", "AltM": "\\@M", "AltX": "\\@X"}[flow])
         wait_trap(box, t, f"5045:{trap:04x}")
         out["stop"] = snapshot(box)
+        out["stop"]["sides"] = [box.ds_byte(0xB7F2), box.ds_byte(0xB7F3)]  # weapon_draws
         out["stop_magic"] = box.ds_byte(MAGIC)
         out["stop_var12"] = var12(box)
         out["stop_begun"] = box.ds_byte(L.DS_BEGUN)
@@ -1915,13 +1917,50 @@ def port_var12(p):
     return p["vars"][SPEED_VAR - 1] if len(p["vars"]) == dqk_ecl.VARIABLES else -1
 
 
-def command_state(v, tag, s, p, m_seed):
+EVENT1_IDS = (0x19, 0x25, 0x45)  # 148f:055c: the handlers event 1 runs on the target (148f:0369)
+
+
+def weapon_draws(enemies):
+    """The RandSeed draws the computer's turn (5bb8:0000) makes from its entry to its weapon's stop
+    (5bb8:1396), exactly, with ENEMIES the other side's count (s["sides"]): the pattern from 0
+    (5bb8:008d, d8, then d2 or d4): 2 draws. The pick (52db:3d9e, no target): one d(1, n) unused
+    (3e74), then one d(1, n) for the first try (3ed5), which 52db:1030 accepts (it refuses only by
+    event 1's handlers, the guard in command_state); none for n < 2 (2102:0234). So 2 + 2 if n >= 2."""
+    return 2 + (2 if enemies >= 2 else 0)
+
+
+def command_state(v, tag, s, p, m_seed, weapon=None):
     """The stop's state against eclplay's: the RandSeed, the records (pointers masked), the
-    combat blocks and the turn list. Returns the original's RandSeed draws past the menu's."""
+    combat blocks and the turn list. Returns the original's RandSeed draws past the menu's.
+    WEAPON (the stops at 5bb8:1396; the index into s["sides"] of the enemies' side, 0 for the
+    party, 1 for the monsters): eclplay's RandSeed is the original's entry seed plus the turn's
+    draws to 1396 (weapon_draws, exact), and the record's pattern and target are 0 at the entry:
+    eclplay's --blocks writes neither (+0x16, +0x0b), so they are checked only here, at the entry."""
     draws = L.draws(m_seed, s["seed"])
     field = p["base"].with_suffix(".field")
     if not field.exists():
         v.check(False, f"eclplay writes its battlefield at the stop after {tag}", p["last"])
+    elif weapon is not None:
+        seed = parse_field(field)[0]
+        d = L.draws(s["seed"], seed)
+        expected = weapon_draws(s["sides"][weapon])
+        # The pick's first try is accepted only if 52db:1030 refuses no enemy: it refuses only by
+        # event 1's handlers, so no chain (of any record: the party's and the enemies') may hold one.
+        held = [i for i, nodes in enumerate(s["chains"]) if any(n[0] in EVENT1_IDS for n in nodes)]
+        v.check(not held, f"no record holds an event-1 effect (0x19, 0x25, 0x45) at the weapon's "
+                f"stop after {tag}: 52db:1030 would refuse the pick's first try and the count would "
+                "not be exact", f"records {held}")
+        v.check(d is not None and d == expected,
+                f"RandSeed at the weapon's stop after {tag} is the original's entry seed "
+                f"({s['seed']:#x}) plus the turn's {expected} draws to 5bb8:1396 (the pattern's 2, "
+                "then the pick: one roll unused and one for its first try, which finds a target "
+                f"with {s['sides'][weapon]} enemies, none if fewer than 2)",
+                f"eclplay {seed:#x}, {d} draws")
+        pre = [bytes.fromhex(b) for b in s["blocks"]]
+        v.check(all(b[0x16] == 0 and b[0x0B:0x0F] == bytes(4) for b in pre),
+                f"the pattern (+0x16) and target (+0x0b) of every record are 0 at the entry after "
+                f"{tag}: the pattern draws 2 (d8, then d2 or d4)",
+                [i for i, b in enumerate(pre) if b[0x16] or any(b[0x0B:0x0F])])
     else:
         seed = parse_field(field)[0]
         v.check(seed == s["seed"], f"RandSeed at the stop after {tag} is the original's "
@@ -1965,8 +2004,9 @@ def quick_check(v, work, patched, opts):
     o = command_original(work, patched, "Q", opts.verbose)
     p = command_port(work, patched, "Q", "Q")
     s, m = o["stop"], o["menu"]
-    v.check(COMPUTER_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at the computer's turn (5bb8:0000, computer_unported) after Q", p["last"])
+    v.check(QUICK_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay stops at Quick's hand-on to the computer's turn (5045:0a56, 5bb8:0000) after Q",
+            p["last"])
     draws = command_state(v, "Q", s, p, m["seed"])
     v.check(draws == 1, "the original's RandSeed past the menu after Q is one draw (the bar "
             "message's wait, 1df9:052a)", f"{draws} draws")
@@ -1990,10 +2030,9 @@ def alt_q_check(v, work, patched, opts):
     o = command_original(work, patched, "AltQ", opts.verbose)
     p = command_port(work, patched, "AltQ", "\\@Q")
     s, m = o["stop"], o["menu"]
-    v.check(COMPUTER_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at the computer's turn (5bb8:0000, computer_unported) after Alt-Q",
-            p["last"])
-    draws = command_state(v, "AltQ", s, p, m["seed"])
+    v.check(WEAPON_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay stops at the computer's weapon (5bb8:1396, part 15b) after Alt-Q", p["last"])
+    draws = command_state(v, "AltQ", s, p, m["seed"], weapon=1)
     v.check(draws == 1, "the original's RandSeed past the menu after Alt-Q is one draw (the bar "
             "message's wait, 1df9:052a)", f"{draws} draws")
     v.check(s["state"]["turn"] == 1, "the original's turn index (DS:bd2d) at the computer's dispatch "
@@ -2122,8 +2161,8 @@ def turns_original(work, patched, verbose):
 
 
 def turns(v, work, opts):
-    """The turns flow: five E keys from the first turn's menu, to SHARKMAN's computer turn (5045:0891,
-    5bb8:0000 for eclplay): the records, blocks, turn list (DS:bd2d 6), RandSeed (0x1756582c, no draw
+    """The turns flow: five E keys from the first turn's menu, to SHARKMAN's computer turn (5045:0891;
+    eclplay stops at 5bb8:1396, its weapon, after 5bb8:0000): the records, blocks, turn list (DS:bd2d 6), RandSeed (0x1756582c, no draw
     past the menu), the sides [6, 2], DS:bebd 0, the pending counts 0, DS:c2d6 NULL, DS:1cb5 0 and the
     screen at the stop and after the flip."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
@@ -2137,13 +2176,13 @@ def turns(v, work, opts):
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
                            screen=base.with_suffix(".bmp"), effects=base.with_suffix(".effects"))
     chains_agree(v, s["chains"], base.with_suffix(".effects"), " (turns)")
-    v.check(COMPUTER_STOP.fullmatch(last or "") is not None,
-            "eclplay stops at the computer's turn (5bb8:0000) after five E", last)
+    v.check(WEAPON_STOP.fullmatch(last or "") is not None,
+            "eclplay stops at the computer's weapon (5bb8:1396, part 15b) after five E", last)
     lines = (work / "port-turns.txt").read_text().splitlines()
     v.check([line for line in lines if line.startswith("turn:")][-1:] == [TURNS_LINE],
             "eclplay's last turn is SHARKMAN (initiative 5)",
             [line for line in lines if line.startswith("turn:")][-1:])
-    draws = command_state(v, "turns", s, dict(base=base, last=last), o["menu"]["seed"])
+    draws = command_state(v, "turns", s, dict(base=base, last=last), o["menu"]["seed"], weapon=0)
     v.check(s["seed"] == TURNS_SEED and draws == 0, f"RandSeed at SHARKMAN's turn is "
             f"{TURNS_SEED:#x}, no draw past the menu", f"{s['seed']:#x}, {draws} draws")
     v.check(s["state"]["turn"] == 6, "the original's turn index (DS:bd2d) at SHARKMAN's turn is 6",

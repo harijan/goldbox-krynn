@@ -1420,6 +1420,16 @@ typedef enum {
     COK_COMPUTER_CAST_DEATH_KNIGHTS,
 } cok_computer_cast_routine;
 
+/* The computer's turn (cok_combat_computer, ai.c's dispatch), each the port's routine of that
+ * game's original. */
+typedef enum {
+    /* 3afb:004b: ai.c's cok_combat_computer. */
+    COK_COMPUTER_SHARED,
+    /* dqk 5bb8:0000: queen_computer (queen_ai.c), the frame that picks, casts, turns undead and
+     * chooses a weapon; each step its own, with the shared routines it calls. */
+    COK_COMPUTER_DARK_QUEEN,
+} cok_computer_routine;
+
 /* The computer's keys (ai.c's cok_ai_keys), each the port's routine of that game's
  * original. */
 typedef enum {
@@ -1529,10 +1539,13 @@ typedef struct {
     bool computer_target_first, computer_items;
     uint8_t computer_cast, turn_limit, paladin_turns, reach_less;
     /* Morale (3afb:1316; dkk 3f63:1260): whether 100 less var COK_VAR_MORALE
-     * is compared signed (dkk, a byte) rather than as an unsigned word, and
-     * whether one made to flee loses effects COK_EFFECT_DISPELLING and
-     * GIANT_SLAYER (Champions). */
-    bool morale_signed, flee_removes;
+     * is compared signed (dkk, a byte, and Dark Queen's 5bb8:1117) rather than as an
+     * unsigned word, whether the morale roll is capped at 0x66 (Champions and Death Knights;
+     * Dark Queen's 5bb8:1117 is not), and whether one made to flee loses effects
+     * COK_EFFECT_DISPELLING and GIANT_SLAYER (Champions). */
+    bool morale_signed, morale_uncapped, flee_removes;
+    /* The computer's turn (cok_computer_routine): Dark Queen's 5bb8:0000 (queen_ai.c). */
+    cok_computer_routine computer_routine;
     /* The computer's step (3afb:095a; dkk 3f63:08c6): the turn added to the
      * way away from the party one fleeing takes (dkk 1), and whether the
      * way of moving is read only for a try below 6 and a way below 7 (dkk
@@ -1626,6 +1639,10 @@ typedef struct {
      * a missile's flight of an item or a readied weapon of type 0x1c or 0x1d (dqk 52db:2888, part
      * 17), and a death on the battlefield (dqk 5837:0d55, part 16). NULL: the port's own. */
     const char *missile_unported, *kill_unported;
+    /* A computer's surrender (ai.c's morale, cok_combat_leave with status 4; dqk 148f:1a69 from
+     * 5bb8:1117, part 16). The flight (52db:0e26) calls the same routine and is ported, so the
+     * stop is here and not in cok_combat_leave. NULL: the port's own. */
+    const char *surrender_unported;
     /* Whether the sweep's list is not swapped for one yelled at (dqk 52db:54b5 has no swap;
      * Champions' 432f:0fce does). */
     bool sweep_no_yell;

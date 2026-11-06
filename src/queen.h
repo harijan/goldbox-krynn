@@ -150,6 +150,9 @@ bool queen_key_waiting(cok_adventure *game);
 /* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast false where it casts nothing;
  * else its choice is a cited stop. False where the run stopped. */
 bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);
+/* The computer's turn (dqk 5bb8:0000, queen_ai.c; ai.c's cok_combat_computer dispatches to it by
+ * the descriptor's computer_routine): its steps as far as the port carries them. */
+bool queen_computer(cok_adventure *game, cok_character *c);
 /* The computer's step (dqk 5bb8:0438, may it step; the descriptor's can_step, queen_ai.c): ok where
  * the square of try's way from dir may be stepped on; offmap where it is off the map. False where the
  * run stopped. */

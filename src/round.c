@@ -896,6 +896,9 @@ bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer)
             return cok_adventure_not_yet(game, "pending spell's cast", R->spell_unported);
         return cok_combat_commands(game, c, 0); /* 08cf: the command menu (queen_commands.c) */
     }
+    /* 5045:0891: the computer's turn (5bb8:0000, queen_computer) is ahead of the stubs too, as the
+     * menu is: a stub must not pass over the port's own stops. */
+    if (computer && R->menu_first) return cok_combat_computer(game, c);
     cok_combat_stub stub = game->combat_stub;
     if (stub == COK_COMBAT_MELEE) return cok_combat_melee(game, c);
     if (stub == COK_COMBAT_PASS) {

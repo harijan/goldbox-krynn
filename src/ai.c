@@ -263,18 +263,19 @@ static bool morale(cok_adventure *game, cok_character *c, bool *over, uint8_t *s
         return cok_arena_say(game, c, "is forced to flee", 10, true);
     }
     if (cok_field_u8(L, r, COK_FIELD_NPC) <= 0x7f) return true;
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     uint8_t m = (uint8_t)((cok_field_u8(L, r, COK_FIELD_NPC) & 0x7f) * 2);
-    rolls->morale = m > 0x66 ? 0 : m;
+    /* 3afb:1316 caps the roll at 0x66 (to 0); dqk 5bb8:1117 keeps it (morale_uncapped). */
+    rolls->morale = m > 0x66 && !F->morale_uncapped ? 0 : m;
     if (!event(game, c, 0x11)) return false;
     if (cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS) == 0)
-        return undefined(game, "morale with no most hit points divides by zero (3afb:13ca): "
-                               "runtime error 200");
+        return undefined(game, "morale with no most hit points divides by zero (3afb:13ca; dqk "
+                               "5bb8:11a6): runtime error 200");
     int lost = 100 - (int16_t)(cok_field_u8(L, r, COK_FIELD_HIT_POINTS) * 100) /
                          cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);
     if (rolls->morale >= lost && rolls->morale != 0) return true;
     rolls->morale = combat->enemy_health;
     if (!event(game, c, 0x11)) return false;
-    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     /* As an unsigned word, or (dkk 3f63:1260) signed. */
     uint16_t need = (uint16_t)(100u - cok_ecl_var(&game->vm, COK_VAR_MORALE)); /* var 0x7ec6 */
     bool below = F->morale_signed ? rolls->morale < (int16_t)need : rolls->morale < need;
@@ -285,6 +286,8 @@ static bool morale(cok_adventure *game, cok_character *c, bool *over, uint8_t *s
         return false;
     if (fastest > mine >> 1) {
         if (cok_field_u8_at(L, r, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) <= 5) return true;
+        if (F->surrender_unported != NULL)
+            return cok_adventure_not_yet(game, "a computer's surrender", F->surrender_unported);
         if (!cok_combat_leave(game, c, 4, F->words.surrenders)) return false;
         cok_combat_end_turn(c);
         *over = true;
@@ -1220,11 +1223,13 @@ bool cok_ai_fight(cok_adventure *game, cok_character *c, bool *over)
  * interrupt between could leave another. */
 bool cok_combat_computer(cok_adventure *game, cok_character *c)
 {
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
+    /* dqk 5bb8:0000 is its own turn (queen_ai.c). */
+    if (F->computer_routine == COK_COMPUTER_DARK_QUEEN) return queen_computer(game, c);
     const cok_character_layout *L = cok_game_rules(game)->character;
     uint8_t *r = c->record;
     cok_combat_record *cr = record_of(game, c);
     if (cr == NULL) return false;
-    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool over, done;
     /* dkk 3f63:0000: one with no target picks one first (5340:3cac). */
     if (F->computer_target_first && cr->target == NULL &&
