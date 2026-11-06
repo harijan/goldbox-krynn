@@ -325,12 +325,13 @@ static void test_turn_dispatch(void)
     CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
     CHECK(c->combat->initiative == 0 && c->combat->spell == 0);
     CHECK(c->combat->guarding == 0 && c->combat->movement == 0);
-    /* A computer's turn stops at 5bb8:0000. */
+    /* A computer's turn is 5bb8:0000 (queen_computer): with no target it picks none, and its
+     * turn stops at the weapon's choice (5bb8:1396, part 15b). */
     game.vm.status = COK_ECL_OK;
     cok_field_set8(L, r, COK_FIELD_ACTIVE, 1);
     c->combat->initiative = 5;
     CHECK(!cok_combat_act(&game, c, true));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
+    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:1396") != NULL);
     /* --combat's stubs do not pass over the stops: the party's menu (no keys: kept), the
      * computer's turn. */
     static const cok_combat_stub stubs[] = {COK_COMBAT_PASS, COK_COMBAT_MELEE};
@@ -341,7 +342,7 @@ static void test_turn_dispatch(void)
         CHECK(c->combat->initiative == 5);
         game.vm.status = COK_ECL_OK;
         CHECK(!cok_combat_act(&game, c, true));
-        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:0000") != NULL);
+        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5bb8:1396") != NULL);
     }
     game.combat_stub = COK_COMBAT_UNPORTED;
     /* The keys ran out at the menus above: the run is over, and the tail, the round's end and

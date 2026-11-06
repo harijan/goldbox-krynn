@@ -413,6 +413,7 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_NO_MAGIC] = VAR(0x02),   /* dqk 5045:0cd7's Cast: the area forbids casting */
     [COK_VAR_HIT_PARTY] = VAR(0x2f),    /* 148f:1771: the party's to-hit bonus */
     [COK_VAR_HIT_MONSTERS] = VAR(0x01), /* 148f:1771: the monsters' */
+    [COK_VAR_MORALE] = VAR(0x1b),       /* 5bb8:1117: 100 less it is the morale's need, a byte */
 };
 
 /* The effects that bar a free attack's blow (52db:08e6's tests on each neighbour: 0xd2, 0x6a,
@@ -741,7 +742,10 @@ const cok_rules cok_rules_dark_queen = {
              * is a key code instead, matched by 0b3c's table: 0x20, 0x81-0x88, 0xc0, 0xcc, 0xd0,
              * 0xd7. Each item's stop, and the loop's redraw (12f5, 177e:085f), are cited. */
             .menu_first = true,
-            .computer_unported = "dqk 5bb8:0000, the computer's turn (part 15)",
+            /* The computer's turn is 5bb8:0000 (queen_ai.c's queen_computer, part 15a): nothing
+             * stops at it now, so computer_unported (the stop the part-15 port had) is NULL; a
+             * stop inside it cites its own step. Quick's hand-on (queen_commands.c) cites its own. */
+            .computer_unported = NULL,
             .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
             /* After each turn (5045:059d's tail, round.c): the pending lists (148f:2ab8, 2c4f,
              * 2d9b; DS:bd4c, ad6e, ad6f: the counts stop it, cited), the demonstration's key test
@@ -798,6 +802,7 @@ const cok_rules cok_rules_dark_queen = {
                     .dying = "and is Dying",
                     .killed = "is killed",
                     .panic = "flees in panic",
+                    .surrenders = "Surrenders",
                     .magic_on = "Magic On",
                     .magic_off = "Magic Off",
                     .guarding = "Guarding",
@@ -831,6 +836,18 @@ const cok_rules cok_rules_dark_queen = {
             /* 5bb8:1050: the keys read through the Dark Queen's reader, not flushed after. */
             .keys = COK_KEYS_DARK_QUEEN,
             .keys_unflushed = true,
+            /* 5bb8:0000 is queen_computer (queen_ai.c): its undead limit (0x0d, for 52db:135e) is
+             * not set here (turn_limit stays 0; queen_computer stops at 135e first); its paladin
+             * levels above 2 turn undead
+             * (5bb8:0268, read by queen_computer). Morale (5bb8:1117): a signed 100 less var 0x1b,
+             * the roll not capped at 0x66, and no effects removed on a flight (none for
+             * Dark Queen). The surrender is 148f:1a69 (part 16). */
+            .computer_routine = COK_COMPUTER_DARK_QUEEN,
+            .paladin_turns = 2,
+            .morale_signed = true,
+            .morale_uncapped = true,
+            .flee_removes = false,
+            .surrender_unported = "dqk 148f:1a69 (a computer's surrender: part 16)",
             /* 52db:3d9e: tries the number listed, after one draw unused. */
             .pick_tries_listed = true,
             /* 148f:1771: the party's var 0x2f and the monsters' 0x01, the difficulty's adjustment

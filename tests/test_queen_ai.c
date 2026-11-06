@@ -7,6 +7,7 @@
 #include "attack.h"
 #include "combat.h"
 #include "data.h"
+#include "ecl.h"
 #include "field.h"
 #include "party.h"
 #include "queen.h"
@@ -393,6 +394,219 @@ static void test_square(void)
     battle_clear();
 }
 
+/* queen_computer (dqk 5bb8:0000) on records made by hand: each step, its stop, and that the
+ * pattern's draws are ai.c's (battle_clear between: the party is freed). */
+static cok_character *computer_pair(uint8_t hostile_m, cok_character **a_out)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', hostile_m, 0);
+    place(a, 12, 10);
+    place(m, 10, 10);
+    game.undead = 5;
+    m->combat->target = a->record;
+    *a_out = a;
+    return m;
+}
+
+/* 5bb8:0031: effect 0xd5 ends the turn with no draw (the facing effect never acts). */
+static void test_computer_facing(void)
+{
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    CHECK(cok_character_add_effect(m, 0xd5, 0, 0, false) != NULL);
+    uint32_t seed = game.vm.seed;
+    CHECK(queen_computer(&game, m) && m->combat->initiative == 0 && game.vm.seed == seed);
+    CHECK(game.vm.status == COK_ECL_OK);
+}
+
+/* 5bb8:0074: a record that cannot act (+0x18b 0) ends its turn, and the way of moving is still
+ * drawn (0074 falls through to 008d): the seed moves, the turn is over, and no stop. */
+static void test_computer_inactive(void)
+{
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    const cok_character_layout *L = R->character;
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 0);
+    m->combat->pattern = 1;
+    uint32_t seed = game.vm.seed;
+    CHECK(queen_computer(&game, m) && m->combat->initiative == 0 && game.vm.seed != seed);
+    CHECK(game.vm.status == COK_ECL_OK);
+}
+
+/* 5bb8:0101 and 008d: the pattern's draws equal ai.c's (seeded: pattern 0 draws d8, then d2 or
+ * d4), and the turn stops at 5bb8:1396 after them. */
+static void test_computer_pattern(void)
+{
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    uint32_t seed = game.vm.seed;
+    m->combat->pattern = 0;
+    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "5bb8:1396") != NULL);
+    uint8_t p1 = m->combat->pattern;
+    uint32_t s1 = game.vm.seed;
+    CHECK(s1 != seed);
+    game.vm.seed = seed;
+    game.vm.status = COK_ECL_OK;
+    m->combat->pattern = 0;
+    CHECK(cok_ai_pattern(&game, m) && m->combat->pattern == p1 && game.vm.seed == s1);
+}
+
+/* 5bb8:0116: one fleeing and not forced says "flees in panic" (177e:156e), even ended. */
+static void test_computer_panic(void)
+{
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    const cok_character_layout *L = R->character;
+    cok_field_set8(L, m->record, COK_FIELD_ACTIVE, 0);
+    m->combat->fleeing = 1;
+    m->combat->forced = 0;
+    CHECK(queen_computer(&game, m) && LOGGED("flees in panic"));
+    battle_clear();
+    a = record('A', 0, 0);
+    m = record('M', 1, 0);
+    place(m, 10, 10);
+    game.undead = 5;
+    m->combat->fleeing = 1;
+    m->combat->forced = 1;
+    CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
+          !LOGGED("flees in panic") && strstr(game.error, "5bb8:1396") != NULL);
+    game.vm.status = COK_ECL_OK;
+    (void)a;
+}
+
+/* 5bb8:1117 (morale): the roll is not capped at 0x66 (morale 0x80 from +0x9b 0xc0): an unhurt
+ * monster keeps its nerve, where the cap would zero the roll and make it flee. */
+static void test_morale_uncapped(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(m, 10, 10);
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0xc0);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 10);
+    bool over = true;
+    CHECK(cok_ai_morale(&game, m, &over) && !over && m->combat->fleeing == 0);
+}
+
+/* 5bb8:1117: var 0x1b (100 less it is the need, a byte, signed compare), not COK's 0x7ec6: with
+ * 100 the morale of 5 holds (no flight); with 0 it does not. */
+static void test_morale_var(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(m, 10, 10);
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x81);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 5);
+    game.combat.enemy_health = 5;
+    bool over = true;
+    /* 5bb8:11da reads the byte at DS:b20f + 0x1b (a byte: mov %es:0x1b(%bx),%al). */
+    CHECK(cok_ecl_var_address(R, COK_VAR_MORALE, 0) == 0x1b);
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, 100);
+    CHECK(cok_ai_morale(&game, m, &over) && !over && m->combat->fleeing == 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, 0);
+    CHECK(cok_ai_morale(&game, m, &over) && !over && m->combat->fleeing == 1);
+}
+
+/* 5bb8:1117's surrender (a faster enemy, intelligence above 5): the stop cites 148f:1a69 (part 16),
+ * not cok_combat_leave's own leave. */
+static void test_morale_surrender(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(a, 12, 10);
+    place(m, 10, 10);
+    a->combat->movement = 20;
+    m->combat->movement = 9;
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x81);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 5);
+    cok_ecl_set_var(&game.vm, COK_VAR_MORALE, 0);
+    game.combat.enemy_health = 0;
+    bool over = false;
+    CHECK(!cok_ai_morale(&game, m, &over) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "148f:1a69") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 5bb8:1117's divide (most hit points 0, idiv at 11a6): undefined, cited there. */
+static void test_morale_divide(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(m, 10, 10);
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x81);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 0);
+    bool over = false;
+    CHECK(!cok_ai_morale(&game, m, &over) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "5bb8:11a6") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 5bb8:0164: a pending spell (+0) is its cast's stop (849a:145b), after the pattern. */
+static void test_computer_spell(void)
+{
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    m->combat->spell = 3;
+    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "849a:145b") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 5bb8:0268: the cleric level 3 of 3 (the undead search 52db:135e: its stop); a paladin above 2
+ * too; a paladin at 2 not; a forced (fleeing) cleric not. */
+static void test_computer_undead(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    cok_character *m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
+    game.vm.status = COK_ECL_OK;
+    m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 3);
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
+    game.vm.status = COK_ECL_OK;
+    m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 2);
+    CHECK(!queen_computer(&game, m) && strstr(game.error, "5bb8:1396") != NULL);
+    game.vm.status = COK_ECL_OK;
+    m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    m->combat->forced = 1;
+    CHECK(!queen_computer(&game, m) && LOGGED("is forced to flee") &&
+          strstr(game.error, "5bb8:1396") != NULL);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 5bb8:0306's prefix with Magic off: a monster (+0x9b below 0x7f) casts nothing; from 0x7f on it
+ * is the spell choice's stop (1b1e, part 29). */
+static void test_spell_choice(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    const cok_character_layout *L = R->character;
+    place(m, 10, 10);
+    m->combat->may_cast = 1;
+    game.combat.magic_on = false;
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x7e);
+    bool cast = true;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast);
+    cok_field_set8(L, m->record, COK_FIELD_NPC, 0x7f);
+    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "5bb8:0306") != NULL);
+    game.vm.status = COK_ECL_OK;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -414,6 +628,17 @@ int main(void)
     test_free_attack_blow();
     test_stuck();
     test_square();
+    test_computer_facing();
+    test_computer_inactive();
+    test_computer_pattern();
+    test_computer_panic();
+    test_morale_uncapped();
+    test_morale_var();
+    test_morale_surrender();
+    test_morale_divide();
+    test_computer_spell();
+    test_computer_undead();
+    test_spell_choice();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
     return 0;
