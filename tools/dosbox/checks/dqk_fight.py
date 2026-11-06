@@ -100,7 +100,14 @@ end, round 2's first menu (TIMASALIN). eclplay's --combat is the port's own (no 
 at the menus, out of keys, after "\\r\\r" + five E and + six E. At each: RandSeed (21 draws, then 29 past
 ROLAND's menu), every record and combat block (the target as eclplay writes it: normal_block; the pattern
 too), the turn list, the combatants' places (--field), and the screen (MENU_POINTER masked; round 2's once drawn).
-after the flip). Measured: SHARKMAN 1 from 32, 18 to 28, 16 with the block of MELEE_SHARKMAN1.
+
+Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17, unported). The
+original runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888
+in overlay 0 (MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and
+RandSeed does not move over a second, twice (the computer's turns run without a key wait, so the polls alone
+do not show the flight). eclplay's run with the same keys stops there (MISSILE_STOP), and its state is
+compared: RandSeed 1039 draws past the menu (0x484d403f), every record and combat block, the turn list, the
+combatants (--field), and the selected record (DS:ad67, 57fb:04da). About six minutes: the Box timeout is 900 s.
 
 Flow `walk`: tests/test_dark_queen.py's test_first_fight in the original, the shipped ECL: the start
 menu, plta, Begin, block 4's texts and the steps to the dragons, the first turn's menu (5045:08cf), End,
@@ -119,7 +126,7 @@ About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
-         turns,round,melee,won,timer,walk]
+         altq_missile,turns,round,melee,won,timer,walk,mouse]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -1861,7 +1868,7 @@ def keys(v, work, opts):
 # The command menu's commands (step 4, part 22b: Quick, Alt-A and Alt-Q, Alt-M, Speed). Each run
 # is the first turn's menu (to_menu), the flow's keys typed there, and the stop where the routine
 # hands the turn on: Quick at the computer's turn (5045:0a56, the lcall 2d99:0ff9), Alt-Q at the
-# tail (5045:066a, flipped as keys_original's), Alt-M and Speed where the menu is built again
+# computer's dispatch (5045:0891, flipped as keys_original's), Alt-M and Speed where the menu is built again
 # (5045:0cd7, after c8c's arena). The values are the review's (dqk-commands-b): the original and
 # eclplay agree on each.
 QUICK_TRAP = 0x0A56
@@ -1894,8 +1901,8 @@ def var12(box):
 
 def command_original(work, patched, flow, verbose):
     """The original at the first turn's menu (to_menu, the menu's screen kept), FLOW's keys typed
-    there, and its stop: Quick (Q) at 5045:0a56, Alt-Q (\\@Q) at the tail 5045:066a, flipped as
-    keys_original's tail, Alt-M (\\@M) and Speed (S, F, E) at 5045:0cd7, the menu built again. The
+    there, and its stop: Quick (Q) at 5045:0a56, Alt-Q (\\@Q) at the computer's dispatch 5045:0891, flipped as
+    keys_original's, Alt-M (\\@M) and Speed (S, F, E) at 5045:0cd7, the menu built again. The
     stop's state and screen; Speed's bar screens after S and after F; the menu's wait screen after
     the trap is given back (Alt-M, Speed)."""
     tag = f"cmd-{flow}"
@@ -2062,7 +2069,7 @@ def weapon_entry(v, tag, entry, stop, weapon):
     handlers, so no chain (of any record: the party's and the enemies') may hold one. The entry's
     pattern (+0x16) and target (+0x0b) are 0 (the pattern draws 2: d8, then d2 or d4). WEAPON is the
     index into entry["sides"] of the enemies' side (0 for the party, 1 for the monsters). eclplay's
-    own state is compared at a later stop (the missile's flight, missile_state, or none)."""
+    own state is not compared here: its stops come later (altq_missile's flight, for one)."""
     d = L.draws(entry["seed"], stop["seed"])
     expected = weapon_draws(entry["sides"][weapon])
     held = [i for i, nodes in enumerate(entry["chains"]) if any(n[0] in EVENT1_IDS for n in nodes)]
@@ -2129,17 +2136,10 @@ def alt_q_keys(box):
 def alt_q_check(v, work, patched, opts):
     """Alt-Q (the computer's turn of record 1, the bow chosen): the original's dispatch (command_original:
     the state there, checked alone) and its weapon choice (weapon_original's panel call, weapon_entry).
-    eclplay's run goes on to a missile's flight (52db:2888, part 17, unported): the stop is checked, but
-    its state is not compared with the original's. The original's first flight is not a stop that can be
-    reached twice alike: two runs of the same trap gave RandSeed 72 and 202 draws past the panel's call,
-    and eclplay's stop is 1034 draws past it, so the two runs do not stop at the same flight: no state
-    there is compared (the choice's draws are exact: weapon_entry)."""
+    The flight that follows is altq_missile's: the state there is compared in that flow, not here."""
     o = command_original(work, patched, "AltQ", opts.verbose)
     w = weapon_original(work, patched, opts.verbose, "AltQ", alt_q_keys)
-    p = command_port(work, patched, "AltQ", "\\@Q")
     s, m = o["stop"], o["menu"]
-    v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at a missile's flight (52db:2888, part 17) after Alt-Q", p["last"])
     weapon_guard(v, w, "Alt-Q")
     weapon_entry(v, "AltQ", s, w["stop"], weapon=1)
     draws = L.draws(m["seed"], s["seed"])
@@ -2157,6 +2157,73 @@ def alt_q_check(v, work, patched, opts):
     v.check(o["stop_begun"] == 0 and o["flipped"] == 0, "the original's DS:1cb5 at the computer's "
             "dispatch after Alt-Q is 0, and 0 after its flip (19a4:06d3)",
             f"{o['stop_begun']} at the stop, {o['flipped']} after the flip")
+
+
+MISSILE_ENTRY = (0x5045, (0x52DB - 0x5045) * 16 + 0x2888)  # 52db:2888 in overlay 0's copies (arm)
+MISSILE_DRAWS = 1039                    # RandSeed draws past the menu at the first flight (1034 past the panel)
+MISSILE_RECORD = "57fb:04da"            # DS:ad67 at the flight: the selected record (combatant 4)
+MISSILE_SECONDS = 600                   # the flight comes after about 5.5 minutes of computer turns
+MISSILE_STILL = 1.0                     # RandSeed must not move over this much game time, twice
+
+
+def still(box, seconds=MISSILE_STILL):
+    """RandSeed unchanged over SECONDS of the game's time."""
+    seed = box.ds_dword(L.DS_SEED)
+    box.settle(seconds)
+    return seed == box.ds_dword(L.DS_SEED)
+
+
+def wait_missile(box, t):
+    """Waits until the flight's trap T (written paused) is reached: the spin holds (the keyboard polls
+    still over 0.6 s), and RandSeed does not move over a second, twice. The computer's turns run with no
+    key wait, so the polls alone hold between turns too: the RandSeed test is what shows the flight."""
+    end = time.monotonic() + MISSILE_SECONDS
+    while time.monotonic() < end:
+        box.settle(0.5)
+        if L.held(box, t, seconds=0.6)[0] and still(box) and still(box):
+            return
+    raise cokbox.BoxError(f"the original's flight at 52db:2888 is not reached after {MISSILE_SECONDS} s")
+
+
+def missile_original(work, patched, verbose):
+    """The original's state at Alt-Q's first missile flight (52db:2888, MISSILE_ENTRY): the first turn's
+    menu (to_menu), \\@Q typed there, and the flight's entry trapped in the copies of its overlay. The
+    state there (snapshot, with DS:ad67 as `selected`) and the menu's seed (for the draws)."""
+    with cokbox.Box(workdir=work / "box-altq-missile", game="dark-queen", verbose=verbose,
+                    timeout=900, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], MISSILE_ENTRY)
+        alt_q_keys(box)
+        wait_missile(box, t)
+        stop = snapshot(box)
+        stop["selected"] = selected(box)
+    return dict(menu=menu, stop=stop)
+
+
+def altq_missile(v, work, opts):
+    """Alt-Q's first missile flight (step 4, part 15c; part 17 is unported): the original's state there
+    (missile_original) against eclplay's run to the same flight (MISSILE_STOP, the keys "\\r\\r\\@Q"):
+    RandSeed (MISSILE_DRAWS past the menu), every record and combat block, the turn list (command_state),
+    the combatants (--field) and the selected record (DS:ad67)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    o = missile_original(work, patched, opts.verbose)
+    p = command_port(work, patched, "AltQ", "\\@Q")
+    s, m = o["stop"], o["menu"]
+    v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay stops at a missile's flight (52db:2888, part 17) after Alt-Q", p["last"])
+    draws = command_state(v, "Alt-Q's flight", s, p, m["seed"])
+    v.check(draws == MISSILE_DRAWS, f"the original's RandSeed at the flight after Alt-Q is "
+            f"{MISSILE_DRAWS} draws past the menu (1034 past the panel call)", f"{draws} draws")
+    v.check(s["selected"] == MISSILE_RECORD, f"the selected record (DS:ad67) at the flight after Alt-Q "
+            f"is {MISSILE_RECORD}", f"{s['selected']}")
+    field = p["base"].with_suffix(".field")
+    if field.exists():
+        fight = parse_field(field)[5]
+        v.check(fight == s["combatants"], "the combatants at the flight after Alt-Q agree (eclplay's "
+                "--field, the original's combatants)", f"eclplay {fight}, original {s['combatants']}")
 
 
 def alt_m_check(v, work, patched, opts):
@@ -3177,9 +3244,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,turns,round,melee,won,timer,walk,mouse",
+                                "keys,altq_missile,turns,round,melee,won,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, turns, round, melee, won, timer, walk, mouse")
+                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, won, timer, "
+                             "walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -3212,6 +3280,8 @@ def main():
         dispatch(v, work, opts)
     if "keys" in flows:
         keys(v, work, opts)
+    if "altq_missile" in flows:
+        altq_missile(v, work, opts)
     if "turns" in flows:
         turns(v, work, opts)
     if "round" in flows:

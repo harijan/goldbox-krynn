@@ -1177,6 +1177,7 @@ static void test_distance_kept(void)
     cok_character *m = record('M', 1, 0);
     place(a, 12, 10);
     place(m, 10, 10);
+    CHECK(R->combat.distance_kept_bytes == 4); /* rules_dark_queen.c: 51c2:0b26 keeps 4 bytes */
     static cok_rules four, whole;
     four = whole = *R;
     four.combat.distance_kept_bytes = 4;
@@ -1188,6 +1189,87 @@ static void test_distance_kept(void)
     game.combat.listed[2].index = 0x77;
     CHECK(cok_combat_distance(&game.combat, &whole, m->record, a->record, &d) &&
           game.combat.listed[2].index == 0x77);
+    battle_clear();
+}
+
+/* 5bb8:0209's initiative test: a monster with initiative 0 does not fight, even with a party record
+ * 20 cells east (the pick finds it): its loop guards at once (cok_ai_guard, the end of its turn, which
+ * spends its movement), with no step. */
+static void test_loop_initiative(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 30, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    m->combat->initiative = 0;
+    game.vm.character = m->record;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_x(&game.combat, m->record) == 10 && m->combat->movement == 0);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's prologue: a party record (hostile 0) is bandaged first (51c2:0d63, cok_combat_bandage: a
+ * party record with status 5 is bandaged, status 4, "is bandaged"), and its initiative is 0, so its
+ * fight is over at once. */
+static void test_fight_bandage(void)
+{
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, 10, 10);
+    cok_character *d = record('D', 0, 0);
+    place(d, 12, 10);
+    cok_combat_set_field_word(R, d->record, COK_FIELD_STATUS, 5);
+    d->combat->dying = 1;
+    game.vm.character = c->record;
+    bool over = false;
+    CHECK(queen_fight(&game, c, &over) && over && game.vm.status == COK_ECL_OK);
+    CHECK(c->combat->initiative == 0 && LOGGED("bandaged") && d->combat->dying == 0 &&
+          cok_combat_field_word(R, d->record, COK_FIELD_STATUS) == 4);
+    battle_clear();
+}
+
+/* 5bb8:0b3d's thrown weapon at distance 1 (a bow whose type has the thrown flags 0x14, readied, with
+ * the ammunition in its own slot): the ammunition is dropped (f6a-f87), so the attack is the readied
+ * weapon's blow. With the ammunition kept it would be a missile's flight, unported: not_yet. */
+static void test_fight_thrown(void)
+{
+    weapon_types();
+    game.item_types.type[128][12] = 6;
+    game.item_types.type[128][14] = 0x14;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 11, 10);
+    m->slots[0] = give(m, 128, 1, 0);
+    m->combat->target = a->record;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 51c2:10c3's ammunition (in_reach = has): a bow with no arrows (slot 11 empty) and a seen target two
+ * cells away is in reach, then 10c3 finds no ammunition, so in_reach is false after the pass (the blow
+ * is still made with no item, 18d6). The flag is the only thing it sets for Dark Queen: nothing else
+ * reads it, so the test reads the flag. */
+static void test_fight_no_ammunition(void)
+{
+    weapon_types();
+    game.item_types.type[128][12] = 6;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 12, 10);
+    m->slots[0] = give(m, 128, 1, 0);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    m->combat->target = a->record;
+    game.vm.character = m->record;
+    bool over = false;
+    CHECK(queen_fight(&game, m, &over) && game.vm.status == COK_ECL_OK);
+    CHECK(!game.combat.in_reach);
     battle_clear();
 }
 
@@ -1241,6 +1323,10 @@ int main(void)
     test_fight_pick();
     test_fight_sweep();
     test_distance_kept();
+    test_loop_initiative();
+    test_fight_bandage();
+    test_fight_thrown();
+    test_fight_no_ammunition();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
     return 0;
