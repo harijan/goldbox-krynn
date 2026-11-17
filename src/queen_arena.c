@@ -1,6 +1,8 @@
 #include "queen_arena.h"
 
+#include "cloud.h"
 #include "data.h"
+#include "queen.h"
 #include "vga.h"
 
 #include <stdio.h>
@@ -24,11 +26,6 @@ static bool under_overlay(uint8_t value)
 static bool draw(cok_picture *screen, const hlib_library *tiles, const cok_rules *rules,
                  uint8_t value, unsigned row, unsigned column, char *error, size_t size)
 {
-    if (under_overlay(value)) {
-        snprintf(error, size, "the battle's cloud or body (value 0x%02x) is not drawn yet "
-                 "(dqk 5837:172c, 137a)", value);
-        return false;
-    }
     value = shown(value);
     if (value >= cok_data_count(rules->data, COK_DATA_TERRAIN, 0)) {
         snprintf(error, size, "terrain value 0x%02x is past the table (DS:6197)", value);
@@ -45,9 +42,53 @@ static bool draw(cok_picture *screen, const hlib_library *tiles, const cok_rules
     return true;
 }
 
-bool cok_queen_arena_cell(cok_picture *screen, const hlib_library *tiles, const cok_rules *rules,
-                          const cok_combat *combat, int x, int y, char *error, size_t size)
+/* 5837:172c:17ac-18d4 for a cell under a cloud or a body (under_overlay): the ground under it, the
+ * value 137a gives (cok_cloud_under; for 0x1e and 0x1f, the last body's cell at x, y, looked
+ * through again), then over it COMSPR's icon in the slot of the cell's own tile + 0x0f (image 0,
+ * masked). */
+static bool overlay(cok_adventure *game, const hlib_library *tiles, int x, int y, unsigned row,
+                    unsigned column, char *error, size_t size)
 {
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_combat *combat = &game->combat;
+    uint8_t value = combat->cells[y][x];
+    uint8_t under = cok_cloud_under(game, (int8_t)x, (int8_t)y, value);
+    if (under == 0x1e || under == 0x1f) {
+        for (unsigned k = 1; k <= combat->bodies && k <= COK_COMBAT_BODIES; ++k) {
+            const cok_combat_body *b = &combat->body[k - 1];
+            if (b->x == x && b->y == y) under = b->cell;
+        }
+    }
+    if (!draw(&game->screen, tiles, rules, under, row, column, error, size)) return false;
+    if (value >= cok_data_count(rules->data, COK_DATA_TERRAIN, 0)) {
+        snprintf(error, size, "terrain value 0x%02x is past the table (DS:6197)", value);
+        return false;
+    }
+    unsigned slot = cok_combat_terrain(rules, value).tile + 0x0f;
+    const uint8_t *record = NULL;
+    size_t record_size = 0;
+    if (!queen_icon(game, slot, 0, &record, &record_size)) {
+        snprintf(error, size, "icon slot %u is past the table (DS:b17d, dqk 5837:172c)", slot);
+        return false;
+    }
+    return cok_queen_arena_icon(&game->screen, record, record_size, (int)column, (int)row, 0,
+                                error, size);
+}
+
+/* One map cell (x, y) in the view at row, column: an overlay's cell or a plain one. */
+static bool cell(cok_adventure *game, const hlib_library *tiles, int x, int y, unsigned row,
+                 unsigned column, char *error, size_t size)
+{
+    if (under_overlay(game->combat.cells[y][x]))
+        return overlay(game, tiles, x, y, row, column, error, size);
+    return draw(&game->screen, tiles, cok_game_rules(game), game->combat.cells[y][x], row, column,
+                error, size);
+}
+
+bool cok_queen_arena_cell(cok_adventure *game, const hlib_library *tiles, int x, int y, char *error,
+                          size_t size)
+{
+    const cok_combat *combat = &game->combat;
     int column = x - combat->view_x, row = y - combat->view_y;
     if (column < 0 || row < 0 || column >= COK_QUEEN_ARENA_VIEW || row >= COK_QUEEN_ARENA_VIEW)
         return true;
@@ -55,8 +96,7 @@ bool cok_queen_arena_cell(cok_picture *screen, const hlib_library *tiles, const 
         snprintf(error, size, "the battle's cell %d,%d is past the map (DS:bedb)", x, y);
         return false;
     }
-    return draw(screen, tiles, rules, combat->cells[y][x], (unsigned)row, (unsigned)column, error,
-                size);
+    return cell(game, tiles, x, y, (unsigned)row, (unsigned)column, error, size);
 }
 
 /* A multiple of 4 at or below x (the unchained VGA's byte column, as 269b:0a9c's). */
@@ -104,9 +144,9 @@ bool cok_queen_arena_icon(cok_picture *screen, const uint8_t *record, size_t siz
     return true;
 }
 
-bool cok_queen_arena_view(cok_picture *screen, const hlib_library *tiles, const cok_rules *rules,
-                          const cok_combat *combat, char *error, size_t size)
+bool cok_queen_arena_view(cok_adventure *game, const hlib_library *tiles, char *error, size_t size)
 {
+    const cok_combat *combat = &game->combat;
     for (int row = 0; row < COK_QUEEN_ARENA_VIEW; ++row)
         for (int column = 0; column < COK_QUEEN_ARENA_VIEW; ++column) {
             int x = combat->view_x + column, y = combat->view_y + row;
@@ -115,8 +155,7 @@ bool cok_queen_arena_view(cok_picture *screen, const hlib_library *tiles, const 
                          x, y);
                 return false;
             }
-            if (!draw(screen, tiles, rules, combat->cells[y][x], (unsigned)row, (unsigned)column,
-                      error, size))
+            if (!cell(game, tiles, x, y, (unsigned)row, (unsigned)column, error, size))
                 return false;
         }
     return true;

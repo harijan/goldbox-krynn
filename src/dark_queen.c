@@ -5482,15 +5482,13 @@ static bool arena_ready(cok_adventure *game)
 static bool arena_view(cok_adventure *game)
 {
     return arena_ready(game) &&
-           cok_queen_arena_view(&game->screen, &own(game)->arena, cok_game_rules(game),
-                                &game->combat, game->error, sizeof game->error);
+           cok_queen_arena_view(game, &own(game)->arena, game->error, sizeof game->error);
 }
 
 static bool arena_cell(cok_adventure *game, int x, int y)
 {
     return arena_ready(game) &&
-           cok_queen_arena_cell(&game->screen, &own(game)->arena, cok_game_rules(game),
-                                &game->combat, x, y, game->error, sizeof game->error);
+           cok_queen_arena_cell(game, &own(game)->arena, x, y, game->error, sizeof game->error);
 }
 
 /* A monster's icon, the monsters' loads (204c:00df with DS:778c, "CPIC": 29fc:2b0b and

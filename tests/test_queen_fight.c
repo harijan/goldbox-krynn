@@ -3,13 +3,18 @@
  * its var 0x36, FLED): on records made by hand in its layout, the game opened on
  * DQKAssets/ (skipped without). */
 #include "adventure.h"
+#include "arena.h"
 #include "attack.h"
+#include "cloud.h"
 #include "combat.h"
+#include "data.h"
 #include "ecl.h"
 #include "party.h"
 #include "queen.h"
 #include "round.h"
 #include "rules.h"
+#include "step.h"
+#include "vga.h"
 
 #include <stdint.h>
 #include <stdio.h>
@@ -27,7 +32,7 @@ static char log_text[1 << 14];
 
 static void log_line(cok_adventure *g, const char *kind, const char *text, void *context)
 {
-    (void)g, (void)context;
+(void)g, (void)context;
     size_t used = strlen(log_text);
     snprintf(log_text + used, sizeof log_text - used, "%s: %s;", kind, text);
 }
@@ -238,6 +243,10 @@ static void battle_clear(void)
     memset(k->combatant, 0, sizeof k->combatant);
     memset(k->enemies, 0, sizeof k->enemies);
     k->count = 1;
+    /* The bodies' table is cleared too (the battle's setup clears only its count; a stale entry
+     * would be a freed record's address here). */
+    k->bodies = 0;
+    memset(k->body, 0, sizeof k->body);
     k->listed_count = 0;
     k->see_all = 0;
     k->yelled = NULL;
@@ -808,8 +817,9 @@ static void test_report_spell(void)
     battle_clear();
 }
 
-/* A target brought down (dqk 52db:02c0's 5837:0d55 after "is killed" and the event 0x0d): the
- * report stops there, cited, as the death on the battlefield is not ported (part 16). */
+/* A target brought down (dqk 52db:02c0's 5837:0d55 after "is killed" and the event 0x0d): the death
+ * on the battlefield (cok_arena_kill) at no battle's mode: the sound 6, no body; the strike is over
+ * (the attacks used up), and the target is not active. */
 static void test_report_kill(void)
 {
     cok_character *a, *t;
@@ -818,15 +828,16 @@ static void test_report_kill(void)
     dice(a, 1, 4, 20);
     game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
     bool over = false;
-    CHECK(!cok_combat_strike(&game, a, t, false, false, &over));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5837:0d55") != NULL);
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    CHECK(game.vm.status == COK_ECL_OK);
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    CHECK(LOGGED("sound: 6;"));
     battle_clear();
 }
 
 /* One brought down whose creature flags hold bit 8 (dqk 52db:0529-0532, +0xc8 & 8) only goes
- * down: "goes down" is said, but neither "and is Dying" nor "is killed", and the death still stops
- * at 5837:0d55. */
+ * down: "goes down" is said, but neither "and is Dying" nor "is killed", and the death is the same
+ * (sound 6). */
 static void test_report_quiet(void)
 {
     cok_character *a, *t;
@@ -837,10 +848,10 @@ static void test_report_quiet(void)
     dice(a, 1, 4, 20);
     game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 4, 1, 4});
     bool over = false;
-    CHECK(!cok_combat_strike(&game, a, t, false, false, &over));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "5837:0d55") != NULL);
+    CHECK(cok_combat_strike(&game, a, t, false, false, &over) && over);
+    CHECK(game.vm.status == COK_ECL_OK);
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
-    CHECK(LOGGED("goes down;"));
+    CHECK(LOGGED("goes down;") && LOGGED("sound: 6;"));
     CHECK(!LOGGED("and is Dying") && !LOGGED("is killed"));
     battle_clear();
 }
@@ -947,6 +958,271 @@ static void test_sweep(void)
     battle_clear();
 }
 
+/* The death on the battlefield (dqk 5837:0d55, cok_arena_kill under Dark Queen's descriptor): a
+ * record on a battle of its own at x, y, mode 5 with the view at the map's corner (its footprint
+ * shown whole: no centring) and speed 4 (the pause 400 ms, one draw; each flash 10 ms, one draw). */
+static cok_character *slain(char name, int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_combat *k = &game.combat;
+    cok_character *c = record(name, 0, 0);
+    place(c, x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 1);
+    k->view_x = 0;
+    k->view_y = 0;
+    game.vm.mode = 5;
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 4);
+    log_text[0] = '\0';
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    return c;
+}
+
+/* The flashes: each 10 ms wait of the death samples the screen at two pixels (the skull's point in
+ * the footprint's first and second cells). */
+static size_t flashes;
+static uint8_t flash_at[2][9];
+static size_t flash_pixel[2];
+
+static void flash_spy(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)context;
+    if (ms != 10 || flashes >= 9) return;
+    for (unsigned i = 0; i < 2; ++i) flash_at[i][flashes] = g->screen.pixels[flash_pixel[i]];
+    ++flashes;
+}
+
+/* The screen's index of pixel (px, py) of cell (x, y) of the view at the corner. */
+static size_t cell_pixel(int x, int y, int px, int py)
+{
+    return (size_t)(8 + 24 * y + py) * game.screen.units * 8 + (size_t)(8 + 24 * x + px);
+}
+
+/* A skull's pixel the two images differ at, both not transparent: its place in the 24 by 24. */
+static bool skull_point(const cok_vga_image img[2], int *px, int *py)
+{
+    for (int y = 0; y < 24; ++y)
+        for (int x = 0; x < 24; ++x) {
+            size_t j = (size_t)y * 24 + (size_t)x;
+            bool shown0 = img[0].mask == NULL || img[0].mask[j] == 0;
+            bool shown1 = img[1].mask == NULL || img[1].mask[j] == 0;
+            if (shown0 && shown1 && img[0].pixels[j] != img[1].pixels[j]) {
+                *px = x, *py = y;
+                return true;
+            }
+        }
+    return false;
+}
+
+/* The skull, its images decoded: the death's flashes are records 0 and 1 of icon slot 0x18. */
+static void skull_images(cok_vga_image img[2])
+{
+    for (unsigned i = 0; i < 2; ++i) {
+        const uint8_t *record = NULL;
+        size_t size = 0;
+        CHECK(queen_icon(&game, 0x18, i, &record, &size) && record != NULL);
+        CHECK(cok_vga_decode(record, size, NULL, &img[i]) == COK_VGA_OK);
+        CHECK(img[i].width == 24 && img[i].height == 24 && img[i].x == 0 && img[i].y == 0);
+    }
+}
+
+static void test_kill_dqk(void)
+{
+    cok_vga_image skull[2] = {{0}, {0}};
+    skull_images(skull);
+    int px = -1, py = -1;
+    CHECK(skull_point(skull, &px, &py));
+    cok_combat *k = &game.combat;
+    uint32_t want;
+
+    /* A party record of footprint 4 (2 by 2) at 2, 3: the skull flashes on each of its shown
+     * cells nine times, 10 ms apart, the image k & 1 ready then attacking; then one pause (400 ms)
+     * and one draw, nine draws of the flashes and ten in all. The body lies on its top-left cell,
+     * the floor, which becomes 0x1f; the spell is kept, the turn's initiative, movement and guard
+     * are cleared, and the sound is 6. */
+    cok_character *a = slain('A', 2, 3);
+    cok_combatant *e = &k->combatant[cok_combat_index(k, a->record)];
+    e->size = 4;
+    CHECK(cok_combat_occupy(k, R));
+    a->combat->initiative = 5;
+    a->combat->movement = 6;
+    a->combat->spell = 7;
+    a->combat->guarding = 1;
+    flash_pixel[0] = cell_pixel(2, 3, px, py);
+    flash_pixel[1] = cell_pixel(3, 4, px, py);
+    flashes = 0;
+    want = game.vm.seed;
+    for (unsigned i = 0; i < 10; ++i) cok_tp_random(&want, 1000);
+    game.hooks.delay = flash_spy;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && game.vm.status == COK_ECL_OK);
+    game.hooks.delay = NULL;
+    CHECK(flashes == 9);
+    for (unsigned f = 0; f < 9; ++f)
+        for (unsigned i = 0; i < 2; ++i)
+            CHECK(flash_at[i][f] == skull[f & 1].pixels[(size_t)py * 24 + (size_t)px]);
+    CHECK(flash_at[0][0] != flash_at[0][1]);
+    CHECK(game.vm.seed == want);
+    CHECK(LOGGED("sound: 6;") && !LOGGED("sound: 5;"));
+    CHECK(k->bodies == 1 && k->body[0].character == a && k->body[0].x == 2 && k->body[0].y == 3);
+    CHECK(k->body[0].cell == COK_COMBAT_FLOOR && k->cells[3][2] == COK_COMBAT_BODY);
+    CHECK(e->size == 0 && k->occupant[3][2] == 0);
+    CHECK(a->combat->initiative == 0 && a->combat->movement == 0 && a->combat->guarding == 0);
+    CHECK(a->combat->spell == 7);
+
+    /* Outside combat: the sound 6 and one draw (the pause), nothing else. */
+    a = slain('B', 4, 4);
+    game.vm.mode = 4;
+    want = game.vm.seed;
+    cok_tp_random(&want, 1000);
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && game.vm.seed == want && k->bodies == 0);
+    CHECK(LOGGED("sound: 6;") && k->combatant[1].size == 1);
+
+    /* A record already a body (of the bodies 1-8, the search's entry): nothing, no draw, no sound. */
+    a = slain('C', 5, 5);
+    k->body[0].character = a;
+    want = game.vm.seed;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && game.vm.seed == want && k->bodies == 0);
+    CHECK(!LOGGED("sound:"));
+    k->body[0].character = NULL;
+
+    /* Status 8 leaves no body: the cell is kept and the record's footprint is gone all the same;
+     * the nine flashes and the pause are the ten draws. */
+    a = slain('D', 4, 1);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, 8);
+    want = game.vm.seed;
+    for (unsigned i = 0; i < 10; ++i) cok_tp_random(&want, 1000);
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 0);
+    CHECK(game.vm.seed == want);
+    CHECK(k->cells[1][4] == COK_COMBAT_FLOOR && k->combatant[1].size == 0);
+
+    /* Status 7 lays a stone: 0x1e, and the body's cell is the floor. */
+    a = slain('E', 5, 2);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, 7);
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1);
+    CHECK(k->cells[2][5] == 0x1e && k->body[0].cell == COK_COMBAT_FLOOR);
+
+    /* The cells 0x1d, 0x1c and 0x46 are kept under a body; 0x1b is not (and its cell is the body's
+     * cell). */
+    a = slain('F', 1, 5);
+    k->cells[5][1] = 0x46;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1);
+    CHECK(k->cells[5][1] == 0x46 && k->body[0].cell == 0x46);
+    a = slain('G', 3, 4);
+    k->cells[4][3] = 0x1b;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1);
+    CHECK(k->cells[4][3] == COK_COMBAT_BODY && k->body[0].cell == 0x1b);
+    a = slain('H', 4, 4);
+    k->cells[4][4] = 0x1d;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1 && k->cells[4][4] == 0x1d);
+    a = slain('K', 6, 6);
+    k->cells[6][6] = 0x1c;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1 && k->cells[6][6] == 0x1c);
+    CHECK(k->body[0].cell == 0x1c);
+
+    /* A cell under a body is the body's cell: 0x1f looks through to the last body there (137a). */
+    a = slain('I', 0, 0);
+    k->cells[0][0] = 0x1f;
+    k->bodies = 1;
+    k->body[0].character = NULL;
+    k->body[0].x = 0;
+    k->body[0].y = 0;
+    k->body[0].cell = 0x1b;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 2 && k->body[1].cell == 0x1b);
+
+    /* A party member not in the party (+0x14, not_party) leaves no body; its turn still ends. */
+    a = slain('J', 2, 2);
+    a->combat->not_party = 1;
+    want = game.vm.seed;
+    for (unsigned i = 0; i < 10; ++i) cok_tp_random(&want, 1000);
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && game.vm.seed == want && k->bodies == 0);
+    CHECK(k->cells[2][2] == COK_COMBAT_FLOOR);
+
+    cok_vga_free(&skull[0]);
+    cok_vga_free(&skull[1]);
+    game.vm.mode = 0;
+    battle_clear();
+}
+
+/* 137a (cok_cloud_under) under Dark Queen's list (fight.under_tiles: 0x1d, 0x1c, 0x1b, 0x46): a
+ * cloud node's cell k=1 holds the terrain it kept, given for those values only. */
+static void test_under_cloud(void)
+{
+    battle_clear();
+    static cok_combat_cloud node;
+    memset(&node, 0, sizeof node);
+    node.x = 10;
+    node.y = 10;
+    node.covered[1] = 1;
+    node.saved[1] = 0x2a;
+    int8_t x1 = (int8_t)(10 + cok_step_x[cok_data_u8_at(R->data, COK_DATA_CLOUD_CELLS, 1)]);
+    int8_t y1 = (int8_t)(10 + cok_step_y[cok_data_u8_at(R->data, COK_DATA_CLOUD_CELLS, 1)]);
+    game.combat.clouds = &node;
+    CHECK(cok_cloud_under(&game, x1, y1, 0x1d) == 0x2a);
+    CHECK(cok_cloud_under(&game, x1, y1, 0x1b) == 0x2a);
+    CHECK(cok_cloud_under(&game, x1, y1, 0x1e) == 0x1e); /* not one of 137a's */
+    CHECK(cok_cloud_under(&game, (int8_t)(x1 + 1), y1, 0x1d) == 0x1d || node.covered[2]);
+    CHECK(cok_cloud_under(&game, 0, 0, 0x1d) == 0x1d);
+    game.combat.clouds = NULL;
+    battle_clear();
+}
+
+/* Battle-only effects (148f:1b66 = cok_combat_battle_only): the list's effect goes, and berserk
+ * with the NPC's byte 0xb3 turns the record back to the party (hostile word 0); not without. Leaving
+ * (148f:1a69 = cok_combat_leave): inactive, its status, hit points 0 (unless it runs, 3), it leaves
+ * the map and loses the battle-only effect. Placing (5837:10bd = cok_combat_place): a free cell
+ * takes it, an occupied one does not. */
+static void test_battle_only_leave_place(void)
+{
+    const cok_character_layout *L = R->character;
+    /* The list (DS:00a2, 16 ids) holds berserk (0x4d) as its 11th id (DS:00ac): 148f:1b66's loop
+     * (148f:017d removes the first node of each id) takes one berserk before 177e:1734 looks for
+     * one, so a turned record's single berserk is gone when the test runs, and the record stays
+     * hostile; with a second berserk left, it goes back (+0x66 0). The removal's other id is the
+     * list's second entry (0x03). */
+    uint8_t only = cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 1);
+    for (int berserk = 0; berserk < 3; ++berserk) {
+        battle_clear();
+        cok_character *c = record('T', 1, 0);
+        CHECK(cok_character_add_effect(c, only, 0, 0, false) != NULL);
+        for (int n = 0; n < berserk; ++n)
+            CHECK(cok_character_add_effect(c, 0x4d, 0, 0, false) != NULL);
+        cok_field_set8(L, c->record, COK_FIELD_NPC, berserk != 0 ? 0xb3 : 0);
+        CHECK(cok_combat_battle_only(&game, c) && game.vm.status == COK_ECL_OK);
+        CHECK(cok_character_find_effect(c, only) == NULL);
+        CHECK((cok_character_find_effect(c, 0x4d) != NULL) == (berserk == 2));
+        CHECK(cok_combat_field_word(R, c->record, COK_FIELD_HOSTILE) == (berserk == 2 ? 0u : 1u));
+    }
+    battle_clear();
+    /* Leaving: a record on the map, its combatant off. */
+    cok_character *c = slain('L', 3, 3);
+    CHECK(cok_character_add_effect(c, cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 0), 0, 0,
+                                   false) != NULL);
+    CHECK(cok_combat_leave(&game, c, 4, "Surrenders") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(L, c->record, COK_FIELD_ACTIVE) == 0 &&
+          cok_combat_field_word(R, c->record, COK_FIELD_STATUS) == 4);
+    CHECK(cok_combat_field_word(R, c->record, COK_FIELD_HIT_POINTS) == 0);
+    CHECK(game.combat.combatant[1].size == 0 && game.combat.occupant[3][3] == 0);
+    CHECK(cok_character_find_effect(c, cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 0)) == NULL);
+    game.vm.mode = 0;
+    battle_clear();
+    /* Placing: a combatant of size 1 is put at (9, 9), which is free; another placed there after it
+     * is not (its occupant), and its size is 0. */
+    battle_clear();
+    c = record('P', 0, 0);
+    cok_field_set8(L, c->record, COK_FIELD_SIZE, 1);
+    place(c, 1, 1);
+    bool placed = false;
+    CHECK(cok_combat_place(&game.combat, 5, c, R, 9, 9, false, &placed) && placed);
+    CHECK(game.combat.occupant[9][9] == cok_combat_index(&game.combat, c->record));
+    cok_character *d = record('Q', 0, 0);
+    cok_field_set8(L, d->record, COK_FIELD_SIZE, 1);
+    place(d, 2, 2);
+    CHECK(cok_combat_place(&game.combat, 5, d, R, 9, 9, false, &placed) && !placed);
+    CHECK(game.combat.combatant[cok_combat_index(&game.combat, d->record)].size == 0);
+    game.vm.mode = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -983,6 +1259,9 @@ int main(void)
     test_attack_wait();
     test_attack_missile();
     test_sweep();
+    test_kill_dqk();
+    test_under_cloud();
+    test_battle_only_leave_place();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

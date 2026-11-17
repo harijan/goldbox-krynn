@@ -645,17 +645,30 @@ static bool entry_is(const cok_combat *cb, const cok_arena_reachable *also, unsi
     return e == c;
 }
 
+/* Whether a body is not laid over cell: the cloud's and, where the game says, the pool's
+ * (6beb:0e08; dkk 6f03:0fbd's set at CS:0f9d), or the game's own list (dqk 5837:0d55's 0x1d, 0x1c
+ * and 0x46). */
+static bool body_spared(const cok_rules_fight *F, uint8_t cell)
+{
+    if (F->body_spared != NULL) {
+        for (const uint8_t *t = F->body_spared; *t != 0; ++t)
+            if (*t == cell) return true;
+        return false;
+    }
+    return cell == F->cloud_tile || (F->body_spares_pool && cell == F->pool_tile);
+}
+
 bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
                     const cok_arena_reachable *also)
 {
+    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     if (game->vm.mode != 5) {
-        sound(game, 5); /* DS:1e52 */
-        cok_adventure_wait(game, game->speed * 100u);
+        sound(game, F->kill_sound); /* DS:1e52; dqk 1a62:0949 for the pause */
+        cok_arena_pause(game);
         return true;
     }
     if (!map_there(game, "6beb:0e08")) return false;
     cok_combat *cb = &game->combat;
-    const cok_rules_fight *F = &cok_game_rules(game)->fight;
     /* The search for a body of c by the stale byte (see arena.h), or (dkk
      * 6f03:0fbd) among the bodies 1-8. */
     bool known;
@@ -681,29 +694,40 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
     int8_t x = cok_combat_x(cb, c->record), y = cok_combat_y(cb, c->record);
     if (!whole && !cok_arena_centre(game, x, y, 3, 8)) return false;
     if (!cok_arena_erase(game, 0, 0, n)) return false;
-    sound(game, 5);
+    sound(game, F->kill_sound);
     const cok_combatant *e = &cb->combatant[n];
     if (e->size >= cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 0))
         return fail(game, "combatant %u's footprint %u is past the table (6beb:0e08)", n, e->size);
-    if (own_ground(game) != NULL)
-        return fail(game, "a body's skull is not drawn on this game's ground yet (dqk 5837:025d, "
-                          "104c:030f)");
+    /* The skull flashes over each cell of the footprint that is shown: through the game's icon
+     * hook where it draws its own ground (dqk 204c:030f, icon slot 0x18, facing 3), else on the
+     * 4-bit buffer (arena.c's saved picture). */
+    const cok_drawing *own = own_ground(game);
+    size_t cells = cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 1);
     for (unsigned k = 0; k < 9; ++k) {
         const cok_picture *skull = &game->icons[SLOT_SKULL][k % 2];
-        if (skull->pixels == NULL) return fail(game, "the skull's icon is not loaded (6beb:0e08)");
-        size_t cells = cok_data_count(cok_game_rules(game)->data, COK_DATA_FOOTPRINTS, 1);
+        if (own == NULL && skull->pixels == NULL)
+            return fail(game, "the skull's icon is not loaded (6beb:0e08)");
         for (unsigned j = 0; j < cells; ++j) {
             int8_t dx, dy;
             if (!cok_combat_footprint(cok_game_rules(game), e->size, j, &dx, &dy)) continue;
-            if (!cok_combat_on_view(s8(e->screen_x + dx), s8(e->screen_y + dy))) continue;
-            if (!save_draw(game, skull, 0, (e->screen_x + dx) * 3, (e->screen_y + dy) * 3,
-                           "6beb:0e08"))
+            int ex = e->screen_x + dx, ey = e->screen_y + dy;
+            if (!cok_combat_on_view(s8(ex), s8(ey))) continue;
+            if (own != NULL) {
+                if (!cok_arena_icon(game, s8(ex), s8(ey), 3, k % 2, SLOT_SKULL)) return false;
+            } else if (!save_draw(game, skull, 0, ex * 3, ey * 3, "6beb:0e08")) {
                 return false;
+            }
         }
         if (!cok_arena_show(game)) return false;
-        cok_adventure_wait(game, 10);
+        cok_arena_wait(game, 10);
     }
-    if (c->combat->not_party == 0) {
+    /* A party member (combat +0x13 clear) leaves a body, unless its status is the game's no-body
+     * status (dqk 5837:0d55's 8: then no body and no cell changes). */
+    const cok_rules *rules = cok_game_rules(game);
+    unsigned status = cok_combat_field_word(rules, c->record, COK_FIELD_STATUS);
+    bool laid = c->combat->not_party == 0 &&
+                (F->kill_no_body_status == 0 || status != F->kill_no_body_status);
+    if (laid) {
         if (cb->bodies >= COK_COMBAT_BODIES)
             return fail(game, "a ninth body overruns the table (DS:69ee, 6beb:0e08)");
         if (x < 0 || x >= COK_COMBAT_WIDTH || y < 0 || y >= COK_COMBAT_HEIGHT)
@@ -717,10 +741,13 @@ bool cok_arena_kill(cok_adventure *game, cok_character *c, int stale,
         b->x = x;
         b->y = y;
         b->cell = under;
-        if (cell != F->cloud_tile && !(F->body_spares_pool && cell == F->pool_tile))
-            cb->cells[y][x] = COK_COMBAT_BODY;
+        /* Dark Queen's status 7 leaves a stone (0x1e) where the body lies. */
+        uint8_t tile = F->kill_stone_status != 0 && status == F->kill_stone_status
+                           ? F->kill_stone_tile
+                           : COK_COMBAT_BODY;
+        if (!body_spared(F, cell)) cb->cells[y][x] = tile;
     }
-    cok_adventure_wait(game, game->speed * 100u); /* 1521:0b4b */
+    cok_arena_pause(game); /* 1521:0b4b; dqk 1a62:0949 */
     if (!cok_arena_erase(game, 0, 0, n)) return false;
     cb->combatant[n].size = 0;
     if (!cok_combat_occupy(cb, cok_game_rules(game)))

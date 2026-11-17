@@ -425,6 +425,12 @@ static const uint8_t dark_queen_free_barred[] = {0xd2, 0x6a, 0x1f, 0x33, 0x34, 0
  * +0x28), 0-ended: 3, 4, 0x11-0x13, 0x3f and 0x43. */
 static const uint8_t dark_queen_backstab_weapons[] = {3, 4, 0x11, 0x12, 0x13, 0x3f, 0x43, 0};
 
+/* The cells a body is not laid over (dqk 5837:0d55's 0x1d, 0x1c and 0x46, the cloud and the pool
+ * and acid), 0-ended, and the cells 5837:137a looks through for the cell under a body (0x1d, 0x1c,
+ * 0x1b and 0x46). */
+static const uint8_t dark_queen_body_spared[] = {0x1d, 0x1c, 0x46, 0x00};
+static const uint8_t dark_queen_under_tiles[] = {0x1d, 0x1c, 0x1b, 0x46, 0x00};
+
 /* Dark Queen's combat block (59c7:0f7b; rules.h): its named bytes at 0x00 (spell), 0x0a, 0x14
  * and 0x17 (the others unnamed: read as 0), effect 0xd5 facing 2 (0f7b:0ff6), and effect 0x95
  * (148f:19c2) given to a record that is not hostile while var 0x3c is set (0f7b:10cf). */
@@ -880,9 +886,21 @@ const cok_rules cok_rules_dark_queen = {
             /* 52db:0529-0532: testb $8, +0xc8; jne 0x58f. One with bit 8 of its creature flags goes
              * down only: no "and is Dying", no "is killed". */
             .quiet_flag = 8,
-            /* 52db:2888 (the flight, part 17) and 5837:0d55 (the death, part 16): not yet. */
+            /* 5837:0d55 (the death on the battlefield, part 16): the body search is the bodies 1-8
+             * (not a stale byte); the death sounds 6; the body is not laid over 0x1d, 0x1c or 0x46,
+             * and a record at status 8 leaves none; at status 7 the body's cell is a stone, 0x1e;
+             * 137a looks through 0x1d, 0x1c, 0x1b and 0x46 for the cell under a body; the spell is
+             * kept. */
+            .kill_finds_body = true,
+            .kill_clears_spell = false,
+            .kill_sound = 6,
+            .body_spared = dark_queen_body_spared,
+            .kill_no_body_status = 8,
+            .kill_stone_status = 7,
+            .kill_stone_tile = 0x1e,
+            .under_tiles = dark_queen_under_tiles,
+            /* 52db:2888 (the flight, part 17): not yet. */
             .missile_unported = "dqk 52db:2888, part 17",
-            .kill_unported = "dqk 5837:0d55, part 16",
             /* 52db:54b5 lists the enemies with no yell swap. */
             .sweep_no_yell = true,
         },

@@ -79,9 +79,10 @@ bool cok_cloud_square(cok_adventure *game, cok_character *c, bool step);
 bool cok_cloud_round(cok_adventure *game);
 
 /* dkk 6f03:152e: the cell under x, y, whose map byte is value: for a
- * cloud's tile (fight.cloud_tile, pool_tile) the terrain the last cloud
- * in the list covering it kept, for a body's (0x1f) the cell of the last
- * body at x, y (one taken back too), else value. */
+ * cloud's tile (fight.cloud_tile, pool_tile, or fight.under_tiles where
+ * the game lists its own: Dark Queen's 5837:137a) the terrain the last
+ * cloud in the list covering it kept, for a body's (0x1f) the cell of the
+ * last body at x, y (one taken back too), else value. */
 uint8_t cok_cloud_under(const cok_adventure *game, int8_t x, int8_t y, uint8_t value);
 
 /* 60f4:0c95: the caster of the first cloud with a covered cell at x, y,

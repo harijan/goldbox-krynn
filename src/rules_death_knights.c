@@ -1896,6 +1896,7 @@ const cok_rules cok_rules_death_knights = {
             .body_spares_pool = true, /* 6f03:0fbd */
             .kill_finds_body = true,
             .kill_clears_spell = false,
+            .kill_sound = 5, /* 6f03:0fbd */
             /* 3f63:0000 */
             .computer_target_first = true,
             .computer_items = false, /* 3f63:02b8 */

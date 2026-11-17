@@ -453,7 +453,12 @@ uint8_t cok_cloud_under(const cok_adventure *game, int8_t x, int8_t y, uint8_t v
 {
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
     const cok_combat *combat = &game->combat;
-    if (value == F->cloud_tile || value == F->pool_tile) {
+    bool cloud = value == F->cloud_tile || value == F->pool_tile;
+    if (F->under_tiles != NULL) {
+        cloud = false;
+        for (const uint8_t *t = F->under_tiles; *t != 0 && !cloud; ++t) cloud = value == *t;
+    }
+    if (cloud) {
         for (const cok_combat_cloud *p = combat->clouds; p != NULL; p = p->next)
             for (unsigned k = 1; k <= DKK_CELLS; ++k)
                 if (p->covered[k] && x == cloud_x(game, p, k) && y == cloud_y(game, p, k))
