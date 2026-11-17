@@ -224,6 +224,31 @@ Tests also require Python 3 (standard library only). The native tools have no
 third-party dependencies. Sanitizer targets require the compiler's ASan/UBSan
 runtime libraries, which were unavailable on the initial development system.
 
+### Golden transcripts
+
+To show that a change leaves the Champions and Death Knights as they were,
+record every run the tests make of `build/eclplay`, `build/krynn` and the
+tools they run (`build/daximages`, `daxcompose`, `ecldump`, `daxcheck`),
+at a base revision and in the working tree, then compare the recordings:
+
+```sh
+GOLDEN_DKK=1 sh tools/golden/go.sh main . /tmp/golden
+```
+
+`go.sh BASE_REV HEAD_TREE OUT` makes a detached worktree of `BASE_REV`
+under `OUT` (removed afterwards), builds both trees, runs the suites in each
+(`tests/test_eclplay.py`, the eclplay lines of `make sanitize`,
+`tests/test_images_cli.py`, `tests/test_krynn.py`, and with `GOLDEN_DKK=1`
+`tests/test_death_knights.py`), and prints the comparison (also in
+`OUT/cmp.txt`; the records are in `OUT/out-base` and `OUT/out-head`). About
+four minutes on a 16-core host. Exit 1 when a run differs or a tool's output
+does. Not counted as differing: krynn runs without `--seed` (the clock's
+Random), and krynn runs that follow the real clock (`--log-times`,
+`--sound-clock real`, SDL's disk audio), whose output varies even between
+two runs of one tree; they are listed as such. `run.sh TREE OUTDIR` records
+one built tree, and `compare.sh BASE HEAD` compares two recordings. Nothing
+here is part of `make test`, and no DOSBox-X is needed.
+
 ## The notes
 
 The rest of the notes are in `docs/`, one file per part of the port:
