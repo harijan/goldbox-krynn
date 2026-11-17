@@ -1085,10 +1085,14 @@ static void test_kill_dqk(void)
     CHECK(!LOGGED("sound:"));
     k->body[0].character = NULL;
 
-    /* Status 8 leaves no body: the cell is kept and the record's footprint is gone all the same. */
+    /* Status 8 leaves no body: the cell is kept and the record's footprint is gone all the same;
+     * the nine flashes and the pause are the ten draws. */
     a = slain('D', 4, 1);
     cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, 8);
+    want = game.vm.seed;
+    for (unsigned i = 0; i < 10; ++i) cok_tp_random(&want, 1000);
     CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 0);
+    CHECK(game.vm.seed == want);
     CHECK(k->cells[1][4] == COK_COMBAT_FLOOR && k->combatant[1].size == 0);
 
     /* Status 7 lays a stone: 0x1e, and the body's cell is the floor. */
@@ -1110,6 +1114,10 @@ static void test_kill_dqk(void)
     a = slain('H', 4, 4);
     k->cells[4][4] = 0x1d;
     CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1 && k->cells[4][4] == 0x1d);
+    a = slain('K', 6, 6);
+    k->cells[6][6] = 0x1c;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && k->bodies == 1 && k->cells[6][6] == 0x1c);
+    CHECK(k->body[0].cell == 0x1c);
 
     /* A cell under a body is the body's cell: 0x1f looks through to the last body there (137a). */
     a = slain('I', 0, 0);
@@ -1166,10 +1174,11 @@ static void test_under_cloud(void)
 static void test_battle_only_leave_place(void)
 {
     const cok_character_layout *L = R->character;
-    /* The list (DS:00a2, 16 ids) holds berserk (0x4d) first: 148f:1b66's loop removes its first
-     * effect before 177e:1734 looks for one, so a turned record's single berserk is gone when the
-     * test runs, and the record stays hostile; with a second berserk left, it goes back (+0x66 0).
-     * The removal's other id is the list's second entry. */
+    /* The list (DS:00a2, 16 ids) holds berserk (0x4d) as its 11th id (DS:00ac): 148f:1b66's loop
+     * (148f:017d removes the first node of each id) takes one berserk before 177e:1734 looks for
+     * one, so a turned record's single berserk is gone when the test runs, and the record stays
+     * hostile; with a second berserk left, it goes back (+0x66 0). The removal's other id is the
+     * list's second entry (0x03). */
     uint8_t only = cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 1);
     for (int berserk = 0; berserk < 3; ++berserk) {
         battle_clear();
