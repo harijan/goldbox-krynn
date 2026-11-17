@@ -866,6 +866,16 @@ as eclplay writes it, the pattern), the turn lists, the combatants' places (`--f
 screen at each menu (the mouse pointer masked; the screen at round 2 is taken once the menu is drawn: the original is
 held at `08cf` until then).
 
+Flow `melee-long` (step 4, part 15d: `dqk_fight.py`'s `melee-long`, about 100 s, in the default flows). The fight from the
+first menu to round 6's first menu: each party menu trapped at `5045:08cf` with E typed there, each computer turn trapped at
+`0891` and given back at once (the choreography of scope.md's measurement: both traps armed in 078b's copies, the trap armed
+again before each key). At each round's first menu (DS:bd2d 1, rounds 2 to 6) eclplay's run after 6 * (round - 1) E keys is compared:
+RandSeed 0x473b4bc2, 0x03f33312, 0xbd18fe62, 0xd1724551 and 0xad8313c7 (scope.md section 0's table), SHARKMAN 2 (7) and
+SHARKMAN 1 (8) at their places, ROLAND OF DUST's hit points (record 0: 134, then 126 after the first strike in round 5), the
+selected record (the turn list's first entry by name: TIMASALIN in rounds 2, 3 and 6, BALTHIR in round 4, ROARK in round 5), every record and
+combat block, the turn list, the effect chains, the combatants' places (`--field`) and the screen (the mouse pointer
+masked). The table's "TIMASALIN hp" is ROLAND's: TIMASALIN (record 1) stays at 61.
+
 Flow `alt_q` in `keys` (part 15c): the Alt-Q dispatch (`0891`) and the weapon choice's panel call are checked against
 the original alone (`weapon_entry`). Its flight is `altq_missile`'s.
 
