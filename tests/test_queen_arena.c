@@ -6,12 +6,15 @@
  * without). */
 #include "adventure.h"
 #include "arena.h"
+#include "cloud.h"
+#include "data.h"
 #include "ecl.h"
 #include "field.h"
 #include "hlib.h"
 #include "party.h"
 #include "queen.h"
 #include "rules.h"
+#include "step.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -154,6 +157,92 @@ static void test_icons_drawn(const cok_drawing *d)
     cok_vga_free(&monster);
 }
 
+/* A cell's 24 by 24 pixels in the view at column, row (the screen's bytes). */
+static void cell_pixels(int column, int row, uint8_t out[24 * 24])
+{
+    for (int y = 0; y < 24; ++y)
+        for (int x = 0; x < 24; ++x)
+            out[y * 24 + x] = screen_at(8 + 24 * column + x, 8 + 24 * row + y);
+}
+
+/* The cell at column, row drawn over the ground (its 24 by 24 pixels): the overlay of value's tile
+ * (COMSPR's record tile, slot tile + 0x0f, image 0) where it is not transparent, else the ground. */
+static void check_overlay(const uint8_t ground[24 * 24], int column, int row, uint8_t value)
+{
+    uint8_t drawn[24 * 24];
+    cell_pixels(column, row, drawn);
+    uint8_t tile = cok_combat_terrain(R, value).tile;
+    const uint8_t *record = NULL;
+    size_t size = 0;
+    CHECK(queen_icon(&game, tile + 0x0f, 0, &record, &size) && record != NULL);
+    cok_vga_image over = {0};
+    CHECK(cok_vga_decode(record, size, NULL, &over) == COK_VGA_OK && over.x == 0 && over.y == 0);
+    CHECK(over.width == 24 && over.height == 24);
+    size_t masked = 0, overlaid = 0;
+    for (size_t j = 0; j < 24 * 24; ++j) {
+        if (over.mask != NULL && over.mask[j] != 0) {
+            ++masked;
+            CHECK(drawn[j] == ground[j]);
+        } else {
+            ++overlaid;
+            CHECK(drawn[j] == over.pixels[j]);
+        }
+    }
+    CHECK(masked > 0 && overlaid > 0);
+    cok_vga_free(&over);
+}
+
+/* The cells under a cloud or a body (5837:172c:17ac-18d4): a cell of value 0x1b-0x1f or 0x46 is the
+ * ground under it (137a: the terrain a cloud kept, through the cloud list; for 0x1e and 0x1f the
+ * last body's cell at x, y), with COMSPR's overlay of the cell's own tile drawn masked over it. The
+ * ground is the plain cell of the same terrain. */
+static void test_overlays(const cok_drawing *d)
+{
+    cok_combat *k = &game.combat;
+    k->view_x = 0;
+    k->view_y = 0;
+    uint8_t ground[24 * 24];
+    /* A body at 1, 1 over the cell 0x20: the ground is 0x20's, the overlay 0x1f's own tile. */
+    k->cells[1][1] = 0x20;
+    CHECK(d->arena_cell(&game, 1, 1));
+    cell_pixels(1, 1, ground);
+    k->cells[1][1] = 0x1f;
+    k->bodies = 1;
+    memset(k->body, 0, sizeof k->body);
+    k->body[0].x = 1;
+    k->body[0].y = 1;
+    k->body[0].cell = 0x20;
+    CHECK(d->arena_cell(&game, 1, 1) && game.vm.status == COK_ECL_OK);
+    check_overlay(ground, 1, 1, 0x1f);
+    /* 0x1e (a stone) looks through to the body's cell too. */
+    k->cells[1][1] = 0x1e;
+    CHECK(d->arena_cell(&game, 1, 1));
+    check_overlay(ground, 1, 1, 0x1e);
+    k->bodies = 0;
+
+    /* A cloud's cell 0x1d: the cell under it is the terrain the cloud kept (137a through the list:
+     * a node at 4, 4 covering its cell 1, which kept 0x2a). */
+    static cok_combat_cloud node;
+    memset(&node, 0, sizeof node);
+    node.x = 4;
+    node.y = 4;
+    node.covered[1] = 1;
+    node.saved[1] = 0x2a;
+    int column = 4 + cok_step_x[cok_data_u8_at(R->data, COK_DATA_CLOUD_CELLS, 1)];
+    int row = 4 + cok_step_y[cok_data_u8_at(R->data, COK_DATA_CLOUD_CELLS, 1)];
+    k->cells[row][column] = 0x1d;
+    k->clouds = &node;
+    k->cells[5][5] = 0x2a;
+    CHECK(d->arena_cell(&game, 5, 5));
+    cell_pixels(5, 5, ground);
+    CHECK(d->arena_cell(&game, column, row));
+    check_overlay(ground, column, row, 0x1d);
+    k->clouds = NULL;
+    k->cells[row][column] = 0x20;
+    k->cells[5][5] = 0x20;
+    k->cells[1][1] = 0x20;
+}
+
 int main(void)
 {
     struct stat st;
@@ -207,6 +296,7 @@ int main(void)
     CHECK(d->arena_tiles(&game, false, 4));
     CHECK(icon_holds(0x1e, 0, comspr, 15) && icon_holds(0x1e, 1, comspr, 0x8f));
     test_icons_drawn(d);
+    test_overlays(d);
     cok_adventure_close(&game);
     puts("queen arena tests passed");
     return 0;

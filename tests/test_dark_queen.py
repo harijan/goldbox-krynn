@@ -1787,16 +1787,16 @@ class DarkQueenTests(unittest.TestCase):
                         # pixels() gives the rows from the top.
                         self.assertEqual(got[at:at + 3], want, (row, col, i, j))
         self.assertEqual(self.play("--ground", mapfile, "--ground-set", "dungcom7", ASSETS, 4).returncode, 2)
-        # A cloud in the view stops the drawing, citing the original, with no picture.
-        for stopped in (0x1C, 0x46):
-            cells[view_y + 3][view_x + 2] = stopped
+        # A cloud or body in the view is drawn (the ground under it and COMSPR's overlay, 172c): the
+        # run goes on for each, and nothing cites the old stop.
+        for shown_cell in (0x1C, 0x46):
+            cells[view_y + 3][view_x + 2] = shown_cell
             mapfile.write_text("\n".join([f"view {view_x} {view_y}"] +
                                          ["".join(f"{v:02x}" for v in row) for row in cells]) + "\n")
             result = self.play("--ground", mapfile, "--ground-set", "dungcom4", "--screen", bmp,
                                ASSETS, 4)
-            self.assertEqual(result.returncode, 1)
-            self.assertIn(f"value 0x{stopped:02x}", result.stderr)
-            self.assertIn("dqk 5837:172c, 137a", result.stderr)
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertNotIn("172c", result.stderr)
 
 if __name__ == "__main__":
     unittest.main()

@@ -1787,6 +1787,7 @@ const cok_rules cok_rules_champions = {
             .body_spares_pool = false, /* 6beb:0e08 */
             .kill_finds_body = false,
             .kill_clears_spell = true,
+            .kill_sound = 5, /* 6beb:0e08 */
             /* 3afb:004b */
             .computer_target_first = false,
             .computer_items = true, /* 3afb:04b2 */

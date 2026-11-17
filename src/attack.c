@@ -447,9 +447,6 @@ static bool report(cok_adventure *game, cok_character *attacker, cok_character *
         if (!battle_only(game, target, &stale) || !event(game, target, 0x0d)) return false;
         if (cok_field_u8(L, t, COK_FIELD_ACTIVE) == 0 &&
             cok_combat_field_word(rules, t, COK_FIELD_STATUS) != 10) {
-            if (F->kill_unported != NULL)
-                return cok_adventure_not_yet(game, "a death on the battlefield",
-                                             F->kill_unported);
             if (!kill(game, target, stale)) return false;
         } else {
             wait_speed(game);

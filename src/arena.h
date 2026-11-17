@@ -91,17 +91,17 @@ typedef struct {
     const cok_character *targets[10];
 } cok_arena_reachable;
 
-/* c drops (6beb:0e08). Outside combat, the death's sound (5) and a pause
- * of speed * 100 ms. In combat, unless the entry the stale byte reads
- * holds c (see below), centre on c if it is not shown whole, erase it,
- * sound 5, flash the skull (icon slot 24, ready then attacking) over each
- * cell of its footprint that is shown nine times, 10 ms apart, masked;
- * then a party member (combat record +0x13 clear) leaves a body (DS:69ee)
- * where its top-left cell is, the cell becoming 0x1f unless it is a green
- * cloud; after a pause of speed * 100 ms c is erased and taken off the
- * map (size 0), the occupants are rebuilt, the view's centre cell redrawn
- * (cok_arena_centre with margin 3), and its initiative, movement, spell
- * and guard cleared.
+/* c drops (6beb:0e08). Outside combat, the death's sound (fight.kill_sound: 5, Dark Queen's 6)
+ * and a pause of speed * 100 ms. In combat, unless the entry the stale byte reads holds c (see
+ * below), centre on c if it is not shown whole, erase it, sound fight.kill_sound, flash the skull
+ * (icon slot 24, ready then attacking) over each cell of its footprint that is shown nine times,
+ * 10 ms apart, masked (through cok_drawing.arena_icon where the game draws its ground: Dark
+ * Queen's 204c:030f, slot 0x18); then a party member (combat record +0x13 clear, and not at the
+ * game's no-body status) leaves a body (DS:69ee) where its top-left cell is, the cell becoming
+ * 0x1f (0x1e at Dark Queen's status 7) unless it is spared (fight.body_spared), after a pause of
+ * speed * 100 ms c is erased and taken off the map (size 0), the occupants are rebuilt, the view's
+ * centre cell redrawn (cok_arena_centre with margin 3), and its initiative, movement, spell (if
+ * fight.kill_clears_spell) and guard cleared.
  *
  * The original's search for a body of c indexes the table with a local
  * it never set ([bp-3]), the byte of the stack its caller's last call at

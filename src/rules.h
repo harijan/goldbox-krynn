@@ -1535,8 +1535,20 @@ typedef struct {
      * looks for the record among the bodies 1-8 to do nothing for one
      * already a body (dkk), rather than by a byte of the stack (see
      * arena.h); whether it clears the spell being cast (+0x00; dkk keeps
-     * it). */
+     * it); the death's sound (5; Dark Queen's 5837:0d55 sounds 6); the
+     * cells a body is laid over and keeps, 0-ended (NULL: cloud_tile, and
+     * pool_tile where body_spares_pool; Dark Queen's 5837:0d55 keeps 0x1d,
+     * 0x1c and 0x46); the status with no body (0 none; Dark Queen's 8, the
+     * record not laid down); the status whose body is laid as the tile
+     * kill_stone_tile (0 none; Dark Queen's 7 gives 0x1e, a stone); the
+     * cells 5837:137a looks through for the cell under a body, 0-ended
+     * (NULL: cloud_tile and pool_tile; Dark Queen's 0x1d, 0x1c, 0x1b and
+     * 0x46). */
     bool kill_finds_body, kill_clears_spell;
+    uint8_t kill_sound;
+    const uint8_t *body_spared;
+    uint8_t kill_no_body_status, kill_stone_status, kill_stone_tile;
+    const uint8_t *under_tiles;
     /* The computer's turn (3afb:004b; dkk 3f63:0000): whether one with no
      * target picks one first (dkk 5340:3cac with 0, 0, 1, 0xff, and before
      * a spell being cast with 0, 1, 1, 0xff); whether it uses an item's
@@ -1645,10 +1657,10 @@ typedef struct {
     /* The colour of "and is Dying" on the window's grey (cok_arena_text at 0x17, the row, bg 0:
      * dqk 1a62:0046's 7; Champions' and Death Knights' 10). */
     uint8_t dying_colour;
-    /* The stops for what the port does not carry out for a game yet (cited, cok_adventure_not_yet):
+    /* The stop for what the port does not carry out for a game yet (cited, cok_adventure_not_yet):
      * a missile's flight of an item or a readied weapon of type 0x1c or 0x1d (dqk 52db:2888, part
-     * 17), and a death on the battlefield (dqk 5837:0d55, part 16). NULL: the port's own. */
-    const char *missile_unported, *kill_unported;
+     * 17). NULL: the port's own. */
+    const char *missile_unported;
     /* A computer's surrender (ai.c's morale, cok_combat_leave with status 4; dqk 148f:1a69 from
      * 5bb8:1117, part 16). The flight (52db:0e26) calls the same routine and is ported, so the
      * stop is here and not in cok_combat_leave. NULL: the port's own. */
