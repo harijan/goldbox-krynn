@@ -64,6 +64,13 @@ static void print_instruction(const cok_ecl *vm, uint16_t address)
     putchar('\n');
 }
 
+/* Whether address is in the code buffer, where seen and next have an entry.
+ * int arithmetic: an address below COK_ECL_BASE is negative, not huge. */
+static int in_buffer(uint16_t address)
+{
+    return address >= COK_ECL_BASE && address - COK_ECL_BASE < COK_ECL_CODE_MAX;
+}
+
 /* Walk the block in vm, marking reached instructions in seen. */
 static void walk(cok_ecl *vm, uint8_t *seen, uint16_t *next, totals *t, const char *where)
 {
@@ -72,13 +79,16 @@ static void walk(cok_ecl *vm, uint8_t *seen, uint16_t *next, totals *t, const ch
     for (size_t i = 0; i < 5; ++i) stack[depth++] = vm->vectors[i];
     while (depth > 0) {
         uint16_t address = stack[--depth];
-        while (address - COK_ECL_BASE < COK_ECL_CODE_MAX && !seen[address - COK_ECL_BASE]) {
+        /* An address outside the buffer is decoded, not indexed: decoding
+         * refuses it (BAD_ADDRESS), and that is reported below. */
+        while (!in_buffer(address) || !seen[address - COK_ECL_BASE]) {
             cok_ecl_status status = cok_ecl_decode(vm, address);
             if (status != COK_ECL_OK) {
                 fprintf(stderr, "%s: %04x: %s\n", where, address, cok_ecl_status_string(status));
                 t->failed = 1;
                 break;
             }
+            /* Decoding succeeded, so the address is in the buffer. */
             seen[address - COK_ECL_BASE] = 1;
             next[address - COK_ECL_BASE] = vm->ip;
             ++t->instructions;

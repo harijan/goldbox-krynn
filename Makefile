@@ -195,7 +195,7 @@ test_opl2_LIBS = -lm
 # Their rules (.SECONDEXPANSION: each one's NAME_SRC read for its stem), with
 # NAME_LIBS after the libraries.
 SRC_PROGRAMS = test_vga daxcheck ecldump test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules daximages daxcompose test_picture test_text test_display test_image
-SRC_SANITIZE = test_vga test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck
+SRC_SANITIZE = test_vga test_sound test_songs test_opl2 test_config test_setup test_ecl test_menu test_view test_party test_queen_items test_effect test_dax test_rules test_death_knights test_layout test_data test_magic_rules test_picture test_text test_display test_image daxcheck ecldump
 .SECONDEXPANSION:
 $(SRC_PROGRAMS:%=build/%): build/%: $$(call obj,$$($$*_SRC)) | build
 	$(LINK) $($*_LIBS) -o $@
@@ -289,8 +289,9 @@ run-test_krynn: build/krynn build/eclplay $(TEST_RUNS)
 
 # make sanitize: its test programs' runs (SANITIZE_RUNS) side by side, then
 # eclplay's and krynn's runs below one after another (some use the files of
-# those before them).
-sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/daxcheck_sanitize $(if $(HAVE_SDL),build/krynn_sanitize build/krynn_tsan build/test_keymap_sanitize)
+# those before them). ecldump reads Death Knights' scripts as Champions' here, so
+# its reports (exit 1) are expected; only a sanitizer's report fails the check.
+sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/daxcheck_sanitize build/ecldump_sanitize $(if $(HAVE_SDL),build/krynn_sanitize build/krynn_tsan build/test_keymap_sanitize)
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --keys '\r\rE\r\r\r\r\r\r\r' COKAssets 16 | tail -n 1)" = "(out of keys in block 17 at 9d9b)"
 	test "$$(./build/eclplay_sanitize --combat pass --test-party 6 --start 899b --keys '\r22\r\rE\r\r\r\r' COKAssets 48 | tail -n 1)" = "(done in block 48)"
 	test "$$(./build/eclplay_sanitize --woof --test-party 4 --effect 2,22,10,0 --keys '\cD\rxxxxxxxxxxxxxx\cZ\cC' COKAssets 16 | tail -n 1)" = "(quit to DOS in block 16)"
@@ -348,6 +349,8 @@ sanitize: build/START_FULL.EXE $(SANITIZE_RUNS) build/eclplay_sanitize build/dax
 	out="$$(./build/eclplay_sanitize --file 3 --test-party 6 --combat auto --seed 148 --start 9afb --set 4be6=1 --effect 1,1,0,3 --effect 2,1,0,3 --effect 3,1,0,3 --effect 4,1,0,3 --effect 5,1,0,3 --effect 6,1,0,3 --keys '\r' COKAssets 82)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 82)" && printf '%s\n' "$$out" | grep -q '^effect: DUNN loses 0x01$$' && printf '%s\n' "$$out" | grep -q '^print: is affected$$' && ! printf '%s\n' "$$out" | grep -q '^unported'
 	out="$$(./build/eclplay_sanitize --test-party 6 --combat auto --seed 1 --play --set 4be6=1 --effect 1,37,0,ff --effect 1,16,3,0 --effect 2,3e,2,ff --effect 3,3e,3,ff --effect 4,3e,2,ff --effect 3,22,1,7 --keys '\r\r' COKAssets 32)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(the party was killed in block 32)" && printf '%s\n' "$$out" | grep -q '^print: dies from poison$$' && printf '%s\n' "$$out" | grep -q '^print: is weakened$$' && test "$$(printf '%s\n' "$$out" | grep -c '^print: is partially healed$$')" = 3
 	./build/daxcheck_sanitize COKAssets/*.DAX
+	out="$$(./build/ecldump_sanitize --summary COKAssets/ECL*.DAX 2>&1)" && ! printf '%s\n' "$$out" | grep -q 'Sanitizer\|runtime error'
+	if [ -f $(DEATH)/ECL1.DAX ]; then out="$$(./build/ecldump_sanitize --summary $(DEATH)/ECL*.DAX 2>&1)"; ! printf '%s\n' "$$out" | grep -q 'Sanitizer\|runtime error'; fi
 	rm -rf build/sanitize_wav && mkdir -p build/sanitize_wav && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --wav build/sanitize_wav/a.wav --keys '\p50.\t' COKAssets | tail -n 1)" = "(out of keys at the title)" && test "$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_wav --seed 3 --sound speaker --wav build/sanitize_wav/b.wav --keys '\t' COKAssets | tail -n 1)" = "(out of keys at the title)"
 	rm -rf build/sanitize_setup && mkdir -p build/sanitize_setup/assets build/sanitize_setup/saves build/sanitize_setup/krynn && for f in COKAssets/*; do [ "$${f##*/}" = KRYNN.CFG ] || ln -s "$$PWD/$$f" build/sanitize_setup/assets/; done && out="$$(./build/eclplay_sanitize --start-menu --saves build/sanitize_setup/saves --shots build/sanitize_setup --keys '91\#32x3xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\eq:\\x\b\r\kxP\e' build/sanitize_setup/assets)" && test "$$(printf '%s\n' "$$out" | tail -n 1)" = "(out of keys in the start menu)" && printf '%s\n' "$$out" | grep -q '^crt: USING DEFAULT PATH: C:\\COK\\SAVE$$' && test "$$(head -n 4 build/sanitize_setup/saves/KRYNN.CFG | od -An -c | tr -d ' \n')" = 'C\r\nR\r\nN\r\nC:\COK\SAVE\\r\n'
 	$(if $(HAVE_SDL),./build/test_keymap_sanitize,@echo "SDL2 not found (pkg-config sdl2): skipped build/krynn_sanitize")
