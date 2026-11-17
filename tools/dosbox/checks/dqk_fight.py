@@ -101,6 +101,14 @@ at the menus, out of keys, after "\\r\\r" + five E and + six E. At each: RandSee
 ROLAND's menu), every record and combat block (the target as eclplay writes it: normal_block; the pattern
 too), the turn list, the combatants' places (--field), and the screen (MENU_POINTER masked; round 2's once drawn).
 
+Flow `melee-long` (step 4, part 15d): the same fight from the first turn's menu to round 6's first menu (30
+party menus, about 100 s in the box): each party menu trapped at 5045:08cf and E typed there, each computer turn
+(5045:0891) given back at once. At each round's first menu (DS:bd2d 1, rounds 2 to 6) eclplay's run after
+6 * (round - 1) E keys is compared: RandSeed, SHARKMAN 2 and SHARKMAN 1's places, ROLAND OF DUST's hit points
+(scope.md section 0's table; the first strike is round 5's turn 8, and it hits ROLAND), the first combatant
+(the turn list's), every record and combat block, the turn list, the effect chains, the places and the screen.
+See melee_long_original.
+
 Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17, unported). The
 original runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888
 in overlay 0 (MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and
@@ -2585,6 +2593,124 @@ def melee(v, work, opts):
                    MENU_POINTER)
 
 
+# The melee-long flow (step 4, part 15d: the computer's fight to round 6's first menu). Each party menu
+# (5045:08cf) is trapped at its entry, E is typed once the menu is drawn and waiting (the trap is given
+# back and armed again before the key); each computer turn (5045:0891) is trapped and given back at once.
+# The six party members make six menus a round. At each round's first menu (DS:bd2d 1) the state is read
+# (stop_state) and the screen kept; eclplay's stop after 6 * (round - 1) E keys is compared with it.
+MELEE_LONG_ROUNDS = 6            # the rounds whose first menus are compared: 2 to 6
+MELEE_MENUS = 6                  # the party's menus a round (six party members)
+MELEE_LONG_STOPS = 60            # a cap on the menus the original's run stops at (30 are needed)
+MELEE_LONG = {                   # round: RandSeed, SHARKMAN 2 (combatant 7), SHARKMAN 1 (combatant 8),
+    2: (0x473B4BC2, (30, 11), (28, 16), 134),   # ROLAND OF DUST's hit points (scope.md section 0's
+    3: (0x03F33312, (26, 9), (25, 16), 134),    # table says TIMASALIN: record 0 is ROLAND, the one
+    4: (0xBD18FE62, (32, 13), (22, 16), 134),   # the first strike hits; TIMASALIN stays 61)
+    5: (0xD1724551, (26, 11), (27, 16), 134),
+    6: (0xAD8313C7, (28, 12), (20, 16), 126),
+}
+HIT_POINTS = 0x198               # a record's hit points (rules_dark_queen.c: COK_FIELD_HIT_POINTS)
+NAME_AT = (0x68, 0x78)           # a record's name
+HIT_NAME = "ROLAND OF DUST"      # the party's first record (its hit points are the table's)
+
+
+def melee_long_original(work, patched, verbose):
+    """The original's run from the first turn's menu (to_menu) to round 6's first menu. Two traps are
+    armed in the copies of 078b's (arm): the party's act (5045:08cf, a menu's entry) and the computer's
+    dispatch (5045:0891, before its lcall 5bb8:0000). A stop at 0891 (the selected record's +0x18c set) is
+    given back at once (its trap armed again after 0.25 s, as scope.md's measurement did) and no key is typed; a
+    stop at 08cf is a party menu: its trap given back, the menu drawn (settled), the trap armed again, E
+    typed. Each stop reads DS:bd2d and the selected record; at a round's first menu (DS:bd2d 1) the whole
+    state (stop_state) and the screen (melee-long-round<r>.png)."""
+    with cokbox.Box(workdir=work / "box-melee-long", game="dark-queen", verbose=verbose,
+                    timeout=1800, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        handle = menu["handle"]
+        t_menu = arm(box, handle, MENU)
+        t_comp = arm(box, handle, COMPUTER)
+        box.keys("E")
+        rounds, stops = {}, 0
+        while True:
+            if stops >= MELEE_LONG_STOPS:
+                raise cokbox.BoxError(f"the original's party menus do not reach round "
+                                      f"{MELEE_LONG_ROUNDS}'s first menu in {MELEE_LONG_STOPS} stops")
+            stops += 1
+            wait_trap(box, t_menu + t_comp, "5045:08cf or 5045:0891 (a party menu or a computer's turn)")
+            stop = dict(turn=box.ds_byte(L.DS_TURN), selected=selected(box), seed=box.ds_dword(L.DS_SEED))
+            seg, off = (int(x, 16) for x in stop["selected"].split(":"))
+            stop["computer"] = box.read(seg * 16 + off + 0x18C, 1)[0]
+            stop["name"] = cstr(box.read(seg * 16 + off + NAME_AT[0], NAME_AT[1] - NAME_AT[0]))
+            if verbose:
+                print(f"  stop {stops}: turn {stop['turn']} selected {stop['selected']} "
+                      f"seed {stop['seed']:#x} computer {stop['computer']}", flush=True)
+            if stop["computer"]:
+                L.untrap(box, t_comp)
+                time.sleep(0.25)
+                t_comp = arm(box, handle, COMPUTER)
+                continue
+            first = stop["turn"] == 1
+            if first:
+                stop.update(stop_state(box), turn=1)
+            L.untrap(box, t_menu)
+            box.settled(quiet=1.0, tolerance=0)
+            if first:
+                r = 2 + len(rounds)
+                stop["screen"] = box.screenshot(path=str(work / f"melee-long-round{r}.png"))
+                rounds[r] = stop
+                if len(rounds) == MELEE_LONG_ROUNDS - 1:
+                    break
+            t_menu = arm(box, handle, MENU)
+            box.keys("E")
+        return dict(menu=menu, rounds=rounds)
+
+
+def melee_long(v, work, opts):
+    """The melee-long flow (step 4, part 15d): the computer's fight from the first turn's menu to round 6's
+    first menu, the original's (melee_long_original) against eclplay's (melee_port with 6 * (round - 1) E
+    keys) at each round's first menu, in the table of scope.md's section 0: RandSeed, SHARKMAN 2 (7) and
+    SHARKMAN 1 (8) places, ROLAND OF DUST's hit points (round 6: 126, after SHARKMAN 2's first strike in round
+    5). At each: the selected record (the turn list's first entry, a party menu), every record and combat block,
+    the turn list, the effect chains, the combatants' places (--field) and the screen (MENU_POINTER masked)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    o = melee_long_original(work, patched, opts.verbose)
+    spins_at_placement(v, o["menu"])
+    rounds = o["rounds"]
+    v.check(sorted(rounds) == list(range(2, MELEE_LONG_ROUNDS + 1)),
+            f"the original stops at the first menu of rounds 2 to {MELEE_LONG_ROUNDS}", sorted(rounds))
+    prev_seed = o["menu"]["seed"]
+    for r in sorted(rounds):
+        s = rounds[r]
+        tag = f"round {r}'s first menu"
+        seed, sharkman2, sharkman1, hits = MELEE_LONG[r]
+        first = {n: idx for n, idx, _ in s["turns"]}.get(1)
+        turn_name = None if first is None else cstr(bytes.fromhex(s["records"][first])[NAME_AT[0]:NAME_AT[1]])
+        v.check(s["computer"] == 0 and s["name"] == turn_name,
+                f"the original's selected record at {tag} is the turn list's first entry ({turn_name}), "
+                f"a party menu", f"{s['name']} at {s['selected']}, +0x18c {s['computer']}")
+        v.check(s["seed"] == seed, f"RandSeed at {tag} is {seed:#x} (the table)", f"{s['seed']:#x}")
+        to = {n: (x, y) for n, x, y, _ in s["combatants"]}
+        v.check(to.get(7) == sharkman2 and to.get(8) == sharkman1,
+                f"SHARKMAN 2 is at {sharkman2} and SHARKMAN 1 at {sharkman1} at {tag} (the table)",
+                f"{to.get(7)}, {to.get(8)}")
+        hit = bytes.fromhex(s["records"][0])
+        v.check(cstr(hit[NAME_AT[0]:NAME_AT[1]]) == HIT_NAME and hit[HIT_POINTS] == hits,
+                f"{HIT_NAME}'s hit points at {tag} are {hits} (the table)", hit[HIT_POINTS])
+        p = melee_port(work, patched, f"melee-long-{r}", MELEE_MENUS * (r - 1))
+        v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+                f"eclplay stops at {tag} (out of keys) after {MELEE_MENUS * (r - 1)} E", p["last"])
+        chains_agree(v, s["chains"], p["base"].with_suffix(".effects"), f" ({tag})")
+        draws = command_state(v, tag, s, p, prev_seed)
+        v.ok(f"RandSeed draws from the previous first menu to {tag}, the original's", str(draws))
+        ported_field = parse_field(p["base"].with_suffix(".field"))
+        v.check(sorted(ported_field[5]) == sorted(tuple(c) for c in s["combatants"]),
+                f"every combatant's place and size agree at {tag} (eclplay's --field)",
+                f"{ported_field[5]} against {s['combatants']}")
+        command_screen(v, f"at {tag}", s["screen"], p["base"].with_suffix(".bmp"), MENU_POINTER)
+        prev_seed = s["seed"]
+
+
 def won_original(work, patched, verbose):
     """Fixture 2 (won): the original's run to the battle's end. Root 148f:0512 spins at the 'loaded'
     PRESS KEY (the setup's pass, 59c7:1eb9's event 8), each SHARKMAN +0x64 6 and +0x18b 0, DS:b7f3 0,
@@ -3244,9 +3370,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,won,timer,walk,mouse",
+                                "keys,altq_missile,turns,round,melee,melee-long,won,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, won, timer, "
+                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, "
+                             "won, timer, "
                              "walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
@@ -3288,6 +3415,8 @@ def main():
         round_flow(v, work, opts)
     if "melee" in flows:
         melee(v, work, opts)
+    if "melee-long" in flows:
+        melee_long(v, work, opts)
     if "won" in flows:
         won(v, work, opts)
     if "walk" in flows:
