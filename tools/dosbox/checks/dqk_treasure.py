@@ -22,9 +22,8 @@ line, the bar's key), then the pool (63ee:0002), the variables, the monsters (75
 to COMBAT's ending (monster.c). Where the pool has money or items the treasure menu (75cc:0e93) runs:
 its waits are read one at a time (POOL_STEPS and the others: the screen, the variables, the records,
 the pool's coins, and the selected record by name), and its last keys lead to COMBAT's return
-(5f07:0987), the end. Detect's cast (part 28) and Take's items (part 21) are not typed: cited stops. Take, Pool and
-Share are typed in the flows below. A
-lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
+(5f07:0987), the end. Detect's cast (part 28) is not typed: a cited stop. Take, Pool and Share are typed in the flows
+below. A lost party runs on to COMBAT's return (5f07:0987), and the adventure's menu after it (5f07:11f3, no
 b7a7 test) is the stop.
 
 The menu's animation is frozen in the original only (freeze_frame: 1bdb:1168's incb DS:b20e is four
@@ -86,6 +85,11 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
   list (Escape), Exit (e), No (n).
 - `takeall`: the pool 100 3 1 0: Take, Steel 100 taken whole, Return on the last row (Gems: 1b05:0055
   keeps the cursor on it), Escape on the prompt (0 gems), Escape on the list, Exit (e), No (n).
+- `items`: TREASURE ITEMS 0 0 0 5 : 1 0 255 255 80 (part 21a): the pool's four items (id 80, the
+  Red Mage's and the White Mage's random scrolls, id 1, head first, from RandSeed 12345) and the
+  share 266 (1600 / 6); each item's 17 bytes are compared with the original's list (pool_items,
+  member_items: the 0x3d-byte nodes of DS:b1e7 and of each record's +8, 17 bytes at +0x28). Steps:
+  the menu (View Take Pool Exit), Exit's question (e), No (n).
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -173,6 +177,15 @@ BONUS_STEPS = [("the treasure menu after the results", ""), ("Escape is Exit: th
                ("the adventure after No", "n")]
 NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
                   ("the adventure after No", "n")]
+# TREASURE ITEMS' items (part 21a): the header 0 0 0 and n 5, then the list 1 0 255 255 80 (id 1,
+# id 0 with no entry, the two random scrolls, id 80). Measured: the pool at the menu is ITEMS_POOL
+# (head first), RandSeed 0x476726e9; at the question, RandSeed 0x5202e7e7.
+ITEMS = ("TREASURE_ITEMS", (dqkecl.word(0), imm(0), imm(0), imm(5), imm(1), imm(0), imm(0xff),
+                            imm(0xff), imm(80)))
+ITEMS_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
+               ("the adventure after No", "n")]
+ITEMS_POOL = ["1e00701e0200dc0502000006000a000000", "276627880100b80b0100001000002e5b0f",
+              "276627890100b80b0100002000005c540a", "1e00001e0100000000000000000a000000"]
 FLOWS = {
     # flow: the saved game's changes (per member, or None), the block's ops before COMBAT (extra),
     # the stop's cite, the expected state (standing, fled, b7a7, out), DS:ae4f (the share; None
@@ -241,6 +254,9 @@ FLOWS = {
     "takeall": dict(changes=None, extra=[TREASURE100], end="end", steps=TAKEALL_STEPS,
                     expect=(True, False, False, 0), share=525, pool=NO_POOL,
                     gained=[525, 175, 175, 262, 262, 262], may=[0, 0, 0, 0, 1, 0]),
+    "items": dict(changes=None, extra=[ITEMS], end="end", steps=ITEMS_STEPS, items=True,
+                  expect=(True, False, False, 0), share=266, pool=NO_POOL,
+                  gained=[266, 88, 88, 133, 133, 133], may=[0, 0, 0, 0, 1, 0]),
     "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
                   extra=[("SAVE", (imm(9), var(0x20)))], end="lost",
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
@@ -375,25 +391,51 @@ def frame_kept(box, keys):
     return at_entry, at_first, shot, settled
 
 
-def step_state(box, what):
+def item_list(box, head):
+    """The items of the list whose far pointer lies at linear address HEAD: each node's 17 bytes
+    at +0x28 (hex), in order; a node is 0x3d bytes with the next far pointer at +0."""
+    out, node = [], box.far(head)
+    while node is not None:
+        if len(out) >= 64:
+            raise cokbox.BoxError("the item list does not end")
+        out.append(box.read(node + 0x28, 17).hex())
+        node = box.far(node)
+    return out
+
+
+def pool_items(box):
+    """The pool's items (DS:b1e7, head first)."""
+    return item_list(box, box.ds * 16 + 0xB1E7)
+
+
+def member_items(box):
+    """Each party record's items (the list at its +8), in list order."""
+    return [item_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)]
+
+
+def step_state(box, what, items=False):
     """The treasure menu's wait (a key wait, its screen settled): the screen, the variables, the
     records, the pool, RandSeed (read after the settle: the animation's clock moves it not),
-    the selected record's name, whether the frame advance is frozen, and whether the game waits."""
+    the selected record's name, whether the frame advance is frozen, and whether the game waits.
+    With items, the pool's and the records' items too."""
     t0 = time.monotonic()
     while not box.waiting():
         if time.monotonic() - t0 > 60:
             raise cokbox.BoxError(f"the game waits for no key at {what}")
     shot = box.settled()
-    return dict(what=what, shot=shot, vars=dqk_fight.block_vars(box),
-                records=[raw for _, raw in L.records(box)], pool=pool_of(box),
-                seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
-                selected=selected_name(box), frozen=frame_frozen(box), waiting=box.waiting())
+    state = dict(what=what, shot=shot, vars=dqk_fight.block_vars(box),
+                 records=[raw for _, raw in L.records(box)], pool=pool_of(box),
+                 seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
+                 selected=selected_name(box), frozen=frame_frozen(box), waiting=box.waiting())
+    if items:
+        state.update(pool_items=pool_items(box), member_items=member_items(box))
+    return state
 
 
-def read_state(box):
+def read_state(box, items=False):
     """The original's state where it spins: the variables, the records, the flags and the
-    end-of-combat bytes, the mode, RandSeed and the effect table."""
-    return dict(
+    end-of-combat bytes, the mode, RandSeed and the effect table; with items, the items too."""
+    state = dict(
         vars=dqk_fight.block_vars(box),
         records=[raw for _, raw in L.records(box)],
         flags=flags_of(box),
@@ -403,6 +445,9 @@ def read_state(box):
         mode=box.ds_word(0xae57), seed=f"{int.from_bytes(box.ds_read(0xca0e, 4), 'little'):08x}",
         effects=box.ds_read(0x631e, 18), share=int.from_bytes(box.ds_read(0xae4f, 4), "little"),
         pool=pool_of(box))
+    if items:
+        state.update(pool_items=pool_items(box), member_items=member_items(box))
+    return state
 
 
 # lost: 5f07:0987 is COMBAT's return after the lost party (the continue prompt answered first)
@@ -412,7 +457,8 @@ TYPED_TO_END = "\\r\\r\\r"       # that, the results' key (or the continue promp
 TYPED_TO_RESULTS = "\\r\\r"      # the PRESS KEY and the results' key: the treasure menu's wait
 
 
-def original(work, name, changes, patched, verbose, end, steps=None, frame_check=False):
+def original(work, name, changes, patched, verbose, end, steps=None, frame_check=False,
+             items=False):
     """The original's run of the block from its entry to the end's stop (END_STOPS): stage 1 at
     2093:0015 (the flags' clear), the end's trap set while it spins, then the game waits at its
     first key (the results' bar, or the continue prompt): its screen there is read, the key is
@@ -457,7 +503,7 @@ def original(work, name, changes, patched, verbose, end, steps=None, frame_check
                     frame = frame_kept(box, keys)  # the mode-6 redraw after the sheet (bug 3)
                 elif i > 0:
                     box.keys(keys)
-                found.append(step_state(box, what))
+                found.append(step_state(box, what, items))
                 if i == 1 and frame_check:
                     box.ds_write(FRAME, b"\x02")  # the sheet: DS:b20e poked (frame 2)
             box.keys(steps[-1][1])
@@ -466,7 +512,7 @@ def original(work, name, changes, patched, verbose, end, steps=None, frame_check
         while not L.held(box, hold)[0]:
             if time.monotonic() - t0 > 60:
                 raise cokbox.BoxError(f"the trap at {seg:04x}:{off:04x} did not hold")
-        state = read_state(box)
+        state = read_state(box, items)
         state["stage1_surprise"] = stage1_surprise
         state["waiting"] = waiting
         state["steps"] = found
@@ -488,12 +534,14 @@ def port(work, name, patched, qsv, typed, shots=False):
     state = work / f"port-{name}.state"
     shot_dir = work / f"port-{name}-shots"
     screen = work / f"port-{name}.bmp"
-    for path in (records, state, screen):
+    items_path = work / f"port-{name}.items"
+    for path in (records, state, screen, items_path):
         if path.exists():
             path.unlink()
     if shot_dir.exists():
         shutil.rmtree(shot_dir)
-    extra = ["--load", str(entry), "--play", "--records", str(records), "--state", str(state)]
+    extra = ["--load", str(entry), "--play", "--records", str(records), "--state", str(state),
+             "--items", str(items_path)]
     extra += ["--shots", str(shot_dir)] if shots else ["--screen", str(screen)]
     variables, _, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra, block=None)
     data = records.read_bytes() if records.exists() else b""
@@ -504,6 +552,14 @@ def port(work, name, patched, qsv, typed, shots=False):
         for line in state.read_text().splitlines():
             key, _, value = line.partition(" ")
             lines[key] = value
+    # --items: the pool's items, then a line a record (its index, its items), each item as hex.
+    if items_path.exists():
+        for line in items_path.read_text().splitlines():
+            fields = line.split()
+            if fields[0] == "pool":
+                lines["pool_items"] = fields[1:]
+            else:
+                lines.setdefault("member_items", []).append(fields[1:])
     transcript = (work / f"port-{name}.txt").read_text()
     if shots:
         waits = sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem)) if shot_dir.is_dir() else []
@@ -516,7 +572,17 @@ def port(work, name, patched, qsv, typed, shots=False):
 MASKS = [dqk_ecl_text.POINTER_WIDE]  # the mouse's pointer at the corner (DOSBox-X's own)
 
 
-def check_steps(v, work, patched, name, steps, selects, qsv, found):
+def check_items(v, what, want, have, name):
+    """The pool's items and each record's items (hex, in order) agree with the original's."""
+    v.check(have.get("pool_items", []) == want["pool_items"],
+            f"the pool's items at {what} agree ({name})",
+            f"original {want['pool_items']}, port {have.get('pool_items')}")
+    v.check(have.get("member_items", []) == want["member_items"],
+            f"the party's items at {what} agree ({name})",
+            f"original {want['member_items']}, port {have.get('member_items')}")
+
+
+def check_steps(v, work, patched, name, steps, selects, qsv, found, items=False):
     """Each treasure menu wait but the last (the end): eclplay's run typed up to that step, its
     last shot compared with the original's screen, and its variables, records and pool compared
     with the original's there. SELECTS (step, member): the selected record is that member, by
@@ -546,6 +612,8 @@ def check_steps(v, work, patched, name, steps, selects, qsv, found):
                 f"original {o['pool']}, port {port_pool}")
         v.check(lines.get("seed") == o["seed"], f"RandSeed at {what} agrees ({name})",
                 f"original {o['seed']}, port {lines.get('seed')}")
+        if items:
+            check_items(v, what, o, lines, name)
         v.check(o["frozen"], f"the frame advance is still frozen at {what} ({name})")
         if selects is not None and selects[0] == i:
             member = selects[1]
@@ -572,8 +640,9 @@ def run_flow(v, work, patched, name, verbose):
     spec = FLOWS[name]
     end = spec["end"]
     steps = spec.get("steps")
+    items = spec.get("items", False)
     orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end,
-                                              steps, spec.get("frame", False))
+                                              steps, spec.get("frame", False), items)
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
     v.check(orig["stage1_surprise"] == 0, f"var 0x2e is 0 at 2093:0015's spin: 135c's start ran "
             f"({name})", f"{orig['stage1_surprise']}")
@@ -616,8 +685,15 @@ def run_flow(v, work, patched, name, verbose):
     v.screen(f"the screen at the first key wait ({name})", wait_shot, first, masks=MASKS,
              work=work)
 
+    if items:  # the flow's own expectations: the four items at the menu, RandSeed there and after
+        menu = orig["steps"][0]
+        v.check(menu["pool_items"] == ITEMS_POOL, f"the original's pool at the menu holds the four "
+                f"items of TREASURE ITEMS ({name})", f"{menu['pool_items']}")
+        v.check(menu["seed"] == "476726e9" and orig["steps"][1]["seed"] == "5202e7e7",
+                f"RandSeed at the menu and at the question is as measured ({name})",
+                f"{menu['seed']}, {orig['steps'][1]['seed']}")
     if steps:
-        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"])
+        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"], items)
     if orig["frame"] is not None:
         check_frame(v, work, name, orig["frame"])
     # The menu's last keys (the end's) are the last of the typed keys, then the adventure's wait.
@@ -653,6 +729,8 @@ def run_flow(v, work, patched, name, verbose):
     port_seed = lines.get("seed", "")
     v.check(port_seed == orig["seed"], f"RandSeed agrees ({name})",
             f"original {orig['seed']}, port {port_seed}")
+    if items:
+        check_items(v, "the end", orig, lines, name)
     v.check(int(lines.get("mode", -1)) == orig["mode"], f"the mode agrees ({name})",
             f"original {orig['mode']}, port {lines.get('mode')}")
     # DS:af3f, c7de, c7df, b1da, b7a7 and the share DS:ae4f (eclplay --state's names).

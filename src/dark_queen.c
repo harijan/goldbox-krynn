@@ -2658,17 +2658,86 @@ static void program(cok_adventure *game)
     game->moving = moving;
 }
 
+/* The word of DS at offset, little-endian, which the tables hold. */
+static uint16_t ds_word(const cok_rules *rules, long offset)
+{
+    return (uint16_t)(cok_data_held(rules->data, offset) |
+                      cok_data_held(rules->data, offset + 1) << 8);
+}
+
+/* 6c70:1a4e(s, r): the spell s (DS:253e[s]) is 3 or r. */
+static bool scroll_spell(const cok_rules *rules, unsigned s, uint8_t r)
+{
+    uint8_t moon = cok_data_held(rules->data, 0x253e + (long)s);
+    return moon == 3 || moon == r;
+}
+
+/* The random scroll (6c70:1a83, 17 bytes at entry): a scroll of three mage spells, the item
+ * TREASURE ITEMS makes for an id 0xff (6c70:21c6) and STOCK TREASURE for a stock 0xff
+ * (6c70:33d6). Its name: 3 Spells (0x66), Scroll (0x27), and entry[3] the mage's word, 0x89
+ * for r 1 (White Mage) or 0x88 for r 2 (Red Mage); its bonus 1, weight 1, value 3000, and
+ * entry[0xb] the bit of r (0x20 or 0x10). The spells (ids 1-126 whose class word, DS:27e9
+ * +0x16 * id, is 2, and whose DS:253e byte is 3 or r) are drawn after r. DS:ae26, 1a83's loop
+ * counter, is left at 4 by the original and not held: every routine stores it first. */
+void cok_dark_queen_random_scroll(const cok_rules *rules, uint32_t *seed,
+                                  uint8_t entry[COK_ITEM_ENTRY])
+{
+    memset(entry, 0, COK_ITEM_ENTRY);
+    entry[0] = 0x27;
+    entry[1] = 0x66;
+    entry[2] = 0x27;
+    entry[8] = 1;
+    entry[4] = 1;
+    entry[6] = 0xb8;
+    entry[7] = 0x0b;
+    uint8_t r = cok_dice(seed, 1, 2);
+    entry[3] = (uint8_t)(0x8a - r);
+    entry[0xb] = (uint8_t)(1 << (6 - r));
+    for (unsigned k = 1; k <= 3; ++k) {
+        unsigned s;
+        do {
+            s = cok_dice(seed, 1, 0x7e);
+        } while (ds_word(rules, 0x27e9 + 0x16 * (long)s) != 2 || !scroll_spell(rules, s, r));
+        entry[0xd + k] = (uint8_t)s;
+    }
+}
+
+/* cok_pool_insert, then the item's bytes +0x2a-+0x2d put back: Champions' insert clears them as
+ * the link, which is Dark Queen's words 2 and 3 and its weight (+0x2c). Out of memory fails. */
+static bool pool_put(cok_adventure *game, size_t index, const uint8_t *item)
+{
+    if (!cok_pool_insert(&game->pool, index, item)) {
+        cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
+        return false;
+    }
+    memcpy(game->pool.items[index] + 0x2a, item + 0x2a, 4);
+    return true;
+}
+
 /* TREASURE ITEMS steel gems jewelry n : id... (dark_queen.c's, 6c70:2127): the three header
  * words are added as unsigned words to the pool's coins 4-6 (steel, gems, jewelry: DS:b1db, b1df,
- * b1e3, 213f-216b). With n > 0 the items come next (2188-22a3, from DS:c6de + 17 * id, the id 0xff
- * is 1a83's): not ported, cited, after the coins. */
+ * b1e3, 213f-216b). Then (218f-22a3) each list operand's id, low byte, goes first in the pool, in
+ * order: an id whose table entry starts 0xff (id 0 too) adds none; 0xff is the random scroll
+ * (1a83). The item is 63 zeros with the 17 bytes at +0x28; the node's name (+5) and its +0x39 are
+ * stack leftovers the original never reads, not held. */
 static void treasure_items(cok_adventure *game)
 {
     cok_ecl *vm = &game->vm;
     for (size_t k = 0; k < 3; ++k) game->pool.coins[4 + k] += cok_ecl_header_value(vm, k);
-    if (vm->operands > 0)
-        cok_adventure_not_yet(game, "the treasure", "dqk 6c70:218f (TREASURE ITEMS' items: "
-                                                   "the item table)");
+    const cok_rules *rules = cok_game_rules(game);
+    for (size_t i = 0; i < vm->operands; ++i) {
+        uint8_t id = (uint8_t)cok_ecl_value(vm, i), entry[COK_ITEM_ENTRY];
+        if (id == 0xff) {
+            cok_dark_queen_random_scroll(rules, &vm->seed, entry);
+        } else if (game->item_table[id][0] == 0xff) {
+            continue;
+        } else {
+            memcpy(entry, game->item_table[id], COK_ITEM_ENTRY);
+        }
+        uint8_t item[COK_ITEM_SIZE] = {0};
+        memcpy(item + rules->item_record.file_at, entry, COK_ITEM_ENTRY);
+        if (!pool_put(game, 0, item)) return;
+    }
 }
 
 static bool opcode(cok_adventure *game)

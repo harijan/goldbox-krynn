@@ -279,6 +279,37 @@ static void save_state(cok_adventure *game, const char *path)
     fclose(f);
 }
 
+/* --items: the pool's items, then each party record's, as their file bytes (the item record's
+ * file_size bytes at file_at) in hex, an item a token of hex digits: a line "pool" with the pool's
+ * items in order, then a line a record: its index, then its items in order. */
+static void put_item(FILE *f, const uint8_t *item, size_t size)
+{
+    fputc(' ', f);
+    for (size_t k = 0; k < size; ++k) fprintf(f, "%02x", item[k]);
+}
+
+static void save_items(const cok_adventure *game, const char *path)
+{
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        perror(path);
+        return;
+    }
+    const cok_rules_item_record *I = &cok_game_rules(game)->item_record;
+    fputs("pool", f);
+    for (size_t i = 0; i < game->pool.item_count; ++i)
+        put_item(f, game->pool.items[i] + I->file_at, I->file_size);
+    fputc('\n', f);
+    for (size_t i = 0; i < game->party.count; ++i) {
+        const cok_character *c = game->party.members[i];
+        fprintf(f, "%zu", i);
+        for (size_t k = 0; k < c->item_count; ++k)
+            put_item(f, c->items[k] + I->file_at, I->file_size);
+        fputc('\n', f);
+    }
+    fclose(f);
+}
+
 static void usage(const char *program)
 {
     fprintf(stderr,
@@ -359,6 +390,9 @@ static void usage(const char *program)
           "  --state FILE    save the end of combat's flags (Dark Queen's DS:af3f, c7de, c7df,\n"
           "                  b1da, b7a7, the share DS:ae4f), the pool's coins 4-6, the mode,\n"
           "                  the COMPARE flags and RandSeed\n"
+          "  --items FILE    save the pool's items, then each party record's, as their file\n"
+          "                  bytes in hex: a line \"pool\", then a line a record (its index,\n"
+          "                  its items), an item a token of hex digits\n"
           "  --field FILE    save the battlefield as the run left it: RandSeed, the view's\n"
           "                  origin, the 50 by 25 cells and occupants in hex, the combatants\n"
           "  --vector N      run only vector N (0-4) instead of entering the block\n"
@@ -993,6 +1027,7 @@ static int run(int argc, char **argv)
     const char *screen = NULL, *vars = NULL, *records = NULL, *field = NULL, *blocks = NULL;
     const char *effect_chains = NULL;
     const char *state = NULL;
+    const char *items = NULL;
     const char *icons = NULL;
     const char *turns = NULL;
     const char *ground = NULL, *ground_set = NULL;
@@ -1122,6 +1157,8 @@ static int run(int argc, char **argv)
             turns = argv[++i];
         } else if (strcmp(option, "--state") == 0 && has_value) {
             state = argv[++i];
+        } else if (strcmp(option, "--items") == 0 && has_value) {
+            items = argv[++i];
         } else if (strcmp(option, "--field") == 0 && has_value) {
             field = argv[++i];
         } else if (strcmp(option, "--file") == 0 && has_value &&
@@ -1487,6 +1524,7 @@ static int run(int argc, char **argv)
     if (icons != NULL) save_icons(&game, icons);
     if (field != NULL) save_field(&game, field);
     if (state != NULL) save_state(&game, state);
+    if (items != NULL) save_items(&game, items);
     if (turns != NULL) save_turns(&game, turns);
     /* Keys the run never read (stderr, so the stdout's last line stays as it
      * is): a script that typed more than its block took. */

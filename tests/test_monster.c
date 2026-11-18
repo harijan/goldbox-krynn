@@ -1632,10 +1632,23 @@ static void test_dark_queen_pool_and_past_party(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
 }
 
+/* Whether item's file bytes (the item record's file_size at file_at) are the hex string. */
+static bool dq_file_is(const uint8_t *item, const char *hex)
+{
+    const cok_rules_item_record *ir = &cok_rules_dark_queen.item_record;
+    for (size_t k = 0; k < ir->file_size; ++k) {
+        unsigned byte;
+        if (sscanf(hex + 2 * k, "%2x", &byte) != 1 || item[ir->file_at + k] != byte) return false;
+    }
+    return hex[2 * ir->file_size] == '\0';
+}
+
 /* TREASURE ITEMS (6c70:2127, dark_queen.c's treasure_items): the header's three words (word 1000,
- * then imm 3 and 1: steel, gems, jewelry) add to the pool's coins 4-6, and with n (the fourth
- * header word) 0 nothing more; with n 1 the item (id 10) stops, cited (6c70:218f), after the
- * coins. */
+ * then imm 3 and 1: steel, gems, jewelry) add to the pool's coins 4-6; the fourth (n) is the list's
+ * count. The items (218f-22a3): id 80 and 1 from the table, 0xff the random scroll (1a83: a
+ * White Mage's and a Red Mage's, drawn from RandSeed), 0 and an id whose entry starts 0xff none;
+ * each goes first in the pool, its bytes at +0x28 as the table has them, its weight (+0x2c) and
+ * words 2-3 kept (pool_put puts back the bytes cok_pool_insert clears). */
 static void test_dark_queen_treasure_items(void)
 {
     static cok_adventure dqk;
@@ -1648,11 +1661,52 @@ static void test_dark_queen_treasure_items(void)
     CHECK(dqk.vm.status == COK_ECL_OK);
     CHECK(dqk.pool.coins[4] == 1000 && dqk.pool.coins[5] == 3 && dqk.pool.coins[6] == 1);
     CHECK(dqk.pool.item_count == 0);
-    DQK_RUN(&dqk, 0x27, 0, 1, 0, 2, 0, 3, 0, 1, 0, 10);
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 6c70:218f") != NULL);
-    CHECK(dqk.pool.coins[4] == 1001 && dqk.pool.coins[5] == 5 && dqk.pool.coins[6] == 4);
+
+    /* TREASURE ITEMS 0 0 0 5 : 1 0 255 255 80 from RandSeed 12345: the pool, head first, is id 80,
+     * the Red Mage's scroll (the second 0xff), the White Mage's (the first), id 1; 16 draws. */
     dq_clear_pool(&dqk);
+    dqk.vm.seed = 12345;
+    DQK_RUN(&dqk, 0x27, 0, 0, 0, 0, 0, 0, 0, 5, 0, 1, 0, 0, 0, 255, 0, 255, 0, 80);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(dqk.pool.item_count == 4);
+    CHECK(dq_file_is(dqk.pool.items[0], "1e00701e0200dc0502000006000a000000"));
+    CHECK(dq_file_is(dqk.pool.items[1], "276627880100b80b0100001000002e5b0f"));
+    CHECK(dq_file_is(dqk.pool.items[2], "276627890100b80b0100002000005c540a"));
+    CHECK(dq_file_is(dqk.pool.items[3], "1e00001e0100000000000000000a000000"));
+    CHECK(dqk.vm.seed == 0x476726e9);
+    CHECK(dqk.pool.coins[4] == 0 && dqk.pool.coins[5] == 0 && dqk.pool.coins[6] == 0);
+
+    /* The weight of id 80 (+0x2c) is 2, kept after the insert (it clears +0x2a-+0x2d). */
+    CHECK(dqk.pool.items[0][0x2c] == 2);
+
+    /* An id whose table entry starts 0xff adds nothing; the coins still add. */
+    dq_clear_pool(&dqk);
+    dqk.item_table[7][0] = 0xff;
+    DQK_RUN(&dqk, 0x27, 0, 1, 0, 0, 0, 0, 0, 1, 0, 7);
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(dqk.pool.item_count == 0 && dqk.pool.coins[4] == 1);
+    dq_clear_pool(&dqk);
+}
+
+/* The random scroll (6c70:1a83, 1a4e) from RandSeed 12345: a White Mage's scroll (r 1) with the
+ * spells 0x5c, 0x54 and 0x0a, 9 draws; then a Red Mage's (r 2, 7 draws) and RandSeed 0x476726e9. */
+static void test_dark_queen_random_scroll(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's random scroll not run");
+        return;
+    }
+    uint8_t entry[COK_ITEM_ENTRY];
+    uint32_t seed = 12345;
+    cok_dark_queen_random_scroll(cok_game_rules(&dqk), &seed, entry);
+    CHECK(seed == 0x44bac876);
+    CHECK(memcmp(entry, "\x27\x66\x27\x89\x01\x00\xb8\x0b\x01\x00\x00\x20\x00\x00\x5c\x54\x0a",
+                 COK_ITEM_ENTRY) == 0);
+    cok_dark_queen_random_scroll(cok_game_rules(&dqk), &seed, entry);
+    CHECK(seed == 0x476726e9);
+    CHECK(memcmp(entry, "\x27\x66\x27\x88\x01\x00\xb8\x0b\x01\x00\x00\x10\x00\x00\x2e\x5b\x0f",
+                 COK_ITEM_ENTRY) == 0);
 }
 
 /* 75cc:135c's treasure branch with no monsters, through 0593 (the party's after combat). The
@@ -3161,6 +3215,7 @@ int main(void)
     test_dark_queen_temple_member_keys();
     test_dark_queen_temple_no_animation();
     test_dark_queen_treasure_items();
+    test_dark_queen_random_scroll();
     test_dark_queen_heal();
     test_dark_queen_jump_table();
     test_dark_queen_ambush_gorgons();

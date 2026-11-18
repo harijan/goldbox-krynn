@@ -580,8 +580,8 @@ run, citing their handlers (`unported`). It holds:
   are recomputed for the members that lost one (`31af`), and a readied item goes off by
   the readied branch of `86b8:1965` (`queen_item_unready`; a power's `86b8:16f7` stops the
   run); ROB's money is integers, each coin times the percent kept over 100 (`124f`),
-  not Reals. TREASURE ITEMS (`6c70:2127`) and STOCK TREASURE (`6c70:335e`) still stop: they
-  call routines not ported here (`6c70:1a83`, `1df9:432f`; `1d99:1189` for STOCK).
+  not Reals. TREASURE ITEMS' items (`6c70:218f`) are ported (part 21a, below); STOCK TREASURE
+  (`6c70:335e`) still stops (part 40; `1d99:1189` for STOCK).
   Checked by `dqk_ecl_items.py` (FIND and DESTROY, with ROLANDOF's base AC before and after;
   ROB's money, 200 with 39 taken coming to 122, not Reals' 121, and its three d100 draws
   and the RANDOM after them; on test blocks with saved game A's party; 2026-11-02). The cursed
@@ -740,8 +740,13 @@ run, citing their handlers (`unported`). It holds:
   (`75cc:0bbe`, part 21) and Detect's cast (`849a:145b`, part 28) are cited stops); the pool is emptied (`63ee:0002`),
   vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
   clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
-  jewelry), and with items (n > 0) stops, cited at `6c70:218f`. `dqk_treasure.py` checks the state at
-  that stop: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
+  jewelry), and then (`6c70:218f`, part 21a) each list id's item goes first in the pool: an id whose
+  table entry starts 0xff (id 0 too) adds none, and 0xff is the random scroll (`6c70:1a83`,
+  `cok_dark_queen_random_scroll`: three mage spells, the scroll's White or Red Mage word from r = 1
+  or 2, drawn from RandSeed with 1a4e's test on DS:253e). A pool item is put by `pool_put`, which
+  puts back the bytes `cok_pool_insert` clears (+0x2a-+0x2d: Dark Queen's words 2-3 and its weight).
+  Take's items (`75cc:0bbe`) stay cited. `dqk_treasure.py` checks the state at
+  the treasure's stops: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),
   and `rest`, `gentle`, `fledmix` and `lost9` (the rest's statuses with and without var 0x1d, a fled
   party's removals, the lost party's var 0x20 at 0), and `enemy` (11b0's removal of a hostile member);
