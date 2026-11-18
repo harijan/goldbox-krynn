@@ -1707,8 +1707,9 @@ static void menu_open(void)
     script.prints[0] = '\0';
 }
 
-/* Runs queen_commands on CINDER with keys, from a fresh menu's state (the keys' queue reset). */
-static bool menu_run(const char *keys)
+/* Runs queen_commands on CINDER with keys and pressed (command.c's: a scan code the first read
+ * gives, 0 for none), from a fresh menu's state (the keys' queue reset). */
+static bool menu_run_pressed(const char *keys, uint8_t pressed)
 {
     script.keys = keys;
     script.at = 0;
@@ -1719,7 +1720,12 @@ static bool menu_run(const char *keys)
     script.prints[0] = '\0';
     menu_game.vm.status = COK_ECL_OK;
     menu_game.vm.abort = false;
-    return queen_commands(&menu_game, menu_c);
+    return queen_commands(&menu_game, menu_c, pressed);
+}
+
+static bool menu_run(const char *keys)
+{
+    return menu_run_pressed(keys, 0);
 }
 
 /* The menu's text when CINDER is as the test set her: queen_commands with no keys (the menu
@@ -1912,7 +1918,7 @@ static int combat_bar(bool mouse, int p, int q, size_t count, int split, int16_t
     script.keys = keys;
     script.at = 0;
     menu_game.vm.abort = false;
-    return queen_combat_menu(&menu_game, bar, count, split, p, q);
+    return queen_combat_menu(&menu_game, bar, count, split, p, q, 0);
 }
 
 static void test_combat_menu_areas(void)
@@ -1982,18 +1988,19 @@ static void test_command_menu_quick_speed(void)
         return;
     }
     const cok_character_layout *L = R->character;
-    /* Quick: the computer's, the target on her own side dropped, one draw, then the computer's
-     * turn's stop (5bb8:0000). */
+    /* Quick: the computer's, the target on her own side dropped, the wait's draw, then the
+     * computer's turn for her (5bb8:0000) at once, no menu again: its draws go on, and its first
+     * stop, the weapon choice (5bb8:1396, this test's state), is the one reached. */
     menu_open();
     cok_combat_record *cr = menu_c->combat;
     cr->target = menu_c->record;
     uint32_t drawn = menu_game.vm.seed;
     cok_tp_random(&drawn, 1000);
-    CHECK(!menu_run("Q") && menu_game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(menu_game.error, "5bb8:0000") != NULL);
+    CHECK(!menu_run("Q") && menu_game.vm.status == COK_ECL_UNDEFINED);
+    CHECK(strstr(menu_game.error, "5bb8:1396") != NULL);
+    CHECK(script.menus == 1);
     CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
     CHECK(cr->target == NULL && cr->initiative == 5);
-    CHECK(menu_game.vm.seed == drawn);
     /* Alt-Q: the turn index less one, initiative 0x14, every record of the combat list taken by
      * the computer (a second party member and a monster, appended as the battle's are), and the
      * turn ends (one draw). */
@@ -2035,6 +2042,67 @@ static void test_command_menu_quick_speed(void)
     menu_open();
     cok_ecl_set_var(&menu_game.vm, COK_VAR_SPEED, 5);
     CHECK(!menu_run("S\x1b") && cok_ecl_var(&menu_game.vm, COK_VAR_SPEED) == 5);
+    menu_close();
+}
+
+/* The state an Alt-Q turn leaves: the turn index, CINDER's initiative, and the COMPUTER flag of
+ * CINDER, an ally and a monster. */
+static void alt_q_state(const cok_character *ally, const cok_character *monster, int out[6])
+{
+    const cok_character_layout *L = R->character;
+    out[0] = menu_game.combat.turn_index;
+    out[1] = menu_c->combat->initiative;
+    out[2] = cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER);
+    out[3] = cok_field_u8(L, ally->record, COK_FIELD_COMPUTER);
+    out[4] = cok_field_u8(L, monster->record, COK_FIELD_COMPUTER);
+    out[5] = script.menus;
+}
+
+/* --combat auto's and --combat gods' first party turn (dqk 5045:08cf with the stub's key, round.c's
+ * menu_first): the pressed scan code 0x10 (Alt-Q) is taken after the menu is drawn (1bdb:0d26 draws
+ * before it reads), so the turn gives back at once: every record on Auto, the turn index less one,
+ * then the same combatant's turn comes again as the computer's (cok_combat_act, 5bb8:1396's stop
+ * here). The typed Alt-Q (~ then 0x10) leaves the same state, and so does the stub's call. Pressed
+ * 0x2d (Alt-X) without the Helm says "That doesn't work" and shows the menu again (the arena's
+ * stop, 6beb:12ef, in this test). Skipped without DQKAssets/. */
+static void test_command_menu_auto(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; --combat auto's first turn not checked");
+        return;
+    }
+    int typed[6], pressed[6], stub[6];
+    menu_open();
+    cok_character *ally = placed(&menu_game, 0), *monster = placed(&menu_game, 1);
+    menu_game.combat.turn_index = 1;
+    CHECK(menu_run("~\x10") && menu_game.vm.status == COK_ECL_OK);
+    alt_q_state(ally, monster, typed);
+    menu_open();
+    ally = placed(&menu_game, 0), monster = placed(&menu_game, 1);
+    menu_game.combat.turn_index = 1;
+    CHECK(menu_run_pressed("", 0x10) && menu_game.vm.status == COK_ECL_OK);
+    alt_q_state(ally, monster, pressed);
+    CHECK(memcmp(typed, pressed, sizeof typed) == 0);
+    CHECK(pressed[0] == 0 && pressed[1] == 0x14 && pressed[2] == 1 && pressed[3] == 1 &&
+          pressed[4] == 1);
+    /* The stub's call: cok_combat_act with --combat auto (round.c's menu_first branch) gives the
+     * same state, and the same combatant's turn after it is the computer's (CINDER on Auto). */
+    menu_open();
+    ally = placed(&menu_game, 0), monster = placed(&menu_game, 1);
+    menu_game.combat.turn_index = 1;
+    menu_game.combat_stub = COK_COMBAT_AUTO;
+    script.keys = "";
+    script.at = 0;
+    script.menus = 0;
+    CHECK(cok_combat_act(&menu_game, menu_c, false) && menu_game.vm.status == COK_ECL_OK);
+    alt_q_state(ally, monster, stub);
+    CHECK(memcmp(pressed, stub, sizeof pressed) == 0);
+    CHECK(!cok_combat_act(&menu_game, menu_c, true) && strstr(menu_game.error, "5bb8:1396") != NULL);
+    /* Pressed Alt-X without the Helm: "That doesn't work" on the bar, the menu again (script.menus
+     * the arena's turn stops at 6beb:12ef, as Alt-M's does). */
+    menu_open();
+    CHECK(!menu_run_pressed("", 0x2d) && strstr(menu_game.error, "6beb:12ef") != NULL);
+    CHECK(strcmp(script.messages, "That doesn't work;") == 0 && script.menus == 1);
     menu_close();
 }
 
@@ -2744,6 +2812,7 @@ int main(void)
     test_command_menu_keys();
     test_combat_menu_areas();
     test_command_menu_quick_speed();
+    test_command_menu_auto();
     test_arena_say();
     test_member_say();
     test_bandage();

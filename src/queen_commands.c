@@ -1,5 +1,6 @@
 #include "queen.h"
 
+#include "ai.h"
 #include "arena.h"
 #include "attack.h"
 #include "command.h"
@@ -179,7 +180,7 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         return true;
     case ITEM_QUICK:
         /* 0a2c: cok_combat_auto (1791), the bottom bar, the keys flushed (2093:0130), 200 ms
-         * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000): its stop.
+         * (one draw), done; then the computer's turn for c (2d99:0ff9 = 5bb8:0000, queen_computer).
          * The flush is the typed keys only. The original's 2093:0136 also drains them through
          * 2093:0078 (Alt-S and Alt-T toggle the sound, 2023:0247 and 2023:0272; Escape or '`'
          * with DS:ae59 set sets DS:a890), and then 22b7:235f(7) takes the pending press latch
@@ -194,12 +195,9 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         cok_adventure_flush(game);
         cok_dark_queen_wait(game, 200);
         *done = true;
-        /* The hand-on is not taken here: the stop stays where the state was checked against the
-         * original's (dqk_fight's quick_check, at 0a56), though the turn it hands on, 5bb8:0000
-         * (queen_computer), is ported. */
-        return cok_adventure_not_yet(
-            game, "computer's turn",
-            "dqk 5045:0a56, the computer's turn for c (2d99:0ff9 = 5bb8:0000)");
+        /* The computer's turn for c (2d99:0ff9 = 5bb8:0000, queen_computer: ai.c's
+         * cok_combat_computer, as the Death Knights' Quick calls it). */
+        return cok_combat_computer(game, c);
     case ITEM_DELAY:
         /* 0a60: command.c's delay (initiative 1, the turn list shifted). */
         cok_combat_delay(game, c);
@@ -249,7 +247,7 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
     return true;
 }
 
-bool queen_commands(cok_adventure *game, cok_character *c)
+bool queen_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
 {
     if (c->combat == NULL) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "a combatant has no combat record");
@@ -271,7 +269,10 @@ bool queen_commands(cok_adventure *game, cok_character *c)
         int q = cok_combat_x(&game->combat, c->record) - game->combat.view_x;
         int result;
         for (;;) {
-            result = queen_combat_menu(game, names, count, split, p, q);
+            /* The pressed key is the first menu's first read only: the menu is drawn, then the
+             * key is taken (1bdb:0d26 draws before 0e37's read). */
+            result = queen_combat_menu(game, names, count, split, p, q, pressed);
+            pressed = 0;
             if (result < 0 || game->vm.abort) break;
             if ((size_t)result < count || taken_code(result)) break;
         }

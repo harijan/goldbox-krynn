@@ -350,14 +350,15 @@ def speed_blocks():
     return out
 
 
-def port(work, name, patched, typed="", extra=(), block=JUMP):
+def port(work, name, patched, typed="", extra=(), block=JUMP, exe=None):
     """eclplay's run of the block (from a copy of the assets with the block
     replaced): its variables (--vars), its output's last line, and whether
     eclplay reports keys left unread (TYPED are the keys the block reads after
     its PRESS KEY, eclplay --keys escapes; EXTRA are more eclplay arguments;
     BLOCK is the block eclplay enters, None for none: the entry of --load's
     saved game, whose variable 0x16 names it). A --play run's --seed is two draws back
-    (dqk_lib.seed_before_begin): its Begin Adventuring draws the copy protection's two."""
+    (dqk_lib.seed_before_begin): its Begin Adventuring draws the copy protection's two. EXE, if
+    given, is the eclplay to run (a patched build; cokbox.ECLPLAY by default)."""
     assets = work / f"assets-{name}"
     if assets.exists():
         shutil.rmtree(assets)
@@ -375,7 +376,7 @@ def port(work, name, patched, typed="", extra=(), block=JUMP):
     # A --play run's Begin Adventuring draws the copy protection's two numbers after --seed. The
     # original sets SEED at the PRESS KEY, after its own, so eclplay's --seed is two draws back.
     seed = dqk_lib.seed_before_begin(SEED) if "--play" in extra else SEED
-    result = subprocess.run([str(cokbox.ECLPLAY), *GAME, "--seed", str(seed), "--vars",
+    result = subprocess.run([str(exe or cokbox.ECLPLAY), *GAME, "--seed", str(seed), "--vars",
                              str(vars_path), "--keys", "\\r" + typed, *extra, str(assets),
                              *([str(block)] if block is not None else [])],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)

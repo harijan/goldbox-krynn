@@ -897,7 +897,12 @@ bool cok_combat_act(cok_adventure *game, cok_character *c, bool computer)
         }
         if (c->combat->spell > 0 && R->spell_unported != NULL)
             return cok_adventure_not_yet(game, "pending spell's cast", R->spell_unported);
-        return cok_combat_commands(game, c, 0); /* 08cf: the command menu (queen_commands.c) */
+        /* 08cf: the command menu (queen_commands.c), the stub's key pressed first (--combat auto
+         * Alt-Q, gods Alt-X). */
+        uint8_t key = 0;
+        if (game->combat_stub == COK_COMBAT_AUTO) key = 0x10;
+        if (game->combat_stub == COK_COMBAT_GODS) key = 0x2d;
+        return cok_combat_commands(game, c, key);
     }
     /* 5045:0891: the computer's turn (5bb8:0000, queen_computer) is ahead of the stubs too, as the
      * menu is: a stub must not pass over the port's own stops. */

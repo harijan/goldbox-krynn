@@ -857,23 +857,26 @@ static bool print_text(cok_adventure *game, const char *s, bool clear)
 static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
                           size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
                           const rect *areas, const uint8_t *area_cursors, size_t area_count,
-                          int split, bool space);
+                          int split, bool space, uint8_t scan);
 
 static int bar_menu(cok_adventure *game, const char *prompt, const char *const *items,
                     size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out)
 {
     return bar_menu_areas(game, prompt, items, count, dirs, anim, timeout, timed_out, NULL, NULL,
-                          0, -1, false);
+                          0, -1, false, 0);
 }
 
 /* bar_menu with areas of the screen after its buttons (1bdb:1429's: the
  * sheet's rows, which a click takes: 2aa6:15e3's hit, 1bdb:1206's), a
  * click on one giving AREA_MENU + its index; area_cursors, if not NULL,
- * the cursor shown over each (ALWAYS.TLB's record; NULL: the sword). */
+ * the cursor shown over each (ALWAYS.TLB's record; NULL: the sword). scan,
+ * if not 0, is a scan code the first key read gives instead of the keyboard's
+ * (as if pressed, after the menu is drawn: 1595's pressed key, the combat's
+ * Alt-Q 0x10 and Alt-X 0x2d). */
 static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *const *items,
                           size_t count, bool dirs, bool anim, uint16_t timeout, int timed_out,
                           const rect *areas, const uint8_t *area_cursors, size_t area_count,
-                          int split, bool space)
+                          int split, bool space, uint8_t scan)
 {
     /* 1e3d-1e5a: the prompt DS:3aee (10d7:2543: equal strings) is no menu: 1bdb:0521 draws
      * 0495's continue prompt and waits for its Return (141e(2), 1206 with no items and anim),
@@ -916,8 +919,16 @@ static int bar_menu_areas(cok_adventure *game, const char *prompt, const char *c
     menu_wait_begin(game, anim);
     int result = -1;
     for (;;) {
-        input in;
-        int key = read_input(game, &in);
+        input in = {0};
+        int key;
+        if (scan != 0) {
+            mouse_start(game);
+            key = extended(scan);
+            in.key = key;
+            scan = 0;
+        } else {
+            key = read_input(game, &in);
+        }
         if (key == COK_KEY_TIMEOUT && timeout != 0) {
             result = timed_out;
             break;
@@ -4880,7 +4891,7 @@ static int commands(cok_adventure *game)
     for (bool done = false; !done;) {
         cok_adventure_log(game, "menu", "Area Cast View Encamp Search Look Inv");
         int choice = bar_menu_areas(game, "", items, 7, true, false, 0, 0, view_areas,
-                                    view_cursors, area_count, -1, false);
+                                    view_cursors, area_count, -1, false, 0);
         if (choice < 0) return -1;
         if (choice >= AREA_MENU) choice = view_codes[choice - AREA_MENU];
         if (choice >= 0x80 || choice == 0x1b) {
@@ -5321,7 +5332,7 @@ int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *co
                         size_t count, bool dirs, const queen_rect *areas, size_t area_count)
 {
     return bar_menu_areas(game, prompt, items, count, dirs, false, 0, 0, areas, NULL, area_count,
-                          -1, false);
+                          -1, false, 0);
 }
 
 /* 1bdb:1595's mouse areas (15de-1828: 2aa6:1294's records in 2-px units, read as pixels here), in
@@ -5338,11 +5349,11 @@ static const uint8_t combat_cursors[8] = {9, 11, 5, 7, 10, 4, 6, 8};
 static const int combat_codes[8] = {0x86, 0x88, 0x82, 0x84, 0x87, 0x81, 0x83, 0x85};
 
 int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
-                      int p, int q)
+                      int p, int q, uint8_t pressed)
 {
     if (!game->mouse.on)
         return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split,
-                              true);
+                              true, pressed);
     int P = 24 * (uint8_t)p, Q = 24 * (uint8_t)q;
     const rect areas[8] = {
         {P + 8, 0, P + 32, Q + 8},
@@ -5355,7 +5366,7 @@ int queen_combat_menu(cok_adventure *game, const char *const *items, size_t coun
         {P + 32, 0, 184, Q + 8},
     };
     int result = bar_menu_areas(game, "", items, count, true, false, 0, 0, areas, combat_cursors,
-                                8, split, true);
+                                8, split, true, pressed);
     return result >= AREA_MENU ? combat_codes[result - AREA_MENU] : result;
 }
 

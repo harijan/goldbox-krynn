@@ -880,6 +880,8 @@ Flow `melee-dying` (step 4, part 16b: `dqk_fight.py`'s `melee-dying`, about a mi
 Flow `alt_q` in `keys` (part 15c): the Alt-Q dispatch (`0891`) and the weapon choice's panel call are checked against
 the original alone (`weapon_entry`). Its flight is `altq_missile`'s.
 
+Flow `auto` (part 18a, `make dqk-checks ARGS="--only dqk_fight --flows auto"`, about 1 min, not in the default flows): Alt-Q typed at the first turn's menu in the original, and the round's end (`5045:0f6c`) made to spin, read and let go. eclplay runs the block twice, Alt-Q typed (`\r\r\@Q`) and `--combat auto` (`\r\r`), and the two must write the same round files. Round 1 agrees (RandSeed, records, combat blocks, turn list, combatants, battlefield and screen). Round 2 does not, not diagnosed: the original's round loop ends after its turn 4 with neither side gone nor the round limit reached (its turn list still holds entries 5-8 with their initiatives), while eclplay plays all eight entries. In one run in six the original's round 1 ended after turn 6 the same way, so round 1 is not yet stable: AUTO_UNTIL is 1 (set 2 to see round 2). The Quick check (`keys`) now runs past the hand-on: eclplay plays c's computer turn and waits at the next menu.
+
 Flow `altq_missile` (part 15c, `make dqk-checks ARGS="--only dqk_fight --flows altq_missile"`, about a minute: 0.4 min in the last run): Alt-Q's
 first missile flight. The original runs from the first menu with `\@Q` typed there, and its entry's trap is EB FE in the
 copies of `52db:2888` in overlay 0 (`arm`; the root image has none); the wait holds when the spin does and RandSeed does
