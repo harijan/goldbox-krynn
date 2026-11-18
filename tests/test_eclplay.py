@@ -319,6 +319,21 @@ class PlayTests(unittest.TestCase):
                                       "combat: seed 2996491197",
                                       "(out of keys in block 32 at 8417)"])
 
+    def test_turns_after_the_battle(self):
+        # test_auto's ambush with --turns, at the battle's end: its turn list holds the monsters
+        # removed from the party (freed) and party members whose combat block is freed (NULL).
+        # The file is written, with "n index" and no initiative for those (save_turns).
+        turns = self.folder / "turns.txt"
+        result = self.play("--test-party", 6, "--set", "4be6=1", "--start", "835f", "--seed", 1,
+                           "--combat", "auto", "--keys", r"\r\rEN", "--turns", turns, ASSETS, 32)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines()[-1], "(out of keys in block 32 at 8417)")
+        lines = turns.read_text().splitlines()
+        self.assertEqual(len(lines), 12)
+        self.assertEqual(lines[0], "1 5")
+        self.assertEqual(lines[2], "3 6")
+        self.assertTrue(all(len(line.split()) == 2 for line in lines))
+
     def test_casters_on_auto(self):
         # Two clerics of ECL1 block 33 at 86a4 against the test party on
         # Auto (3afb:0613, 432f:28bd): one Begins Casting Hold Person (time

@@ -186,7 +186,8 @@ static void save_blocks(const cok_adventure *game, const char *path)
 /* --turns: the turn list as the round's start left it (Dark Queen's DS:bd99 + 4n, 5045:0447):
  * a line "n index initiative" for each entry n (1 to 0x48) that is not empty, index the
  * record's place in the party list (--records' order) and initiative the combat record's
- * (cok_combat_record, signed); the port's turn array, whichever game's battle ran. */
+ * (cok_combat_record, signed), or "n index" with no initiative where the record is gone (after a
+ * battle); the port's turn array, whichever game's battle ran. */
 static void save_turns(const cok_adventure *game, const char *path)
 {
     FILE *f = fopen(path, "w");
@@ -199,6 +200,13 @@ static void save_turns(const cok_adventure *game, const char *path)
         if (c == NULL) continue;
         size_t index = 0;
         while (index < game->party.count && game->party.members[index] != c) ++index;
+        /* After a battle (dark_queen.c's enemies_removed and 5922's frees), a monster removed from the
+         * party is freed: not in the list, so its record is not read. A party member's combat block
+         * is freed (NULL). Neither has an initiative: the line has none, and turns_agree says so. */
+        if (index == game->party.count || c->combat == NULL) {
+            fprintf(f, "%u %zu\n", n, index);
+            continue;
+        }
         fprintf(f, "%u %zu %d\n", n, index, (int)c->combat->initiative);
     }
     fclose(f);
