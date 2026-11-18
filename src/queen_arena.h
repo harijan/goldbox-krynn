@@ -6,6 +6,7 @@
 #include "hlib.h"
 #include "picture.h"
 #include "rules.h"
+#include "vga.h"
 
 #include <stdbool.h>
 #include <stddef.h>
@@ -31,6 +32,7 @@ enum {
     COK_QUEEN_ARENA_Y = 8,     /* Its top row. */
     COK_QUEEN_ARENA_CELL = 24, /* A cell's width and height. */
     COK_QUEEN_ARENA_VIEW = 7,  /* Cells across and down. */
+    COK_QUEEN_ARENA_SAVE = 24, /* A missile's save, a side (see cok_queen_arena_save). */
 };
 
 /* Draw map cell x, y (map coordinates) of game's battle at its place in the view, if it is in the
@@ -55,5 +57,21 @@ bool cok_queen_arena_icon(cok_picture *screen, const uint8_t *record, size_t siz
  * where a cell is past the map (the original reads the heap there) or lacks
  * its tile. */
 bool cok_queen_arena_view(cok_adventure *game, const hlib_library *tiles, char *error, size_t size);
+
+/* A missile's place on the screen for sub-cell unit (3 to a cell, 0-0x12 across the view): 8 + 8 *
+ * unit pixels (dqk 51c2:00a0's 4 * unit + 0x1f44, through 251e:0595 with DS:cda0 4, read in the box
+ * at the first turn). */
+int cok_queen_arena_place(int unit);
+/* The COK_QUEEN_ARENA_SAVE square of pixels at x, y of the screen saved into under (19a4:09eb with
+ * 12, 12, relative: 251e:0595 makes them 24 by 24 with DS:cda0 and cb7a 4); the pixels off the
+ * screen saved as 0 and not put back. */
+void cok_queen_arena_save(const cok_picture *screen, int x, int y,
+                          uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE]);
+/* under put back at x, y (19a4:0aba). */
+void cok_queen_arena_restore(cok_picture *screen, int x, int y,
+                             const uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE]);
+/* A missile's frame drawn masked at x, y (19a4:04e1), its hotspot allowed for as an icon's is
+ * (cok_queen_arena_icon), clipped to the screen. */
+void cok_queen_arena_missile(cok_picture *screen, const cok_vga_image *image, int x, int y);
 
 #endif

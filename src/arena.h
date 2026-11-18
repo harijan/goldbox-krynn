@@ -263,7 +263,10 @@ void cok_arena_sound(cok_adventure *game, unsigned n);
  * centred, forced, on the view's centre if both ends are shown, else on
  * their midpoint if they are at most 6 cells apart, or else on the view's
  * centre until the missile leaves the view and then, near the target, from
- * where it comes in. Each step draws the missile's pictures in turn,
+ * where it comes in. On a game that draws its own ground the frames, their
+ * drawing and their restore are its hooks (adventure.h's arena_missile_*),
+ * and each wait is 2 * delay where fight.missile_wait_twice (Dark Queen's).
+ * Each step draws the missile's pictures in turn,
  * frames of them, masked at its place, shows the map, waits delay ms and
  * erases it; with a delay of 0 only where it is on a cell's edge across or
  * down. It ends drawn at the

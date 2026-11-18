@@ -1607,10 +1607,14 @@ typedef struct {
     uint8_t forget_mark;
     /* The missile (432f:2beb; dkk 5340:28a0; dqk 52db:2888): the item types drawn
      * as arrows, 0-ended; the pictures by kind; whether its flight's ends are first kept on the
-     * battlefield (dkk 65cd:1d56: x 0-0x31, y 0-0x18). */
+     * battlefield (dkk 65cd:1d56, dqk 51c2:00df: x 0-0x31, y 0-0x18). Dark Queen's flight draws
+     * its frames through the drawing's arena_missile_* hooks, and waits 2 * delay per frame
+     * (missile_wait_twice: 1df9:052a(delay * 2)), where Champions' and Death Knights' wait delay
+     * (1962:029c). */
     const uint8_t *arrows;
     cok_rules_missile missile;
     bool missile_clamped;
+    bool missile_wait_twice;
     /* The icon slot of the burst drawn on one hurt (6346:228c with kind 0:
      * 0x17; dkk 65cd:24bc 0x18; kind 1's flash is 0x16 in both). */
     uint8_t burst_slot;
@@ -1675,10 +1679,6 @@ typedef struct {
     /* The colour of "and is Dying" on the window's grey (cok_arena_text at 0x17, the row, bg 0:
      * dqk 1a62:0046's 7; Champions' and Death Knights' 10). */
     uint8_t dying_colour;
-    /* The stop for what the port does not carry out for a game yet (cited, cok_adventure_not_yet):
-     * a missile's flight, after its pictures are chosen (dqk 51c2:00df, part 17b; an item or a
-     * readied weapon of type 0x1c or 0x1d, dqk 52db:2888). NULL: the port's own. */
-    const char *missile_unported;
     /* The stop for an item a strike took and then removes (use_up_freed): the removal writes
      * through NULL for an item not in the list (dqk 177e:13d2). NULL: the port's alert. */
     const char *freed_remove_unported;

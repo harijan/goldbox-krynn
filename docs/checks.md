@@ -880,14 +880,18 @@ Flow `melee-dying` (step 4, part 16b: `dqk_fight.py`'s `melee-dying`, about a mi
 Flow `alt_q` in `keys` (part 15c): the Alt-Q dispatch (`0891`) and the weapon choice's panel call are checked against
 the original alone (`weapon_entry`). Its flight is `altq_missile`'s.
 
-Flow `altq_missile` (part 15c, `make dqk-checks ARGS="--only dqk_fight --flows altq_missile"`, about six minutes): Alt-Q's
-first missile flight (`52db:2888`, part 17, unported). The original runs from the first menu with `\@Q` typed there, and
-its trap is EB FE in the copies of `52db:2888` in overlay 0 (`arm`; the root image has none); the wait holds when the spin
-does and RandSeed does not move over a second, twice (the computer's turns run with no key wait). eclplay's run with the
-same keys stops at the flight, and its state is compared: RandSeed 0x484d403f, 1039 draws past the menu (1034 past the
-panel call), every record and combat block, the turn list, the combatants (`--field`), and the selected record
-(`57fb:04da`). Earlier runs that trapped `box.from_ghidra(0x52db, 0x2888)` hit no code (that maps only the root image),
-and their 72 and 202 draws were moments of the computer's turns, not a flight.
+Flow `altq_missile` (part 15c, `make dqk-checks ARGS="--only dqk_fight --flows altq_missile"`, about a minute: 0.4 min in the last run): Alt-Q's
+first missile flight. The original runs from the first menu with `\@Q` typed there, and its entry's trap is EB FE in the
+copies of `52db:2888` in overlay 0 (`arm`; the root image has none); the wait holds when the spin does and RandSeed does
+not move over a second, twice (the computer's turns run with no key wait). Then the flight's strike: `148f:077f`
+(`mov al, 0x69`, event 4 on the attacker, in the root image, so its trap holds; `78e4:1aa2` is not trapped, overlay 9 is
+loaded by that call), where the entry's trap is given back first. eclplay's run with the same keys stops at the strike
+(`effect 0x69 (dqk 78e4:1aa2)`), and its state there is compared: RandSeed 1039 draws past the menu at the entry
+(`52db:2888`, 0x484d403f; 1034 past the panel call), 1044 at the strike (the flight's three frames, 148f:1771's d20 and
+148f:199e's die), every record and combat block, the turn list, the combatants (`--field`), the selected record
+(`57fb:04da`), and the whole screen with the menu's pointer masked (the flight's restore is in it). Earlier runs that
+trapped `box.from_ghidra(0x52db, 0x2888)` hit no code (that maps only the root image), and their 72 and 202 draws were
+moments of the computer's turns, not a flight.
 
 Flow `round` (part 27a). Fixture 1: var 0x2e is 2 at the entry (before set_seed; `--set 2e=2` in eclplay); five E
 keys, the state before the sixth, then the sixth key with 0891 and 08cf both armed: round 2's first menu (CINDER,
@@ -934,13 +938,13 @@ The same flow runs the command menu's four commands (step 4, part 22b; `command_
 `commands`), each from the same first menu: Quick (Q) trapped at `5045:0a56` (the lcall to the computer's turn),
 Alt-Q (`\@Q`) at the computer's dispatch `5045:0891` and flipped as above, Alt-M (`\@M`) and Speed (S, F, E) trapped at
 `5045:0cd7` (the menu built again), the menu's wait screen taken once the trap is given back. Eclplay's stops are
-the computer's turn (`5bb8:0000`), Alt-Q's missile's flight (`52db:2888`, see `altq_missile`) and the keys running out at the menu or the speed bar.
+the computer's turn (`5bb8:0000`), Alt-Q's missile flight (its strike, `148f:077f`: see `altq_missile`) and the keys running out at the menu or the speed bar.
 Checked against the original: the RandSeed draws past the menu (Quick, Alt-Q and Alt-M one; Speed none), the
 records' COMPUTER byte (Quick: record 1 only; Alt-Q: all eight, the monsters too), the combat blocks (record 1's
 initiative 9 after Quick, 0x13 after Alt-Q), the turn list, DS:bd2d (1 after Quick and after Alt-Q), DS:b1cb
 (0 to 1 with Alt-M, eclplay's "magic on" once and the menu built twice), var 0x12 (4 at the menu and on the speed
 bar, 3 after F and after E) and the screens: the speed bar after S and after F with the mouse pointer masked
-(`dqk_views.POINTER`), the others with the menu's pointer masked (Alt-Q's is not compared: its stop is the flight, see `altq_missile`). Bandage and Yell have their runs
+(`dqk_views.POINTER`), the others with the menu's pointer masked (Alt-Q's is compared at the strike: see `altq_missile`). Bandage and Yell have their runs
 below; the mouse areas have theirs in the `mouse` flow.
 
 Two more runs (step 4, part 22b's leftovers; `commands` after the four above). `altx` is `command_original`'s

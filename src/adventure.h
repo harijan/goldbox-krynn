@@ -257,6 +257,16 @@ typedef struct {
      * ground, kind 1 for an effect's text): drawn by the game (dqk 51c2:0731). NULL: the game's
      * own missile stops, cited. */
     bool (*arena_flash)(cok_adventure *game, cok_character *c, uint8_t kind, const char *text);
+    /* A missile's frames and their drawing, for a game that draws its own ground (arena.c's
+     * cok_arena_missile_frame, draw_missile and the restore of a flight; dqk 51c2:0005, 00be and
+     * 00df). arena_missile_frame: frame (0-3) built from icon slot's image (0 or 1), mirrored if
+     * mirror. arena_missile_draw: frame drawn masked at the battle's place x, y (sub-cells of a
+     * cell: 3 to a cell), the 24 by 24 under it saved first. arena_missile_restore: that save put
+     * back at x, y. NULL: arena.c stops, citing the game's missing part. */
+    bool (*arena_missile_frame)(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
+                                bool mirror);
+    bool (*arena_missile_draw)(cok_adventure *game, uint8_t frame, int x, int y);
+    bool (*arena_missile_restore)(cok_adventure *game, int x, int y);
     /* A text at cell x, y of the battle in colour fg on bg (cok_arena_text's place, dqk
      * 1a62:0046: on row 24 boxed on the bar by prompt_box, above it on the window's grey by the
      * attribute bg * 16 + fg; a background of 0 is the grey, and from row 23 down a white fg of 7

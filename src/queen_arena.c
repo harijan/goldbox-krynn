@@ -144,6 +144,48 @@ bool cok_queen_arena_icon(cok_picture *screen, const uint8_t *record, size_t siz
     return true;
 }
 
+int cok_queen_arena_place(int unit)
+{
+    return COK_QUEEN_ARENA_X + 8 * unit;
+}
+
+/* The pixel at x, y of the screen as an index, or -1 off it. */
+static long pixel_index(const cok_picture *screen, int x, int y)
+{
+    int width = (int)screen->units * 8;
+    if (x < 0 || y < 0 || x >= width || y >= (int)screen->height) return -1;
+    return (long)y * width + x;
+}
+
+void cok_queen_arena_save(const cok_picture *screen, int x, int y,
+                          uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE])
+{
+    for (int row = 0; row < COK_QUEEN_ARENA_SAVE; ++row)
+        for (int column = 0; column < COK_QUEEN_ARENA_SAVE; ++column) {
+            long at = pixel_index(screen, x + column, y + row);
+            under[row * COK_QUEEN_ARENA_SAVE + column] = at >= 0 ? screen->pixels[at] : 0;
+        }
+}
+
+void cok_queen_arena_restore(cok_picture *screen, int x, int y,
+                             const uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE])
+{
+    for (int row = 0; row < COK_QUEEN_ARENA_SAVE; ++row)
+        for (int column = 0; column < COK_QUEEN_ARENA_SAVE; ++column) {
+            long at = pixel_index(screen, x + column, y + row);
+            if (at >= 0) screen->pixels[at] = under[row * COK_QUEEN_ARENA_SAVE + column];
+        }
+}
+
+void cok_queen_arena_missile(cok_picture *screen, const cok_vga_image *image, int x, int y)
+{
+    /* As cok_queen_arena_icon's: the hotspot less, the column down to a multiple of 4. The clip is
+     * the screen's, as the clip is at the battle's first turn (DS:cdae and cdb3 0, cdb5 320, cdb9
+     * 200, read in the box); the view's clip (5837:1367) is not checked during a flight. */
+    int row = y - image->x, col = down4(x - image->y);
+    cok_vga_draw(screen, image, col, row, NULL, NULL);
+}
+
 bool cok_queen_arena_view(cok_adventure *game, const hlib_library *tiles, char *error, size_t size)
 {
     const cok_combat *combat = &game->combat;

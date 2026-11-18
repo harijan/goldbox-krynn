@@ -899,12 +899,20 @@ static void test_attack_wait(void)
 }
 
 /* An item or a readied weapon of type 0x1c (dqk 52db:18d6's 2888 calls, part 17): its pictures are
- * chosen, then the flight (51c2:00df, part 17b) is not ported, so the attack stops, cited, after
- * the wait. */
+ * chosen and it flies (51c2:00df, part 17b), a sling stone's two frames at 20 ms, then the
+ * strike. */
+static int enter_key(void *context)
+{
+    (void)context;
+    return 13; /* the text's page after the attack's report waits for one */
+}
+
 static void test_attack_missile(void)
 {
     cok_character *a, *t;
     uint8_t item[COK_ITEM_SIZE] = {0};
+    game.vm.abort = false; /* an earlier test's stop leaves it set */
+    game.keys.read = enter_key;
     for (int weapon = 0; weapon < 2; ++weapon) {
         duel(&a, &t);
         CHECK(cok_character_insert_item(a, 0, item));
@@ -913,9 +921,10 @@ static void test_attack_missile(void)
             a->slots[0] = 1;
         }
         bool over = false;
-        CHECK(!cok_combat_attack(&game, a, t, false, weapon ? 0 : 1, &over));
-        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "51c2:00df") != NULL);
+        CHECK(cok_combat_attack(&game, a, t, false, weapon ? 0 : 1, &over));
+        CHECK(game.vm.status == COK_ECL_OK && !game.vm.abort);
     }
+    game.keys.read = no_key;
     battle_clear();
 }
 
@@ -970,6 +979,140 @@ static void test_missile_pictures(void)
 /* The readied weapon's type is at the item record's type (+0x28, dqk 177e:0be2): a hoopak (0x43)
  * and a thrown axe (3, flags 0x14) read there, not at Champions' +0x2e; a dart (5, flags 0x1a) is
  * not thrown. */
+/* The flight (dqk 51c2:00df, part 17b; cok_arena_missile on Dark Queen's ground). Its waits are
+ * the hooks' delay: 2 * delay ms a frame, the target's too when delay > 0, each a RandSeed draw
+ * (1df9:052a), and each frame drawn is a 20 ms wait for an arrow (delay 10). */
+static unsigned waits;
+static unsigned wait_ms[256];
+
+static void wait_spy(cok_adventure *g, unsigned ms, void *context)
+{
+    (void)g, (void)context;
+    if (waits < 256) wait_ms[waits] = ms;
+    ++waits;
+}
+
+/* The screen (320 by 200, a byte a pixel) saved and put back, and the flight's start from a fresh
+ * battle view. */
+static uint8_t screen_a[64000], screen_b[64000];
+
+static size_t screen_size(void)
+{
+    return (size_t)game.screen.units * 8 * game.screen.height;
+}
+
+static void flight_start(void)
+{
+    battle_clear();
+    game.combat.view_x = 0;
+    game.combat.view_y = 0;
+    game.vm.mode = 5;
+    game.vm.abort = false;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    waits = 0;
+    game.hooks.delay = wait_spy;
+}
+
+static void test_flight(void)
+{
+    CHECK(screen_size() <= sizeof screen_a);
+    /* With delay > 0 the flight puts back all it covered: each frame's 24 by 24 under it
+     * (19a4:09eb, 0aba), and the target's. The view is drawn before the screen is saved (the
+     * flight's centring would draw it, and that is not the flight's change). */
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x0f, 0, 0, false));
+    CHECK(cok_arena_centre(&game, 3, 3, 0xff, 8));
+    memcpy(screen_a, game.screen.pixels, screen_size());
+    CHECK(cok_arena_missile(&game, 1, 1, 5, 1, 1, 10) && game.vm.status == COK_ECL_OK);
+    CHECK(memcmp(game.screen.pixels, screen_a, screen_size()) == 0);
+    /* An arrow (one frame, delay 10) flies 1, 1 to 5, 1 on the view: a 20 ms wait a frame, each
+     * step drawn (delay > 0), the target's too; one RandSeed draw for each wait. */
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x0f, 0, 0, false));
+    uint32_t want = game.vm.seed;
+    CHECK(cok_arena_missile(&game, 1, 1, 5, 1, 1, 10) && game.vm.status == COK_ECL_OK);
+    /* Twelve sub-cells east (3 to 15): eleven frames drawn along the line, and the target's. */
+    CHECK(waits == 12);
+    for (unsigned i = 0; i < waits; ++i) {
+        CHECK(wait_ms[i] == 20);
+        cok_tp_random(&want, 1000);
+    }
+    CHECK(game.vm.seed == want);
+    /* A stone (two frames, delay 0x14: the 2 * delay is 40 ms) flies the same way. */
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x16, 0, 0, false) &&
+          cok_arena_missile_frame(&game, 0x16, 1, 1, false));
+    want = game.vm.seed;
+    CHECK(cok_arena_missile(&game, 1, 1, 5, 1, 2, 0x14) && game.vm.status == COK_ECL_OK);
+    CHECK(waits == 12);
+    for (unsigned i = 0; i < waits; ++i) {
+        CHECK(wait_ms[i] == 40);
+        cok_tp_random(&want, 1000);
+    }
+    CHECK(game.vm.seed == want);
+    /* With delay 0 each frame waits 0 ms, which draws nothing: the seed stays. */
+    flight_start();
+    want = game.vm.seed;
+    CHECK(cok_arena_missile(&game, 1, 1, 5, 1, 1, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
+    for (unsigned i = 0; i < waits; ++i) CHECK(wait_ms[i] == 0);
+    /* The ends kept on the battlefield (51c2:00df's clamp, x 0-0x31, y 0-0x18): a flight to -5, 30
+     * is the one to 0, 24, the same waits, draws and screen. */
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x0f, 0, 0, false));
+    memcpy(screen_a, game.screen.pixels, screen_size());
+    uint32_t seed0 = game.vm.seed;
+    CHECK(cok_arena_missile(&game, 1, 1, -5, 30, 1, 10) && game.vm.status == COK_ECL_OK);
+    unsigned waits_a = waits;
+    uint32_t seed_a = game.vm.seed;
+    memcpy(screen_b, game.screen.pixels, screen_size());
+    memcpy(game.screen.pixels, screen_a, screen_size());
+    flight_start();
+    game.vm.seed = seed0;
+    CHECK(cok_arena_missile(&game, 1, 1, 0, 24, 1, 10) && game.vm.status == COK_ECL_OK);
+    CHECK(waits == waits_a && game.vm.seed == seed_a);
+    CHECK(memcmp(game.screen.pixels, screen_b, screen_size()) == 0);
+    battle_clear();
+    game.hooks.delay = NULL;
+}
+
+/* The frame's place (51c2:00a0's 4 * unit + 0x1f44, through 251e:0595): sub-cell 3, 3 is pixel
+ * 8 + 8 * 3, 32, both ways, and the 24 by 24 under it is put back (19a4:09eb, 0aba). The arrow has
+ * opaque pixels outside the top-left 12 by 12, so a save of 12 by 12 fails here. */
+static void test_flight_place(void)
+{
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x0f, 0, 0, false));
+    const uint8_t *record = NULL;
+    size_t size = 0;
+    CHECK(queen_icon(&game, 0x0f, 0, &record, &size) && record != NULL);
+    cok_vga_image arrow = {0};
+    CHECK(cok_vga_decode(record, size, NULL, &arrow) == COK_VGA_OK);
+    CHECK(arrow.width == 24 && arrow.height == 24);
+    uint8_t under[24][24];
+    for (unsigned y = 0; y < 24; ++y)
+        for (unsigned x = 0; x < 24; ++x) under[y][x] = game.screen.pixels[(32 + y) * 320 + 32 + x];
+    CHECK(cok_adventure_drawing(&game)->arena_missile_draw(&game, 0, 3, 3));
+    unsigned shown = 0, outside = 0;
+    for (unsigned y = 0; y < 24; ++y)
+        for (unsigned x = 0; x < 24; ++x) {
+            size_t j = (size_t)y * 24 + x;
+            if (arrow.mask != NULL && arrow.mask[j] != 0) continue;
+            CHECK(game.screen.pixels[(32 + y) * 320 + 32 + x] == arrow.pixels[j]);
+            ++shown;
+            if (x >= 12 || y >= 12) ++outside;
+        }
+    CHECK(shown > 0 && outside > 0);
+    CHECK(cok_adventure_drawing(&game)->arena_missile_restore(&game, 3, 3));
+    for (unsigned y = 0; y < 24; ++y)
+        for (unsigned x = 0; x < 24; ++x)
+            CHECK(game.screen.pixels[(32 + y) * 320 + 32 + x] == under[y][x]);
+    cok_vga_free(&arrow);
+    battle_clear();
+    game.hooks.delay = NULL;
+}
+
 static void test_item_type_at(void)
 {
     CHECK(game.item_types.record_type_at == 0x28);
@@ -1409,6 +1552,8 @@ int main(void)
     test_attack_facing();
     test_attack_wait();
     test_attack_missile();
+    test_flight();
+    test_flight_place();
     test_missile_pictures();
     test_item_type_at();
     test_use_up();

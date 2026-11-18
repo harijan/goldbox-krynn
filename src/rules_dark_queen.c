@@ -906,12 +906,13 @@ const cok_rules cok_rules_dark_queen = {
             .under_tiles = dark_queen_under_tiles,
             /* 52db:2888: the arrows (0x0f, odd 0x10), spinning 0x12, sling stones 0x16, others
              * 0x15 (no thrown: 0x36 and 0x37 are others); the sounds 0x0d, 0x0a, 7, 0x0a; no
-             * leading sound. Its flight, 51c2:00df, is part 17b: the stop after the pictures
-             * are chosen. */
+             * leading sound. Its flight, 51c2:00df: the ends kept on the battlefield, the frames
+             * drawn by the drawing's hooks, and the wait 2 * delay (part 17b). */
             .arrows = dark_queen_arrows,
             .missile = {.arrow = {0x0f, 0x0d}, .spin = {0x12, 0x0a}, .stone = {0x16, 7},
                         .other = {0x15, 0x0a}},
-            .missile_unported = "dqk 51c2:00df (the missile's flight, part 17b)",
+            .missile_clamped = true,      /* 51c2:00df's clamp of its ends (00e8-0143) */
+            .missile_wait_twice = true,   /* 51c2:00df's 1df9:052a(delay * 2) */
             /* 177e:13d2 (the removal of a strike's item, 52db:18d6's use-up): writes through NULL
              * for an item not in the list. */
             .freed_remove_unported =
