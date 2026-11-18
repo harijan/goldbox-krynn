@@ -139,14 +139,14 @@ wait and the turn list and seed at both menus against eclplay's --load --seed ro
 Flow `auto` (step 4, part 18a: --combat auto's first turn and the rounds; run alone with `--flows auto`, its own
 box with a 1800 s timeout, not in the default flows): Alt-Q typed at the first turn's menu in the original (\\@Q),
 and the round's end (5045:0f6c, cok_combat_end_round's start) made to spin, read and let go, for the first
-AUTO_UNTIL rounds (1). eclplay runs the block twice, Alt-Q typed (\\r\\r\\@Q) and --combat auto (\\r\\r): both must
+AUTO_UNTIL rounds (2). eclplay runs the block twice, Alt-Q typed (\\r\\r\\@Q) and --combat auto (\\r\\r): both must
 write the same round files (the --records, --blocks, --field and --turns writers and the screen, at round.c's mark:
-auto_eclplay, a patched build). Round 1's records (pointers masked), combat blocks, turn list, combatants,
-battlefield, RandSeed and screen (MENU_POINTER masked) agree with the original's. Known, not diagnosed: round 2 does
-not (the original's round loop ends after its turn 4 with neither side gone nor the round limit reached, and the
-port plays all eight entries; RandSeed, blocks, positions and the screen differ), and in one run in six the original's
-round 1 ended after turn 6 the same way. Set AUTO_UNTIL to 2 to see round 2. The continue question and the results
-are part 18b.
+auto_eclplay, a patched build). Each round's records (pointers masked), combat blocks, turn list, combatants,
+battlefield, RandSeed and screen (MENU_POINTER masked) agree with the original's. A hold is taken as the round's end
+only where 5045:059d's loop can have left (0726-0732: the entry at DS:bd2d NULL, or 06aa-06c7's done: a side gone or
+DS:ae4c >= DS:b45a) and a second hold sees RandSeed and DS:bd2d unmoved: the keyboard polls alone also stand still
+for more than 0.6 s inside a turn (round 2's turn 4, SHARKMAN 1's, in every run), with the spin not yet reached. The
+continue question and the results are part 18b.
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
@@ -2520,7 +2520,7 @@ def round_flow(v, work, opts):
 
 # The auto flow (step 4, part 18a): the first turn's menu with Alt-Q typed (\\@Q), then the first AUTO_UNTIL
 # rounds' ends in the original (5045:0f6c) against eclplay's two runs of the block (typed, and --combat auto).
-AUTO_UNTIL = 1                          # the rounds compared: round 1 (round 2 differs: see the auto doc)
+AUTO_UNTIL = 2                          # the rounds compared (18a's two; 18b the whole fight)
 ROUND_END = (0x5045, 0x0F6C)            # dqk 5045:0f6c: the round's end (cok_combat_end_round's start)
 ROUND_COUNT = 0xAE4C                    # DS:ae4c, the round count (moved on past the round's end)
 ROUND_SECONDS = 600                     # the wait for a round's end (the computer's turns between)
@@ -2592,12 +2592,28 @@ def auto_port(work, patched, name, typed, combat=None):
     return rounds, last
 
 
+def round_left(box):
+    """Whether 5045:059d's turn loop can have left for the round's end: the entry at DS:bd2d is NULL
+    (0726-072c, past 0x48 too: 067d), or a side is gone or DS:ae4c >= DS:b45a (06aa-06c7's done)."""
+    n = box.ds_byte(L.DS_TURN)
+    entry = L.far(box, L.DS_COMBATANT_LIST + 4 * n) if n <= L.COMBATANTS else None
+    return entry is None or box.ds_byte(L.DS_SIDE_PARTY) == 0 or box.ds_byte(L.DS_SIDE_ENEMY) == 0 or \
+        box.ds_byte(L.DS_ROUND) >= box.ds_byte(L.DS_ROUND_LIMIT)
+
+
 def wait_round(box, handle, where):
-    """Waits until the spin at WHERE (HANDLE's copies) is reached: the keyboard polls hold."""
+    """Waits until the spin at WHERE (HANDLE's copies) is reached: the keyboard polls hold, the loop
+    can have left (round_left), and a second hold sees RandSeed and DS:bd2d unmoved. The polls alone
+    are not enough: inside a turn they stand still for more than 0.6 s (round 2's turn 4, SHARKMAN 1's
+    computer turn, in every run; round 1's turn 7 in some), the trap's EB FE not yet reached."""
     end = time.monotonic() + ROUND_SECONDS
     while time.monotonic() < end:
         box.settle(0.5)
-        if L.held(box, handle, seconds=0.6)[0]:
+        if not L.held(box, handle, seconds=0.6)[0]:
+            continue
+        seen = (box.ds_dword(L.DS_SEED), box.ds_byte(L.DS_TURN))
+        if round_left(box) and L.held(box, handle, seconds=0.6)[0] and \
+                (box.ds_dword(L.DS_SEED), box.ds_byte(L.DS_TURN)) == seen:
             return
     raise cokbox.BoxError(f"the original's trap at {where} is not reached after {ROUND_SECONDS} s")
 

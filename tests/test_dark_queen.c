@@ -603,6 +603,55 @@ static void test_round_end(void)
     cok_adventure_close(&game);
 }
 
+/* The "combat: seed N" line that round.c's rounds logs after its loop for --combat auto (eclplay
+ * prints it as "combat: seed N"). CINDER is not active, so no side stands and the battle is over
+ * before any round: rounds goes to its tail (the line) and the battle's end. */
+static char seed_line[32];
+static uint32_t seed_seen;
+
+static void seed_log(cok_adventure *game, const char *kind, const char *text, void *context)
+{
+    (void)context;
+    if (strcmp(kind, "combat") != 0 || strncmp(text, "seed ", 5) != 0) return;
+    snprintf(seed_line, sizeof seed_line, "%s", text);
+    seed_seen = game->vm.seed;
+}
+
+static void test_auto_seed_line(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the battle's seed line not checked");
+        return;
+    }
+    static cok_adventure game;
+    cok_keyboard keys = {no_keys, NULL, NULL, NULL};
+    cok_adventure_hooks hooks = {0};
+    hooks.log = seed_log;
+    CHECK(cok_adventure_open(&game, R, "DQKAssets", &keys, &hooks));
+    const cok_character_layout *L = R->character;
+    cok_character *c = dqk_member(&game, "'CINDER'");
+    CHECK(cok_party_add(&game.party, R, c));
+    c->combat = calloc(1, sizeof *c->combat);
+    CHECK(c->combat != NULL);
+    uint8_t *r = c->record;
+    cok_field_set8(L, r, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(L, r, COK_FIELD_HOSTILE, 0);
+    cok_field_set8(L, r, COK_FIELD_COMPUTER, 0);
+    cok_field_set8(L, r, COK_FIELD_STATUS, 0);
+    game.combat_stub = COK_COMBAT_AUTO;
+    game.wall_ids[0] = 4; /* the wall set the battle's tiles load (as the arena tests) */
+    game.vm.seed = 1;
+    game.vm.status = COK_ECL_OK;
+    game.vm.abort = false;
+    game.input_ended = false;
+    seed_line[0] = '\0';
+    CHECK(cok_combat_battle(&game) && game.vm.status == COK_ECL_OK);
+    /* The line, as the RandSeed at the tail: the setup's draws (the battle's tiles and placement)
+     * take the seed from 1 to this. */
+    CHECK(strcmp(seed_line, "seed 1204427034") == 0 && seed_seen == 1204427034u);
+    cok_adventure_close(&game);
+}
+
 /* A copy of path as dir/name with the byte at offset made value (0 of
  * offset: unchanged). */
 static void copy_patched(const char *path, const char *dir, const char *name, size_t offset,
@@ -1588,6 +1637,9 @@ typedef struct {
     bool pending;       /* a key waits while keys are left (the computer's keys' test only) */
     bool once;          /* a key read clears pending: the next waits only once the test sets it */
     int flushes;        /* the keyboard's flushes */
+    int delays;         /* the delays waited (hooks.delay) */
+    unsigned delay_ms;  /* the first one's ms */
+    uint32_t delay_seed; /* RandSeed when the first one began */
 } menu_script;
 
 static menu_script script;
@@ -1635,6 +1687,15 @@ static void menu_flush(cok_adventure *game, void *context)
     ((menu_script *)context)->flushes++;
 }
 
+static void menu_delay(cok_adventure *game, unsigned ms, void *context)
+{
+    menu_script *s = context;
+    if (s->delays++ == 0) {
+        s->delay_ms = ms;
+        s->delay_seed = game->vm.seed;
+    }
+}
+
 static void menu_log(cok_adventure *game, const char *kind, const char *text, void *context)
 {
     (void)game;
@@ -1669,6 +1730,7 @@ static void menu_open(void)
     hooks.context = &script;
     hooks.key_pending = menu_pending;
     hooks.flush = menu_flush;
+    hooks.delay = menu_delay;
     CHECK(cok_adventure_open(&menu_game, &rules, "DQKAssets", &keys, &hooks));
     menu_is_open = true;
     const cok_character_layout *L = R->character;
@@ -1705,6 +1767,7 @@ static void menu_open(void)
     script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
+    script.delays = 0;
 }
 
 /* Runs queen_commands on CINDER with keys and pressed (command.c's: a scan code the first read
@@ -1718,6 +1781,7 @@ static bool menu_run_pressed(const char *keys, uint8_t pressed)
     script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
+    script.delays = 0;
     menu_game.vm.status = COK_ECL_OK;
     menu_game.vm.abort = false;
     return queen_commands(&menu_game, menu_c, pressed);
@@ -1999,6 +2063,9 @@ static void test_command_menu_quick_speed(void)
     CHECK(!menu_run("Q") && menu_game.vm.status == COK_ECL_UNDEFINED);
     CHECK(strstr(menu_game.error, "5bb8:1396") != NULL);
     CHECK(script.menus == 1);
+    /* The wait's one draw came before its 200 ms (the first delay), and nothing else drew
+     * before it. */
+    CHECK(script.delays >= 1 && script.delay_ms == 200 && script.delay_seed == drawn);
     CHECK(cok_field_u8(L, menu_c->record, COK_FIELD_COMPUTER) == 1);
     CHECK(cr->target == NULL && cr->initiative == 5);
     /* Alt-Q: the turn index less one, initiative 0x14, every record of the combat list taken by
@@ -2806,6 +2873,7 @@ int main(void)
     test_round_start_queen();
     test_turn_dispatch();
     test_round_end();
+    test_auto_seed_line();
     test_timer_walk();
     test_command_menu_items();
     test_command_menu_text();
