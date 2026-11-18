@@ -1273,6 +1273,50 @@ static void test_fight_no_ammunition(void)
     battle_clear();
 }
 
+/* One computer's pass (queen_fight) of M against A at 11, 10 with A at one hit point and three swings for M,
+ * from seed. Returns the pass's over, and A's and M's state after it. */
+static bool inactive_pass(uint32_t seed, bool *over, bool *active, uint8_t *guard, uint8_t *left)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 11, 10);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_ATTACKS_LEFT, 1, 3);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_DICE, 1, 1);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_DICE_SIDES, 1, 4);
+    m->combat->attack_slot = 1;
+    m->combat->target = a->record;
+    cok_field_set8(R->character, a->record, COK_FIELD_HIT_POINTS, 1);
+    game.vm.character = m->record;
+    game.vm.seed = seed;
+    *over = true;
+    bool ok = queen_fight(&game, m, over);
+    *active = cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) != 0;
+    *guard = m->combat->guarding;
+    *left = cok_field_u8_at(R->character, m->record, COK_FIELD_ATTACKS_LEFT, 1);
+    return ok && game.vm.status == COK_ECL_OK;
+}
+
+/* queen_fight's "inactive target sets done" (dqk 5bb8:0e9c-0ee6, after the attack 18d6): the blow kills the
+ * target (it goes inactive, +0x18b 0) and leaves the attacker swings (over is false: the turn is not ended).
+ * The pass is then done and goes no further: going stays set, so no guard (0fec) and the pass returns over
+ * false. The first seed (in order) whose swing lands does it: a natural 1 misses, any other swing hits a target
+ * of 1 hit point. */
+static void test_fight_inactive_target(void)
+{
+    bool over = true, active = true, found = false;
+    uint8_t guard = 0, left = 0;
+    for (uint32_t seed = 1; seed < 400 && !found; ++seed) {
+        if (!inactive_pass(seed, &over, &active, &guard, &left)) continue;
+        found = !active;
+    }
+    CHECK(found);
+    /* The pass ends here: over false, the guard not taken, the swings left as the blow left them. */
+    CHECK(!over && guard == 0 && left > 0);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -1327,6 +1371,7 @@ int main(void)
     test_fight_bandage();
     test_fight_thrown();
     test_fight_no_ammunition();
+    test_fight_inactive_target();
     cok_party_free(&game.party);
     puts("queen ai tests passed");
     return 0;

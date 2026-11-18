@@ -109,6 +109,14 @@ party menus, about 100 s in the box): each party menu trapped at 5045:08cf and E
 (the turn list's), every record and combat block, the turn list, the effect chains, the places and the screen.
 See melee_long_original.
 
+Flow `melee-dying` (step 4, part 16b): melee-long's run with ROLAND OF DUST's hit points set to 1 before COMBAT
+(fight_block(DYING_MEMBER): LOAD_CHARACTER 0, SAVE 1 into 0x5fd, the ECL field 0x1fc, both sides). The original's
+states at SHARKMAN 1's turn (its dispatch 5045:0891), ROLAND's menu after it (five E) and each round's first menu
+2 to 6 are compared with eclplay's runs (dying_compare): the chains, RandSeed, records, blocks, turns, cells,
+occupants, combatants, the bodies (eclplay's --field now dumps them: part16-17's step 7, DS:c526 and DS:c5d3)
+and the screen. The first strike (round 5's turn 8) kills ROLAND: 0 hit points at round 6's first menu. About a
+minute (the melee-long run's stops, with the eclplay runs).
+
 Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17, unported). The
 original runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888
 in overlay 0 (MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and
@@ -134,7 +142,7 @@ About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
-         altq_missile,turns,round,melee,won,timer,walk,mouse]
+         altq_missile,turns,round,melee,melee-long,melee-dying,won,timer,walk,mouse]
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -200,15 +208,30 @@ SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
 
-def fight_block():
+def fight_block(lower=None):
     """Block 1 of the test: the entry PRESS KEY, the fight (dqkecl.fight: LOAD
     FILES, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD MONSTER, a PRESS
-    KEY labelled 'loaded', SETUP MONSTERS, APPROACH, COMBAT), then the block's EXIT."""
+    KEY labelled 'loaded', SETUP MONSTERS, APPROACH, COMBAT), then the block's EXIT.
+    LOWER, if given, is a party member's index whose hit points are set to 1 before
+    COMBAT (lower_hit_points); None is the block every other flow runs."""
     b = Block()
     b.op("PRESS_KEY")
-    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True)
+    before = None if lower is None else (lambda blk: lower_hit_points(blk, lower))
+    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, before_combat=before)
     b.op("EXIT")
     return b
+
+
+# The selected member's hit points: ECL address 0x401 + 0x1fc, the byte at +0x198 (rules_dark_queen.c's
+# BOTH(0x1fc, U8, COK_FIELD_HIT_POINTS), the record's 0x198 by dark_queen_character_vars).
+HIT_POINTS_ECL = 0x401 + 0x1FC
+
+
+def lower_hit_points(b, member):
+    """LOAD_CHARACTER member (the party's index, 0 for ROLAND OF DUST), then SAVE 1 into the selected
+    member's hit points (0x5fd): the block's write before COMBAT, run by both sides."""
+    b.op("LOAD_CHARACTER", imm(member))
+    b.op("SAVE", imm(1), var(HIT_POINTS_ECL))
 
 
 def cstr(raw):
@@ -2711,6 +2734,201 @@ def melee_long(v, work, opts):
         prev_seed = s["seed"]
 
 
+# The melee-dying flow (step 4, part 16b: a member dying in the box). The fixture block of melee-long with
+# ROLAND OF DUST's hit points (record 0) set to 1 before COMBAT (fight_block(DYING_MEMBER)), both sides. The
+# fixture's first strike is round 5's turn 8 and it hits ROLAND (melee-long's table: 134 to 126 at round 6), so
+# the kill is that strike's. The stops are melee-long's: each party menu gets its E (keys typed so far counted),
+# each computer turn is given back at once. Taken on the way: SHARKMAN 1's turn (its dispatch, 5045:0891, the
+# first computer stop), ROLAND OF DUST's menu after it (turn 7, melee's one-round stop: the keys are five E),
+# and each round's first menu, 2 to 6. SHARKMAN 1 aims at record 2 (57fb:033c, melee's measured target), which
+# is not in reach in round 1: that member keeps its 1 hit point, and only the strike on ROLAND kills.
+DYING_MEMBER = 0                         # ROLAND OF DUST (record 0, 57fb:0000)
+DYING_TARGET = "57fb:033c"               # SHARKMAN 1's target at ROLAND's menu: record 2 (melee's measurement)
+DYING_ROUND_HIT = 5                      # the round of the fixture's first strike (ROLAND, turn 8)
+BODY_TABLE, BODY_COUNT, BODY_SIZE = 0xC526, 0xC5D3, 9   # entry k at DS:c526 + 9k (k 1-8), count DS:c5d3
+STATUS_AT = 0x64                         # a record's status word (+0x64)
+ACTIVE_AT = 0x18B                        # a record's active byte (+0x18b)
+
+
+def bodies_at(box):
+    """The body table as the original keeps it: the count (DS:c5d3) and entries 1 to count (at most 8): each
+    (k, index, x, y, cell) with the record's place in the party list (-1 for none), the words signed, cell the
+    terrain under the body. Entry k is at DS:c526 + 9k (5837:11c7: the index from 1, times 9, plus c526; part16-17.md's
+    step 7): +0 the record far, +4 x, +6 y, +8 cell."""
+    listed = L.records(box)
+    places = {ptr: i for i, (ptr, _) in enumerate(listed)}
+    count = box.ds_byte(BODY_COUNT)
+    entries = []
+    for k in range(1, min(count, 8) + 1):
+        e = box.ds_read(BODY_TABLE + BODY_SIZE * k, BODY_SIZE)
+        off, seg = struct.unpack_from("<HH", e, 0)
+        x, y = struct.unpack_from("<hh", e, 4)
+        index = -1 if (off, seg) == (0, 0) else places.get((seg, off), -1)
+        entries.append((k, index, x, y, e[8]))
+    return dict(count=count, entries=entries)
+
+
+def parse_bodies(path):
+    """eclplay --field's bodies: the count, then a line each (k, party index, x, y, cell), in the file after the
+    combatants (the 'bodies' line)."""
+    lines = path.read_text().splitlines()
+    i = next(n for n, line in enumerate(lines) if line.startswith("bodies "))
+    count = int(lines[i].split()[1])
+    return count, [tuple(int(x) for x in line.split()) for line in lines[i + 1:i + 1 + count]]
+
+
+def dying_original(work, patched, verbose):
+    """The original's run from the first turn's menu (to_menu) to round 6's first menu, as melee_long_original's
+    (E typed at each party menu, each computer turn given back at once), with the states the flow compares: the
+    first computer stop (SHARKMAN 1's turn, before its dispatch's lcall), ROLAND OF DUST's menu after it (state
+    read with the trap held, the screen once given back), and each round's first menu 2 to 6 (state, the screen,
+    the E keys typed so far: eclplay's count). Each state has the bodies (bodies_at) and the field (snapshot)."""
+    with cokbox.Box(workdir=work / "box-melee-dying", game="dark-queen", verbose=verbose,
+                    timeout=1800, files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        handle = menu["handle"]
+        t_menu = arm(box, handle, MENU)
+        t_comp = arm(box, handle, COMPUTER)
+        box.keys("E")
+        typed, stops = 1, 0
+        sharkman1 = roland = None
+        rounds = {}
+        while True:
+            if stops >= MELEE_LONG_STOPS:
+                raise cokbox.BoxError(f"the original's party menus do not reach round "
+                                      f"{MELEE_LONG_ROUNDS}'s first menu in {MELEE_LONG_STOPS} stops")
+            stops += 1
+            wait_trap(box, t_menu + t_comp, "5045:08cf or 5045:0891 (a party menu or a computer's turn)")
+            stop = dict(turn=box.ds_byte(L.DS_TURN), selected=selected(box), seed=box.ds_dword(L.DS_SEED))
+            seg, off = (int(x, 16) for x in stop["selected"].split(":"))
+            stop["computer"] = box.read(seg * 16 + off + 0x18C, 1)[0]
+            stop["name"] = cstr(box.read(seg * 16 + off + NAME_AT[0], NAME_AT[1] - NAME_AT[0]))
+            if verbose:
+                print(f"  stop {stops}: turn {stop['turn']} selected {stop['selected']} "
+                      f"seed {stop['seed']:#x} computer {stop['computer']} typed {typed}", flush=True)
+            if stop["computer"]:
+                if sharkman1 is None:
+                    sharkman1 = dict(stop_state(box), bodies=bodies_at(box), typed=typed)
+                L.untrap(box, t_comp)
+                time.sleep(0.25)
+                t_comp = arm(box, handle, COMPUTER)
+                continue
+            first = stop["turn"] == 1
+            wanted = first or (sharkman1 is not None and roland is None)
+            state = dict(stop_state(box), bodies=bodies_at(box), typed=typed) if wanted else None
+            L.untrap(box, t_menu)
+            box.settled(quiet=1.0, tolerance=0)
+            if state is not None and not first:
+                state["screen"] = box.screenshot(path=str(work / "melee-dying-roland.png"))
+                roland = state
+            if first:
+                r = 2 + len(rounds)
+                state["screen"] = box.screenshot(path=str(work / f"melee-dying-round{r}.png"))
+                rounds[r] = state
+                if len(rounds) == MELEE_LONG_ROUNDS - 1:
+                    break
+            t_menu = arm(box, handle, MENU)
+            box.keys("E")
+            typed += 1
+        return dict(menu=menu, sharkman1=sharkman1, roland=roland, rounds=rounds)
+
+
+def dying_compare(v, tag, s, p, prev_seed):
+    """A stop of the melee-dying flow against eclplay's (melee_port's run): the stop's marks (BATTLE_STOP), the
+    effect chains, the RandSeed and records, the blocks and the turn list (command_state), the battlefield's cells
+    and occupants, the combatants' places, the bodies (eclplay's --field's; part16-17's step 7) and the screen."""
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            f"eclplay stops at {tag} (out of keys) after {s['typed']} E", p["last"])
+    chains_agree(v, s["chains"], p["base"].with_suffix(".effects"), f" ({tag})")
+    command_state(v, tag, s, p, prev_seed)
+    field = p["base"].with_suffix(".field")
+    if not field.exists():
+        v.check(False, f"eclplay writes its battlefield at {tag}", p["last"])
+        return
+    ported = parse_field(field)
+    v.check(ported[3] == s["field"]["cells"] and ported[4] == s["field"]["occupants"],
+            f"the battlefield's cells and occupants agree at {tag} (the body's cell included)",
+            f"cells agree {ported[3] == s['field']['cells']}, occupants agree "
+            f"{ported[4] == s['field']['occupants']}")
+    v.check(sorted(ported[5]) == sorted(tuple(c) for c in s["combatants"]),
+            f"every combatant's place and size agree at {tag} (eclplay's --field)",
+            f"{sorted(ported[5])} against {s['combatants']}")
+    count, entries = parse_bodies(field)
+    want = s["bodies"]["entries"][:s["bodies"]["count"]] if s["bodies"]["count"] <= 8 else None
+    v.check(want is not None and count == s["bodies"]["count"] and entries == want,
+            f"the bodies agree at {tag}: the count and each entry (party index, x, y, cell)",
+            f"eclplay {count} {entries} against the original {s['bodies']['count']} {want}")
+    command_screen(v, f"at {tag}", s["screen"], p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+def melee_dying(v, work, opts):
+    """The melee-dying flow (step 4, part 16b): the fixture with ROLAND OF DUST's hit points at 1 before COMBAT, the
+    original's run (dying_original) against eclplay's (melee_port with the E keys typed so far) at ROLAND's menu
+    after SHARKMAN 1's turn (five E) and at each round's first menu, 2 to 6. Checks: the write is in place at
+    SHARKMAN 1's turn, SHARKMAN 1's walk and block and RandSeed at ROLAND's menu are melee's (the write changes
+    nothing before the strike), ROLAND still at 1 hit point in round 1 and 2 to 4 (no strike), the strike kills
+    him in round 5 (0 hit points at round 6's first menu: the status is printed), and eclplay agrees at each stop
+    (dying_compare). Round 5's end (5045:0f6c) already finds ROLAND dying: +0x0f goes from 2 to 3 and "Your Teammate is
+    Dying" is drawn (one draw), so round 6's RandSeed and blocks compare it; its screen is not (the menus' are taken
+    after the message's wait)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block(DYING_MEMBER)))
+    o = dying_original(work, patched, opts.verbose)
+    spins_at_placement(v, o["menu"])
+    s1, r = o["sharkman1"], o["roland"]
+    lowered = bytes.fromhex(s1["records"][DYING_MEMBER])
+    v.check(lowered[HIT_POINTS] == 1 and lowered[STATUS_AT:STATUS_AT + 2] == b"\x00\x00",
+            "ROLAND OF DUST has 1 hit point (status 0) at SHARKMAN 1's turn: the write is before COMBAT",
+            f"hit points {lowered[HIT_POINTS]}, status {lowered[STATUS_AT:STATUS_AT + 2].hex()}")
+    to_r = {n: (x, y) for n, x, y, _ in r["combatants"]}
+    v.check(to_r.get(8) == MELEE_SHARKMAN1_TO and r["selected"] == MELEE_ROLAND,
+            "SHARKMAN 1 walks to 28, 16 and ROLAND OF DUST's menu is the turn's (melee's stop)",
+            f"{to_r.get(8)} at {r['selected']}")
+    where = block_index(r["blocks_raw"], MELEE_SHARKMAN1)
+    v.check(len(where) == 1, "SHARKMAN 1's combat block at ROLAND's menu is melee's (target 57fb:033c, "
+            "pattern 6): the write changed nothing in its turn", where)
+    aim = bytes.fromhex(r["blocks_raw"][where[0]])[TARGET_AT:TARGET_AT + 4] if len(where) == 1 else b""
+    off, seg = struct.unpack_from("<HH", aim, 0) if len(aim) == 4 else (0, 0)
+    v.check(f"{seg:04x}:{off:04x}" == DYING_TARGET, f"SHARKMAN 1 aims at {DYING_TARGET}: the party's third "
+            "member (record 2), not ROLAND", f"{seg:04x}:{off:04x}")
+    v.check(r["seed"] == MELEE_SEED_ROLAND and L.draws(o["menu"]["seed"], r["seed"]) == 21,
+            f"RandSeed at ROLAND's menu is melee's {MELEE_SEED_ROLAND:#x} (21 draws past the first menu's)",
+            f"{r['seed']:#x}")
+    hp_roland = bytes.fromhex(r["records"][DYING_MEMBER])[HIT_POINTS]
+    v.check(hp_roland == 1, "ROLAND OF DUST still has 1 hit point at ROLAND's menu (no strike in round 1)",
+            hp_roland)
+    p = melee_port(work, patched, "melee-dying-roland", r["typed"])
+    dying_compare(v, "ROLAND OF DUST's menu (turn 7)", r, p, o["menu"]["seed"])
+    prev = r["seed"]
+    for rnd in sorted(o["rounds"]):
+        s = o["rounds"][rnd]
+        tag = f"round {rnd}'s first menu"
+        hp = bytes.fromhex(s["records"][DYING_MEMBER])[HIT_POINTS]
+        status = int.from_bytes(bytes.fromhex(s["records"][DYING_MEMBER])[STATUS_AT:STATUS_AT + 2], "little")
+        if rnd <= DYING_ROUND_HIT:
+            v.check(hp == 1, f"ROLAND OF DUST has 1 hit point at {tag} (the strike is round {DYING_ROUND_HIT}'s)",
+                    hp)
+        else:
+            active = bytes.fromhex(s["records"][DYING_MEMBER])[ACTIVE_AT]
+            v.check(hp == 0 and status == 5 and active == 0,
+                    f"ROLAND OF DUST is dying at {tag}: 0 hit points, status word 5, +0x18b 0",
+                    f"{hp} hit points, status word {status}, +0x18b {active}")
+            v.check(s["bodies"]["count"] == 1 and s["bodies"]["entries"][0][:4] == (1, DYING_MEMBER, 27, 13),
+                    f"the original's body table at {tag} holds ROLAND OF DUST's body alone (entry 1, at 27, 13)",
+                    s["bodies"])
+            size = {n: sz for n, _, _, sz in s["combatants"]}.get(1)
+            cell = s["field"]["cells"][2 * (13 * 50 + 27):2 * (13 * 50 + 27) + 2]
+            v.check(size == 0 and cell == "1f", f"ROLAND OF DUST (combatant 1) is off the map (size 0) and "
+                    f"his body's cell (27, 13) is 0x1f at {tag}", f"size {size}, cell {cell}")
+        p = melee_port(work, patched, f"melee-dying-{rnd}", s["typed"])
+        dying_compare(v, tag, s, p, prev)
+        prev = s["seed"]
+    v.ok("the keys each stop was reached with (E typed so far)", " ".join(
+        f"round {k}: {o['rounds'][k]['typed']}" for k in sorted(o["rounds"])))
+
+
 def won_original(work, patched, verbose):
     """Fixture 2 (won): the original's run to the battle's end. Root 148f:0512 spins at the 'loaded'
     PRESS KEY (the setup's pass, 59c7:1eb9's event 8), each SHARKMAN +0x64 6 and +0x18b 0, DS:b7f3 0,
@@ -3370,9 +3588,9 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,won,timer,walk,mouse",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, "
+                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
                              "won, timer, "
                              "walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
@@ -3417,6 +3635,8 @@ def main():
         melee(v, work, opts)
     if "melee-long" in flows:
         melee_long(v, work, opts)
+    if "melee-dying" in flows:
+        melee_dying(v, work, opts)
     if "won" in flows:
         won(v, work, opts)
     if "walk" in flows:

@@ -132,7 +132,7 @@ def assemble(block):
     return vectors + code
 
 
-def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False, ground=None):
+def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False, ground=None, before_combat=None):
     """A fight as the shipped ECL writes its operands (ECL.GLB: the dragons' fight
     in block 4, 8b5a-8c1f, and block 7's, record 7 at code offset 1193: SETUP
     MONSTERS 0x52, 3, 0xff, 0x0f; LOAD MONSTER 0x52, 3, 0x52 and so on: the icon
@@ -149,7 +149,8 @@ def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False, ground=None):
     0x1a2 the state (the Abyss's; the open ground's flags index, 0-31: the shipped
     blocks 64 and 66 store 0, 1, 2 or 4) and var 0x33 the river (battle outside 3D,
     59c7:0e3b's and 0860's variables). Opcodes 0x0b, 0x0c, 0x0d, 0x21 and 0x24 as rules_dark_queen.c
-    has them."""
+    has them. BEFORE_COMBAT, if given, writes its ops to b just before COMBAT (the
+    check's member's hit points, for one)."""
     b.op("LOAD_FILES", imm(4), imm(4))
     if ground is not None:
         state, river = ground
@@ -167,4 +168,6 @@ def fight(b, loads, sprite, distance=3, ambush=0x0F, pause=False, ground=None):
         b.op("PRESS_KEY")
     b.op("SETUP_MONSTERS", imm(sprite), imm(distance), imm(0xFF), imm(ambush))
     b.op("APPROACH")
+    if before_combat is not None:
+        before_combat(b)
     b.op("COMBAT")
