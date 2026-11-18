@@ -117,11 +117,13 @@ occupants, combatants, the bodies (eclplay's --field now dumps them: part16-17's
 and the screen. The first strike (round 5's turn 8) kills ROLAND: 0 hit points at round 6's first menu. About a
 minute (the melee-long run's stops, with the eclplay runs).
 
-Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17, unported). The
+Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17; the flight is part 17b's and
+ported, so this flow's stop is out of date: see below). The
 original runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888
 in overlay 0 (MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and
 RandSeed does not move over a second, twice (the computer's turns run without a key wait, so the polls alone
-do not show the flight). eclplay's run with the same keys stops there (MISSILE_STOP), and its state is
+do not show the flight). eclplay's run with the same keys stopped there (MISSILE_STOP, part 17a's unported stop,
+removed by 17b: it now runs on to effect 0x69's stop, 78e4:1aa2, so this flow needs a new stop before it runs again), and its state is
 compared: RandSeed 1039 draws past the menu (0x484d403f), every record and combat block, the turn list, the
 combatants (--field), and the selected record (DS:ad67, 57fb:04da). About six minutes: the Box timeout is 900 s.
 
@@ -1912,7 +1914,7 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 QUICK_STOP = re.compile(r".*5bb8:0000.*")     # Quick's hand-on (5045:0a56): cites the turn 5bb8:0000
-MISSILE_STOP = re.compile(r".*51c2:00df.*")  # a missile's flight (part 17b), unported: Alt-Q's stop (pictures chosen first)
+MISSILE_STOP = re.compile(r".*51c2:00df.*")  # a missile's flight (51c2:00df): part 17a's stop, removed by 17b, so out of date (see altq_missile)
 
 
 def wait_trap(box, t, where):
@@ -2234,8 +2236,9 @@ def missile_original(work, patched, verbose):
 
 
 def altq_missile(v, work, opts):
-    """Alt-Q's first missile flight (step 4, part 15c; part 17 is unported): the original's state there
-    (missile_original) against eclplay's run to the same flight (MISSILE_STOP, the keys "\\r\\r\\@Q"):
+    """Alt-Q's first missile flight (step 4, part 15c; out of date since part 17b, see the module
+    docstring): the original's state there (missile_original) against eclplay's run to the same flight
+    (MISSILE_STOP, the keys "\\r\\r\\@Q"):
     RandSeed (MISSILE_DRAWS past the menu), every record and combat block, the turn list (command_state),
     the combatants (--field) and the selected record (DS:ad67)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()

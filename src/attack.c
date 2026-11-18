@@ -665,9 +665,6 @@ static bool missile(cok_adventure *game, cok_character *attacker, cok_character 
     if (!direction(game, attacker, target, &d)) return false;
     cok_missile_pictures p;
     cok_combat_missile_pictures(rules, d, item_type_of(game, item), &p);
-    /* Dark Queen's pictures are chosen (52db:2888) and its flight (51c2:00df) is part 17b. */
-    if (rules->fight.missile_unported != NULL)
-        return cok_adventure_not_yet(game, "a missile's flight", rules->fight.missile_unported);
     bool ok = true;
     for (uint8_t k = 0; ok && k < p.count; ++k) {
         const cok_missile_picture *m = &p.pictures[k];
@@ -740,7 +737,7 @@ static bool use_up_freed(cok_adventure *game, cok_character *attacker, uint8_t *
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
     if (thrown && !cok_effect_is(rules, it[I->effect], COK_EFFECT_HAMMER))
         return undefined(game, "a freed item's copy goes into the pool with the heap's free list "
-                               "in its first bytes (432f:1c8e)");
+                               "in its first bytes (432f:1c8e; dqk 52db:1b30-1b56, 177e:13d2)");
     if (rules->fight.freed_remove_unported != NULL)
         return cok_adventure_not_yet(game, "a strike's item removed",
                                      rules->fight.freed_remove_unported);
@@ -803,6 +800,8 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
     if (item != 0) memcpy(freed, attacker->items[item - 1], sizeof freed);
     bool ok = item == 0 || missile(game, attacker, target, attacker->items[item - 1]);
     size_t weapon = attacker->slots[0];
+    /* Dark Queen's sling test (52db:18d6's 1a47) reads the readied weapon through NULL when there
+     * is none (the IVT, taken as none): the port takes it as none (weapon != 0). */
     if (ok && weapon != 0 &&
         (item_type_of(game, attacker->items[weapon - 1]) == 0x1c ||
          item_type_of(game, attacker->items[weapon - 1]) == 0x1d))

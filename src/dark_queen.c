@@ -174,6 +174,10 @@ typedef struct {
      * CPIC for an NPC) and the missiles' and cursor's (COMSPR). Loaded by icon_load and
      * icon_pair; the battle's end frees 0x0f-0x25 in the original (5045:0001), not here. */
     queen_icon_record icons[2][ICON_SLOTS];
+    /* The flight's frames (51c2:0005's scratch slots 0x99-0x9c): the icon's picture decoded and
+     * mirrored as drawn, and the 12 by 12 pixels under the last one drawn (19a4:09eb's save). */
+    cok_vga_image missile[4];
+    uint8_t missile_under[144];
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -2909,6 +2913,7 @@ static void queen_close(cok_adventure *game)
     for (unsigned i = 0; i < LIBS; ++i) free(q->libs[i].bytes);
     for (unsigned image = 0; image < 2; ++image)
         for (unsigned slot = 0; slot < ICON_SLOTS; ++slot) free(q->icons[image][slot].bytes);
+    for (unsigned frame = 0; frame < 4; ++frame) cok_vga_free(&q->missile[frame]);
     free(q);
     game->own = NULL;
 }
@@ -5525,6 +5530,57 @@ static bool arena_icon(cok_adventure *game, int8_t x, int8_t y, uint8_t facing, 
                                 sizeof game->error);
 }
 
+/* A missile's frame (51c2:0005, 00be's copy): the icon table's image of slot, decoded, flipped if
+ * mirror (19a4:055a), into scratch frame (0-3) for the flight to draw. */
+static bool arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
+                                bool mirror)
+{
+    queen *q = own(game);
+    const uint8_t *record;
+    size_t size;
+    if (frame >= 4 || !queen_icon(game, slot, image, &record, &size) || record == NULL) {
+        snprintf(game->error, sizeof game->error,
+                 "icon %u of slot %u is not a missile's picture (DS:b17d, 51c2:0005)", image, slot);
+        return false;
+    }
+    cok_vga_image copy = {0};
+    if (cok_vga_decode(record, size, NULL, &copy) != COK_VGA_OK ||
+        (mirror && !cok_vga_mirror(&copy))) {
+        cok_vga_free(&copy);
+        snprintf(game->error, sizeof game->error,
+                 "icon %u of slot %u is not a picture to fly (DS:b17d, 19a4:055a)", image, slot);
+        return false;
+    }
+    cok_vga_free(&q->missile[frame]);
+    q->missile[frame] = copy;
+    return true;
+}
+
+/* A flight's frame drawn at the battle's place x, y (sub-cells: 19a4:09eb's save of 12 by 12, then
+ * 04e1's masked draw; 51c2:00df). */
+static bool arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y)
+{
+    queen *q = own(game);
+    if (frame >= 4 || q->missile[frame].pixels == NULL) {
+        snprintf(game->error, sizeof game->error,
+                 "missile frame %u is not built (51c2:00df's scratch slots)", frame);
+        return false;
+    }
+    int px = cok_queen_arena_place(x), py = cok_queen_arena_place(y);
+    cok_queen_arena_save(&game->screen, px, py, q->missile_under);
+    cok_queen_arena_missile(&game->screen, &q->missile[frame], px, py);
+    return true;
+}
+
+/* The flight's frame put back (19a4:0aba at the same place). */
+static bool arena_missile_restore(cok_adventure *game, int x, int y)
+{
+    queen *q = own(game);
+    cok_queen_arena_restore(&game->screen, cok_queen_arena_place(x), cok_queen_arena_place(y),
+                            q->missile_under);
+    return true;
+}
+
 const cok_drawing cok_dark_queen_drawing = {
     .open = queen_open,
     .close = queen_close,
@@ -5554,6 +5610,9 @@ const cok_drawing cok_dark_queen_drawing = {
     .arena_name = arena_name,
     .arena_report = arena_report,
     .arena_flash = arena_flash,
+    .arena_missile_frame = arena_missile_frame,
+    .arena_missile_draw = arena_missile_draw,
+    .arena_missile_restore = arena_missile_restore,
     .arena_text = arena_text,
     .arena_clear_text = arena_clear_text,
     .wait = cok_dark_queen_wait,

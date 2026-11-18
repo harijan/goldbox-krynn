@@ -1142,11 +1142,23 @@ bool cok_arena_panel(cok_adventure *game, cok_character *c)
 
 /* Missiles and flashes. */
 
+/* The game's own missile hooks (adventure.h's arena_missile_*), or a stop where it has none. */
+static bool own_missile_hooks(cok_adventure *game, const cok_drawing *own)
+{
+    if (own->arena_missile_frame != NULL && own->arena_missile_draw != NULL &&
+        own->arena_missile_restore != NULL)
+        return true;
+    return fail(game, "a missile is not drawn on this game's ground yet (parts 11-12)");
+}
+
 bool cok_arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
                              bool mirror)
 {
-    if (own_ground(game) != NULL)
-        return fail(game, "a missile is not drawn on this game's ground yet (parts 11-12)");
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL) {
+        if (!own_missile_hooks(game, own)) return false;
+        return own->arena_missile_frame(game, slot, image, frame, mirror) || own_failed(game);
+    }
     if (!pictures(game)) return false;
     if (slot >= cok_icon_slots(game) || image > 1)
         return fail(game, "icon slot %u's picture %u is past the icon table (6346:1a26)", slot,
@@ -1198,10 +1210,33 @@ bool cok_arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y)
  * masked, saving what it covers (127f:09c3 with 5). */
 static bool draw_missile(cok_adventure *game, uint8_t frame, int x, int y)
 {
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL) {
+        if (!own_missile_hooks(game, own)) return false;
+        return own->arena_missile_draw(game, frame, x, y) || own_failed(game);
+    }
     cok_combat *c = &game->combat;
     if (frame >= c->flash.frames)
         return fail(game, "the missile's picture %u is past its four (DS:719e, 6346:1ba6)", frame);
     return save_draw(game, &c->flash, frame, x, y, "6346:1ba6");
+}
+
+/* The frame drawn by draw_missile put back (restore's place for a game with its own ground). */
+static bool restore_missile(cok_adventure *game, int x, int y, const char *where)
+{
+    const cok_drawing *own = own_ground(game);
+    if (own != NULL) {
+        if (!own_missile_hooks(game, own)) return false;
+        return own->arena_missile_restore(game, x, y) || own_failed(game);
+    }
+    return restore(game, x, y, where);
+}
+
+/* A flight's wait for one frame: delay ms (1962:029c), or 2 * delay for Dark Queen (51c2:00df's
+ * 1df9:052a(delay * 2)). */
+static void missile_wait(cok_adventure *game, unsigned delay)
+{
+    cok_arena_wait(game, cok_game_rules(game)->fight.missile_wait_twice ? 2 * delay : delay);
 }
 
 bool cok_arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const char *text)
@@ -1313,8 +1348,8 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
             if (delay > 0 || px % 3 == 0 || py % 3 == 0) {
                 if (!draw_missile(game, shown, px, py)) return false;
                 if (!cok_arena_show(game)) return false;
-                cok_adventure_wait(game, delay); /* 1962:029c */
-                if (!restore(game, px, py, "6346:1ba6")) return false;
+                missile_wait(game, delay);
+                if (!restore_missile(game, px, py, "6346:1ba6")) return false;
                 if (++shown >= frames) shown = 0;
             }
             ++i;
@@ -1384,8 +1419,8 @@ bool cok_arena_missile(cok_adventure *game, int x0, int y0, int x1, int y1, uint
     if (!draw_missile(game, shown, px, py)) return false;
     if (delay > 0) {
         if (!cok_arena_show(game)) return false;
-        cok_adventure_wait(game, delay);
-        if (!restore(game, px, py, "6346:1ba6")) return false;
+        missile_wait(game, delay);
+        if (!restore_missile(game, px, py, "6346:1ba6")) return false;
     }
     return cok_arena_show(game);
 }
