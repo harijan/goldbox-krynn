@@ -1113,7 +1113,7 @@ typedef enum {
 /* Dark Queen's combat block (59c7:0f7b): the 0x18 bytes a record's far pointer
  * +0x40 keeps, beside the port's cok_combat_record (party.h), which holds the same
  * meanings at its own offsets. Its named bytes, by their offset in the block; the
- * others are unnamed (0x01-0x09, 0x0c-0x13, 0x15: read as 0 by eclplay's --blocks, and
+ * others are unnamed (0x01-0x09, 0x0c-0x13: read as 0 by eclplay's --blocks, and
  * checked as 0 at the placement by dqk_fight). The records' differences
  * from cok_combat_records (59c7:0f7b) are here too: a record with the effect
  * facing_effect faces 2, and a record that is not hostile gets gate_effect when
@@ -1144,6 +1144,9 @@ typedef struct {
      * target's place in the party list plus 1 (0 for none) at +0x0b: the port has no pointers, and
      * dqk_fight masks the original's to the same. */
     uint8_t pattern, target;
+    /* The combat record's fleeing (+0x15: 5bb8:0b6e's test, queen_ai.c's fleeing; 1 for a record
+     * that flees, from round 16 for SHARKMAN 2). eclplay's --blocks writes it. */
+    uint8_t fleeing;
 } cok_combat_block;
 
 /* The encounter and the battle's frame where the games differ (monster.c,

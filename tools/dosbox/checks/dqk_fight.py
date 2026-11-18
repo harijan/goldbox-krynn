@@ -123,7 +123,9 @@ runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the 
 move over a second, twice (the computer's turns run without a key wait, so the polls alone do not show the
 flight). Then the flight's strike: 148f:077f (STRIKE_EFFECT, in the root image, so a static trap holds), where
 event 4 runs effect 0x69 on the attacker; 78e4:1aa2 is not trapped, as overlay 9 is only loaded by that call.
-eclplay's run with the same keys stops there (MISSILE_STOP), and its state is compared at the strike: RandSeed
+eclplay's run with the same keys stops there (MISSILE_STOP): since part 18b1 ported 0x69, a check build cites it
+unported again (missile_eclplay), so the port stops where it first runs, before its handler, as before 18b1. Its
+state is compared at the strike: RandSeed
 1044 draws past the menu (MISSILE_STOP_DRAWS; the entry's 1039 is checked too), every record and combat block,
 the turn list, the combatants (--field), the selected record (DS:ad67, 57fb:04da), and the whole screen (the
 flight's restore is in it; MENU_POINTER masked). About a minute of wall time (0.4 min in the last run); the Box
@@ -136,17 +138,22 @@ first text it is eclplay's, the copy protection's two draws made in both; then t
 wait and the turn list and seed at both menus against eclplay's --load --seed route (walk_port; its
 --start-menu route's turn lists are the same). See the comment above walk_original.
 
-Flow `auto` (step 4, part 18a: --combat auto's first turn and the rounds; run alone with `--flows auto`, its own
-box with a 1800 s timeout, not in the default flows): Alt-Q typed at the first turn's menu in the original (\\@Q),
-and the round's end (5045:0f6c, cok_combat_end_round's start) made to spin, read and let go, for the first
-AUTO_UNTIL rounds (2). eclplay runs the block twice, Alt-Q typed (\\r\\r\\@Q) and --combat auto (\\r\\r): both must
+Flow `auto` (step 4, parts 18a and 18b2: --combat auto's first turn and the whole fight to its last round; run alone
+with `--flows auto`, its own box with a 1800 s timeout, not in the default flows, about 1.5 min): Alt-Q typed at the first
+turn's menu in the original (\\@Q), and each round's end (5045:0f6c, cok_combat_end_round's start) made to spin and read,
+until the fight's last round (30: the round limit, DS:ae4c + 1 >= DS:b45a, or a side gone; AUTO_MAX rounds at most).
+The screen at each end is the flipped one (flip_continue: the original's own page flip, 19a4:06d3, run at the spin, then
+the routine given back), since the unflipped one is out of date where the last turn's redraw is on the back page
+(DS:1cb5 set, rounds 20 and 23 of this fight). No trap is armed after the last round: the results and the continue
+question are 18b3's. eclplay runs the block twice, Alt-Q typed (\\r\\r\\@Q) and --combat auto (\\r\\r): both must
 write the same round files (the --records, --blocks, --field and --turns writers and the screen, at round.c's mark:
-auto_eclplay, a patched build). Each round's records (pointers masked), combat blocks, turn list, combatants,
-battlefield, RandSeed and screen (MENU_POINTER masked) agree with the original's. A hold is taken as the round's end
-only where 5045:059d's loop can have left (0726-0732: the entry at DS:bd2d NULL, or 06aa-06c7's done: a side gone or
-DS:ae4c >= DS:b45a) and a second hold sees RandSeed and DS:bd2d unmoved: the keyboard polls alone also stand still
-for more than 0.6 s inside a turn (round 2's turn 4, SHARKMAN 1's, in every run), with the spin not yet reached. The
-continue question and the results are part 18b.
+auto_eclplay, a patched build), AUTO_ROUNDS of them. Each round's records (pointers masked), combat blocks (fleeing
+included), turn list, combatants, battlefield, RandSeed and screen (MENU_POINTER masked) agree with the original's; and
+the round's DS:ae4c, DS:b45a and sides are the fight's (auto_expected). A hold is taken as the round's end only where
+5045:059d's loop can have left (0726-0732: the entry at DS:bd2d NULL, or 06aa-06c7's done: a side gone or DS:ae4c >=
+DS:b45a) and a second hold sees RandSeed and DS:bd2d unmoved: the keyboard polls alone also stand still for more than
+0.6 s inside a turn (round 2's turn 4, SHARKMAN 1's, in every run), with the spin not yet reached. The strict wait
+refuses 41 to 48 holds a run (the false holds, counted and printed; none is a round's end).
 
 Every flow's box freezes the memory cache's purge draw (dqk_fight_lib.freeze_purges, a box-only
 change at 27fa:0f2c), so the original's RandSeed moves only with its own draws, as eclplay's does;
@@ -339,7 +346,7 @@ def saved_entry(work, data=None):
 
 def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
          field=None, at=None, blocks=None, turns=None, combat=None, state=None, sets=(),
-         effects=None, entry=None):
+         effects=None, entry=None, exe=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -371,7 +378,7 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
     if at is not None:
         extra += ["--at", "%d,%d,%d" % at]
     variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
-                                      block=None)
+                                      block=None, exe=exe)
     return variables, last
 
 
@@ -1930,6 +1937,21 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 MISSILE_STOP = re.compile(r".*effect 0x69 \(dqk 78e4:1aa2\).*")  # the strike after the flight (148f:077f): part 17b
+MISSILE_EFFECT_AT = "    [0x69] = {0x1aa2, COK_FX_QUEEN_RANGER},\n"
+
+
+def missile_stop(name, text):
+    """src/rules_dark_queen_magic.c: effect 0x69 (78e4:1aa2, ported by part 18b1) cited unported again, so that
+    eclplay stops where it first runs, before its handler: the strike's event 4 on the attacker (148f:077f, the
+    original's trap), the stop part 17b compared (MISSILE_STOP)."""
+    if MISSILE_EFFECT_AT not in text:
+        raise cokbox.BoxError("src/rules_dark_queen_magic.c's effect 0x69 changed: update dqk_fight.missile_stop")
+    return text.replace(MISSILE_EFFECT_AT, MISSILE_EFFECT_AT.replace("},", ', "dqk 78e4:1aa2"},'))
+
+
+def missile_eclplay():
+    """eclplay with effect 0x69 cited unported (missile_stop; checklib.build, cached by the sources)."""
+    return checklib.build("eclplay", transforms=[("rules_dark_queen_magic.c", missile_stop)])
 
 
 def wait_trap(box, t, where):
@@ -1996,16 +2018,16 @@ def command_original(work, patched, flow, verbose):
     return out
 
 
-def command_port(work, patched, name, typed, entry=None, effects=False):
+def command_port(work, patched, name, typed, entry=None, effects=False, exe=None):
     """eclplay's run to the stop of NAME (the first turn's menu, then TYPED; ENTRY the saved game as
-    placement's): its variables, its last line, its text, and the files its state is read from
-    (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
+    placement's; EXE a patched eclplay, or None): its variables, its last line, its text, and the files
+    its state is read from (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
     base = work / f"cmd-{name}"
     variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
                            screen=base.with_suffix(".bmp"), entry=entry,
-                           effects=base.with_suffix(".effects") if effects else None)
+                           effects=base.with_suffix(".effects") if effects else None, exe=exe)
     text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
     return dict(base=base, vars=variables, last=last, text=text)
 
@@ -2280,7 +2302,7 @@ def altq_missile(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     o = missile_original(work, patched, opts.verbose)
-    p = command_port(work, patched, "AltQ", "\\@Q")
+    p = command_port(work, patched, "AltQ", "\\@Q", exe=missile_eclplay())
     m, e, s = o["menu"], o["entry"], o["stop"]
     v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
             "eclplay stops at effect 0x69 (78e4:1aa2, the strike after the flight) after Alt-Q", p["last"])
@@ -2518,9 +2540,10 @@ def round_flow(v, work, opts):
                    base.with_suffix(".bmp"), MENU_POINTER)
 
 
-# The auto flow (step 4, part 18a): the first turn's menu with Alt-Q typed (\\@Q), then the first AUTO_UNTIL
-# rounds' ends in the original (5045:0f6c) against eclplay's two runs of the block (typed, and --combat auto).
-AUTO_UNTIL = 2                          # the rounds compared (18a's two; 18b the whole fight)
+# The auto flow (step 4, parts 18a and 18b2): the first turn's menu with Alt-Q typed (\\@Q), then each round's end
+# in the original (5045:0f6c) to the fight's last, against eclplay's two runs of the block (typed, and --combat auto).
+AUTO_ROUNDS = 30                        # the fight's rounds: the round limit (measured three times)
+AUTO_MAX = 40                           # a cap on the original's rounds: past it the flow fails
 ROUND_END = (0x5045, 0x0F6C)            # dqk 5045:0f6c: the round's end (cok_combat_end_round's start)
 ROUND_COUNT = 0xAE4C                    # DS:ae4c, the round count (moved on past the round's end)
 ROUND_SECONDS = 600                     # the wait for a round's end (the computer's turns between)
@@ -2605,8 +2628,10 @@ def wait_round(box, handle, where):
     """Waits until the spin at WHERE (HANDLE's copies) is reached: the keyboard polls hold, the loop
     can have left (round_left), and a second hold sees RandSeed and DS:bd2d unmoved. The polls alone
     are not enough: inside a turn they stand still for more than 0.6 s (round 2's turn 4, SHARKMAN 1's
-    computer turn, in every run; round 1's turn 7 in some), the trap's EB FE not yet reached."""
+    computer turn, in every run; round 1's turn 7 in some), the trap's EB FE not yet reached. Returns
+    the false holds (a hold that is not the round's end: 41 to 48 in a whole fight)."""
     end = time.monotonic() + ROUND_SECONDS
+    false = 0
     while time.monotonic() < end:
         box.settle(0.5)
         if not L.held(box, handle, seconds=0.6)[0]:
@@ -2614,7 +2639,8 @@ def wait_round(box, handle, where):
         seen = (box.ds_dword(L.DS_SEED), box.ds_byte(L.DS_TURN))
         if round_left(box) and L.held(box, handle, seconds=0.6)[0] and \
                 (box.ds_dword(L.DS_SEED), box.ds_byte(L.DS_TURN)) == seen:
-            return
+            return false
+        false += 1
     raise cokbox.BoxError(f"the original's trap at {where} is not reached after {ROUND_SECONDS} s")
 
 
@@ -2628,55 +2654,81 @@ def round_past_count(box, stopped):
     return False
 
 
-def auto_original(work, patched, verbose, until):
-    """The first turn's menu (to_menu), Alt-Q typed there (\\@Q), then the first UNTIL rounds' ends: each
-    spun at 5045:0f6c (trapped), its state and screen read, let go, and DS:ae4c seen to move on before the
-    next trap. Returns the menu's state and the rounds' (state, screen)."""
-    out = dict(rounds=[])
+def auto_original(work, patched, verbose):
+    """The first turn's menu (to_menu), Alt-Q typed there (\\@Q), then each round's end until the fight's last
+    (AUTO_MAX at most): each spun at 5045:0f6c (trapped), its state read, and its screen read flipped
+    (flip_continue, which gives the routine back). The round is the last when a side is gone or DS:ae4c + 1 >=
+    DS:b45a (0f6c's done, read before its DS:ae4c++): then no trap is armed. Otherwise the round's end is let go
+    and DS:ae4c seen to move on, before the next trap. Returns the menu's state, the rounds' (state, screen,
+    count, limit, sides, DS:1cb5 before the flip) and the strict wait's false holds."""
+    out = dict(rounds=[], false_holds=0)
     with cokbox.Box(workdir=work / "box-auto", game="dark-queen", verbose=verbose, timeout=1800,
                     files=L.files(patched)) as box:
         enter(box)
         box.set_seed(SEED)
         out["menu"] = to_menu(box)
         box.keys("\\@Q")                  # Alt-Q typed at the first turn's menu
-        for n in range(1, until + 1):
+        for n in range(1, AUTO_MAX + 1):
             handle = L.trap(box, *ROUND_END, seconds=ROUND_SECONDS)
-            wait_round(box, handle, f"round {n}'s end")
+            out["false_holds"] += wait_round(box, handle, f"round {n}'s end")
             stop = snapshot(box)
             stopped = box.ds_byte(ROUND_COUNT)
-            shot = box.screenshot(path=str(work / f"auto-round{n:02}-original.png"))
-            L.untrap(box, handle)
-            out["rounds"].append(dict(stop=stop, screen=shot, count=stopped))
-            if n < until:
-                if not round_past_count(box, stopped):
-                    raise cokbox.BoxError(f"round {n}'s end is not let go (DS:ae4c stays {stopped})")
+            limit = box.ds_byte(L.DS_ROUND_LIMIT)
+            sides = [box.ds_byte(L.DS_SIDE_PARTY), box.ds_byte(L.DS_SIDE_ENEMY)]
+            begun, shot = L.flip_continue(box, handle, str(work / f"auto-round{n:02}-original.png"))
+            out["rounds"].append(dict(stop=stop, screen=shot, count=stopped, limit=limit, sides=sides,
+                                      begun=begun))
+            if sides[0] == 0 or sides[1] == 0 or stopped + 1 >= limit:
+                break                           # the fight's last round: no trap after it
+            if not round_past_count(box, stopped):
+                raise cokbox.BoxError(f"round {n}'s end is not let go (DS:ae4c stays {stopped})")
+        else:
+            raise cokbox.BoxError(f"the fight is not over after {AUTO_MAX} rounds")
     return out
 
 
+def auto_expected(n):
+    """The fight's values at round N's end (measured three times): DS:b45a (the round limit:
+    15 until round 15's attack, 29 at its end, 30 from round 16) and the sides ([6, 2] to round 15, [6, 1]
+    from 16: SHARKMAN 1 got away in round 16)."""
+    return (15 if n <= 14 else 29 if n == 15 else 30), ([6, 2] if n <= 15 else [6, 1])
+
+
 def auto(v, work, opts):
-    """The auto flow (step 4, part 18a): Alt-Q typed at the first turn's menu in the original, the first
-    AUTO_UNTIL rounds' ends against eclplay's two runs (AUTO_TYPED and --combat auto with AUTO_KEYS), which
-    must write the same round files; each round's records, blocks, turn list, combatants, battlefield,
-    RandSeed and screen agree with the original's (MENU_POINTER masked)."""
+    """The auto flow (step 4, parts 18a and 18b2): Alt-Q typed at the first turn's menu in the original, each round's
+    end read to the fight's last (auto_original), against eclplay's two runs (AUTO_TYPED and --combat auto with
+    AUTO_KEYS), which must write the same round files: AUTO_ROUNDS of them. Each round's records, blocks (fleeing
+    included), turn list, combatants, battlefield, RandSeed and screen agree with the original's (MENU_POINTER
+    masked); the round count, DS:b45a and the sides are the fight's (auto_expected)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
-    o = auto_original(work, patched, opts.verbose, AUTO_UNTIL)
+    o = auto_original(work, patched, opts.verbose)
+    rounds = o["rounds"]
+    flipped = sum(1 for r in rounds if r["begun"])
+    print(f"original (auto): {len(rounds)} rounds, {o['false_holds']} false holds of the strict wait, "
+          f"DS:1cb5 set before the flip in {flipped} rounds", flush=True)
     typed, typed_last = auto_port(work, patched, "typed", AUTO_TYPED)
     combat, combat_last = auto_port(work, patched, "combat", AUTO_KEYS, combat="auto")
     print(f"port (auto): typed ends {typed_last!r}; --combat auto ends {combat_last!r}", flush=True)
     files = sorted(p.name for p in combat.glob("*.bmp"))
-    v.check(len(files) >= AUTO_UNTIL, f"eclplay writes at least {AUTO_UNTIL} rounds' files "
-            f"(--combat auto)", f"{len(files)} rounds")
+    v.value(f"the original's fight is {AUTO_ROUNDS} rounds (the round limit)", len(rounds), AUTO_ROUNDS)
+    v.check(len(files) == AUTO_ROUNDS, f"eclplay writes {AUTO_ROUNDS} rounds' files (--combat auto)",
+            f"{len(files)} rounds")
     same = all(filecmp.cmp(typed / f"{n:02}.{ext}", combat / f"{n:02}.{ext}", shallow=False)
-               for n in range(1, AUTO_UNTIL + 1)
+               for n in range(1, len(rounds) + 1)
                for ext in ("bmp", "records", "blocks", "field", "turns"))
-    v.check(same, "the typed Alt-Q and --combat auto write the same rounds' files (the first "
-            f"{AUTO_UNTIL} rounds: screens, records, blocks, field, turns)")
-    for n, r in enumerate(o["rounds"], 1):
+    v.check(same, "the typed Alt-Q and --combat auto write the same rounds' files (all "
+            f"{len(rounds)} rounds: screens, records, blocks, field, turns)")
+    for n, r in enumerate(rounds, 1):
         base = combat / f"{n:02}"
         p = dict(base=base, last=combat_last)
         s = r["stop"]
+        limit, sides = auto_expected(n)
         v.value(f"DS:ae4c (the round count) before round {n}'s end is {n - 1}", r["count"], n - 1)
+        v.value(f"DS:b45a (the round limit) at round {n}'s end is {limit}", r["limit"], limit)
+        v.value(f"the sides at round {n}'s end are {sides}", r["sides"], sides)
+        v.value(f"record 7's fleeing (block +0x15) at round {n}'s end is {1 if n >= 16 else 0}",
+                bytes.fromhex(s["blocks"][7])[0x15], 1 if n >= 16 else 0)
         draws = command_state(v, f"round {n} (auto)", s, p, o["menu"]["seed"])
         field = base.with_suffix(".field")
         if field.exists():
@@ -2692,7 +2744,8 @@ def auto(v, work, opts):
                     f"eclplay {fight} against {s['combatants']}")
         command_screen(v, f"at round {n}'s end (auto)", r["screen"], base.with_suffix(".bmp"),
                        MENU_POINTER)
-        print(f"round {n} (auto): {draws} RandSeed draws past the first menu", flush=True)
+        print(f"round {n} (auto): {draws} RandSeed draws past the first menu; DS:1cb5 before the flip "
+              f"{r['begun']}", flush=True)
 
 
 # The melee flow (step 4, part 15c: one round of the computer's fight, the stops of 15c's loop and

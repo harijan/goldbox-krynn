@@ -380,8 +380,11 @@ def port(work, name, patched, typed="", extra=(), block=JUMP, exe=None):
                              str(vars_path), "--keys", "\\r" + typed, *extra, str(assets),
                              *([str(block)] if block is not None else [])],
                             capture_output=True, text=True, cwd=ROOT, timeout=300)
-    (work / f"port-{name}.txt").write_text(result.stdout + result.stderr)
     last = (result.stdout.strip().splitlines() or [""])[-1]
+    if result.returncode < 0:           # killed (a segfault): its last line is no stop, say so
+        last = f"(eclplay killed by signal {-result.returncode})"
+    (work / f"port-{name}.txt").write_text(result.stdout + result.stderr +
+                                           (last + "\n" if result.returncode < 0 else ""))
     unread = "(keys left unread" in result.stderr
     return (vars_path.read_bytes() if vars_path.exists() else b""), last, unread
 

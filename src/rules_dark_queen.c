@@ -461,6 +461,7 @@ static const cok_combat_block dark_queen_combat_block = {
     .gate_var = COK_VAR_RECORD_EFFECT,
     .pattern = 0x16,
     .target = 0x0b,
+    .fleeing = 0x15,
 };
 
 /* What a block's start sets besides (6c70:0001): 0x2b and 0x2c. */
