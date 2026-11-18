@@ -2663,7 +2663,7 @@ static bool h_kin(cok_effects *fx, bool removing, cok_effect *effect, cok_charac
  * from the holder to it (51c2:0b26, always called, a NULL target too: its listing is the side
  * effect). Within a square, a target of creature flag 0 bit 3 (+0xc7 8) takes the holder's ranger
  * level (177e:2234, rec+0xa9, a byte) more on the damage word (DS:ae55), and the byte amount with
- * it. Cited failures: no combat record (78e4:1aae reads 0000:000b); outside battle, the distance
+ * it. Cited failures: no combat record (78e4:1ab2 reads 0000:000b); outside battle, the distance
  * (51c2:0b26) lists the map combat has freed; a NULL target within a square, whose +0xc7 is read at
  * 0000:00c7. Champions' and Death Knights' 0x69 (h_slayer) has no distance and adds to the byte. */
 static bool h_queen_ranger(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
@@ -2674,7 +2674,7 @@ static bool h_queen_ranger(cok_effects *fx, bool removing, cok_effect *effect, c
     cok_combat_record *cr = c->combat;
     if (cr == NULL)
         return fail(fx, "dqk 78e4:1aa2 (effect 0x69) reads the combat record's target at 0000:000b "
-                        "(78e4:1aae) with none");
+                        "(78e4:1ab2) with none");
     fx->rolls.target = cr->target;
     if (!fx->in_battle || fx->distance == NULL)
         return fail(fx, "the distance (51c2:0b26) lists the map combat has freed, outside battle");

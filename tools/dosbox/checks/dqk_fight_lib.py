@@ -441,6 +441,43 @@ def flip(box, handle, seconds=0.6):
     return box.ds_byte(DS_BEGUN)
 
 
+def flip_continue(box, handle, path):
+    """At a spin HANDLE (EB FE at a routine's entry, every copy), the original's own page flip (19a4:06d3)
+    run and the routine then entered as if untouched: each copy k jumps (EA) to a trampoline in the hook
+    TSR's own PSP command tail (PSP:0080 + 16k, unused once it is resident): lcall 19a4:06d3, EB FE. Once
+    DS:1cb5 is 0 the screenshot; then, paused, each copy's 5 bytes given back and each trampoline's spin
+    made a jmp far to its copy. Returns (DS:1cb5 before, the screenshot)."""
+    assert len(handle) <= 8, "the PSP command tail holds eight trampolines"
+    begun = box.ds_byte(DS_BEGUN)
+    fseg, foff = box.from_ghidra(*FLIP)
+    psp = (box.hook_addr - 0x110) // 16
+    writes, back, spins = [], [], []
+    for k, (addr, orig2) in enumerate(handle):
+        off = handle.off
+        cseg = (addr - off) // 16
+        assert cseg * 16 + off == addr
+        orig5 = orig2 + box.read(addr + 2, 3)
+        t_off = 0x80 + 16 * k
+        t_lin = psp * 16 + t_off
+        writes += [(t_lin, bytes([0x9a]) + struct.pack("<HH", foff, fseg) + bytes([0xeb, 0xfe])),
+                   (addr, bytes([0xea]) + struct.pack("<HH", t_off, psp))]
+        back += [(addr, orig5), (t_lin + 5, bytes([0xea]) + struct.pack("<HH", off, cseg))]
+        spins.append((t_lin + 5, b""))
+    # trampolines first (not running), then the copies' jumps, paused
+    box.write_paused(writes)
+    end = time.monotonic() + 60
+    while True:
+        if time.monotonic() > end:
+            raise cokbox.BoxError("the flip's trampoline does not hold (DS:1cb5 stays set)")
+        box.settle(0.3)
+        if box.ds_byte(DS_BEGUN) == 0 and any(box.read(a, 2) == bytes([0xeb, 0xfe]) for a, _ in spins):
+            if held(box, [(a, b"") for a, _ in spins if box.read(a, 2) == bytes([0xeb, 0xfe])], seconds=0.4)[0]:
+                break
+    shot = box.screenshot(path=path)
+    box.write_paused(back)
+    return begun, shot
+
+
 def portable(s):
     """The state as setup.json keeps it. The heap pointers (the records' and the
     combat records' far pointers, the combatants' and the first record's) are not

@@ -171,6 +171,7 @@ static void save_blocks(const cok_adventure *game, const char *path)
             block[B->turns] = cr->turns;
             block[B->turning] = cr->turning;
             block[B->pattern] = cr->pattern;
+            block[B->fleeing] = cr->fleeing;
             /* The target (a pointer in the original): its party index plus 1, 0 for none, 0xff for
              * one that is not in the party (dqk_fight's normal_block says the same of the original's). */
             const uint8_t *t = cr->target;
