@@ -261,7 +261,7 @@ typedef struct {
      * cok_arena_missile_frame, draw_missile and the restore of a flight; dqk 51c2:0005, 00be and
      * 00df). arena_missile_frame: frame (0-3) built from icon slot's image (0 or 1), mirrored if
      * mirror. arena_missile_draw: frame drawn masked at the battle's place x, y (sub-cells of a
-     * cell: 3 to a cell), the 12 by 12 under it saved first. arena_missile_restore: that save put
+     * cell: 3 to a cell), the 24 by 24 under it saved first. arena_missile_restore: that save put
      * back at x, y. NULL: arena.c stops, citing the game's missing part. */
     bool (*arena_missile_frame)(cok_adventure *game, uint8_t slot, uint8_t image, uint8_t frame,
                                 bool mirror);

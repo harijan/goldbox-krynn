@@ -175,9 +175,9 @@ typedef struct {
      * icon_pair; the battle's end frees 0x0f-0x25 in the original (5045:0001), not here. */
     queen_icon_record icons[2][ICON_SLOTS];
     /* The flight's frames (51c2:0005's scratch slots 0x99-0x9c): the icon's picture decoded and
-     * mirrored as drawn, and the 12 by 12 pixels under the last one drawn (19a4:09eb's save). */
+     * mirrored as drawn, and the 24 by 24 pixels under the last one drawn (19a4:09eb's save). */
     cok_vga_image missile[4];
-    uint8_t missile_under[144];
+    uint8_t missile_under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE];
 } queen;
 
 static queen *own(cok_adventure *game)
@@ -5556,7 +5556,7 @@ static bool arena_missile_frame(cok_adventure *game, uint8_t slot, uint8_t image
     return true;
 }
 
-/* A flight's frame drawn at the battle's place x, y (sub-cells: 19a4:09eb's save of 12 by 12, then
+/* A flight's frame drawn at the battle's place x, y (sub-cells: 19a4:09eb's save of 24 by 24, then
  * 04e1's masked draw; 51c2:00df). */
 static bool arena_missile_draw(cok_adventure *game, uint8_t frame, int x, int y)
 {

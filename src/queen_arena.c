@@ -149,8 +149,6 @@ int cok_queen_arena_place(int unit)
     return COK_QUEEN_ARENA_X + 8 * unit;
 }
 
-enum { SAVE_SIZE = 12 };
-
 /* The pixel at x, y of the screen as an index, or -1 off it. */
 static long pixel_index(const cok_picture *screen, int x, int y)
 {
@@ -159,21 +157,23 @@ static long pixel_index(const cok_picture *screen, int x, int y)
     return (long)y * width + x;
 }
 
-void cok_queen_arena_save(const cok_picture *screen, int x, int y, uint8_t under[144])
+void cok_queen_arena_save(const cok_picture *screen, int x, int y,
+                          uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE])
 {
-    for (int row = 0; row < SAVE_SIZE; ++row)
-        for (int column = 0; column < SAVE_SIZE; ++column) {
+    for (int row = 0; row < COK_QUEEN_ARENA_SAVE; ++row)
+        for (int column = 0; column < COK_QUEEN_ARENA_SAVE; ++column) {
             long at = pixel_index(screen, x + column, y + row);
-            under[row * SAVE_SIZE + column] = at >= 0 ? screen->pixels[at] : 0;
+            under[row * COK_QUEEN_ARENA_SAVE + column] = at >= 0 ? screen->pixels[at] : 0;
         }
 }
 
-void cok_queen_arena_restore(cok_picture *screen, int x, int y, const uint8_t under[144])
+void cok_queen_arena_restore(cok_picture *screen, int x, int y,
+                             const uint8_t under[COK_QUEEN_ARENA_SAVE * COK_QUEEN_ARENA_SAVE])
 {
-    for (int row = 0; row < SAVE_SIZE; ++row)
-        for (int column = 0; column < SAVE_SIZE; ++column) {
+    for (int row = 0; row < COK_QUEEN_ARENA_SAVE; ++row)
+        for (int column = 0; column < COK_QUEEN_ARENA_SAVE; ++column) {
             long at = pixel_index(screen, x + column, y + row);
-            if (at >= 0) screen->pixels[at] = under[row * SAVE_SIZE + column];
+            if (at >= 0) screen->pixels[at] = under[row * COK_QUEEN_ARENA_SAVE + column];
         }
 }
 

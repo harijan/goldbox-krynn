@@ -117,15 +117,17 @@ occupants, combatants, the bodies (eclplay's --field now dumps them: part16-17's
 and the screen. The first strike (round 5's turn 8) kills ROLAND: 0 hit points at round 6's first menu. About a
 minute (the melee-long run's stops, with the eclplay runs).
 
-Flow `altq_missile` (step 4, part 15c): Alt-Q's first missile flight, 52db:2888 (part 17; the flight is part 17b's and
-ported, so this flow's stop is out of date: see below). The
-original runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888
-in overlay 0 (MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and
-RandSeed does not move over a second, twice (the computer's turns run without a key wait, so the polls alone
-do not show the flight). eclplay's run with the same keys stopped there (MISSILE_STOP, part 17a's unported stop,
-removed by 17b: it now runs on to effect 0x69's stop, 78e4:1aa2, so this flow needs a new stop before it runs again), and its state is
-compared: RandSeed 1039 draws past the menu (0x484d403f), every record and combat block, the turn list, the
-combatants (--field), and the selected record (DS:ad67, 57fb:04da). About six minutes: the Box timeout is 900 s.
+Flow `altq_missile` (step 4, part 15c, its stop moved by part 17b): Alt-Q's first missile flight. The original
+runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the copies of 52db:2888 in overlay 0
+(MISSILE_ENTRY, arm; the root image has no copy there), and the wait holds when the spin does and RandSeed does not
+move over a second, twice (the computer's turns run without a key wait, so the polls alone do not show the
+flight). Then the flight's strike: 148f:077f (STRIKE_EFFECT, in the root image, so a static trap holds), where
+event 4 runs effect 0x69 on the attacker; 78e4:1aa2 is not trapped, as overlay 9 is only loaded by that call.
+eclplay's run with the same keys stops there (MISSILE_STOP), and its state is compared at the strike: RandSeed
+1044 draws past the menu (MISSILE_STOP_DRAWS; the entry's 1039 is checked too), every record and combat block,
+the turn list, the combatants (--field), the selected record (DS:ad67, 57fb:04da), and the whole screen (the
+flight's restore is in it; MENU_POINTER masked). About a minute of wall time (0.4 min in the last run); the Box
+timeout is 900 s.
 
 Flow `walk`: tests/test_dark_queen.py's test_first_fight in the original, the shipped ECL: the start
 menu, plta, Begin, block 4's texts and the steps to the dragons, the first turn's menu (5045:08cf), End,
@@ -1914,7 +1916,7 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 QUICK_STOP = re.compile(r".*5bb8:0000.*")     # Quick's hand-on (5045:0a56): cites the turn 5bb8:0000
-MISSILE_STOP = re.compile(r".*51c2:00df.*")  # a missile's flight (51c2:00df): part 17a's stop, removed by 17b, so out of date (see altq_missile)
+MISSILE_STOP = re.compile(r".*effect 0x69 \(dqk 78e4:1aa2\).*")  # the strike after the flight (148f:077f): part 17b
 
 
 def wait_trap(box, t, where):
@@ -2193,9 +2195,11 @@ def alt_q_check(v, work, patched, opts):
 
 
 MISSILE_ENTRY = (0x5045, (0x52DB - 0x5045) * 16 + 0x2888)  # 52db:2888 in overlay 0's copies (arm)
-MISSILE_DRAWS = 1039                    # RandSeed draws past the menu at the first flight (1034 past the panel)
+MISSILE_DRAWS = 1039                    # RandSeed draws past the menu at the flight's entry (1034 past the panel)
+STRIKE_EFFECT = (0x148F, 0x077F)        # 148f:077f, mov al, 0x69 (b0 69): event 4 on the attacker, after the flight
+MISSILE_STOP_DRAWS = 1044               # at the strike: 1039, the flight's 3 frames (1df9:052a(20)), 148f:1771's d20, 148f:199e's die
 MISSILE_RECORD = "57fb:04da"            # DS:ad67 at the flight: the selected record (combatant 4)
-MISSILE_SECONDS = 600                   # the flight comes after about 5.5 minutes of computer turns
+MISSILE_SECONDS = 600                   # the entry comes after about 5.5 minutes of computer turns (the strike after it)
 MISSILE_STILL = 1.0                     # RandSeed must not move over this much game time, twice
 
 
@@ -2206,8 +2210,8 @@ def still(box, seconds=MISSILE_STILL):
     return seed == box.ds_dword(L.DS_SEED)
 
 
-def wait_missile(box, t):
-    """Waits until the flight's trap T (written paused) is reached: the spin holds (the keyboard polls
+def wait_missile(box, t, where):
+    """Waits until the trap T (written paused, at WHERE) is reached: the spin holds (the keyboard polls
     still over 0.6 s), and RandSeed does not move over a second, twice. The computer's turns run with no
     key wait, so the polls alone hold between turns too: the RandSeed test is what shows the flight."""
     end = time.monotonic() + MISSILE_SECONDS
@@ -2215,13 +2219,15 @@ def wait_missile(box, t):
         box.settle(0.5)
         if L.held(box, t, seconds=0.6)[0] and still(box) and still(box):
             return
-    raise cokbox.BoxError(f"the original's flight at 52db:2888 is not reached after {MISSILE_SECONDS} s")
+    raise cokbox.BoxError(f"the original's trap at {where} is not reached after {MISSILE_SECONDS} s")
 
 
 def missile_original(work, patched, verbose):
-    """The original's state at Alt-Q's first missile flight (52db:2888, MISSILE_ENTRY): the first turn's
-    menu (to_menu), \\@Q typed there, and the flight's entry trapped in the copies of its overlay. The
-    state there (snapshot, with DS:ad67 as `selected`) and the menu's seed (for the draws)."""
+    """The original's states at Alt-Q's first missile flight: its entry (52db:2888, MISSILE_ENTRY) and its
+    strike (148f:077f, STRIKE_EFFECT, after the flight). The first turn's menu (to_menu), \\@Q typed there,
+    and the entry trapped in the copies of its overlay; then the entry given back and the strike trapped in
+    the root image (write_paused, the bytes checked first), and the strike's state kept with its screen. Each
+    state is a snapshot with DS:ad67 as `selected`; the menu's seed is for the draws."""
     with cokbox.Box(workdir=work / "box-altq-missile", game="dark-queen", verbose=verbose,
                     timeout=900, files=L.files(patched)) as box:
         enter(box)
@@ -2229,35 +2235,54 @@ def missile_original(work, patched, verbose):
         menu = to_menu(box)
         t = arm(box, menu["handle"], MISSILE_ENTRY)
         alt_q_keys(box)
-        wait_missile(box, t)
+        wait_missile(box, t, "52db:2888")
+        entry = snapshot(box)
+        entry["selected"] = selected(box)
+        seg, off = box.from_ghidra(*STRIKE_EFFECT)
+        addr = seg * 16 + off
+        found = box.read(addr, 2)
+        if found != b"\xb0\x69":
+            raise cokbox.BoxError(f"148f:077f is not mov al, 0x69 (b0 69): {found.hex()}")
+        strike = [(addr, b"\xb0\x69")]
+        box.write_paused([(addr, b"\xeb\xfe")])
+        L.untrap(box, t)                # the entry given back: the flight runs on to the strike
+        wait_missile(box, strike, "148f:077f")
         stop = snapshot(box)
         stop["selected"] = selected(box)
-    return dict(menu=menu, stop=stop)
+        stop["screen"] = box.screenshot(path=str(work / "altq-stop.png"))
+        L.untrap(box, [(addr, b"\xb0\x69")])
+    return dict(menu=menu, entry=entry, stop=stop)
 
 
 def altq_missile(v, work, opts):
-    """Alt-Q's first missile flight (step 4, part 15c; out of date since part 17b, see the module
-    docstring): the original's state there (missile_original) against eclplay's run to the same flight
-    (MISSILE_STOP, the keys "\\r\\r\\@Q"):
-    RandSeed (MISSILE_DRAWS past the menu), every record and combat block, the turn list (command_state),
-    the combatants (--field) and the selected record (DS:ad67)."""
+    """Alt-Q's first missile flight (step 4, part 15c; the stop is the strike's since part 17b, see the module
+    docstring): the original's entry (52db:2888) and strike (148f:077f, missile_original) against eclplay's run
+    to the strike (MISSILE_STOP, the keys "\\r\\r\\@Q"): RandSeed at the entry (MISSILE_DRAWS past the menu)
+    and at the strike (MISSILE_STOP_DRAWS), every record and combat block, the turn list (command_state), the
+    combatants (--field), the selected record (DS:ad67) and the whole screen (the flight's restore is in it)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     o = missile_original(work, patched, opts.verbose)
     p = command_port(work, patched, "AltQ", "\\@Q")
-    s, m = o["stop"], o["menu"]
+    m, e, s = o["menu"], o["entry"], o["stop"]
     v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at a missile's flight (51c2:00df, part 17b) after Alt-Q", p["last"])
-    draws = command_state(v, "Alt-Q's flight", s, p, m["seed"])
-    v.check(draws == MISSILE_DRAWS, f"the original's RandSeed at the flight after Alt-Q is "
-            f"{MISSILE_DRAWS} draws past the menu (1034 past the panel call)", f"{draws} draws")
-    v.check(s["selected"] == MISSILE_RECORD, f"the selected record (DS:ad67) at the flight after Alt-Q "
+            "eclplay stops at effect 0x69 (78e4:1aa2, the strike after the flight) after Alt-Q", p["last"])
+    entry_draws = L.draws(m["seed"], e["seed"])
+    v.check(entry_draws == MISSILE_DRAWS, f"the original's RandSeed at the flight's entry (52db:2888) after "
+            f"Alt-Q is {MISSILE_DRAWS} draws past the menu (1034 past the panel call)", f"{entry_draws} draws")
+    draws = command_state(v, "Alt-Q's strike", s, p, m["seed"])
+    v.check(draws == MISSILE_STOP_DRAWS, f"the original's RandSeed at the strike after Alt-Q is "
+            f"{MISSILE_STOP_DRAWS} draws past the menu (the entry's, the flight's frames, d20 and a die)",
+            f"{draws} draws")
+    v.check(s["selected"] == MISSILE_RECORD, f"the selected record (DS:ad67) at the strike after Alt-Q "
             f"is {MISSILE_RECORD}", f"{s['selected']}")
     field = p["base"].with_suffix(".field")
     if field.exists():
         fight = parse_field(field)[5]
-        v.check(fight == s["combatants"], "the combatants at the flight after Alt-Q agree (eclplay's "
+        v.check(fight == s["combatants"], "the combatants at the strike after Alt-Q agree (eclplay's "
                 "--field, the original's combatants)", f"eclplay {fight}, original {s['combatants']}")
+    command_screen(v, "at effect 0x69 after Alt-Q's flight", s["screen"], p["base"].with_suffix(".bmp"),
+                   MENU_POINTER)
 
 
 def alt_m_check(v, work, patched, opts):

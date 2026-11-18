@@ -1017,6 +1017,15 @@ static void flight_start(void)
 static void test_flight(void)
 {
     CHECK(screen_size() <= sizeof screen_a);
+    /* With delay > 0 the flight puts back all it covered: each frame's 24 by 24 under it
+     * (19a4:09eb, 0aba), and the target's. The view is drawn before the screen is saved (the
+     * flight's centring would draw it, and that is not the flight's change). */
+    flight_start();
+    CHECK(cok_arena_missile_frame(&game, 0x0f, 0, 0, false));
+    CHECK(cok_arena_centre(&game, 3, 3, 0xff, 8));
+    memcpy(screen_a, game.screen.pixels, screen_size());
+    CHECK(cok_arena_missile(&game, 1, 1, 5, 1, 1, 10) && game.vm.status == COK_ECL_OK);
+    CHECK(memcmp(game.screen.pixels, screen_a, screen_size()) == 0);
     /* An arrow (one frame, delay 10) flies 1, 1 to 5, 1 on the view: a 20 ms wait a frame, each
      * step drawn (delay > 0), the target's too; one RandSeed draw for each wait. */
     flight_start();
@@ -1069,7 +1078,8 @@ static void test_flight(void)
 }
 
 /* The frame's place (51c2:00a0's 4 * unit + 0x1f44, through 251e:0595): sub-cell 3, 3 is pixel
- * 8 + 8 * 3, 32, both ways, and the 12 by 12 under it is put back (19a4:09eb, 0aba). */
+ * 8 + 8 * 3, 32, both ways, and the 24 by 24 under it is put back (19a4:09eb, 0aba). The arrow has
+ * opaque pixels outside the top-left 12 by 12, so a save of 12 by 12 fails here. */
 static void test_flight_place(void)
 {
     flight_start();
@@ -1080,22 +1090,23 @@ static void test_flight_place(void)
     cok_vga_image arrow = {0};
     CHECK(cok_vga_decode(record, size, NULL, &arrow) == COK_VGA_OK);
     CHECK(arrow.width == 24 && arrow.height == 24);
-    uint8_t under[12][12];
-    for (unsigned y = 0; y < 12; ++y)
-        for (unsigned x = 0; x < 12; ++x) under[y][x] = game.screen.pixels[(32 + y) * 320 + 32 + x];
+    uint8_t under[24][24];
+    for (unsigned y = 0; y < 24; ++y)
+        for (unsigned x = 0; x < 24; ++x) under[y][x] = game.screen.pixels[(32 + y) * 320 + 32 + x];
     CHECK(cok_adventure_drawing(&game)->arena_missile_draw(&game, 0, 3, 3));
-    unsigned shown = 0;
+    unsigned shown = 0, outside = 0;
     for (unsigned y = 0; y < 24; ++y)
         for (unsigned x = 0; x < 24; ++x) {
             size_t j = (size_t)y * 24 + x;
             if (arrow.mask != NULL && arrow.mask[j] != 0) continue;
             CHECK(game.screen.pixels[(32 + y) * 320 + 32 + x] == arrow.pixels[j]);
             ++shown;
+            if (x >= 12 || y >= 12) ++outside;
         }
-    CHECK(shown > 0);
+    CHECK(shown > 0 && outside > 0);
     CHECK(cok_adventure_drawing(&game)->arena_missile_restore(&game, 3, 3));
-    for (unsigned y = 0; y < 12; ++y)
-        for (unsigned x = 0; x < 12; ++x)
+    for (unsigned y = 0; y < 24; ++y)
+        for (unsigned x = 0; x < 24; ++x)
             CHECK(game.screen.pixels[(32 + y) * 320 + 32 + x] == under[y][x]);
     cok_vga_free(&arrow);
     battle_clear();
