@@ -138,15 +138,15 @@ first text it is eclplay's, the copy protection's two draws made in both; then t
 wait and the turn list and seed at both menus against eclplay's --load --seed route (walk_port; its
 --start-menu route's turn lists are the same). See the comment above walk_original.
 
-Flow `auto` (step 4, parts 18a and 18b2: --combat auto's first turn and the whole fight to its last round; run alone
+Flow `auto` (step 4, parts 18a, 18b2 and 18b3: --combat auto's first turn and the whole fight to its end; run alone
 with `--flows auto`, its own box with a 1800 s timeout, not in the default flows, about 1.5 min): Alt-Q typed at the first
 turn's menu in the original (\\@Q), and each round's end (5045:0f6c, cok_combat_end_round's start) made to spin and read,
 until the fight's last round (30: the round limit, DS:ae4c + 1 >= DS:b45a, or a side gone; AUTO_MAX rounds at most).
 The screen at each end is the flipped one (flip_continue: the original's own page flip, 19a4:06d3, run at the spin, then
 the routine given back), since the unflipped one is out of date where the last turn's redraw is on the back page
-(DS:1cb5 set, rounds 20 and 23 of this fight). No trap is armed after the last round: the results and the continue
-question are 18b3's. eclplay runs the block twice, Alt-Q typed (\\r\\r\\@Q) and --combat auto (\\r\\r): both must
-write the same round files (the --records, --blocks, --field and --turns writers and the screen, at round.c's mark:
+(DS:1cb5 set, rounds 20 and 23 of this fight). No trap is armed after the last round: the results and Return are read
+after it (18b3, auto_original's tail). eclplay runs the block three times, Alt-Q typed (\\r\\r\\@Q), --combat auto (\\r\\r) and
+with one more Return: the first two must write the same round files (the --records, --blocks, --field and --turns writers and the screen, at round.c's mark:
 auto_eclplay, a patched build), AUTO_ROUNDS of them. Each round's records (pointers masked), combat blocks (fleeing
 included), turn list, combatants, battlefield, RandSeed and screen (MENU_POINTER masked) agree with the original's; and
 the round's DS:ae4c, DS:b45a and sides are the fight's (auto_expected). A hold is taken as the round's end only where
@@ -2540,7 +2540,7 @@ def round_flow(v, work, opts):
                    base.with_suffix(".bmp"), MENU_POINTER)
 
 
-# The auto flow (step 4, parts 18a and 18b2): the first turn's menu with Alt-Q typed (\\@Q), then each round's end
+# The auto flow (step 4, parts 18a, 18b2 and 18b3): the first turn's menu with Alt-Q typed (\\@Q), then each round's end
 # in the original (5045:0f6c) to the fight's last, against eclplay's two runs of the block (typed, and --combat auto).
 AUTO_ROUNDS = 30                        # the fight's rounds: the round limit (measured three times)
 AUTO_MAX = 40                           # a cap on the original's rounds: past it the flow fails
@@ -2549,6 +2549,8 @@ ROUND_COUNT = 0xAE4C                    # DS:ae4c, the round count (moved on pas
 ROUND_SECONDS = 600                     # the wait for a round's end (the computer's turns between)
 AUTO_KEYS = "\\r\\r"                  # the keys of --combat auto's run (its first turn's Alt-Q is the stub's)
 AUTO_TYPED = "\\r\\r\\@Q"            # the keys of the typed run (Alt-Q typed at the first turn's menu)
+AUTO_END = "(out of keys in block 1 at 8030)"       # --combat auto's stop: the results' key wait (18b3)
+AUTO_RETURN = "(out of keys in block 1 at 8031)"    # the same run with one more Return: the adventure menu
 AUTO_LOG_AT = ("static void log_line(cok_adventure *game, const char *kind, const char *text, "
                "void *context)\n{\n    (void)game;\n    (void)context;\n")
 AUTO_LOG_CODE = r"""    /* tools/dosbox/checks/dqk_fight.py's auto flow: at each round's end (round.c's mark, "dqk"),
@@ -2595,10 +2597,11 @@ def auto_eclplay():
     return checklib.build("eclplay", transforms=[("eclplay.c", round_log), ("round.c", round_mark)])
 
 
-def auto_port(work, patched, name, typed, combat=None):
+def auto_port(work, patched, name, typed, combat=None, end=None):
     """eclplay's run of the block from saved game A (--load --play, as port), TYPED keys after the entry,
     with --combat COMBAT if given: its rounds' files (NN.*) in work/auto-NAME, written at each round's
-    end (auto_eclplay). Returns the directory and the run's last line."""
+    end (auto_eclplay). With END (a base path), its stop's state is written there too (--records, --state,
+    --screen: the end's files). Returns the rounds' directory, the run's last line and its variables."""
     rounds = work / f"auto-{name}"
     if rounds.exists():
         shutil.rmtree(rounds)
@@ -2606,13 +2609,16 @@ def auto_port(work, patched, name, typed, combat=None):
     extra = ["--load", str(saved_entry(work)), "--play"]
     if combat is not None:
         extra += ["--combat", combat]
+    if end is not None:
+        extra += ["--records", str(end.with_suffix(".records")), "--state", str(end.with_suffix(".state")),
+                  "--screen", str(end.with_suffix(".bmp"))]
     os.environ["COK_DQK_ROUNDS"] = str(rounds)
     try:
-        _, last, _ = dqk_ecl.port(work, f"auto-{name}", patched, typed=typed, extra=extra,
-                                  block=None, exe=auto_eclplay())
+        variables, last, _ = dqk_ecl.port(work, f"auto-{name}", patched, typed=typed, extra=extra,
+                                          block=None, exe=auto_eclplay())
     finally:
         del os.environ["COK_DQK_ROUNDS"]
-    return rounds, last
+    return rounds, last, variables
 
 
 def round_left(box):
@@ -2684,7 +2690,47 @@ def auto_original(work, patched, verbose):
                 raise cokbox.BoxError(f"round {n}'s end is not let go (DS:ae4c stays {stopped})")
         else:
             raise cokbox.BoxError(f"the fight is not over after {AUTO_MAX} rounds")
+        # The end (18b3): no trap is armed, and no continue question is asked (b7f3 stays 1): the first key
+        # wait is the results'. Then Return: the adventure menu (mode 4). snapshot() is not called here.
+        out["end_screen"] = key_wait(box)
+        out["end"] = end_state(box)
+        box.keys("\\r")
+        out["back_screen"] = key_wait(box)
+        out["back"] = end_state(box)
     return out
+
+
+def key_wait(box, seconds=120):
+    """The screen at the game's next key wait (won_original's wait: box.waiting, a limit of SECONDS), settled."""
+    box._last_polls = box.hook("polls")
+    box._streak = 0
+    end = time.monotonic() + seconds
+    while not box.waiting():
+        if time.monotonic() > end:
+            raise cokbox.BoxError(f"no key wait after {seconds} s")
+        time.sleep(0.05)
+    return box.settled(tolerance=64)
+
+
+def end_state(box):
+    """The original's state at a key wait after the fight's last round: the reads of won_original's E (the
+    flags, the results' DS:af3f, c7de, c7df, b1da, b7a7, ae4f, the pool's coins at b1db, b1df, b1e3, DS:b2f5),
+    the round count and limit, the sides, the party's records (raw) and the 1 KB of variables. The combat
+    records are freed after the last round, so the turn list is not read (turn_order raises)."""
+    return dict(mode=box.ds_word(L.DS_MODE), seed=box.ds_dword(L.DS_SEED), standing=box.ds_byte(0xAF3F),
+                fled=box.ds_byte(0xC7DE), monsters=box.ds_byte(0xC7DF), out=box.ds_byte(0xB1DA),
+                b7a7=box.ds_byte(0xB7A7), share=int.from_bytes(box.ds_read(0xAE4F, 4), "little"),
+                pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xB1DB, 0xB1DF, 0xB1E3)),
+                flags=list(box.ds_read(0xB2F5, 6)), count=box.ds_byte(ROUND_COUNT),
+                limit=box.ds_byte(L.DS_ROUND_LIMIT), sides=[box.ds_byte(L.DS_SIDE_PARTY), box.ds_byte(L.DS_SIDE_ENEMY)],
+                records=[raw.hex() for _, raw in L.records(box)], variables=block_vars(box))
+
+
+def state_lines(e):
+    """eclplay's --state lines (eclplay.c's save_state) for the original's end_state E."""
+    return [f"mode {e['mode']}", f"seed {e['seed']:08x}", "flags " + " ".join(str(b) for b in e["flags"]),
+            f"standing {e['standing']}", f"fled {e['fled']}", f"monsters {e['monsters']}", f"out {e['out']}",
+            f"b7a7 {e['b7a7']}", f"share {e['share']}", "pool " + " ".join(str(p) for p in e["pool"])]
 
 
 def auto_expected(n):
@@ -2699,7 +2745,11 @@ def auto(v, work, opts):
     end read to the fight's last (auto_original), against eclplay's two runs (AUTO_TYPED and --combat auto with
     AUTO_KEYS), which must write the same round files: AUTO_ROUNDS of them. Each round's records, blocks (fleeing
     included), turn list, combatants, battlefield, RandSeed and screen agree with the original's (MENU_POINTER
-    masked); the round count, DS:b45a and the sides are the fight's (auto_expected)."""
+    masked); the round count, DS:b45a and the sides are the fight's (auto_expected). The end (18b3): the last round
+    is at the round limit with the sides [6, 1] (no continue question); the first key wait after it is the results'
+    (eclplay's --combat auto run stops there, block 1 at 8030: its --state, --records, --screen and variables agree
+    with the original's reads, end_state), and Return gives the adventure menu, mode 4, RandSeed unchanged (the
+    same run with one more Return: 8031; its screen, records and variables agree)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     o = auto_original(work, patched, opts.verbose)
@@ -2707,9 +2757,13 @@ def auto(v, work, opts):
     flipped = sum(1 for r in rounds if r["begun"])
     print(f"original (auto): {len(rounds)} rounds, {o['false_holds']} false holds of the strict wait, "
           f"DS:1cb5 set before the flip in {flipped} rounds", flush=True)
-    typed, typed_last = auto_port(work, patched, "typed", AUTO_TYPED)
-    combat, combat_last = auto_port(work, patched, "combat", AUTO_KEYS, combat="auto")
-    print(f"port (auto): typed ends {typed_last!r}; --combat auto ends {combat_last!r}", flush=True)
+    typed, typed_last, _ = auto_port(work, patched, "typed", AUTO_TYPED)
+    combat, combat_last, end_vars = auto_port(work, patched, "combat", AUTO_KEYS, combat="auto",
+                                              end=work / "auto-end")
+    _, back_last, back_vars = auto_port(work, patched, "return", AUTO_KEYS + "\\r", combat="auto",
+                                           end=work / "auto-back")
+    print(f"port (auto): typed ends {typed_last!r}; --combat auto ends {combat_last!r}; with Return "
+          f"{back_last!r}", flush=True)
     files = sorted(p.name for p in combat.glob("*.bmp"))
     v.value(f"the original's fight is {AUTO_ROUNDS} rounds (the round limit)", len(rounds), AUTO_ROUNDS)
     v.check(len(files) == AUTO_ROUNDS, f"eclplay writes {AUTO_ROUNDS} rounds' files (--combat auto)",
@@ -2746,6 +2800,39 @@ def auto(v, work, opts):
                        MENU_POINTER)
         print(f"round {n} (auto): {draws} RandSeed draws past the first menu; DS:1cb5 before the flip "
               f"{r['begun']}", flush=True)
+    # The end (18b3): the last round at the round limit (no continue question), the results' wait, and Return.
+    last = rounds[-1]
+    v.check(last["sides"] == [6, 1] and last["count"] + 1 >= last["limit"],
+            "the last round ends at the round limit with the sides [6, 1] (DS:ae4c + 1 >= DS:b45a): no continue "
+            "question", f"sides {last['sides']}, count {last['count']}, limit {last['limit']}")
+    v.check(combat_last == AUTO_END, "eclplay's --combat auto run ends at the results' wait (block 1, 8030)",
+            combat_last)
+    v.check(back_last == AUTO_RETURN, "eclplay's run with Return ends at the menu (block 1, 8031)", back_last)
+    e, b = o["end"], o["back"]
+    end_base = work / "auto-end"
+    state_file = end_base.with_suffix(".state")
+    state = state_file.read_text().splitlines() if state_file.exists() else []
+    v.check(state == state_lines(e), "eclplay's --state at the results' wait is the original's (the WON_STATE "
+            "format, the pool's coins too)", f"eclplay {state}, the original {state_lines(e)}")
+    ported = ported_records(dict(base=end_base))
+    differ = [i for i in range(min(len(ported), len(e["records"]))) if masked(ported[i]) != masked(e["records"][i])]
+    v.check(not differ and len(ported) == len(e["records"]), "every record agrees at the results' wait (pointers "
+            "masked)", f"{len(ported)} against {len(e['records'])}; differ: {' '.join(map(str, differ))}")
+    v.check(end_vars == e["variables"], "the variables agree at the results' wait (the 1 KB)")
+    command_screen(v, "at the results' wait (auto)", o["end_screen"], end_base.with_suffix(".bmp"), WON_WAIT_MASKS)
+    back_base = work / "auto-back"
+    back_file = back_base.with_suffix(".state")
+    back_state = back_file.read_text().splitlines() if back_file.exists() else []
+    v.check(b["mode"] == 4 and b["seed"] == e["seed"] and back_state[:2] == ["mode 4", f"seed {e['seed']:08x}"],
+            "after Return: the adventure menu (mode 4), RandSeed unchanged (eclplay's too)",
+            f"original mode {b['mode']}, seed {b['seed']:#x} (end {e['seed']:#x}); eclplay {back_state[:2]}")
+    ported = ported_records(dict(base=back_base))
+    differ = [i for i in range(min(len(ported), len(b["records"]))) if masked(ported[i]) != masked(b["records"][i])]
+    v.check(not differ and len(ported) == len(b["records"]), "every record agrees at the menu (pointers masked)",
+            f"{len(ported)} against {len(b['records'])}; differ: {' '.join(map(str, differ))}")
+    v.check(back_vars == b["variables"], "the variables agree at the menu (the 1 KB)")
+    command_screen(v, "after Return (the menu, auto)", o["back_screen"], back_base.with_suffix(".bmp"),
+                   WON_SCREEN_MASK)
 
 
 # The melee flow (step 4, part 15c: one round of the computer's fight, the stops of 15c's loop and
