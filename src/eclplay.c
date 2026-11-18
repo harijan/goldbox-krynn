@@ -209,7 +209,7 @@ static void save_turns(const cok_adventure *game, const char *path)
  * the setup left (zero until placement sets it). Then the occupants (50 by 25, row by row,
  * in hex, dqk 59c7:0330's table at DS:b7fd), and the combatants: a line "combatants N" and
  * N lines "n x y size" (the combatants 1 to N - 1: Dark Queen's DS:c3f1 + 6n, n below its
- * count DS:c3ef). */
+ * count DS:c3ef), then the bodies (a count, then a line each: see below). */
 static void save_field(const cok_adventure *game, const char *path)
 {
     FILE *f = fopen(path, "w");
@@ -234,6 +234,16 @@ static void save_field(const cok_adventure *game, const char *path)
     for (unsigned n = 1; n < game->combat.count; ++n) {
         const cok_combatant *e = &game->combat.combatant[n];
         fprintf(f, "%u %d %d %u\n", n, e->x, e->y, e->size);
+    }
+    /* The bodies: a count, then k party index x y cell a line each (k from 1; the index is the
+     * member's place in the party, -1 for none). */
+    fprintf(f, "bodies %u\n", game->combat.bodies);
+    for (unsigned k = 0; k < game->combat.bodies && k < COK_COMBAT_BODIES; ++k) {
+        const cok_combat_body *b = &game->combat.body[k];
+        int index = -1;
+        for (size_t i = 0; i < game->party.count; ++i)
+            if (game->party.members[i] == b->character) index = (int)i;
+        fprintf(f, "%u %d %d %d %u\n", k + 1, index, b->x, b->y, b->cell);
     }
     fclose(f);
 }

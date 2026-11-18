@@ -876,6 +876,7 @@ selected record (the turn list's first entry by name: TIMASALIN in rounds 2, 3 a
 combat block, the turn list, the effect chains, the combatants' places (`--field`) and the screen (the mouse pointer
 masked). The table's "TIMASALIN hp" is ROLAND's: TIMASALIN (record 1) stays at 61.
 
+Flow `melee-dying` (step 4, part 16b: `dqk_fight.py`'s `melee-dying`, about a minute, in the default flows). The melee-long run with ROLAND OF DUST's hit points set to 1 before COMBAT (`fight_block(DYING_MEMBER)`: LOAD_CHARACTER 0, SAVE 1 into ECL 0x5fd, the field 0x1fc, on both sides). The first computer turn (SHARKMAN 1 at `5045:0891`), ROLAND's menu after it (five E) and each round's first menu, 2 to 6, are compared with eclplay's runs: the chains, RandSeed, records, blocks, turns, the battlefield's cells and occupants, the combatants' places, the bodies (eclplay's `--field` now writes them: part 16b) and the screen. SHARKMAN 1's target is record 2 (`57fb:033c`), not in reach in round 1, so ROLAND keeps his 1 hit point to round 5 and the fixture's first strike (round 5's turn 8) kills him: status word 5, 0 hit points, size 0 and his body on 27, 13 (cell 0x1f) at round 6's first menu.
 Flow `alt_q` in `keys` (part 15c): the Alt-Q dispatch (`0891`) and the weapon choice's panel call are checked against
 the original alone (`weapon_entry`). Its flight is `altq_missile`'s.
 

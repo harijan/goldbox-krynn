@@ -1143,6 +1143,29 @@ static void test_kill_dqk(void)
     battle_clear();
 }
 
+/* The death off the view (dqk 5837:0d55): a record whose footprint is not shown whole has the view centred on it
+ * first (5837:0846(x, y, 3, 8), the margin 3), then the skull flashes; after the kill its body (the top-left
+ * cell, 0x1f) is on the view, and the view has moved from the corner it was. The record is at 30, 20, a combatant
+ * of size 1, with the view at 0, 0 (slain's), so the centring is what brings it on the view. */
+static void test_kill_off_view(void)
+{
+    cok_character *a = slain('A', 30, 20);
+    cok_combat *k = &game.combat;
+    cok_combatant *e = &k->combatant[cok_combat_index(k, a->record)];
+    CHECK(e->size == 1 && k->view_x == 0 && k->view_y == 0);
+    a->combat->initiative = 5;
+    a->combat->movement = 6;
+    a->combat->guarding = 1;
+    CHECK(cok_arena_kill(&game, a, 0, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(k->view_x != 0 || k->view_y != 0);
+    CHECK(cok_combat_on_view(30 - k->view_x, 20 - k->view_y));
+    CHECK(k->bodies == 1 && k->body[0].character == a && k->body[0].x == 30 && k->body[0].y == 20);
+    CHECK(k->cells[20][30] == COK_COMBAT_BODY && e->size == 0 && k->occupant[20][30] == 0);
+    CHECK(a->combat->initiative == 0 && a->combat->movement == 0 && a->combat->guarding == 0);
+    game.vm.mode = 0;
+    battle_clear();
+}
+
 /* 137a (cok_cloud_under) under Dark Queen's list (fight.under_tiles: 0x1d, 0x1c, 0x1b, 0x46): a
  * cloud node's cell k=1 holds the terrain it kept, given for those values only. */
 static void test_under_cloud(void)
@@ -1260,6 +1283,7 @@ int main(void)
     test_attack_missile();
     test_sweep();
     test_kill_dqk();
+    test_kill_off_view();
     test_under_cloud();
     test_battle_only_leave_place();
     cok_party_free(&game.party);
