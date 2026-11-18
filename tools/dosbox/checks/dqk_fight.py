@@ -1912,7 +1912,7 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 QUICK_STOP = re.compile(r".*5bb8:0000.*")     # Quick's hand-on (5045:0a56): cites the turn 5bb8:0000
-MISSILE_STOP = re.compile(r".*52db:2888.*")  # a missile's flight (part 17), unported: Alt-Q's stop
+MISSILE_STOP = re.compile(r".*51c2:00df.*")  # a missile's flight (part 17b), unported: Alt-Q's stop (pictures chosen first)
 
 
 def wait_trap(box, t, where):
@@ -2244,7 +2244,7 @@ def altq_missile(v, work, opts):
     p = command_port(work, patched, "AltQ", "\\@Q")
     s, m = o["stop"], o["menu"]
     v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay stops at a missile's flight (52db:2888, part 17) after Alt-Q", p["last"])
+            "eclplay stops at a missile's flight (51c2:00df, part 17b) after Alt-Q", p["last"])
     draws = command_state(v, "Alt-Q's flight", s, p, m["seed"])
     v.check(draws == MISSILE_DRAWS, f"the original's RandSeed at the flight after Alt-Q is "
             f"{MISSILE_DRAWS} draws past the menu (1034 past the panel call)", f"{draws} draws")

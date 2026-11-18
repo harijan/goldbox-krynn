@@ -999,10 +999,11 @@ static void test_magic_ids(void)
         }
     }
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
-     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, and the yell's YELLED_AT; every
-     * other name is 0 (none). */
+     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, and the
+     * use-up's HAMMER (52db:1b26); every other name is 0 (none). */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
-    CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c);
+    CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c &&
+          R->effects.ids[COK_EFFECT_HAMMER] == 0x17);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
@@ -1010,7 +1011,7 @@ static void test_magic_ids(void)
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
             n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
-            n != COK_EFFECT_YELLED_AT)
+            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the

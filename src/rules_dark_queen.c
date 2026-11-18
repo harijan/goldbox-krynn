@@ -425,6 +425,10 @@ static const uint8_t dark_queen_free_barred[] = {0xd2, 0x6a, 0x1f, 0x33, 0x34, 0
  * +0x28), 0-ended: 3, 4, 0x11-0x13, 0x3f and 0x43. */
 static const uint8_t dark_queen_backstab_weapons[] = {3, 4, 0x11, 0x12, 0x13, 0x3f, 0x43, 0};
 
+/* The item types drawn as arrows (dqk 52db:28cc's switch: 4, 5, 7, 0x0c, 0x1e, 0x42, 0x4a),
+ * 0-ended. */
+static const uint8_t dark_queen_arrows[] = {4, 5, 7, 0x0c, 0x1e, 0x42, 0x4a, 0};
+
 /* The cells a body is not laid over (dqk 5837:0d55's 0x1d, 0x1c and 0x46, the cloud and the pool
  * and acid), 0-ended, and the cells 5837:137a looks through for the cell under a body (0x1d, 0x1c,
  * 0x1b and 0x46). */
@@ -571,6 +575,7 @@ const cok_rules cok_rules_dark_queen = {
             .weight = 0x2c, .readied = 0x32, .bonus = 0x30, .save_bonus = 0x31,
             .cursed = 0x34, /* 5bb8:1271 (queen_ai.c) */
             .container = 0x49, /* 604b:05fd: a scroll's spells */
+            .effect = 0x37,    /* 52db:18d6's spiritual hammer test (1b26) */
         },
     .ecl =
         {
@@ -899,8 +904,18 @@ const cok_rules cok_rules_dark_queen = {
             .kill_stone_status = 7,
             .kill_stone_tile = 0x1e,
             .under_tiles = dark_queen_under_tiles,
-            /* 52db:2888 (the flight, part 17): not yet. */
-            .missile_unported = "dqk 52db:2888, part 17",
+            /* 52db:2888: the arrows (0x0f, odd 0x10), spinning 0x12, sling stones 0x16, others
+             * 0x15 (no thrown: 0x36 and 0x37 are others); the sounds 0x0d, 0x0a, 7, 0x0a; no
+             * leading sound. Its flight, 51c2:00df, is part 17b: the stop after the pictures
+             * are chosen. */
+            .arrows = dark_queen_arrows,
+            .missile = {.arrow = {0x0f, 0x0d}, .spin = {0x12, 0x0a}, .stone = {0x16, 7},
+                        .other = {0x15, 0x0a}},
+            .missile_unported = "dqk 51c2:00df (the missile's flight, part 17b)",
+            /* 177e:13d2 (the removal of a strike's item, 52db:18d6's use-up): writes through NULL
+             * for an item not in the list. */
+            .freed_remove_unported =
+                "dqk 177e:13d2 writes through NULL for an item not in the list",
             /* 52db:54b5 lists the enemies with no yell swap. */
             .sweep_no_yell = true,
         },

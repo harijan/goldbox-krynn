@@ -1463,7 +1463,7 @@ const cok_rules cok_rules_champions = {
     /* An item record, 63 bytes in its files as in memory (4b6d:11e5):
      * +0x2e its type, +0x39 how many. */
     .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39, .weight = 0x37,
-                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33},
+                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33, .effect = 0x3d},
     .characters =
         {
             .stats = COK_STATS_CHAMPIONS,   /* 6346:0d20 */
@@ -1804,6 +1804,10 @@ const cok_rules cok_rules_champions = {
             .quiet_flag = 0,
             .forget_mark = 0,    /* 6346:161b */
             .arrows = champions_arrows, /* 432f:2beb */
+            /* 432f:2beb: the sound 0x0c first; arrows 0x0d (the odd directions 0x0e) and 0x0c;
+             * spinning 0x10 and 9; thrown 0x11 and 6; stones 0x15 and 6; others 0x14 and 9. */
+            .missile = {.arrow = {0x0d, 0x0c}, .spin = {0x10, 9}, .thrown = {0x11, 6},
+                        .stone = {0x15, 6}, .other = {0x14, 9}, .lead_sound = true},
             .missile_clamped = false,
             .burst_slot = 0x17, /* 6346:228c */
             .turning = COK_TURNING_CHAMPIONS, /* 432f:12b7 */

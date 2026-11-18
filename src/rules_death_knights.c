@@ -1524,7 +1524,7 @@ const cok_rules cok_rules_death_knights = {
     /* An item record, 63 bytes in its files as in memory (dkk 46b2:10d7):
      * +0x2e its type, +0x39 how many. */
     .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39, .weight = 0x37,
-                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33},
+                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33, .effect = 0x3d},
     .characters =
         {
             .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */
@@ -1913,6 +1913,9 @@ const cok_rules cok_rules_death_knights = {
             .quiet_flag = 8,    /* 5340:0230, 638c:1c52 */
             .forget_mark = 0x80, /* 65cd:17c4 */
             .arrows = death_knights_arrows, /* 5340:28a0 */
+            /* The kinds the shared missile routine has always had (the values are Champions'). */
+            .missile = {.arrow = {0x0d, 0x0c}, .spin = {0x10, 9}, .thrown = {0x11, 6},
+                        .stone = {0x15, 6}, .other = {0x14, 9}, .lead_sound = true},
             .missile_clamped = true,        /* 65cd:1da5 */
             .burst_slot = 0x18, /* 65cd:24bc */
             .turning = COK_TURNING_DEATH_KNIGHTS, /* 5340:119b */
