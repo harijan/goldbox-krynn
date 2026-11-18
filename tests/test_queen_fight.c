@@ -14,6 +14,7 @@
 #include "round.h"
 #include "rules.h"
 #include "step.h"
+#include "treasure.h"
 #include "vga.h"
 
 #include <stdint.h>
@@ -897,8 +898,9 @@ static void test_attack_wait(void)
     battle_clear();
 }
 
-/* An item or a readied weapon of type 0x1c (dqk 52db:18d6's 2888 calls, part 17): not ported, so
- * the attack stops, cited, after the wait. */
+/* An item or a readied weapon of type 0x1c (dqk 52db:18d6's 2888 calls, part 17): its pictures are
+ * chosen, then the flight (51c2:00df, part 17b) is not ported, so the attack stops, cited, after
+ * the wait. */
 static void test_attack_missile(void)
 {
     cok_character *a, *t;
@@ -912,8 +914,121 @@ static void test_attack_missile(void)
         }
         bool over = false;
         CHECK(!cok_combat_attack(&game, a, t, false, weapon ? 0 : 1, &over));
-        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "52db:2888") != NULL);
+        CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "51c2:00df") != NULL);
     }
+    battle_clear();
+}
+
+/* The missile's pictures (dqk 52db:2888): an arrow (the rules' list: 4, 5, 7, 0x0c, 0x1e, 0x42,
+ * 0x4a) is one picture of slot 0x0f + d % 4 (image d / 4) for an even direction, and of slot 0x10
+ * for an odd one (image 1 for 3 and 5, mirrored for 5 and 7; 51c2:0fc8). Its sound 0x0d, one frame,
+ * 10 ms. Types 2, 3, 6 spin (51c2:0053: slot 0x12, the four pictures, 50 ms, sound 0x0a); a sling
+ * stone (0x1c, 0x1d, 0x43) is slot 0x16's two (10 ms, sound 7); any other (0x36 too: no thrown
+ * kind) slot 0x15's two (20 ms, sound 0x0a). No leading sound (the flight is not drawn here). */
+static void test_missile_pictures(void)
+{
+    static const struct { uint8_t d, slot, image; bool mirror; } arrows[] = {
+        {0, 0x0f, 0, false}, {1, 0x10, 0, false}, {2, 0x11, 0, false}, {3, 0x10, 1, false},
+        {4, 0x0f, 1, false}, {5, 0x10, 1, true},   {6, 0x11, 1, false}, {7, 0x10, 0, true},
+    };
+    cok_missile_pictures p;
+    static const uint8_t arrow_types[] = {4, 0x4a, 0x42, 0x0c, 0x1e, 5, 7};
+    for (unsigned t = 0; t < sizeof arrow_types; ++t) {
+        for (unsigned k = 0; k < sizeof arrows / sizeof *arrows; ++k) {
+            cok_combat_missile_pictures(R, arrows[k].d, arrow_types[t], &p);
+            const cok_missile_picture *m = &p.pictures[0];
+            CHECK(p.count == 1 && p.flight_frames == 1 && p.delay == 10 && p.sound == 0x0d);
+            CHECK(m->slot == arrows[k].slot && m->image == arrows[k].image &&
+                  m->mirror == arrows[k].mirror && m->frame == 0);
+        }
+    }
+    static const uint8_t spinning[] = {2, 3, 6};
+    static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 1, 0};
+    for (unsigned t = 0; t < sizeof spinning; ++t) {
+        cok_combat_missile_pictures(R, 1, spinning[t], &p);
+        CHECK(p.count == 4 && p.flight_frames == 4 && p.delay == 0x32 && p.sound == 0x0a);
+        for (uint8_t k = 0; k < 4; ++k) {
+            const cok_missile_picture *m = &p.pictures[k];
+            CHECK(m->slot == 0x12 && m->image == images[k] && m->frame == k &&
+                  m->mirror == (mirrors[k] != 0));
+        }
+    }
+    static const uint8_t stones[] = {0x1c, 0x1d, 0x43};
+    for (unsigned t = 0; t < sizeof stones; ++t) {
+        cok_combat_missile_pictures(R, 1, stones[t], &p);
+        CHECK(p.count == 2 && p.flight_frames == 2 && p.delay == 10 && p.sound == 7);
+        CHECK(p.pictures[0].slot == 0x16 && p.pictures[0].image == 0 && p.pictures[0].frame == 0);
+        CHECK(p.pictures[1].slot == 0x16 && p.pictures[1].image == 1 && p.pictures[1].frame == 1 &&
+              !p.pictures[1].mirror);
+    }
+    /* 0x36 is another's (the rules have no thrown kind): slot 0x15, 20 ms, sound 0x0a. */
+    cok_combat_missile_pictures(R, 1, 0x36, &p);
+    CHECK(p.count == 2 && p.delay == 0x14 && p.sound == 0x0a && p.pictures[0].slot == 0x15 &&
+          p.pictures[1].slot == 0x15 && p.pictures[1].image == 1 && p.pictures[1].frame == 1);
+}
+
+/* The readied weapon's type is at the item record's type (+0x28, dqk 177e:0be2): a hoopak (0x43)
+ * and a thrown axe (3, flags 0x14) read there, not at Champions' +0x2e; a dart (5, flags 0x1a) is
+ * not thrown. */
+static void test_item_type_at(void)
+{
+    CHECK(game.item_types.record_type_at == 0x28);
+    cok_character *a = record('A', 0, 0);
+    uint8_t hoopak[COK_ITEM_SIZE] = {0}, decoy[COK_ITEM_SIZE] = {0};
+    hoopak[0x28] = 0x43;
+    decoy[0x28] = 5;
+    decoy[0x2e] = 0x43;
+    CHECK(cok_character_insert_item(a, 0, hoopak) && cok_character_insert_item(a, 1, decoy));
+    a->slots[0] = 1;
+    CHECK(cok_combat_hoopak(&game.item_types, a));
+    a->slots[0] = 2;
+    CHECK(!cok_combat_hoopak(&game.item_types, a));
+    bool thrown;
+    CHECK(cok_combat_thrown(&game.item_types, a, &thrown) && !thrown);
+    uint8_t axe[COK_ITEM_SIZE] = {0};
+    axe[0x28] = 3;
+    CHECK(cok_character_insert_item(a, 2, axe));
+    a->slots[0] = 3;
+    CHECK(cok_combat_thrown(&game.item_types, a, &thrown) && thrown);
+    battle_clear();
+}
+
+/* The use-up (dqk 52db:18d6's 1ad2-1c0d) at the record's count (+0x35), readied (+0x32) and effect
+ * (+0x37): an arrow's count goes down by the attacks made with slot 1 and it stays; a thrown axe
+ * (3) at 0 goes into the pool as the missile, unreadied, and is removed; a spiritual hammer (0x17)
+ * is removed but not put in the pool; a hoopak is never used up. */
+static void test_use_up(void)
+{
+    cok_character *a = record('A', 0, 0);
+    uint8_t item[COK_ITEM_SIZE] = {0};
+    item[0x28] = 0x1e;
+    item[0x35] = 3;
+    CHECK(cok_character_insert_item(a, 0, item));
+    game.combat.swings[1] = 1;
+    CHECK(cok_combat_use_up(&game, a, 1) && a->items[0][0x35] == 2 && a->item_count == 1);
+    cok_pool_free_items(&game.pool);
+    memset(item, 0, sizeof item);
+    item[0x28] = 3;
+    item[0x35] = 1;
+    item[0x32] = 1;
+    CHECK(cok_character_insert_item(a, 1, item));
+    a->slots[0] = 2;
+    CHECK(cok_combat_use_up(&game, a, 2) && a->item_count == 1 && a->slots[0] == 0);
+    CHECK(game.pool.item_count == 1 && game.pool.missile == 1);
+    CHECK(game.pool.items[0][0x28] == 3 && game.pool.items[0][0x32] == 0);
+    /* The hammer (+0x37 0x17) goes, not into the pool. */
+    item[0x37] = 0x17;
+    CHECK(cok_character_insert_item(a, 1, item));
+    a->slots[0] = 2;
+    CHECK(cok_combat_use_up(&game, a, 2) && a->item_count == 1 && game.pool.item_count == 1);
+    /* A hoopak is never used up. */
+    memset(item, 0, sizeof item);
+    item[0x28] = 0x43;
+    item[0x35] = 1;
+    CHECK(cok_character_insert_item(a, 1, item));
+    a->slots[0] = 2;
+    CHECK(cok_combat_use_up(&game, a, 2) && a->item_count == 2);
+    cok_pool_free_items(&game.pool);
     battle_clear();
 }
 
@@ -1294,6 +1409,9 @@ int main(void)
     test_attack_facing();
     test_attack_wait();
     test_attack_missile();
+    test_missile_pictures();
+    test_item_type_at();
+    test_use_up();
     test_sweep();
     test_kill_dqk();
     test_kill_off_view();

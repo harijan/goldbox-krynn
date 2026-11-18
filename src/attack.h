@@ -225,9 +225,34 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c);
 
 /* 6346:30bd: whether c's readied weapon is a missile weapon
  * (cok_combat_missile_weapon) that is thrown (its type's flags & 0x14 =
- * 0x14) or a hoopak (type 0x43). 6346:3086: whether it is a hoopak. */
+ * 0x14) or a hoopak (type 0x43). 6346:3086: whether it is a hoopak (its
+ * type at the item record's type, types->record_type_at: dqk 177e:218e). */
 bool cok_combat_thrown(const cok_item_types *types, const cok_character *c, bool *thrown);
-bool cok_combat_hoopak(const cok_character *c);
+bool cok_combat_hoopak(const cok_item_types *types, const cok_character *c);
+
+/* A missile's pictures (432f:2beb; dqk 52db:2888), chosen before any is drawn: up to four, each
+ * an icon slot's image mirrored or not in a flash frame, then the flight's frames and delay, and
+ * the sound made after the pictures. */
+typedef struct {
+    uint8_t slot, image, frame;
+    bool mirror;
+} cok_missile_picture;
+
+typedef struct {
+    cok_missile_picture pictures[4];
+    uint8_t count, flight_frames, delay, sound;
+} cok_missile_pictures;
+
+/* The pictures of a missile of item type type flying in direction d, by the rules' fight.missile
+ * and fight.arrows. Nothing is drawn. */
+void cok_combat_missile_pictures(const cok_rules *rules, uint8_t d, uint8_t type,
+                                 cok_missile_pictures *pictures);
+
+/* The end of an attack with item (1 + its index) of the attacker's (432f:1a45's use-up; dqk
+ * 52db:18d6's 1ad2-1c0d): unless a hoopak, its count less the attacks made with slot 1; at 0 it
+ * goes, a thrown weapon (but a spiritual hammer, effect 0x17) into the pool after the missile
+ * recovered or at the end, unreadied, as the new missile. */
+bool cok_combat_use_up(cok_adventure *game, cok_character *attacker, size_t item);
 
 /* eclplay's --combat melee, for c's turn in place of the computer's and
  * the player's: the nearest enemy it can attack (6346:26e2,

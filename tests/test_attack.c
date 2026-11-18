@@ -578,6 +578,30 @@ static void test_strike(void)
     CHECK(m->record[0x188] == 6 && cok_character_find_effect(m, 0x37) != NULL);
 }
 
+/* The missile's pictures (432f:2beb) as the descriptor gives them to Champions: an arrow of slot
+ * 0x0d + d % 4 (the odd directions 0x0e) with sound 0x0c; spinning 0x10 and 9; thrown 0x11 and 6;
+ * stones 0x15 and 6; others 0x14 and 9, 20 ms; the leading sound 0x0c. */
+static void test_missile_pictures(void)
+{
+    cok_missile_pictures p;
+    cok_combat_missile_pictures(&cok_rules_champions, 2, 5, &p);
+    CHECK(p.count == 1 && p.pictures[0].slot == 0x0f && p.pictures[0].image == 0 &&
+          p.sound == 0x0c);
+    cok_combat_missile_pictures(&cok_rules_champions, 3, 0x1e, &p);
+    CHECK(p.pictures[0].slot == 0x0e && p.pictures[0].image == 1 && !p.pictures[0].mirror);
+    cok_combat_missile_pictures(&cok_rules_champions, 5, 7, &p);
+    CHECK(p.pictures[0].slot == 0x0e && p.pictures[0].image == 1 && p.pictures[0].mirror);
+    cok_combat_missile_pictures(&cok_rules_champions, 1, 2, &p);
+    CHECK(p.count == 4 && p.pictures[0].slot == 0x10 && p.delay == 0x32 && p.sound == 9);
+    cok_combat_missile_pictures(&cok_rules_champions, 1, 0x37, &p);
+    CHECK(p.count == 4 && p.pictures[0].slot == 0x11 && p.sound == 6);
+    cok_combat_missile_pictures(&cok_rules_champions, 1, 0x1d, &p);
+    CHECK(p.count == 2 && p.pictures[0].slot == 0x15 && p.delay == 10 && p.sound == 6);
+    cok_combat_missile_pictures(&cok_rules_champions, 1, 0x42, &p);
+    CHECK(p.count == 2 && p.pictures[0].slot == 0x14 && p.delay == 0x14 && p.sound == 9);
+    CHECK(cok_rules_champions.fight.missile.lead_sound);
+}
+
 static void test_attack(void)
 {
     reset("");
@@ -1010,14 +1034,15 @@ static void test_weapons(void)
     reset("");
     cok_character *a = record('A', 0, 5, 5);
     bool thrown;
-    CHECK(cok_combat_thrown(&game.item_types, a, &thrown) && !thrown && !cok_combat_hoopak(a));
+    CHECK(cok_combat_thrown(&game.item_types, a, &thrown) && !thrown &&
+          !cok_combat_hoopak(&game.item_types, a));
     static const struct { uint8_t type; bool thrown; } kinds[] = {
         {0x02, true}, {0x03, true}, {0x05, false}, {0x16, false}, {0x43, true}, {0x12, false},
     };
     for (size_t k = 0; k < sizeof kinds / sizeof *kinds; ++k) {
         give(a, kinds[k].type, true, 0);
         CHECK(cok_combat_thrown(&game.item_types, a, &thrown) && thrown == kinds[k].thrown);
-        CHECK(cok_combat_hoopak(a) == (kinds[k].type == 0x43));
+        CHECK(cok_combat_hoopak(&game.item_types, a) == (kinds[k].type == 0x43));
         cok_character_remove_item(a, 0);
         char why[300];
         CHECK(cok_character_stats(a, &cok_rules_champions, &game.item_types, why, sizeof why));
@@ -2115,6 +2140,7 @@ int main(void)
     test_range();
     test_damage_roll();
     test_strike();
+    test_missile_pictures();
     test_attack();
     test_sweep();
     test_can_attack();

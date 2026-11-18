@@ -1509,6 +1509,23 @@ typedef enum {
     COK_TURNING_DEATH_KNIGHTS,
 } cok_turning_routine;
 
+/* A kind of missile's pictures (432f:2beb; dqk 52db:2888): the icon slot they are drawn from, and
+ * the sound made after them. */
+typedef struct {
+    uint8_t slot, sound;
+} cok_missile_kind;
+
+/* The missile's pictures by kind (attack.c's cok_combat_missile_pictures): an arrow's (the item
+ * types in fight.arrows), a spinning weapon's (types 2, 3, 6), a thrown weapon's (0x36, 0x37),
+ * a sling stone's (0x1c, 0x1d, 0x43) and another's. The arrow's slot is that of the even
+ * directions' pictures; the odd ones use the next slot. A thrown weapon's slot 0 is none (Dark
+ * Queen's, where those types are another's); lead_sound makes the missile sound first (0x0c,
+ * 432f:2beb: Champions' and Death Knights', not Dark Queen's). */
+typedef struct {
+    cok_missile_kind arrow, spin, thrown, stone, other;
+    bool lead_sound;
+} cok_rules_missile;
+
 /* The rounds, the computer's turns and the attacks where the games differ
  * (round.c, ai.c, attack.c, arena.c, command.c, cloud.c), and what of them
  * the port does not carry out for a game yet (cited: reaching it stops the
@@ -1588,10 +1605,11 @@ typedef struct {
     /* A spell lost (6346:161b clears the memorized byte: 0; dkk 65cd:17c4
      * marks it, | 0x80). */
     uint8_t forget_mark;
-    /* The missile's flight (432f:2beb; dkk 5340:28a0): the item types drawn
-     * as arrows, 0-ended; whether its ends are first kept on the
+    /* The missile (432f:2beb; dkk 5340:28a0; dqk 52db:2888): the item types drawn
+     * as arrows, 0-ended; the pictures by kind; whether its flight's ends are first kept on the
      * battlefield (dkk 65cd:1d56: x 0-0x31, y 0-0x18). */
     const uint8_t *arrows;
+    cok_rules_missile missile;
     bool missile_clamped;
     /* The icon slot of the burst drawn on one hurt (6346:228c with kind 0:
      * 0x17; dkk 65cd:24bc 0x18; kind 1's flash is 0x16 in both). */
@@ -1658,9 +1676,12 @@ typedef struct {
      * dqk 1a62:0046's 7; Champions' and Death Knights' 10). */
     uint8_t dying_colour;
     /* The stop for what the port does not carry out for a game yet (cited, cok_adventure_not_yet):
-     * a missile's flight of an item or a readied weapon of type 0x1c or 0x1d (dqk 52db:2888, part
-     * 17). NULL: the port's own. */
+     * a missile's flight, after its pictures are chosen (dqk 51c2:00df, part 17b; an item or a
+     * readied weapon of type 0x1c or 0x1d, dqk 52db:2888). NULL: the port's own. */
     const char *missile_unported;
+    /* The stop for an item a strike took and then removes (use_up_freed): the removal writes
+     * through NULL for an item not in the list (dqk 177e:13d2). NULL: the port's alert. */
+    const char *freed_remove_unported;
     /* A computer's surrender (ai.c's morale, cok_combat_leave with status 4; dqk 148f:1a69 from
      * 5bb8:1117, part 16). The flight (52db:0e26) calls the same routine and is ported, so the
      * stop is here and not in cok_combat_leave. NULL: the port's own. */
@@ -2397,6 +2418,10 @@ typedef struct {
      * contents (Dark Queen's scrolls, 0x49: dqk 604b:05fd, 604b:2200); 0
      * for none. */
     uint8_t container;
+    /* Where an item record keeps the id of its effect, which the use-up tests for the spiritual
+     * hammer (0x17, attack.c): Champions' and Death Knights' +0x3d, Dark Queen's +0x37 (dqk
+     * 52db:18d6's 1b26). */
+    uint8_t effect;
 } cok_rules_item_record;
 
 /* The random numbers' generator (cok_tp_random, ecl.h): Turbo Pascal's

@@ -608,6 +608,8 @@ const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     /* 148f:0005's 252c(m, 0x8c, ...). attack.c:854 and round.c:726 read it for the computer's
      * targets (part 15) and cast.c's picks read it through round.c:697 (part 28): unchecked here. */
     [COK_EFFECT_YELLED_AT] = 0x8c,
+    /* 52db:1b26: the spiritual hammer's 0x17 (a thrown weapon with it is not put in the pool). */
+    [COK_EFFECT_HAMMER] = 0x17,
 };
 
 /* The event lists (148f:0512, a0512.txt): by event, the ids its handlers run, 0-ended, in

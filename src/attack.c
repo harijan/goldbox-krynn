@@ -604,77 +604,101 @@ bool cok_combat_strike(cok_adventure *game, cok_character *attacker, cok_charact
     return true;
 }
 
-/* 432f:2beb: item flies from attacker to target (6346:1ba6), after sound
- * 0x0c: darts, javelins, quarrels and arrows (the descriptor's arrows:
- * types 5, 7, 0x0c, 0x1e, and dkk 5340:28a0 0x42) as
- * one picture of COMSPR's arrows by the direction, ready or attacking and
- * mirrored (slots 13-15), sound 0x0c again, a step at a time, 10 ms
- * apart; hand axes, clubs and hammers (2, 3, 6) spinning (slot 0x10's four
- * pictures), sound 9, and 0x36 and 0x37 as slot 0x11's, sound 6, 50 ms
- * apart; sling stones (0x1c, 0x1d, 0x43) as slot 0x15's two, 10 ms apart,
- * sound 6; anything else as slot 0x14's two, 20 ms apart, sound 9. */
+/* The pictures of a missile of item type type flying in direction d (dqk 52db:2888; cok 432f:2beb).
+ * An arrow (the rules' arrows) is one picture of its slot's by the direction: the even directions
+ * use slot + d % 4, image d / 4; the odd ones slot + 1, with image 1 for 3 and 5 and mirrored for 5
+ * and 7 (dqk 51c2:0fc8). Hand axes, clubs and hammers (2, 3, 6) spin: four pictures (51c2:0053; the
+ * 6346:1b5b ones), 50 ms apart; a thrown weapon (0x36, 0x37, where the rules have a thrown slot)
+ * the same. A sling stone (0x1c, 0x1d, 0x43) or another is two pictures, 10 ms or 20 ms apart. One
+ * flight frame, 10 ms, for an arrow. */
+void cok_combat_missile_pictures(const cok_rules *rules, uint8_t d, uint8_t type,
+                                 cok_missile_pictures *out)
+{
+    const cok_rules_fight *F = &rules->fight;
+    const cok_rules_missile *M = &F->missile;
+    /* 6346:1b5b's four: ready, ready mirrored, attacking mirrored, attacking. */
+    static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 1, 0};
+    memset(out, 0, sizeof *out);
+    out->count = 1;
+    out->flight_frames = 1;
+    out->delay = 10;
+    if (listed(F->arrows, type)) {
+        cok_missile_picture *p = &out->pictures[0];
+        if ((d & 1) != 0) {
+            p->slot = (uint8_t)(M->arrow.slot + 1);
+            p->image = d == 3 || d == 5 ? 1 : 0;
+            p->mirror = d == 5 || d == 7;
+        } else {
+            p->slot = (uint8_t)(M->arrow.slot + d % 4);
+            p->image = (uint8_t)(d >> 2);
+        }
+        out->sound = M->arrow.sound;
+    } else if (type == 2 || type == 3 || type == 6 ||
+               ((type == 0x36 || type == 0x37) && M->thrown.slot != 0)) {
+        const cok_missile_kind *kind = type == 2 || type == 3 || type == 6 ? &M->spin : &M->thrown;
+        for (uint8_t k = 0; k < 4; ++k)
+            out->pictures[k] = (cok_missile_picture){kind->slot, images[k], k, mirrors[k] != 0};
+        out->count = 4;
+        out->flight_frames = 4;
+        out->delay = 0x32;
+        out->sound = kind->sound;
+    } else {
+        bool stone = type == 0x1c || type == 0x1d || type == 0x43;
+        const cok_missile_kind *kind = stone ? &M->stone : &M->other;
+        out->pictures[0] = (cok_missile_picture){kind->slot, 0, 0, false};
+        out->pictures[1] = (cok_missile_picture){kind->slot, 1, 1, false};
+        out->count = 2;
+        out->flight_frames = 2;
+        out->delay = stone ? 10 : 0x14;
+        out->sound = kind->sound;
+    }
+}
+
+/* 432f:2beb: item flies from attacker to target (6346:1ba6). Its pictures are drawn into the
+ * flash, then the sound, then the flight, a step at a time. */
 static bool missile(cok_adventure *game, cok_character *attacker, cok_character *target,
                     const uint8_t *item)
 {
-    cok_arena_sound(game, SOUND_ARROW);
+    const cok_rules *rules = cok_game_rules(game);
+    if (rules->fight.missile.lead_sound) cok_arena_sound(game, SOUND_ARROW);
     uint8_t d;
     if (!direction(game, attacker, target, &d)) return false;
-    uint8_t frames = 1, delay = 10, type = item[0x2e];
-    bool ok, arrow = false;
-    for (const uint8_t *a = cok_game_rules(game)->fight.arrows; *a != 0; ++a)
-        if (*a == type) arrow = true;
-    if (arrow) {
-        if ((d & 1) != 0) {
-            if (d == 3 || d == 5)
-                ok = cok_arena_missile_frame(game, 0x0e, 1, 0, d == 5);
-            else
-                ok = cok_arena_missile_frame(game, 0x0e, 0, 0, d == 7);
-        } else {
-            ok = cok_arena_missile_frame(game, (uint8_t)(0x0d + d % 4), (uint8_t)(d >> 2), 0,
-                                         false);
-        }
-        cok_arena_sound(game, SOUND_ARROW);
-    } else if (type == 2 || type == 3 || type == 6) {
-        ok = cok_arena_missile_frames(game, 0x10);
-        frames = 4;
-        delay = 0x32;
-        cok_arena_sound(game, SOUND_MISS);
-    } else if (type == 0x36 || type == 0x37) {
-        ok = cok_arena_missile_frames(game, 0x11);
-        frames = 4;
-        delay = 0x32;
-        cok_arena_sound(game, SOUND_THROWN);
-    } else {
-        uint8_t slot = type == 0x1c || type == 0x1d || type == 0x43 ? 0x15 : 0x14;
-        ok = cok_arena_missile_frame(game, slot, 0, 0, false) &&
-             cok_arena_missile_frame(game, slot, 1, 1, false);
-        frames = 2;
-        delay = slot == 0x15 ? 10 : 0x14;
-        cok_arena_sound(game, slot == 0x15 ? SOUND_THROWN : SOUND_MISS);
+    cok_missile_pictures p;
+    cok_combat_missile_pictures(rules, d, item_type_of(game, item), &p);
+    /* Dark Queen's pictures are chosen (52db:2888) and its flight (51c2:00df) is part 17b. */
+    if (rules->fight.missile_unported != NULL)
+        return cok_adventure_not_yet(game, "a missile's flight", rules->fight.missile_unported);
+    bool ok = true;
+    for (uint8_t k = 0; ok && k < p.count; ++k) {
+        const cok_missile_picture *m = &p.pictures[k];
+        ok = cok_arena_missile_frame(game, m->slot, m->image, m->frame, m->mirror);
     }
+    cok_arena_sound(game, p.sound);
     if (!ok) return false;
     const cok_combat *combat = &game->combat;
     return cok_arena_missile(game, cok_combat_x(combat, attacker->record),
                              cok_combat_y(combat, attacker->record),
                              cok_combat_x(combat, target->record),
-                             cok_combat_y(combat, target->record), frames, delay);
+                             cok_combat_y(combat, target->record), p.flight_frames, p.delay);
 }
 
-/* The end of 432f:1a45 for the item it was given (1 + its index, the
- * attacker's): unless the weapon is a hoopak, its count less the attacks
- * made with slot 1, a byte; at 0 it goes, a thrown weapon (but a
- * spiritual hammer) into the pool after the missile recovered or at the
- * end, unreadied, as the new missile. */
-static bool use_up(cok_adventure *game, cok_character *attacker, size_t item)
+/* The end of 432f:1a45 for the item it was given (1 + its index, the attacker's): unless the
+ * weapon is a hoopak, its count less the attacks made with slot 1, a byte; at 0 it goes, a thrown
+ * weapon (but a spiritual hammer, effect 0x17) into the pool after the missile recovered or at the
+ * end, unreadied, as the new missile. Dark Queen's (52db:18d6's 1ad2-1c0d) reads the count at
+ * item_record.count and the effect at item_record.effect. */
+bool cok_combat_use_up(cok_adventure *game, cok_character *attacker, size_t item)
 {
-    if (cok_combat_hoopak(attacker)) return true;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_item_record *I = &rules->item_record;
+    if (cok_combat_hoopak(&game->item_types, attacker)) return true;
     uint8_t *it = attacker->items[item - 1];
-    if (it[0x39] > 0) it[0x39] = (uint8_t)(it[0x39] - game->combat.swings[1]);
-    if (it[0x39] != 0) return true;
+    if (it[I->count] > 0) it[I->count] = (uint8_t)(it[I->count] - game->combat.swings[1]);
+    if (it[I->count] != 0) return true;
     bool thrown;
     if (!cok_combat_thrown(&game->item_types, attacker, &thrown))
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
-    if (thrown && !cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_HAMMER)) {
+    if (thrown && !cok_effect_is(rules, it[I->effect], COK_EFFECT_HAMMER)) {
         cok_pool *pool = &game->pool;
         size_t at = 0;
         if (pool->item_count > 0) {
@@ -685,7 +709,7 @@ static bool use_up(cok_adventure *game, cok_character *attacker, size_t item)
         }
         uint8_t copy[COK_ITEM_SIZE];
         memcpy(copy, it, sizeof copy);
-        copy[0x34] = 0;
+        copy[I->readied] = 0;
         if (!cok_pool_insert(pool, at, copy)) return undefined(game, "out of memory");
         pool->missile = at + 1;
     }
@@ -706,15 +730,20 @@ static bool use_up(cok_adventure *game, cok_character *attacker, size_t item)
  * bytes the heap's) is never reached. */
 static bool use_up_freed(cok_adventure *game, cok_character *attacker, uint8_t *it)
 {
-    if (cok_combat_hoopak(attacker)) return true;
-    if (it[0x39] > 0) it[0x39] = (uint8_t)(it[0x39] - game->combat.swings[1]);
-    if (it[0x39] != 0) return true;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_rules_item_record *I = &rules->item_record;
+    if (cok_combat_hoopak(&game->item_types, attacker)) return true;
+    if (it[I->count] > 0) it[I->count] = (uint8_t)(it[I->count] - game->combat.swings[1]);
+    if (it[I->count] != 0) return true;
     bool thrown;
     if (!cok_combat_thrown(&game->item_types, attacker, &thrown))
         return undefined(game, "an item type past ITEMS reads past the table (DS:5886)");
-    if (thrown && !cok_effect_is(cok_game_rules(game), it[0x3d], COK_EFFECT_HAMMER))
+    if (thrown && !cok_effect_is(rules, it[I->effect], COK_EFFECT_HAMMER))
         return undefined(game, "a freed item's copy goes into the pool with the heap's free list "
                                "in its first bytes (432f:1c8e)");
+    if (rules->fight.freed_remove_unported != NULL)
+        return cok_adventure_not_yet(game, "a strike's item removed",
+                                     rules->fight.freed_remove_unported);
     cok_adventure_alert(game, "Tried to Lose item & couldn't find it!", 14);
     return true;
 }
@@ -765,18 +794,6 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
         return false;
     ca->target = target->record;
     cok_arena_wait(game, 100); /* 1962:029c; dqk 1df9:052a */
-    /* An item, or a readied weapon of type 0x1c or 0x1d (dqk 52db:18d6), is flown by the missile's
-     * flight (432f:2beb), which only a game with it ported has. With no readied weapon Dark
-     * Queen's test reads the IVT (scope 4), taken here as none. */
-    const cok_rules_fight *F = &cok_game_rules(game)->fight;
-    if (F->missile_unported != NULL) {
-        size_t readied = attacker->slots[0];
-        uint8_t type = readied != 0 && readied <= attacker->item_count
-                           ? item_type_of(game, attacker->items[readied - 1])
-                           : 0;
-        if (item != 0 || type == 0x1c || type == 0x1d)
-            return cok_adventure_not_yet(game, "a missile's flight", F->missile_unported);
-    }
     /* The item is held across the strike: one that goes meanwhile, as an
      * effect can take it, the original goes on using freed, as its bytes
      * were. */
@@ -801,7 +818,7 @@ bool cok_combat_attack(cok_adventure *game, cok_character *attacker, cok_charact
             if (attacker->held == 0)
                 ok = use_up_freed(game, attacker, freed);
             else
-                ok = use_up(game, attacker, attacker->held);
+                ok = cok_combat_use_up(game, attacker, attacker->held);
         }
         ok = ok && stats(game, attacker);
         if (ok) game->vm.character = selected;
@@ -1418,10 +1435,11 @@ bool cok_combat_turn_undead(cok_adventure *game, cok_character *c)
     return true;
 }
 
-bool cok_combat_hoopak(const cok_character *c)
+bool cok_combat_hoopak(const cok_item_types *types, const cok_character *c)
 {
     size_t weapon = c->slots[0];
-    return weapon != 0 && weapon <= c->item_count && c->items[weapon - 1][0x2e] == 0x43;
+    size_t at = types->record_type_at != 0 ? types->record_type_at : 0x2e;
+    return weapon != 0 && weapon <= c->item_count && c->items[weapon - 1][at] == 0x43;
 }
 
 bool cok_combat_thrown(const cok_item_types *types, const cok_character *c, bool *thrown)
