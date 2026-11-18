@@ -2747,6 +2747,7 @@ DYING_TARGET = "57fb:033c"               # SHARKMAN 1's target at ROLAND's menu:
 DYING_ROUND_HIT = 5                      # the round of the fixture's first strike (ROLAND, turn 8)
 BODY_TABLE, BODY_COUNT, BODY_SIZE = 0xC526, 0xC5D3, 9   # entry k at DS:c526 + 9k (k 1-8), count DS:c5d3
 STATUS_AT = 0x64                         # a record's status word (+0x64)
+ACTIVE_AT = 0x18B                        # a record's active byte (+0x18b)
 
 
 def bodies_at(box):
@@ -2869,8 +2870,9 @@ def melee_dying(v, work, opts):
     SHARKMAN 1's turn, SHARKMAN 1's walk and block and RandSeed at ROLAND's menu are melee's (the write changes
     nothing before the strike), ROLAND still at 1 hit point in round 1 and 2 to 4 (no strike), the strike kills
     him in round 5 (0 hit points at round 6's first menu: the status is printed), and eclplay agrees at each stop
-    (dying_compare). The round end's "Your Teammate is Dying" (5045:0f6c) is not read by this flow: the screens are
-    the menus', taken after the message's wait."""
+    (dying_compare). Round 5's end (5045:0f6c) already finds ROLAND dying: +0x0f goes from 2 to 3 and "Your Teammate is
+    Dying" is drawn (one draw), so round 6's RandSeed and blocks compare it; its screen is not (the menus' are taken
+    after the message's wait)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block(DYING_MEMBER)))
     o = dying_original(work, patched, opts.verbose)
@@ -2909,8 +2911,13 @@ def melee_dying(v, work, opts):
             v.check(hp == 1, f"ROLAND OF DUST has 1 hit point at {tag} (the strike is round {DYING_ROUND_HIT}'s)",
                     hp)
         else:
-            v.check(hp == 0, f"ROLAND OF DUST has 0 hit points at {tag}: the strike killed him",
-                    f"{hp} hit points, status word {status}")
+            active = bytes.fromhex(s["records"][DYING_MEMBER])[ACTIVE_AT]
+            v.check(hp == 0 and status == 5 and active == 0,
+                    f"ROLAND OF DUST is dying at {tag}: 0 hit points, status word 5, +0x18b 0",
+                    f"{hp} hit points, status word {status}, +0x18b {active}")
+            v.check(s["bodies"]["count"] == 1 and s["bodies"]["entries"][0][:4] == (1, DYING_MEMBER, 27, 13),
+                    f"the original's body table at {tag} holds ROLAND OF DUST's body alone (entry 1, at 27, 13)",
+                    s["bodies"])
             size = {n: sz for n, _, _, sz in s["combatants"]}.get(1)
             cell = s["field"]["cells"][2 * (13 * 50 + 27):2 * (13 * 50 + 27) + 2]
             v.check(size == 0 and cell == "1f", f"ROLAND OF DUST (combatant 1) is off the map (size 0) and "
