@@ -26,6 +26,11 @@ bool cok_dark_queen_load_asked(cok_adventure *game);
  * ADD EP (1a62:0949 -> 1df9:052a, var 0x12's 100 ms times). */
 void cok_dark_queen_wait(cok_adventure *game, unsigned ms);
 
+/* The random scroll (6c70:1a83, 1a4e): its 17 bytes into entry, drawing from *seed (RandSeed).
+ * TREASURE ITEMS' id 0xff and STOCK TREASURE's stock 0xff (part 40) make it. */
+void cok_dark_queen_random_scroll(const cok_rules *rules, uint32_t *seed,
+                                  uint8_t entry[COK_ITEM_ENTRY]);
+
 /* The treasure branch of COMBAT with no monsters (75cc:135c; rules.h's no_monsters_treasure). */
 void cok_dark_queen_no_monsters_treasure(cok_adventure *game);
 

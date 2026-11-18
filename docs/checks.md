@@ -563,7 +563,7 @@ window's grey, which `dark_queen.c` writes as `0x80 | fg`: with a black backgrou
 differs by 121 pixels.
 
 `dqk_treasure.py` (flows `won`, `fled`, `lost`, `pool`, `bonus`, `zero`, `negative`, `rest`, `gentle`,
-`fledmix`, `lost9`, `enemy`, `enemyout`, `enemyhigh`, `take`, `share`, `gather`, `overload` and `takeall`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
+`fledmix`, `lost9`, `enemy`, `enemyout`, `enemyhigh`, `take`, `share`, `gather`, `overload`, `takeall` and `items`; in `make dqk-checks`) runs the end of combat with no monsters from the treasure's start: a test block
 (`tools/dqkecl.py`) runs LOAD FILES 2 1, COMPARE 1 1 (the flags `= <> < > <= >=` become 01 00 00 00 01
 01), SAVE 1 to var 0x2e, the flow's own ops (TREASURE ITEMS for the pool's coins, SAVE 0 to var 0x20),
 and COMBAT, from saved game A (`won`, `pool`), or from copies with every member's status 3 (`fled`),
@@ -593,7 +593,11 @@ Escape redraws the menu, and the menu's entry (`1bdb:1073`) and first pass (`1bd
 frame 2, the first pass's screen settling to the same screen; the frame is then 0 again. eclplay's side
 is the repo test (`test_dark_queen_picture_frame_kept`), since it cannot be poked. Detect is not typed
 (a cited stop, part 28), and Take's items are not (part 21); `take`, `share` and `gather` type Take's
-coins, Share and Pool (the probe's numbers); `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
+coins, Share and Pool (the probe's numbers). `items` (part 21a) types TREASURE ITEMS 0 0 0 5 : 1 0 255
+255 80 (the random scrolls drawn from RandSeed 12345): the pool's four items at the menu, the share 266,
+and eclplay's `--items` (the pool's items, then each record's, as their file bytes in hex) is compared
+with the original's lists (`pool_items`: the 0x3d-byte nodes from DS:b1e7; `member_items`: each record's
+list at +8), at each wait and at the end, with each item's 17 bytes at +0x28; `lost` and `lost9` run on to COMBAT's return (`5f07:0987`) and stop at the adventure's menu after it (`dqk 5f07:11f3`, cited).
 `lost` leaves the party empty (0736 removes it), and `enemy` leaves DS:c7df set (11b0 removes the
 hostile member).
 The `pool` flow's 4950 over 6 is 825; `zero` divides by 0 (LDIV@: 0xffffffff, member 0 gains -1);
