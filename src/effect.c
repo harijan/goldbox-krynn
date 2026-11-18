@@ -2658,6 +2658,42 @@ static bool h_kin(cok_effects *fx, bool removing, cok_effect *effect, cok_charac
     return true;
 }
 
+/* dqk 78e4:1aa2, 0x69, a ranger's, at the damage (event 4, flag 0; flag 1 does nothing): the
+ * target of the holder's attack (rec+0x40->+0x0b, kept in DS:bce3) is read first, then the distance
+ * from the holder to it (51c2:0b26, always called, a NULL target too: its listing is the side
+ * effect). Within a square, a target of creature flag 0 bit 3 (+0xc7 8) takes the holder's ranger
+ * level (177e:2234, rec+0xa9, a byte) more on the damage word (DS:ae55), and the byte amount with
+ * it. Cited failures: no combat record (78e4:1aae reads 0000:000b); outside battle, the distance
+ * (51c2:0b26) lists the map combat has freed; a NULL target within a square, whose +0xc7 is read at
+ * 0000:00c7. Champions' and Death Knights' 0x69 (h_slayer) has no distance and adds to the byte. */
+static bool h_queen_ranger(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_character_layout *L = fx->rules->character;
+    (void)effect;
+    if (removing) return true;
+    cok_combat_record *cr = c->combat;
+    if (cr == NULL)
+        return fail(fx, "dqk 78e4:1aa2 (effect 0x69) reads the combat record's target at 0000:000b "
+                        "(78e4:1aae) with none");
+    fx->rolls.target = cr->target;
+    if (!fx->in_battle || fx->distance == NULL)
+        return fail(fx, "the distance (51c2:0b26) lists the map combat has freed, outside battle");
+    char why[200] = "";
+    uint8_t d;
+    if (!fx->distance(fx, c->record, cr->target, &d, why, sizeof why, fx->context))
+        return fail(fx, "%s", why);
+    if (d > 1) return true;
+    if (cr->target == NULL)
+        return fail(fx, "dqk 78e4:1aa2 (effect 0x69) reads the target's +0xc7 at 0000:00c7, "
+                        "with none");
+    if ((cok_field_u8_at(L, cr->target, COK_FIELD_CREATURE_FLAGS, 0) & 8) != 0) {
+        fx->rolls.amount16 = (int16_t)(fx->rolls.amount16 +
+                                       cok_field_u8_at(L, c->record, COK_FIELD_CLASS_LEVEL, 4));
+        fx->rolls.amount = (uint8_t)fx->rolls.amount16;
+    }
+    return true;
+}
+
 /* The handler table the original fills at DS:6b94 (3f44:38ea), by effect
  * id: the handler's address in overlay 3f44 (or 5b04, which fills a few
  * at startup, 5b04:58ed), 0 for none, and the port. */
@@ -2783,6 +2819,7 @@ static handler_fn *const handlers[COK_FX_HANDLERS] = {
     [COK_FX_MIND_BLANK] = h_mind_blank,
     [COK_FX_PRESENCE] = h_presence,
     [COK_FX_KIN] = h_kin,
+    [COK_FX_QUEEN_RANGER] = h_queen_ranger,
 };
 
 /* Run the handler of id (60f4:01a8). While DS:713c is set the original
