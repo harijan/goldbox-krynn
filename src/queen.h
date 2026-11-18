@@ -79,10 +79,12 @@ int queen_bar_menu(cok_adventure *game, const char *prompt, const char *const *i
  * Escape and '`' as codes, and Space as 0x20 (no beep). With the mouse on (the port's gate: the
  * original adds the areas to a fresh list with or without one, and no click comes without one), the
  * eight areas round the combatant's cell (p, q: its row and column on the view, as bytes) give codes
- * 0x81-0x88 on a click. It returns the item's index, a filtered key's or an area's code, or -1 when
- * the keys ran out. */
+ * 0x81-0x88 on a click. pressed, if not 0, is a scan code the first key read gives after the menu
+ * is drawn (the original draws the menu first, then reads: 0d26's 0x8ef, 0x801): 0x10 Alt-Q, 0x2d
+ * Alt-X. It returns the item's index, a filtered key's or an area's code, or -1 when the keys ran
+ * out. */
 int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
-                      int p, int q);
+                      int p, int q, uint8_t pressed);
 /* The command menu taken off (1bdb:03d7): the bottom bar, then FRAME 6 over the whole window. */
 void queen_combat_menu_close(cok_adventure *game);
 /* The command menu's Speed (dqk 5045:166c): "game speed: (N) " on the bar over Faster, Slower and
@@ -136,9 +138,10 @@ void queen_remove_icons(cok_adventure *game, const uint8_t *record);
 bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const uint8_t **record,
                 size_t *size);
 /* A Dark Queen party member's turn (dqk 5045:08cf, queen_commands.c): the command menu until a
- * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). False
- * where the run stopped; true, with the turn not ended, when the keys ran out. */
-bool queen_commands(cok_adventure *game, cok_character *c);
+ * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). pressed,
+ * if not 0, is a scan code the first menu's first key read gives (command.c's; 0x10 is Alt-Q, auto).
+ * False where the run stopped; true, with the turn not ended, when the keys ran out. */
+bool queen_commands(cok_adventure *game, cok_character *c, uint8_t pressed);
 /* The computer's turn's key (dqk 5bb8:1050 reads it through 2093:0078): a key's code as a
  * menu's result gives it (Alt-M 0xcc, Alt-X 0xd7). Once a key is read, every key waiting
  * (queen_key_waiting) is read too, and the last one's code is returned; 0 for none and for a

@@ -311,7 +311,7 @@ bool cok_combat_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
     if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DEATH_KNIGHTS)
         return dk_commands(game, c, pressed); /* dkk 3e05:08af */
     if (cok_game_rules(game)->commands.routine == COK_COMMANDS_DARK_QUEEN)
-        return queen_commands(game, c); /* dqk 5045:08cf */
+        return queen_commands(game, c, pressed); /* dqk 5045:08cf */
     const cok_rules_fight *F = &cok_game_rules(game)->fight;
     bool done = false;
     while (!done) {
