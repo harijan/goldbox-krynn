@@ -123,7 +123,9 @@ runs from the first turn's menu with \\@Q typed there: the trap is EB FE in the 
 move over a second, twice (the computer's turns run without a key wait, so the polls alone do not show the
 flight). Then the flight's strike: 148f:077f (STRIKE_EFFECT, in the root image, so a static trap holds), where
 event 4 runs effect 0x69 on the attacker; 78e4:1aa2 is not trapped, as overlay 9 is only loaded by that call.
-eclplay's run with the same keys stops there (MISSILE_STOP), and its state is compared at the strike: RandSeed
+eclplay's run with the same keys stops there (MISSILE_STOP): since part 18b1 ported 0x69, a check build cites it
+unported again (missile_eclplay), so the port stops where it first runs, before its handler, as before 18b1. Its
+state is compared at the strike: RandSeed
 1044 draws past the menu (MISSILE_STOP_DRAWS; the entry's 1039 is checked too), every record and combat block,
 the turn list, the combatants (--field), the selected record (DS:ad67, 57fb:04da), and the whole screen (the
 flight's restore is in it; MENU_POINTER masked). About a minute of wall time (0.4 min in the last run); the Box
@@ -344,7 +346,7 @@ def saved_entry(work, data=None):
 
 def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
          field=None, at=None, blocks=None, turns=None, combat=None, state=None, sets=(),
-         effects=None, entry=None):
+         effects=None, entry=None, exe=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -376,7 +378,7 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
     if at is not None:
         extra += ["--at", "%d,%d,%d" % at]
     variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
-                                      block=None)
+                                      block=None, exe=exe)
     return variables, last
 
 
@@ -1935,6 +1937,21 @@ TURN_INITIATIVE = 3                     # the combat block's initiative (+3)
 QUICK_INITIATIVE = 9                    # record 1's initiative, kept by Quick
 ALT_Q_INITIATIVE = 0x13                 # record 1's initiative after Alt-Q (0c0f, then 078b's 0x14 -> 0x13)
 MISSILE_STOP = re.compile(r".*effect 0x69 \(dqk 78e4:1aa2\).*")  # the strike after the flight (148f:077f): part 17b
+MISSILE_EFFECT_AT = "    [0x69] = {0x1aa2, COK_FX_QUEEN_RANGER},\n"
+
+
+def missile_stop(name, text):
+    """src/rules_dark_queen_magic.c: effect 0x69 (78e4:1aa2, ported by part 18b1) cited unported again, so that
+    eclplay stops where it first runs, before its handler: the strike's event 4 on the attacker (148f:077f, the
+    original's trap), the stop part 17b compared (MISSILE_STOP)."""
+    if MISSILE_EFFECT_AT not in text:
+        raise cokbox.BoxError("src/rules_dark_queen_magic.c's effect 0x69 changed: update dqk_fight.missile_stop")
+    return text.replace(MISSILE_EFFECT_AT, MISSILE_EFFECT_AT.replace("},", ', "dqk 78e4:1aa2"},'))
+
+
+def missile_eclplay():
+    """eclplay with effect 0x69 cited unported (missile_stop; checklib.build, cached by the sources)."""
+    return checklib.build("eclplay", transforms=[("rules_dark_queen_magic.c", missile_stop)])
 
 
 def wait_trap(box, t, where):
@@ -2001,16 +2018,16 @@ def command_original(work, patched, flow, verbose):
     return out
 
 
-def command_port(work, patched, name, typed, entry=None, effects=False):
+def command_port(work, patched, name, typed, entry=None, effects=False, exe=None):
     """eclplay's run to the stop of NAME (the first turn's menu, then TYPED; ENTRY the saved game as
-    placement's): its variables, its last line, its text, and the files its state is read from
-    (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
+    placement's; EXE a patched eclplay, or None): its variables, its last line, its text, and the files
+    its state is read from (base: field, records, blocks, turns, bmp; effects, with EFFECTS, the chains)."""
     base = work / f"cmd-{name}"
     variables, last = port(work, patched, name=f"cmd-{name}", typed="\\r\\r" + typed,
                            field=base.with_suffix(".field"), records=base.with_suffix(".records"),
                            blocks=base.with_suffix(".blocks"), turns=base.with_suffix(".turns"),
                            screen=base.with_suffix(".bmp"), entry=entry,
-                           effects=base.with_suffix(".effects") if effects else None)
+                           effects=base.with_suffix(".effects") if effects else None, exe=exe)
     text = (work / f"port-cmd-{name}.txt").read_text().splitlines()
     return dict(base=base, vars=variables, last=last, text=text)
 
@@ -2285,7 +2302,7 @@ def altq_missile(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     o = missile_original(work, patched, opts.verbose)
-    p = command_port(work, patched, "AltQ", "\\@Q")
+    p = command_port(work, patched, "AltQ", "\\@Q", exe=missile_eclplay())
     m, e, s = o["menu"], o["entry"], o["stop"]
     v.check(MISSILE_STOP.fullmatch(p["last"] or "") is not None,
             "eclplay stops at effect 0x69 (78e4:1aa2, the strike after the flight) after Alt-Q", p["last"])

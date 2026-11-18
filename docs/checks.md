@@ -888,8 +888,9 @@ copies of `52db:2888` in overlay 0 (`arm`; the root image has none); the wait ho
 not move over a second, twice (the computer's turns run with no key wait). Then the flight's strike: `148f:077f`
 (`mov al, 0x69`, event 4 on the attacker, in the root image, so its trap holds; `78e4:1aa2` is not trapped, overlay 9 is
 loaded by that call), where the entry's trap is given back first. eclplay's run with the same keys stops at the strike
-(`effect 0x69 (dqk 78e4:1aa2)`), and its state there is compared: RandSeed 1039 draws past the menu at the entry
-(`52db:2888`, 0x484d403f; 1034 past the panel call), 1044 at the strike (the flight's three frames, 148f:1771's d20 and
+(`effect 0x69 (dqk 78e4:1aa2)`: since part 18b1 ported 0x69, a check build cites it unported again, `missile_eclplay`,
+so the port stops where it first runs, before its handler), and its state there is compared: RandSeed 1039 draws past
+the menu at the entry (`52db:2888`, 0x484d403f; 1034 past the panel call), 1044 at the strike (the flight's three frames, 148f:1771's d20 and
 148f:199e's die), every record and combat block, the turn list, the combatants (`--field`), the selected record
 (`57fb:04da`), and the whole screen with the menu's pointer masked (the flight's restore is in it). Earlier runs that
 trapped `box.from_ghidra(0x52db, 0x2888)` hit no code (that maps only the root image), and their 72 and 202 draws were
