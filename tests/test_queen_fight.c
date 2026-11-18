@@ -545,6 +545,91 @@ static void test_damage(void)
     battle_clear();
 }
 
+/* Dark Queen's ranger (dqk 78e4:1aa2, 0x69, at the damage): the holder's target within a square of
+ * creature flag 0 bit 3 takes the holder's ranger level (10 here) more on the word, and the byte
+ * amount with it. Two squares away, or no bit 3, gives the roll alone. The word: 250 + 10 is 260,
+ * amount 4. A removal changes nothing. A NULL target within a square fails, cited (0000:00c7). */
+static void test_ranger(void)
+{
+    game.effects.in_battle = true;
+    battle_clear();
+    cok_character *a = record('A', 0, 0), *t = record('T', 1, 0);
+    place(a, 5, 5);
+    place(t, 6, 5);
+    dice(a, 1, 4, 0);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 8);
+    CHECK(cok_character_add_effect(a, 0x69, 0, 0, false) != NULL);
+    a->combat->target = t->record;
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 3, 3});
+    CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 13 &&
+          game.effects.rolls.amount == 13);
+    /* Two squares away, and a target without bit 3: the roll alone. */
+    for (int k = 0; k < 2; ++k) {
+        battle_clear();
+        a = record('A', 0, 0);
+        place(a, 5, 5);
+        t = record('T', 1, 0);
+        place(t, k == 0 ? 7 : 6, 5);
+        if (k == 1) cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0);
+        else cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 8);
+        cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 10);
+        CHECK(cok_character_add_effect(a, 0x69, 0, 0, false) != NULL);
+        a->combat->target = t->record;
+        dice(a, 1, 4, 0);
+        game.vm.seed = seed_from(1, (const unsigned[]){4, 3, 3});
+        CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 3 &&
+              game.effects.rolls.amount == 3);
+    }
+    /* The word: a roll of 250 with the level 10 is 260 on the word, its low byte 4 the amount. */
+    battle_clear();
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    t = record('T', 1, 0);
+    place(t, 6, 5);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 8);
+    CHECK(cok_character_add_effect(a, 0x69, 0, 0, false) != NULL);
+    a->combat->target = t->record;
+    dice(a, 1, 255, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){255, 250, 250});
+    CHECK(cok_combat_damage_roll(&game, a, t, 1) && game.effects.rolls.amount16 == 260 &&
+          game.effects.rolls.amount == 4);
+    /* A removal (the effect's on_remove set, flag 1) changes nothing: the amounts stay. */
+    battle_clear();
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    t = record('T', 1, 0);
+    place(t, 6, 5);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 8);
+    a->combat->target = t->record;
+    cok_effect *e = cok_character_add_effect(a, 0x69, 0, 0, true);
+    CHECK(e != NULL);
+    game.effects.rolls.amount16 = 3;
+    game.effects.rolls.amount = 3;
+    CHECK(cok_effects_remove(&game.effects, a, e, 0x69) && game.effects.rolls.amount16 == 3 &&
+          game.effects.rolls.amount == 3 && game.vm.status == COK_ECL_OK);
+    /* A NULL target within a square: the distance is the last listed entry's, within a square
+     * here (the target placed beside it), so the target's +0xc7 is read at 0000:00c7: a cited
+     * failure. */
+    battle_clear();
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    t = record('T', 1, 0);
+    place(t, 6, 5);
+    CHECK(cok_character_add_effect(a, 0x69, 0, 0, false) != NULL);
+    a->combat->target = NULL;
+    dice(a, 1, 4, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 3, 3});
+    CHECK(!cok_combat_damage_roll(&game, a, t, 1) && game.vm.status == COK_ECL_EFFECT_FAILED &&
+          strstr(game.error, "0000:00c7") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.in_battle = false;
+    battle_clear();
+}
+
 /* Forgetting (dqk 177e:1346): the first of Dark Queen's 0x89 memorized bytes from +0xce that is the
  * spell is marked 0x80, the 0x50th byte of the field included (its count is 0x4a). */
 static void test_forget(void)
@@ -1539,6 +1624,7 @@ int main(void)
     test_spell_choice();
     test_hit_bonus();
     test_damage();
+    test_ranger();
     test_forget();
     test_strike();
     test_hit_event();

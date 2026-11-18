@@ -1040,9 +1040,9 @@ static void test_magic_ids(void)
         } else {
             char cite[32];
             snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, so);
-            if (id == 0x64 || id == 0xc3) /* ported: 78e4:14d1 and 4949 */
+            if (id == 0x64 || id == 0xc3 || id == 0x69) /* ported: 78e4:14d1, 4949 and 1aa2 */
                 CHECK(h->handler != COK_FX_MISSING && h->unported == NULL &&
-                      sg == 0x78e4 && so == (id == 0x64 ? 0x14d1 : 0x4949));
+                      sg == 0x78e4 && so == (id == 0x64 ? 0x14d1 : id == 0xc3 ? 0x4949 : 0x1aa2));
             else
                 CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }

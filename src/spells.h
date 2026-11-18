@@ -366,6 +366,7 @@ typedef enum {
     /* Dark Queen's own (dqk 78e4). */
     COK_FX_PRESENCE,        /* 0x64: the low levels on the other side terrified (the entry's effect) */
     COK_FX_KIN,             /* 0xc3: the entry's effect added while one holds the id */
+    COK_FX_QUEEN_RANGER,    /* 0x69: a ranger's damage on a target within a square (flag 0 bit 3) */
     COK_FX_HANDLERS
 } cok_effect_handler;
 
