@@ -595,7 +595,9 @@ is the repo test (`test_dark_queen_picture_frame_kept`), since it cannot be poke
 (a cited stop, part 28); `take`, `share` and `gather` type Take's coins, Share and Pool (the probe's
 numbers); `takeitems` (part 21b) types Take's items with TIMASALIN selected by Down (id 80, the Red
 Mage's scroll, then id 1: her items and weight, 6, 7 and 8 items at 660, 661 and 671), and `takeboth`
-the bar's "OverLoaded" for ROLAND's steel 64000 (nothing taken), then TIMASALIN takes id 80. `items` (part 21a) types TREASURE ITEMS 0 0 0 5 : 1 0 255
+the bar's "OverLoaded" for ROLAND's steel 64000 (nothing taken), then TIMASALIN takes id 80; both run
+eclplay with `--mouse` and compare their steps' screens whole: over the list (a control from cell 1, 1)
+the game's own cursor at 8, 8 is the sword (2aa6:15e3), which reaches past the corner's mask. `items` (part 21a) types TREASURE ITEMS 0 0 0 5 : 1 0 255
 255 80 (the random scrolls drawn from RandSeed 12345): the pool's four items at the menu, the share 266,
 and eclplay's `--items` (the pool's items, then each record's, as their file bytes in hex) is compared
 with the original's lists (`pool_items`: the 0x3d-byte nodes from DS:b1e7; `member_items`: each record's
