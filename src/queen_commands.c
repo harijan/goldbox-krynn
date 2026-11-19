@@ -146,10 +146,10 @@ static bool undo(cok_adventure *game, cok_character *c, uint8_t movement, uint8_
     return true;
 }
 
-/* Attacking an ally (dqk 52db:2aef): go where target's side (cok_combat_opposite, the word +0x66 0
- * or 1) is c's side, or c is the computer's; else "attack ally? " (No or Escape: no; Yes: var 0x36
- * (COK_VAR_FLED) set, the sides counted, and go). DS:af3e is set by Yes and read by nothing here.
- * The keys running out is a no (the run is ended by the next read). */
+/* Attacking an ally (dqk 52db:2aef): go where target is an enemy of c (cok_combat_opposite(target,
+ * the word +0x66 0 or 1) is c's side) or c is the computer's; else "attack ally? " (No or Escape: no;
+ * Yes: var 0x36 (COK_VAR_FLED) set, the sides counted, and go). DS:af3e is set by Yes and read by
+ * nothing here. The keys running out is a no (the run is ended by the next read). */
 bool queen_attack_ally(cok_adventure *game, cok_character *c, cok_character *target, bool *go)
 {
     const cok_rules *rules = cok_game_rules(game);

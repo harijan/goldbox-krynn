@@ -138,9 +138,10 @@ void queen_remove_icons(cok_adventure *game, const uint8_t *record);
  * the tests and eclplay --icons. */
 bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const uint8_t **record,
                 size_t *size);
-/* The attack of an ally question (dqk 52db:2aef, queen_commands.c's Move into a party member): go is
- * whether c may attack target: where target's side is c's, or c is the computer's, the question
- * "attack ally? " is asked (Yes: var 0x36 set, the sides counted, go). False where the run stopped. */
+/* The attack of an ally question (dqk 52db:2aef, queen_commands.c's Move into a party member): *go is
+ * whether c may attack target: yes where target is an enemy of c (on the side cok_combat_opposite
+ * gives c's side) or c is the computer's; else "attack ally? " is asked (Yes: var 0x36 set, the sides
+ * counted, go). False where the run stopped. */
 bool queen_attack_ally(cok_adventure *game, cok_character *c, cok_character *target, bool *go);
 /* A Dark Queen party member's turn (dqk 5045:08cf, queen_commands.c): the command menu until a
  * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). pressed,
