@@ -1633,6 +1633,7 @@ typedef struct {
     char menu[64];      /* the last one */
     char all[512];      /* every "menu" line, each ended with ';' */
     char messages[256]; /* the messages logged, each ended with ';' */
+    char codes[64];     /* the codes logged ("code: 0x87" lines), each ended with ';' */
     char prints[128];   /* the texts said (the "print" lines), each ended with ';' */
     bool pending;       /* a key waits while keys are left (the computer's keys' test only) */
     bool once;          /* a key read clears pending: the next waits only once the test sets it */
@@ -1711,6 +1712,9 @@ static void menu_log(cok_adventure *game, const char *kind, const char *text, vo
     } else if (strcmp(kind, "print") == 0) {
         size_t used = strlen(s->prints);
         snprintf(s->prints + used, sizeof s->prints - used, "%s;", text);
+    } else if (strcmp(kind, "code") == 0) {
+        size_t used = strlen(s->codes);
+        snprintf(s->codes + used, sizeof s->codes - used, "%s;", text);
     }
 }
 
@@ -1767,6 +1771,7 @@ static void menu_open(void)
     script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
+    script.codes[0] = '\0';
     script.delays = 0;
 }
 
@@ -1781,6 +1786,7 @@ static bool menu_run_pressed(const char *keys, uint8_t pressed)
     script.all[0] = '\0';
     script.messages[0] = '\0';
     script.prints[0] = '\0';
+    script.codes[0] = '\0';
     script.delays = 0;
     menu_game.vm.status = COK_ECL_OK;
     menu_game.vm.abort = false;
@@ -1982,8 +1988,10 @@ static int combat_bar(bool mouse, int p, int q, size_t count, int split, int16_t
     script.keys = keys;
     script.at = 0;
     menu_game.vm.abort = false;
-    return queen_combat_menu(&menu_game, bar, count, split, p, q, 0);
+    return queen_combat_menu(&menu_game, "", bar, count, split, p, q, 0);
 }
+
+static void battle_map(void);
 
 static void test_combat_menu_areas(void)
 {
@@ -2021,26 +2029,215 @@ static void test_combat_menu_areas(void)
     CHECK(combat_bar(true, 3, 4, 4, 3, 0, 0, " ") == 0x20);
     CHECK(combat_bar(false, 3, 4, 4, 3, 0, 0, " ") == 0x20);
     /* queen_commands passes the combatant's cell: CINDER at 5, 5 (her cell 3, 3 on the view, the view
-     * at 2, 2), so a click at 90, 20 is area 1 (code 0x88: Move, not yet ported) with the mouse on.
-     * Her cell at 0, 0 would have no area there, and the run would wait on (the mouse off gives
-     * nothing). */
+     * at 2, 2), so a click at 90, 20 is area 1 (code 0x88: Move, up) with the mouse on. She steps to
+     * 5, 4 and the Move menu waits on (the keys run out: the turn kept). Her cell at 0, 0 would have
+     * no area there, and the run would wait on (the mouse off gives nothing). */
     menu_open();
+    battle_map();
     menu_game.mouse.on = true;
     cok_combat *k = &menu_game.combat;
     k->view_x = 2;
     k->view_y = 2;
     click_x = 90;
     click_y = 20;
-    CHECK(!menu_run("\x01") && menu_game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(menu_game.error, "Move with a direction key") != NULL);
-    /* 20, 90 is area 0 (code 0x86) for the cell at 3, 3 and no area for a cell at 3, 0 or 0, 3. */
+    CHECK(menu_run("\x01") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.codes, "0x88;") == 0);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cok_combat_y(k, menu_c->record) == 4);
+    CHECK(menu_c->combat->initiative == 5);
+    /* 20, 90 is area 0 (code 0x86, left) for the cell at 3, 3: from 5, 5 she steps to 4, 5. */
+    menu_open();
+    battle_map();
+    menu_game.mouse.on = true;
+    k->view_x = 2;
+    k->view_y = 2;
     click_x = 20;
     click_y = 90;
-    CHECK(!menu_run("\x01") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(menu_run("\x01") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.codes, "0x86;") == 0);
+    CHECK(cok_combat_x(k, menu_c->record) == 4 && cok_combat_y(k, menu_c->record) == 5);
     menu_open();
     menu_game.mouse.on = false;
     CHECK(menu_run("\x01") && menu_game.vm.status == COK_ECL_OK);
     menu_close();
+}
+
+/* Move (dqk 5045:1099, 15a3, 2aef) from the command menu, through queen_commands: "~M" (Right,
+ * 0x82) takes one step; the Move menu's Undo ("U") and Escape put her back, its Done ("D") keeps the
+ * step and shows the command menu again. A cost above the movement says "can't go there", and Done
+ * under 2 movement leaves 0. A combatant in the cell is melee by the step: the ally question first
+ * for one on her side (No: no attack; Yes: var 0x36 set, the attack), a foe attacked; a missile
+ * weapon not thrown is "Not with that weapon". A wall in the cell asks "flee ? ". The keys running
+ * out at the Move menu end the run with the turn kept. The Move menu's prompt is drawn by
+ * queen_combat_menu (dark_queen.c), not checked here (the DOSBox move flow compares its screen). */
+/* The foes the move test makes (WALKERKE's record, a foe or an ally by its +0x66): kept to be freed
+ * after the test's last menu. */
+static cok_character *foes[8];
+static size_t foe_count;
+
+static cok_character *foe_of(void)
+{
+    assert(foe_count < sizeof foes / sizeof foes[0]);
+    foes[foe_count] = dqk_member(&menu_game, "WALKERKE");
+    return foes[foe_count++];
+}
+
+static void test_command_move(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Move not checked");
+        return;
+    }
+    cok_combat *k = &menu_game.combat;
+    cok_combat_record *cr;
+    const uint8_t floor_cost = cok_combat_terrain(R, COK_COMBAT_FLOOR).cost;
+    /* Right and Done: one square right (floor, right is even: twice its cost), the command menu
+     * again (two builds). */
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    uint8_t m0 = cr->movement, f0 = cr->facing;
+    CHECK(menu_run("~MD") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(script.menus == 2);
+    CHECK(cok_combat_x(k, menu_c->record) == 6 && cok_combat_y(k, menu_c->record) == 5);
+    CHECK(cr->movement == (uint8_t)(m0 - 2 * floor_cost) && cr->facing == 2);
+    /* Undo puts her back: square, movement and facing as they were. Escape does the same. */
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    CHECK(menu_run("~MU") && menu_game.vm.status == COK_ECL_OK && script.menus == 2);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cok_combat_y(k, menu_c->record) == 5);
+    CHECK(cr->movement == m0 && cr->facing == f0);
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    CHECK(menu_run("~M\x1b") && menu_game.vm.status == COK_ECL_OK && script.menus == 2);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cok_combat_y(k, menu_c->record) == 5);
+    CHECK(cr->movement == m0 && cr->facing == f0);
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    CHECK(menu_run("~ID") && menu_game.vm.status == COK_ECL_OK && script.menus == 2);
+    CHECK(cok_combat_x(k, menu_c->record) == 6 && cok_combat_y(k, menu_c->record) == 4);
+    CHECK(cr->movement == (uint8_t)(m0 - 3 * floor_cost) && cr->facing == 1);
+    /* The gate: with two floor squares of movement, a diagonal (three) says "can't go there" and
+     * a straight step (two) is taken, leaving none. */
+    menu_open();
+    battle_map();
+    menu_c->combat->movement = (uint8_t)(2 * floor_cost);
+    CHECK(menu_run("~ID") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "can't go there;") == 0 && cok_combat_x(k, menu_c->record) == 5);
+    menu_open();
+    battle_map();
+    menu_c->combat->movement = (uint8_t)(2 * floor_cost);
+    CHECK(menu_run("~MD") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_x(k, menu_c->record) == 6 && menu_c->combat->movement == 0);
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    CHECK(cok_character_add_effect(menu_c, 0xd5, 0, 0, false) != NULL);
+    CHECK(menu_run("~MU") && menu_game.vm.status == COK_ECL_OK && script.menus == 2);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cr->facing == 2);
+    /* A cost above the movement: "can't go there" (one message, one wait), no step, and Done with
+     * under 2 movement leaves 0. */
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    cr->movement = 1;
+    CHECK(menu_run("~MD") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "can't go there;") == 0 && script.delays == 1);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cr->movement == 0);
+    /* A wall (terrain 0) to her right: "flee ? ", No keeps the turn (the Move menu again), Yes
+     * flees (the turn ends: no more menu). */
+    menu_open();
+    battle_map();
+    k->cells[5][6] = 0;
+    CHECK(menu_run("~MN") && menu_game.vm.status == COK_ECL_OK && script.menus == 1);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && menu_c->combat->initiative == 5);
+    menu_open();
+    battle_map();
+    k->cells[5][6] = 0;
+    CHECK(menu_run("~MY") && menu_game.vm.status == COK_ECL_OK && script.menus == 1);
+    /* A foe (+0x66 1) in the square to her right: melee by the step. The attack runs (the seed
+     * moves), the target kept, and the turn goes on with the Move menu. */
+    menu_open();
+    battle_map();
+    cok_character *foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    CHECK(foe->combat != NULL);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 1);
+    place(&menu_game, foe, 6, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    uint32_t seed = menu_game.vm.seed;
+    CHECK(menu_run("~M") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->target == foe->record && menu_game.vm.seed != seed);
+    CHECK(cok_combat_x(k, menu_c->record) == 5 && cok_combat_y(k, menu_c->record) == 5);
+    /* An ally (+0x66 0) on her side: "attack ally? ", No attacks nobody and asks nothing more;
+     * Yes sets var 0x36 and attacks. */
+    menu_open();
+    battle_map();
+    foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 0);
+    place(&menu_game, foe, 6, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    seed = menu_game.vm.seed;
+    CHECK(menu_run("~MN") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->target == NULL && menu_game.vm.seed == seed);
+    CHECK(cok_ecl_var(&menu_game.vm, COK_VAR_FLED) == 0);
+    menu_open();
+    battle_map();
+    foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 0);
+    place(&menu_game, foe, 6, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    CHECK(menu_run("~MY") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cok_ecl_var(&menu_game.vm, COK_VAR_FLED) == 1 && menu_c->combat->target == foe->record);
+    /* A missile weapon not thrown (a bow, as the Guard test's): "Not with that weapon" and no
+     * attack; with var 0x3c (underwater) set, "Can't use that underwater" first. */
+    menu_open();
+    battle_map();
+    cok_item_types *types = &menu_game.item_types;
+    free(menu_c->items);
+    menu_c->items = calloc(1, COK_ITEM_SIZE);
+    CHECK(menu_c->items != NULL);
+    menu_c->item_count = 1;
+    menu_c->slots[0] = 1;
+    uint8_t bow = 5;
+    menu_c->items[0][0x28] = bow;
+    types->type[bow][12] = 2;
+    types->type[bow][14] = 0;
+    foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 1);
+    place(&menu_game, foe, 6, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    CHECK(menu_run("~M") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "Not with that weapon;") == 0 && menu_c->combat->target == NULL);
+    menu_open();
+    battle_map();
+    types = &menu_game.item_types;
+    free(menu_c->items);
+    menu_c->items = calloc(1, COK_ITEM_SIZE);
+    menu_c->item_count = 1;
+    menu_c->slots[0] = 1;
+    menu_c->items[0][0x28] = bow;
+    types->type[bow][12] = 2;
+    types->type[bow][14] = 0;
+    foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 1);
+    place(&menu_game, foe, 6, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(menu_run("~M") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "Can't use that underwater;Not with that weapon;") == 0);
+    menu_close();
+    for (size_t i = 0; i < foe_count; ++i) {
+        cok_character_free(foes[i]);
+        free(foes[i]);
+    }
+    foe_count = 0;
 }
 
 /* Quick, Alt-Q and Alt-M, Speed (dqk 5045:0a2c, 0c0f, 0bd7, 166c): the state each leaves, the
@@ -2179,6 +2376,7 @@ static void battle_map(void)
 {
     CHECK(cok_adventure_drawing(&menu_game)->arena_tiles(&menu_game, false, 4));
     menu_game.combat.active = true;
+    menu_game.vm.mode = 5; /* the battle's mode: cok_combat_place puts a combatant only in it */
 }
 
 /* The battle's say (dqk 177e:156e in mode 5, cok_drawing.arena_say through cok_arena_say): c's
@@ -2879,6 +3077,7 @@ int main(void)
     test_command_menu_text();
     test_command_menu_keys();
     test_combat_menu_areas();
+    test_command_move();
     test_command_menu_quick_speed();
     test_command_menu_auto();
     test_arena_say();
