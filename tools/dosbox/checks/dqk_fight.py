@@ -4297,6 +4297,94 @@ def move(v, work, opts):
              masks=[SHIELD_POINTER], work=work)
 
 
+# Aim (step 4, part 24a: dqk 52db:37dd, queen_aim.c): the Aim menu's screens and the command menu after its Exit,
+# against the original's. The dungeon's self-only list: "A" (the menu waiting, "AIM: RANGE = 0" on row 23), then
+# "E" (the command menu built again at 5045:0cd7, no draws). The open ground's list (wild_block(1, 0)): "A", "N"
+# (SHARKMAN 2 shown, the view on her, "AIM: RANGE = 5"), "P" and "N" again (back to her: the RandSeed holds), then
+# "E" (the menu built again, as the dungeon's).
+AIM_BUILT = (0x5045, 0x0CD7)            # the command menu's build: after Aim's Exit (08cf's c8c)
+
+
+def aim_screen_original(work, patched, verbose, tag, typed):
+    """The original at the first turn's menu (to_menu) with TYPED typed there, and the screen the keys leave
+    (the Aim menu waiting), the RandSeed then (`seed`); the menu's state at its start is `menu`."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        box.keys(typed)
+        box.settled(quiet=1.0, tolerance=0)
+        return dict(menu=menu, seed=box.ds_dword(L.DS_SEED),
+                    screen=box.screenshot(path=str(work / f"{tag}.png")))
+
+
+def aim_exit_original(work, patched, verbose, tag, typed):
+    """The original's Aim with TYPED, whose last key is Exit: the command menu's build (5045:0cd7) reached after it
+    (`stop`, the state there, with DS:ad67 as `selected`), the trap given back, and the menu drawn again (`again`)."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], AIM_BUILT)
+        box.keys(typed)
+        wait_trap(box, t, "5045:0cd7")
+        stop = snapshot(box)
+        stop.update(selected=selected(box))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        again = dict(screen=box.screenshot(path=str(work / f"{tag}-menu.png")), seed=box.ds_dword(L.DS_SEED))
+    return dict(menu=menu, stop=stop, again=again)
+
+
+def aim(v, work, opts):
+    """Aim (step 4, part 24a): the Aim menu on the dungeon's self-only list and on the open ground's two
+    targets, each screen against eclplay's last shot, and the command menu after Exit against eclplay's
+    stop (the state, the RandSeed, the screen). The dungeon's Exit draws nothing; the open ground's N and P
+    hold the RandSeed."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    shots = work / "aim-shots"
+    if shots.exists():
+        shutil.rmtree(shots)
+    port(work, dungeon, name="aim", typed="\\r\\r" + "A", shots=shots)
+    shot = cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() else None
+    a = aim_screen_original(work, dungeon, opts.verbose, "aim-a", "A")
+    v.screen("the Aim menu after A on the dungeon (self only: AIM: RANGE = 0, NEXT PREV MANUAL CENTER EXIT)",
+             a["screen"], shot, masks=[SHIELD_POINTER], work=work)
+    e = aim_exit_original(work, dungeon, opts.verbose, "aim-exit", "AE")
+    p = command_port(work, dungeon, "aim-exit", "AE")
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None, "eclplay ends at the command menu (out of keys) "
+            "after A and Exit", p["last"])
+    draws = command_state(v, "Aim's Exit on the dungeon", e["stop"], p, e["menu"]["seed"])
+    v.check(draws == 0, "the original's RandSeed past the command menu after Aim's Exit is unchanged (no draws)",
+            f"{draws} draws")
+    command_screen(v, "the command menu after Aim's Exit on the dungeon", e["again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+    wshots = work / "aim-wild-shots"
+    if wshots.exists():
+        shutil.rmtree(wshots)
+    port(work, wild, name="aim-wild", typed="\\r\\r" + "AN", shots=wshots)
+    wshot = cokbox.RGBScreen.load(sorted(wshots.glob("*.bmp"))[-1]) if wshots.exists() else None
+    w = aim_screen_original(work, wild, opts.verbose, "aim-wild", "AN")
+    v.screen("the Aim menu after A and N on the open ground (SHARKMAN 2 shown: AIM: RANGE = 5, the view on her)",
+             w["screen"], wshot, masks=[SHIELD_POINTER], work=work)
+    h = aim_screen_original(work, wild, opts.verbose, "aim-wild-hold", "ANP" + "N")
+    v.check(h["seed"] == w["menu"]["seed"], "the original's RandSeed after N, P and N (back on SHARKMAN 2) holds "
+            "at the menu's", f"{h['seed']:#x} against {w['menu']['seed']:#x}")
+    x = aim_exit_original(work, wild, opts.verbose, "aim-wild-exit", "ANPNE")
+    px = command_port(work, wild, "aim-wild-exit", "ANPNE")
+    v.check(BATTLE_STOP.fullmatch(px["last"] or "") is not None, "eclplay ends at the command menu (out of keys) "
+            "after A, N, P, N and Exit on the open ground", px["last"])
+    draws = command_state(v, "Aim's Exit on the open ground", x["stop"], px, x["menu"]["seed"])
+    v.check(draws == 0, "the original's RandSeed past the command menu after Aim's Exit on the open ground is "
+            "unchanged", f"{draws} draws")
+    command_screen(v, "the command menu after Aim's Exit on the open ground", x["again"]["screen"],
+                   px["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -4316,10 +4404,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse, move")
+                             "won, drop, timer, walk, mouse, move, aim")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -4374,6 +4462,8 @@ def main():
         mouse(v, work, opts)
     if "move" in flows:
         move(v, work, opts)
+    if "aim" in flows:
+        aim(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

@@ -1014,6 +1014,8 @@ and the next combatant's menu (`5045:08cf`, record 57fb:0816, armed before the t
 release the overlay's copies can move) agrees with eclplay's stop there. The dungeon's `\>\v` (Right, then Down into
 ROARK): the "ATTACK ALLY?" screen is compared with eclplay's last shot (the shield cursor at the corner masked).
 
+`aim` (`aim`, after `move` in `main`'s flows; its originals `aim_screen_original` and `aim_exit_original`) is Aim with the keys (part 24a). The dungeon's `A` (self only): the Aim menu's whole screen after it is compared with eclplay's last shot ("AIM: RANGE = 0" on row 23, NEXT PREV MANUAL CENTER EXIT; the shield cursor at the corner masked). `AE`: the command menu's build (`5045:0cd7`) is trapped after Exit and its state agrees with eclplay's stop, the RandSeed unchanged (no draws), and the menu's screen agrees. The open ground's (`wild_block(1, 0)`) `AN`: the screen with SHARKMAN 2 shown ("AIM: RANGE = 5", the view on her) agrees; `ANPN` holds the RandSeed at the menu's (ce7f005e); `ANPNE` gives the menu after Exit, agreeing as the dungeon's. 17 checks.
+
 `view` (`view_check`, last in `commands`) is V at TIMASALIN's first menu (`view_original`: the menu trapped at `5045:0cd7`
 for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and
 steel, so no Trade in combat), eclplay out of keys there, and the sheet's screen agrees with the original's (its mouse

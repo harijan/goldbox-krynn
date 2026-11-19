@@ -2302,6 +2302,191 @@ static void test_command_move(void)
     foe_count = 0;
 }
 
+/* Aim (dqk 52db:37dd, 36c6, 3465, 2b60; queen_aim.c) from the command menu, through queen_commands:
+ * the targets are self, then the enemies she can attack within sight (a party member is not listed);
+ * Next and Prev step through them, a step passing the party's side while an enemy is listed, and
+ * wrap; the target she kept (combat record +0x0b) is the one shown first. Each menu shows "Next Prev
+ * Manual Target Center Exit" with Target only where the range reaches the one shown (the readied
+ * weapon's range, 1 for none) and it is not self; a missile weapon needs ammunition (a thrown one, or
+ * none beside her). Target when attacking and Manual are cited stops; Escape and Exit leave the menu
+ * (the command menu again); Center centres and shows the menu again. The range line is drawn on row
+ * 23 (1a62:01d0). Skipped without DQKAssets/. */
+
+/* Whether the view's corner is the one Center gives for the cell x, y (cok_arena_centre, margin 0). */
+static bool centred_on(int x, int y)
+{
+    cok_combat *k = &menu_game.combat;
+    return k->view_x == x - 3 && k->view_y == y - 3;
+}
+
+/* Whether a pixel of colour lies in columns x0 to x1 and rows y0 to y1 (ends excluded). */
+static bool pixel_in(int x0, int y0, int x1, int y1, uint8_t colour)
+{
+    for (int y = y0; y < y1; ++y)
+        for (int x = x0; x < x1; ++x)
+            if (menu_game.screen.pixels[y * 320 + x] == colour) return true;
+    return false;
+}
+
+/* A foe (+0x66 1) or an ally (0) at x, y, in the party's records after the members (monsters are
+ * there, as member_of finds them); its record is kept in foes until aim_open. */
+static cok_character *aim_foe(int8_t x, int8_t y, uint8_t hostile)
+{
+    cok_character *foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    CHECK(foe->combat != NULL);
+    CHECK(cok_party_add(&menu_game.party, R, foe));
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, hostile);
+    place(&menu_game, foe, x, y);
+    CHECK(queen_added_icons(&menu_game, foe->record));
+    return foe;
+}
+
+/* The menu's battle, fresh: the last one closed (its party's records, the foes among them, freed by
+ * the close), CINDER at 5, 5 in the battle. */
+static void aim_open(void)
+{
+    menu_close();
+    foe_count = 0;
+    menu_open();
+    battle_map();
+    menu_game.combat.show_actions = true; /* the arena's turns centre the view (cok_arena_turn) */
+}
+
+/* CINDER's readied weapon: an item whose type 0 has range and flags (its type's bytes 12 and 14),
+ * held in her slot 0. */
+static void aim_weapon(uint8_t range, uint8_t flags)
+{
+    cok_item_types *types = &menu_game.item_types;
+    types->type[0][12] = range;
+    types->type[0][14] = flags;
+    free(menu_c->items);
+    menu_c->items = calloc(1, sizeof *menu_c->items);
+    CHECK(menu_c->items != NULL);
+    menu_c->items[0][types->record_type_at != 0 ? types->record_type_at : 0x2e] = 0;
+    menu_c->item_count = 1;
+    menu_c->slots[0] = 1;
+}
+
+/* queen_aim with keys (the script's), from CINDER with the arguments given. */
+static bool aim_direct(const char *keys, uint8_t range, uint8_t attack, uint8_t empty,
+                       uint8_t creatures, bool *done, cok_combat_aimed *res)
+{
+    script.keys = keys;
+    script.at = 0;
+    menu_game.vm.status = COK_ECL_OK;
+    menu_game.vm.abort = false;
+    return queen_aim(&menu_game, menu_c, range, attack, empty, creatures, done, res);
+}
+
+static void test_command_aim(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Aim not checked");
+        return;
+    }
+    cok_combat *k = &menu_game.combat;
+    /* Self only: "AE" shows the menu without Target, Exit leaves it (the command menu again: three
+     * menus) and the view stays. "A" alone leaves the menu waiting, with its range line on row 23:
+     * "Aim: range = 0 " from cell 1 at pixel row 178 (1a62:01d0), its grey line on row 177. */
+    aim_open();
+    int vx = k->view_x, vy = k->view_y;
+    CHECK(menu_run("AE") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.all, "Next Prev Manual Center Exit;") != NULL);
+    CHECK(strstr(script.all, "Target") == NULL && script.menus == 3);
+    CHECK(k->view_x == vx && k->view_y == vy);
+    aim_open();
+    CHECK(menu_run("A") && menu_game.vm.status == COK_ECL_OK && menu_c->combat->initiative == 5);
+    CHECK(pixel_in(8, 178, 128, 186, 15) && pixel_in(8, 177, 128, 178, 0x17));
+    /* Two enemies, south (5, 20) and east (20, 5), and an ally to the west (2, 5), not listed.
+     * Each step shows the next target (the wrap never shows self; Prev from self goes to the last),
+     * which Center then centres: the view's corner is the cell less 3. The runs share one battle:
+     * each starts from the command menu and sets no target. */
+    aim_open();
+    aim_foe(5, 20, 1);
+    aim_foe(20, 5, 1);
+    aim_foe(2, 5, 0);
+    CHECK(menu_run("ANC") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(centred_on(20, 5) != centred_on(5, 20));
+    bool first_east = centred_on(20, 5);
+    CHECK(first_east || centred_on(5, 20));
+    CHECK(menu_run("ANNC") && centred_on(first_east ? 5 : 20, first_east ? 20 : 5));
+    CHECK(menu_run("ANNNC") && centred_on(first_east ? 20 : 5, first_east ? 5 : 20));
+    CHECK(menu_run("ANNPC") && centred_on(first_east ? 20 : 5, first_east ? 5 : 20));
+    CHECK(menu_run("APC") && centred_on(first_east ? 5 : 20, first_east ? 20 : 5));
+    /* The target she kept (+0x0b) is the one shown at the start: east, centred with C. */
+    aim_open();
+    cok_character *east = aim_foe(20, 5, 1);
+    aim_foe(5, 20, 1);
+    menu_c->combat->target = east->record;
+    CHECK(menu_run("AC") && centred_on(20, 5));
+    /* Target: a foe beside her (range 1, distance 1) is listed with it, one three squares off is
+     * not, self never is. Target when attacking is the cited strike (part 24b). */
+    aim_open();
+    aim_foe(6, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Target Center Exit;") != NULL);
+    aim_open();
+    aim_foe(6, 5, 1);
+    CHECK(!menu_run("ANT") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 52db:2d46") != NULL);
+    aim_open();
+    aim_foe(8, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Center Exit;") != NULL);
+    CHECK(strstr(script.all, "Target") == NULL);
+    aim_open();
+    CHECK(menu_run("AT") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.all, "Target") == NULL);
+    /* A readied missile weapon of range 3: a thrown one reaches the foe three squares off (Target
+     * listed, then its strike), one not thrown with no ammunition does not. */
+    aim_open();
+    aim_weapon(3, 0x10);
+    aim_foe(8, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Target Center Exit;") != NULL);
+    aim_open();
+    aim_weapon(3, 0x10);
+    aim_foe(8, 5, 1);
+    CHECK(!menu_run("ANT") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 52db:2d46") != NULL);
+    aim_open();
+    aim_weapon(3, 0x00);
+    aim_foe(8, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Target") == NULL);
+    /* Manual: its stop by its letter, by a direction key; Escape leaves the menu (the command
+     * menu again) and Center shows it again. */
+    aim_open();
+    CHECK(!menu_run("AM") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 52db:2e9c") != NULL);
+    aim_open();
+    CHECK(!menu_run("A~M") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 52db:2e9c") != NULL);
+    aim_open();
+    CHECK(menu_run("A\x1b") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
+    CHECK(menu_c->combat->initiative == 5);
+    aim_open();
+    CHECK(menu_run("AC") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
+    CHECK(k->cursor == 0);
+    /* queen_aim with a spell's attack (0): with creatures, the foe three squares off is the
+     * Target: done, its record and cell, no strike and no stop. */
+    aim_open();
+    cok_character *foe = aim_foe(8, 5, 1);
+    bool done = false;
+    cok_combat_aimed res = {NULL, 0, 0};
+    CHECK(aim_direct("NT", 4, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == foe->record && res.x == 8 && res.y == 5);
+    /* The keys running out at the menu: true, nothing picked. */
+    aim_open();
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("", 1, 1, 0, 1, &done, &res) && !done && res.target == NULL);
+    CHECK(menu_game.vm.status == COK_ECL_OK);
+    /* The battle's row 23 text (1a62:01d0): drawn, no stop. */
+    aim_open();
+    CHECK(cok_arena_text(&menu_game, 0, 0x17, "Aim: range = 0 ", 7, 0));
+    CHECK(menu_game.vm.status == COK_ECL_OK && pixel_in(8, 178, 128, 186, 15));
+    aim_open();
+    menu_close();
+}
+
 /* Quick, Alt-Q and Alt-M, Speed (dqk 5045:0a2c, 0c0f, 0bd7, 166c): the state each leaves, the
  * wait's one draw, and the keys (Alt-Q is a 0 and its scan code 0x10, Alt-M 0x32). */
 static void test_command_menu_quick_speed(void)
@@ -3140,6 +3325,7 @@ int main(void)
     test_command_menu_keys();
     test_combat_menu_areas();
     test_command_move();
+    test_command_aim();
     test_command_menu_quick_speed();
     test_command_menu_auto();
     test_arena_say();
