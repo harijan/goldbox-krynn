@@ -146,15 +146,18 @@ static bool undo(cok_adventure *game, cok_character *c, uint8_t movement, uint8_
     return true;
 }
 
-/* Attacking an ally (dqk 52db:2aef): go where target is an enemy of c (cok_combat_opposite(target,
- * the word +0x66 0 or 1) is c's side) or c is the computer's; else "attack ally? " (No or Escape: no;
+/* Attacking an ally (dqk 52db:2aef): go where target is an enemy of c (1 where its word +0x66 is
+ * 0, else 0, is c's word +0x66) or c is the computer's; else "attack ally? " (No or Escape: no;
  * Yes: var 0x36 (COK_VAR_FLED) set, the sides counted, and go). DS:af3e is set by Yes and read by
  * nothing here. The keys running out is a no (the run is ended by the next read). */
 bool queen_attack_ally(cok_adventure *game, cok_character *c, cok_character *target, bool *go)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
-    *go = cok_combat_opposite(target, rules) == cok_field_u8(L, c->record, COK_FIELD_HOSTILE) ||
+    /* 51c2:08fd tests the target's +0x66 as a word, and 2aef compares that with c's word +0x66
+     * (cok_combat_field_word: Dark Queen's ints). */
+    unsigned other = cok_combat_field_word(rules, target->record, COK_FIELD_HOSTILE) == 0 ? 1 : 0;
+    *go = other == cok_combat_field_word(rules, c->record, COK_FIELD_HOSTILE) ||
           cok_field_u8(L, c->record, COK_FIELD_COMPUTER) != 0;
     if (*go) return true;
     if (queen_yes_no(game, "attack ally? ") != 1) {

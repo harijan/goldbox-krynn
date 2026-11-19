@@ -2068,7 +2068,8 @@ static void test_combat_menu_areas(void)
  * for one on her side (No: no attack; Yes: var 0x36 set, the attack), a foe attacked; a missile
  * weapon not thrown is "Not with that weapon". A wall in the cell asks "flee ? ". The keys running
  * out at the Move menu end the run with the turn kept. The Move menu's prompt is drawn by
- * queen_combat_menu (dark_queen.c), not checked here (the DOSBox move flow compares its screen). */
+ * queen_combat_menu (dark_queen.c), not checked here: no test reads its text, and the DOSBox move
+ * flow compares no Move-menu screen (only the mouse flow's "MOVE LEFT = 10" is compared). */
 /* The foes the move test makes (WALKERKE's record, a foe or an ally by its +0x66): kept to be freed
  * after the test's last menu. */
 static cok_character *foes[8];
@@ -2157,6 +2158,9 @@ static void test_command_move(void)
     battle_map();
     k->cells[5][6] = 0;
     CHECK(menu_run("~MY") && menu_game.vm.status == COK_ECL_OK && script.menus == 1);
+    /* She fled (52db:0e26: no enemy, so away) and her turn ended: not the Move menu's keys out. */
+    CHECK(cok_field_u8(R->character, menu_c->record, COK_FIELD_ACTIVE) == 0 &&
+          menu_c->combat->initiative == 0 && !menu_game.vm.abort);
     /* A foe (+0x66 1) in the square to her right: melee by the step. The attack runs (the seed
      * moves), the target kept, and the turn goes on with the Move menu. */
     menu_open();
@@ -2191,8 +2195,25 @@ static void test_command_move(void)
     cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 0);
     place(&menu_game, foe, 6, 5);
     CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    k->sides[0] = k->sides[1] = 0xee;
     CHECK(menu_run("~MY") && menu_game.vm.status == COK_ECL_OK);
     CHECK(cok_ecl_var(&menu_game.vm, COK_VAR_FLED) == 1 && menu_c->combat->target == foe->record);
+    CHECK(k->sides[0] != 0xee && k->sides[1] != 0xee); /* 51c2:0920: the sides counted */
+    /* queen_attack_ally itself (no keys: a question asked would be a no): the computer's record
+     * goes without asking; and the sides are words (51c2:08fd): one with +0x67 set is no ally. */
+    script.keys = "";
+    script.at = 0;
+    menu_game.vm.abort = false;
+    bool go = false;
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_COMPUTER, 1);
+    CHECK(queen_attack_ally(&menu_game, menu_c, foe, &go) && go);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_COMPUTER, 0);
+    menu_game.vm.abort = false;
+    CHECK(queen_attack_ally(&menu_game, menu_c, foe, &go) && !go);
+    menu_game.vm.abort = false;
+    foe->record[cok_field_offset(R->character, COK_FIELD_HOSTILE) + 1] = 1;
+    CHECK(queen_attack_ally(&menu_game, menu_c, foe, &go) && go);
+    foe->record[cok_field_offset(R->character, COK_FIELD_HOSTILE) + 1] = 0;
     /* A missile weapon not thrown (a bow, as the Guard test's): "Not with that weapon" and no
      * attack; with var 0x3c (underwater) set, "Can't use that underwater" first. */
     menu_open();
