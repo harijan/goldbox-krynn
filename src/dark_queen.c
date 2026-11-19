@@ -3982,8 +3982,9 @@ static void arena_clear_text(cok_adventure *game)
 
 /* 1a62:0046 (x, y, fg, bg, text). A background of 0 is the grey (8), and on row 23 or below a
  * fg of 7 or 8 is white (15). Row 24 is boxed on the bar (prompt_box); above it the text is drawn
- * in attribute bg * 16 + fg (2102:03a0, one cell 8 by 8). Row 23 in the battle takes another branch
- * (1a62:01d0), not ported. */
+ * in attribute bg * 16 + fg (2102:03a0, one cell 8 by 8). Row 23 in the battle (mode 5) is 1a62:01d0:
+ * the text one cell right of x and at pixel row 178 (DS:1f99), over a grey line on row 177 as wide
+ * as the text (1a62:0004's fill, one row). */
 static bool arena_text(cok_adventure *game, int x, int y, const char *s, uint8_t fg, uint8_t bg)
 {
     if (bg == 0) {
@@ -3994,8 +3995,12 @@ static bool arena_text(cok_adventure *game, int x, int y, const char *s, uint8_t
         prompt_box(game, x, s, fg, bg);
         return true;
     }
-    if (game->vm.mode == 5 && y == 0x17)
-        return cok_adventure_not_yet(game, "a text on row 23 of the battle", "dqk 1a62:01d0");
+    if (game->vm.mode == 5 && y == 0x17) {
+        int x0 = 8 * (x + 1); /* 1a62:01d0: the text's column is x + 1 (1d5's incb) */
+        fill(game, 177, x0, 178, x0 + 8 * (int)strlen(s), colour(bg));
+        text(game, 178, x0, s, (unsigned)(bg & 15) << 4 | (unsigned)(fg & 15));
+        return true;
+    }
     text(game, 8 * y, 8 * x, s, (unsigned)(bg & 15) << 4 | (unsigned)(fg & 15));
     return true;
 }
@@ -5290,6 +5295,14 @@ void queen_fill(cok_adventure *game, int y0, int x0, int y1, int x1, uint8_t col
 void queen_clear_cells(cok_adventure *game, int x1, int y1, int x2, int y2)
 {
     clear_cells(game, x1, y1, x2, y2);
+}
+
+void queen_range_line_clear(cok_adventure *game)
+{
+    /* 1bdb:03a4: 251e:06cb's clip, DS:cdae-cdb5 and cdb9 from 1f98, 1f40, 1f9d and 1fe0: rows 176
+     * to 186, columns 0 to 320 (the ends excluded). */
+    const cok_vga_clip clip = {176, 0, 186, 320};
+    draw_frame_record(game, 6, 0, 0, &clip);
 }
 
 void queen_full_window(cok_adventure *game)

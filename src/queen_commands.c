@@ -354,7 +354,12 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
     }
     switch (item) {
     case ITEM_MOVE: return move(game, c, 0, done); /* index 0 is never built: the code 0 does nothing */
-    case ITEM_AIM: return cok_adventure_not_yet(game, "Aim", "dqk 52db:37dd (part 24)");
+    case ITEM_AIM: {
+        /* 08cf's 0x97c: 37dd(rec, 0xff, 1, 0, 1, &done, &res) (queen_aim.c), then the arena again
+         * (c8c) unless the turn ended; the keys running out leave the turn not ended. */
+        cok_combat_aimed res;
+        return queen_aim(game, c, 0xff, 1, 0, 1, done, &res);
+    }
     case ITEM_USE: return cok_adventure_not_yet(game, "Use", "dqk 86b8:0f41");
     case ITEM_CAST: return cok_adventure_not_yet(game, "Cast", "dqk 52db:2543 (part 28)");
     case ITEM_TURN: return cok_adventure_not_yet(game, "Turn", "dqk 52db:1117 (part 26)");

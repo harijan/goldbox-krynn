@@ -2,6 +2,7 @@
 #define COK_QUEEN_H
 
 #include "adventure.h"
+#include "command.h"
 
 /* The Dark Queen of Krynn's window library as dark_queen.c has it, for the
  * parts of its game that the camp's buttons call (queen_create.c's
@@ -143,6 +144,18 @@ bool queen_icon(const cok_adventure *game, unsigned slot, unsigned image, const 
  * 0, is c's word +0x66) or c is the computer's; else "attack ally? " is asked (Yes: var 0x36 set,
  * the sides counted, go). False where the run stopped. */
 bool queen_attack_ally(cok_adventure *game, cok_character *c, cok_character *target, bool *go);
+/* Aim (dqk 52db:37dd, queen_aim.c): the cursor's pictures, the targets listed around c (36c6), the
+ * menu of Next, Prev, Manual, Target, Center and Exit with the range on row 23 when attacking (2b60),
+ * and the range line cleared at the end when attacking (1bdb:03a4). range 0xff is the readied
+ * weapon's range (0 or 0xff is 1); attack 1 attacks the target (its strike is a cited stop); empty
+ * and creatures are the spell's choice of a target (part 28). res is what Target picked (the
+ * record, NULL for none, and the cell); done is set where Target ends the turn. False where the run
+ * stopped; true, with the turn not ended, when the keys ran out. */
+bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack, uint8_t empty,
+               uint8_t creatures, bool *done, cok_combat_aimed *res);
+/* The range line of Aim's end (dqk 1bdb:03a4): rows 176 to 185 redrawn from FRAME 6 through
+ * their clip. */
+void queen_range_line_clear(cok_adventure *game);
 /* A Dark Queen party member's turn (dqk 5045:08cf, queen_commands.c): the command menu until a
  * command ends the turn or a stop is reached (its routine cited by cok_adventure_not_yet). pressed,
  * if not 0, is a scan code the first menu's first key read gives (command.c's; 0x10 is Alt-Q, auto).
