@@ -1524,7 +1524,8 @@ const cok_rules cok_rules_death_knights = {
     /* An item record, 63 bytes in its files as in memory (dkk 46b2:10d7):
      * +0x2e its type, +0x39 how many. */
     .item_record = {.file_size = 63, .file_at = 0, .type = 0x2e, .count = 0x39, .weight = 0x37,
-                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33, .effect = 0x3d},
+                    .readied = 0x34, .bonus = 0x32, .save_bonus = 0x33, .effect = 0x3d,
+                    .link = 0x2a},
     .characters =
         {
             .stats = COK_STATS_DEATH_KNIGHTS,   /* 65cd:0e46 */

@@ -748,8 +748,8 @@ run, citing their handlers (`unported`). It holds:
   jewelry), and then (`6c70:218f`, part 21a) each list id's item goes first in the pool: an id whose
   table entry starts 0xff (id 0 too) adds none, and 0xff is the random scroll (`6c70:1a83`,
   `cok_dark_queen_random_scroll`: three mage spells, the scroll's White or Red Mage word from r = 1
-  or 2, drawn from RandSeed with 1a4e's test on DS:253e). A pool item is put by `pool_put`, which
-  puts back the bytes `cok_pool_insert` clears (+0x2a-+0x2d: Dark Queen's words 2-3 and its weight).
+  or 2, drawn from RandSeed with 1a4e's test on DS:253e). A pool item is put by `pool_put`, the game's
+  insert (`cok_adventure_pool_insert`), which keeps +0x2a-+0x2d (Dark Queen's words 2-3 and its weight: its item has no link, `link` 0; Champions' and Death Knights' clear it). The use-up of a thrown weapon in combat goes the same way (`52db:1b56`).
   Take's items (`75cc:0bbe`) are ported (part 21b). `dqk_treasure.py` checks the state at
   the treasure's stops: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),

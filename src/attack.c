@@ -707,7 +707,7 @@ bool cok_combat_use_up(cok_adventure *game, cok_character *attacker, size_t item
         uint8_t copy[COK_ITEM_SIZE];
         memcpy(copy, it, sizeof copy);
         copy[I->readied] = 0;
-        if (!cok_pool_insert(pool, at, copy)) return undefined(game, "out of memory");
+        if (!cok_adventure_pool_insert(game, at, copy)) return undefined(game, "out of memory");
         pool->missile = at + 1;
     }
     cok_character_remove_item(attacker, item - 1); /* 6346:1697 */

@@ -713,12 +713,15 @@ static void test_dk_items(void)
     CHECK(cok_pool_insert(&game.pool, 0, loot));
     sword = give(c, 0x12, 0, 0x12, 0);
     sword[0x34] = 0;
+    /* Death Knights' link (+0x2a-+0x2d) is cleared on the pool's copy (item_record.link). */
+    memset(sword + 0x2a, 0x41, 4);
     CHECK(dk_stats(c));
     keys("\x01Pd\x1b");
     cok_items(&game, &done);
     CHECK(strstr(s.log, "menu: Ready Trade Deposit Halve Join Exit;") != NULL);
     CHECK(strstr(s.log, "print: Your Long Sword will be left in the vault;") != NULL);
     CHECK(c->item_count == 1 && game.pool.item_count == 2 && game.pool.items[1][0x2e] == 0x12);
+    for (int k = 0; k < 4; ++k) CHECK(game.pool.items[1][0x2a + k] == 0);
     /* Shops (mode 1): Sell's price is half the value times any count (no
      * 20th), the question from Yes; Id pays from the steel and the pool's. */
     game.vm.mode = 1;

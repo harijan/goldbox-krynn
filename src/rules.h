@@ -2425,6 +2425,14 @@ typedef struct {
      * hammer (0x17, attack.c): Champions' and Death Knights' +0x3d, Dark Queen's +0x37 (dqk
      * 52db:18d6's 1b26). */
     uint8_t effect;
+    /* Where the record keeps the link that the pool's insert clears (4 bytes;
+     * cok_pool_insert_link): Champions' and Death Knights' +0x2a, the list's
+     * link (DS:6b28's items are linked there). 0 for none: Dark Queen's items
+     * are linked by the node's next pointer at +0, which the port's record
+     * does not hold as a link. The original copies the whole 0x3d node
+     * (dqk 52db:1b56), so +0x2a-+0x2d are its name words 2-3 and weight, and
+     * the insert keeps them. */
+    uint8_t link;
 } cok_rules_item_record;
 
 /* The random numbers' generator (cok_tp_random, ecl.h): Turbo Pascal's

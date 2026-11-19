@@ -1239,11 +1239,19 @@ static void test_use_up(void)
     item[0x28] = 3;
     item[0x35] = 1;
     item[0x32] = 1;
+    /* The name's words 2-3 and the weight (+0x2a-+0x2d) are not a link here: the pool keeps
+     * them. */
+    item[0x2a] = 0x41;
+    item[0x2b] = 0x42;
+    item[0x2c] = 0x07;
+    item[0x2d] = 0x01;
     CHECK(cok_character_insert_item(a, 1, item));
     a->slots[0] = 2;
     CHECK(cok_combat_use_up(&game, a, 2) && a->item_count == 1 && a->slots[0] == 0);
     CHECK(game.pool.item_count == 1 && game.pool.missile == 1);
     CHECK(game.pool.items[0][0x28] == 3 && game.pool.items[0][0x32] == 0);
+    CHECK(game.pool.items[0][0x2a] == 0x41 && game.pool.items[0][0x2b] == 0x42);
+    CHECK(game.pool.items[0][0x2c] == 0x07 && game.pool.items[0][0x2d] == 0x01);
     /* The hammer (+0x37 0x17) goes, not into the pool. */
     item[0x37] = 0x17;
     CHECK(cok_character_insert_item(a, 1, item));

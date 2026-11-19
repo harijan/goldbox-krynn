@@ -1497,7 +1497,7 @@ static void dq_pool_item(cok_adventure *adv, uint8_t bonus)
     uint8_t it[COK_ITEM_SIZE] = {0};
     it[ir->type] = 0x27;
     it[ir->bonus] = bonus;
-    CHECK(cok_pool_insert(&adv->pool, 0, it));
+    CHECK(cok_adventure_pool_insert(adv, 0, it));
 }
 
 /* 75cc:01fb's pool items, the division and the records past the party (part 19b). An item
@@ -1648,7 +1648,7 @@ static bool dq_file_is(const uint8_t *item, const char *hex)
  * count. The items (218f-22a3): id 80 and 1 from the table, 0xff the random scroll (1a83: a
  * White Mage's and a Red Mage's, drawn from RandSeed), 0 and an id whose entry starts 0xff none;
  * each goes first in the pool, its bytes at +0x28 as the table has them, its weight (+0x2c) and
- * words 2-3 kept (pool_put puts back the bytes cok_pool_insert clears). */
+ * words 2-3 kept (the game's insert keeps them: Dark Queen's item has no link). */
 static void test_dark_queen_treasure_items(void)
 {
     static cok_adventure dqk;
@@ -1676,7 +1676,7 @@ static void test_dark_queen_treasure_items(void)
     CHECK(dqk.vm.seed == 0x476726e9);
     CHECK(dqk.pool.coins[4] == 0 && dqk.pool.coins[5] == 0 && dqk.pool.coins[6] == 0);
 
-    /* The weight of id 80 (+0x2c) is 2, kept after the insert (it clears +0x2a-+0x2d). */
+    /* The weight of id 80 (+0x2c) is 2, kept after the insert (Dark Queen's item has no link). */
     CHECK(dqk.pool.items[0][0x2c] == 2);
 
     /* An id whose table entry starts 0xff adds nothing; the coins still add. */
@@ -2983,7 +2983,7 @@ static void dq_pool_counted(cok_adventure *adv, size_t index, uint8_t count, uin
     it[ir->bonus] = 5;
     it[ir->count] = count;
     it[ir->weight] = weight;
-    CHECK(cok_pool_insert(&adv->pool, index, it));
+    CHECK(cok_adventure_pool_insert(adv, index, it));
 }
 
 /* A scroll bundle (type 0x49) with its count, at the head of the pool. */
@@ -2993,7 +2993,7 @@ static void dq_pool_bundle(cok_adventure *adv, uint8_t count)
     uint8_t it[COK_ITEM_SIZE] = {0};
     it[ir->type] = 0x49;
     it[ir->count] = count;
-    CHECK(cok_pool_insert(&adv->pool, 0, it));
+    CHECK(cok_adventure_pool_insert(adv, 0, it));
 }
 
 /* An item's 17 bytes (the file's, at +0x28) from hex: the joins' items of 771f:0295's tests. */
@@ -3007,12 +3007,11 @@ static void dq_item_hex(uint8_t *item, const char *hex)
     }
 }
 
-/* A pool item (its 17 bytes as the file's, from item) at index, its link bytes kept as
- * TREASURE's pool_put keeps them (cok_pool_insert clears +0x2a-+0x2d). */
+/* A pool item (its 17 bytes as the file's, from item) at index, through the game's insert, as
+ * TREASURE ITEMS puts it. */
 static void dq_pool_put(cok_adventure *adv, size_t index, const uint8_t *item)
 {
-    CHECK(cok_pool_insert(&adv->pool, index, item));
-    memcpy(adv->pool.items[index] + 0x2a, item + 0x2a, 4);
+    CHECK(cok_adventure_pool_insert(adv, index, item));
 }
 
 /* Gives member m an item (a copy of item) last. */

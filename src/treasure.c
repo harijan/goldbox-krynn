@@ -199,17 +199,27 @@ static int coin_end(const cok_character_layout *L)
     return (int)(cok_field_first(L, COK_FIELD_COINS) + cok_field_count(L, COK_FIELD_COINS));
 }
 
-bool cok_pool_insert(cok_pool *pool, size_t index, const uint8_t *item)
+bool cok_pool_insert_link(cok_pool *pool, size_t index, const uint8_t *item, uint8_t link)
 {
     uint8_t (*items)[COK_ITEM_SIZE] = realloc(pool->items, (pool->item_count + 1) * sizeof *items);
     if (items == NULL) return false;
     pool->items = items;
     memmove(items + index + 1, items + index, (pool->item_count - index) * sizeof *items);
     memcpy(items[index], item, COK_ITEM_SIZE);
-    memset(items[index] + 0x2a, 0, 4); /* the link */
+    if (link != 0) memset(items[index] + link, 0, 4); /* the link */
     ++pool->item_count;
     if (pool->missile > index) ++pool->missile;
     return true;
+}
+
+bool cok_pool_insert(cok_pool *pool, size_t index, const uint8_t *item)
+{
+    return cok_pool_insert_link(pool, index, item, 0x2a);
+}
+
+bool cok_adventure_pool_insert(cok_adventure *game, size_t index, const uint8_t *item)
+{
+    return cok_pool_insert_link(&game->pool, index, item, cok_game_rules(game)->item_record.link);
 }
 
 void cok_pool_remove(cok_pool *pool, size_t index)
@@ -484,7 +494,7 @@ static bool load_items(cok_adventure *game, uint8_t id)
         return false;
     }
     for (size_t at = 0; at < size; at += COK_ITEM_SIZE) {
-        if (cok_pool_insert(&game->pool, 0, data + at)) continue;
+        if (cok_adventure_pool_insert(game, 0, data + at)) continue;
         free(data);
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
@@ -543,7 +553,7 @@ static void treasure(cok_adventure *game)
         for (uint8_t i = 1; i <= items - 0x80; ++i) {
             uint8_t item[COK_ITEM_SIZE];
             cok_treasure_item(cok_game_rules(game), &vm->seed, random_type(&vm->seed), item);
-            if (cok_pool_insert(pool, 0, item)) continue;
+            if (cok_adventure_pool_insert(game, 0, item)) continue;
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
             return;
         }
@@ -633,7 +643,7 @@ static void treasure_items(cok_adventure *game)
         uint8_t id = (uint8_t)cok_ecl_value(vm, i), item[COK_ITEM_SIZE];
         if (!table_id(game, id, "3632:1933")) return;
         if (!table_item(game, id, item)) continue;
-        if (!cok_pool_insert(pool, 0, item)) {
+        if (!cok_adventure_pool_insert(game, 0, item)) {
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
             return;
         }
@@ -670,7 +680,7 @@ static void stock(cok_adventure *game)
         if (!table_id(game, id, "3632:28d2")) return;
         if (!table_item(game, id, item)) continue;
         item[0x35] &= 0xf8;
-        if (!cok_pool_insert(pool, 0, item)) {
+        if (!cok_adventure_pool_insert(game, 0, item)) {
             cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
             return;
         }
@@ -904,7 +914,7 @@ static bool experience(cok_adventure *game, outcome *result)
             uint8_t copy[COK_ITEM_SIZE];
             memcpy(copy, c->items[k], sizeof copy);
             copy[0x34] = 0;
-            if (!cok_pool_insert(pool, 0, copy)) return undefined(game, "out of memory");
+            if (!cok_adventure_pool_insert(game, 0, copy)) return undefined(game, "out of memory");
         }
     }
     const uint32_t *coins = pool->coins;
@@ -1730,7 +1740,7 @@ static bool load_vault(cok_adventure *game)
             (uint32_t)vault.coins[4 * k] | (uint32_t)vault.coins[4 * k + 1] << 8 |
             (uint32_t)vault.coins[4 * k + 2] << 16 | (uint32_t)vault.coins[4 * k + 3] << 24;
     for (size_t i = 0; i < vault.item_count; ++i) {
-        if (cok_pool_insert(&game->pool, game->pool.item_count, vault.items + i * COK_ITEM_SIZE))
+        if (cok_adventure_pool_insert(game, game->pool.item_count, vault.items + i * COK_ITEM_SIZE))
             continue;
         cok_vault_free(&vault);
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
