@@ -6091,13 +6091,13 @@ static bool after_combat(cok_adventure *game)
 }
 
 /* 74b9:092c: the pool's money (its coins 4-6, steel, gems and jewelry, not 0) and items
- * (the list not NULL). */
+ * (a count above 0: cok_pool_remove keeps the array when the last item goes). */
 static void pool_flags(cok_adventure *game, bool *money, bool *items)
 {
     *money = false;
     for (size_t k = 4; k < 7; ++k)
         if (game->pool.coins[k] != 0) *money = true;
-    *items = game->pool.items != NULL;
+    *items = game->pool.item_count > 0;
 }
 
 /* 75cc:091f, the results (485 bytes), after 135c's share (DS:ae4f): the full window (20b2:0030),
@@ -6346,16 +6346,63 @@ static bool treasure_take_money(cok_adventure *game)
     }
 }
 
-/* 75cc:0d01, Take, with the pool's money and items: with no money the items (0bbe, a stop); with
- * no items the money (0683) and the mode-6 screen; with both, the bar "Take:" (Money, Items, Exit)
- * again after each money pass (the items stay: only Items' stop leaves them). Escape or Exit
- * ends it. False where the run stopped. */
+/* 75cc:0bbe with 0b04, Take's items: the pool's items as a list (their names, pool order) under
+ * "items : " with Take and Exit. Take gives the row to the selected member (771f:0295, the
+ * queen_take_item); a refused item stays and the list comes again, its row kept. The taken item
+ * leaves the pool, and the list ends when none is left, on Exit or Escape. Then the screen as it
+ * was (177e:1ad1). False where the run stopped. */
+static bool treasure_take_items(cok_adventure *game)
+{
+    if (game->vm.mode == 10) /* the vault: 63ee:00db (part 43) */
+        return cok_adventure_not_yet(game, "Take's items in the vault",
+                                     "dqk 63ee:00db (Take's items in the vault, part 43)");
+    static const char *const bar[] = {"Take", "Exit"};
+    full_window(game); /* 20b2:0030, once */
+    size_t at = 0;
+    for (;;) {
+        size_t n = game->pool.item_count;
+        if (n == 0) break;
+        char *names = malloc(n * 96);
+        const char **shown = malloc(n * sizeof *shown);
+        if (names == NULL || shown == NULL) {
+            free(names);
+            free(shown);
+            cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory");
+            return false;
+        }
+        for (size_t i = 0; i < n; ++i) {
+            queen_item_name(&game->party, game->pool.items[i], false, names + 96 * i, 96);
+            shown[i] = names + 96 * i;
+            cok_adventure_log(game, "item", shown[i]);
+        }
+        /* A row taken can leave the cursor past the last row: kept on the last (1b05:0055). */
+        if (at >= n) at = n - 1;
+        log_menu(game, bar, 2);
+        int picked = queen_list_menu(game, "items : ", bar, 2, shown, n, &at, 1, 1, 0x16, 0x26);
+        free(names);
+        free(shown);
+        if (picked < 0) return false;
+        if (picked != 0) break; /* Exit (1) or Escape */
+        size_t which = at < n ? at : 0;
+        bool failed = false;
+        if (!queen_take_item(game, game->pool.items[which], &failed)) return false;
+        if (failed) continue;
+        cok_pool_remove(&game->pool, which);
+        if (game->pool.item_count == 0) break; /* done when no items are left (0e58) */
+    }
+    return screen_as_it_was(game);
+}
+
+/* 75cc:0d01, Take, with the pool's money and items: with no money the items alone (0bbe, then
+ * return); with no items the money (0683) and the mode-6 screen; with both, the bar "Take:"
+ * (Money, Items, Exit) again after each choice, the tail (0e44-0e7d) after every one: the flags
+ * are read again, done when no items are left, the party's list (5e22:023b) is drawn, and the
+ * bar comes back unless done. Exit and Escape are done. False where the run stopped. */
 static bool treasure_take(cok_adventure *game)
 {
     bool money, items;
     pool_flags(game, &money, &items);
-    if (!money)
-        return cok_adventure_not_yet(game, "Take's items", "dqk 75cc:0bbe (Take's items, part 21)");
+    if (!money) return treasure_take_items(game);
     if (!items) {
         if (!treasure_take_money(game)) return false;
         return screen_as_it_was(game);
@@ -6368,17 +6415,19 @@ static bool treasure_take(cok_adventure *game)
                            : bar_menu(game, "Take:", words + 1, 2, true, true, 0, 0);
         if (choice < 0) return false;
         if (!money && choice < 2) ++choice;
-        if (choice == 0x1b || choice == 2) return true;
+        bool done = choice == 0x1b || choice == 2; /* 0e0f: Exit and Escape */
         if (choice == 0) {
             if (!treasure_take_money(game)) return false;
             if (!screen_as_it_was(game)) return false;
-            pool_flags(game, &money, &items); /* 0e50: 092c */
         } else if (choice == 1) {
-            return cok_adventure_not_yet(game, "Take's items",
-                                         "dqk 75cc:0bbe (Take's items, part 21)");
-        } else {
+            if (!treasure_take_items(game)) return false;
+        } else if (!done) {
             member_key(game, choice); /* 0e15: every other code, End and Home too */
         }
+        pool_flags(game, &money, &items); /* 0e44: 092c */
+        if (!items) done = true;          /* 0e58 */
+        party_list(game);                 /* 0e65: 5e22:023b */
+        if (done) return true;
     }
 }
 
@@ -6392,8 +6441,8 @@ static const char *const treasure_words[TM_ITEMS] = {"View", "Take", "Pool", "Sh
  * jump table at 75cc:109b). View shows the sheet and the screen again. Exit with money or
  * items says "there is still treasure left." and asks whether to go back and claim it: Yes
  * clears the window and the menu comes again, No (or Escape) leaves. Take, Pool and Share are
- * treasure_take, cok_pool_gather and treasure_share; Take's items and Detect's cast stop, cited
- * (part 21; part 28). Escape is Exit; Up and Down pick a member (member_key, 5e22:067c);
+ * treasure_take, cok_pool_gather and treasure_share; Detect's cast stop, cited (part 28).
+ * Escape is Exit; Up and Down pick a member (member_key, 5e22:067c);
  * End and Home do nothing (75cc:103e); other codes do nothing. DS:c6e4 (the saved item),
  * DS:ae5a (the pool's flag: no reader found) and the party list's mouse area (1bdb:0c00,
  * 0a33, DS:1d0f) are not modelled; with the mouse on a click outside the buttons beeps. The

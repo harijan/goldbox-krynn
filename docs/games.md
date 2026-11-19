@@ -737,7 +737,12 @@ run, citing their handlers (`unported`). It holds:
   question, Yes or No; Escape is Exit; Up and Down pick a member (`5e22:067c`), End and Home do nothing (`75cc:103e`);
   Take (`75cc:0d01`: the coins' list, the amount, the "Take:" bar with items), Pool (`74b9:00f6`) and Share
   (`74b9:01ee`, the 32-bit overload test `74b9:0000`, n = 0 gives 0xffff each) are ported; Take's items
-  (`75cc:0bbe`, part 21) and Detect's cast (`849a:145b`, part 28) are cited stops); the pool is emptied (`63ee:0002`),
+  (`75cc:0bbe`, part 21b: the pool's items as a list, Take and Exit; Take gives the row to the selected
+  member (`771f:0295`: "Too many Bundles!" for a scroll bundle with the party's bundles, "OverLoaded" by
+  the weight or the sixteenth item that does not join (`86b8:2fbf`, which joins with the stack flag),
+  else a copy last in the member's items, joined with its kind (`86b8:1fda`, the count and +0x33) and
+  the stats recomputed; a member with no items taking a counted item stops, `771f:03b4`; the vault's
+  Take's items stops, `63ee:00db`, part 43) and Detect's cast (`849a:145b`, part 28) are cited stops); the pool is emptied (`63ee:0002`),
   vars 0x01, 0x2f, 0x1c, 0x1e, 0x1d and 0x1f cleared, the monsters cleared (`75cc:151b`, monster.c's
   clear), and COMBAT's ending runs. TREASURE ITEMS (`6c70:2127`) adds its three header words to the pool's coins (steel, gems,
   jewelry), and then (`6c70:218f`, part 21a) each list id's item goes first in the pool: an id whose
@@ -745,7 +750,7 @@ run, citing their handlers (`unported`). It holds:
   `cok_dark_queen_random_scroll`: three mage spells, the scroll's White or Red Mage word from r = 1
   or 2, drawn from RandSeed with 1a4e's test on DS:253e). A pool item is put by `pool_put`, which
   puts back the bytes `cok_pool_insert` clears (+0x2a-+0x2d: Dark Queen's words 2-3 and its weight).
-  Take's items (`75cc:0bbe`) stay cited. `dqk_treasure.py` checks the state at
+  Take's items (`75cc:0bbe`) are ported (part 21b). `dqk_treasure.py` checks the state at
   the treasure's stops: flows `won`, `fled` and `lost` (saved game A's pool is empty, so `won` awards nothing),
   and `pool`, `bonus`, `zero` and `negative` (the pool's coins, a divisor of 0 and a negative share),
   and `rest`, `gentle`, `fledmix` and `lost9` (the rest's statuses with and without var 0x1d, a fled

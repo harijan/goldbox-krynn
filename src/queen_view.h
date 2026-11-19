@@ -20,6 +20,11 @@ bool queen_view_items(cok_adventure *game, cok_character *character, bool *done)
 bool queen_readied_8c(const cok_character *character);
 bool queen_view_trade(cok_adventure *game, cok_character *character);
 bool queen_view_drop(cok_adventure *game, cok_character *character);
+/* 771f:0295: a pool item (item) given to the selected member (game->vm.character), as Take's
+ * items does: "Too many Bundles!" or "OverLoaded" on the bar and *failed (nothing taken), else
+ * a copy last in its items, joined (86b8:1fda) and its stats recomputed. False where the run
+ * stopped (771f:03b4, a member with no items takes a counted item, is cited). */
+bool queen_take_item(cok_adventure *game, const uint8_t *item, bool *failed);
 /* 86b8:1965's readied branch (Rdy off, DESTROY ITEMS and ROB): false where the
  * run stopped. */
 bool queen_item_unready(cok_adventure *game, uint8_t *item);
