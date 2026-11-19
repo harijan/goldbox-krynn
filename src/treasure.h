@@ -79,6 +79,11 @@ bool cok_treasure_remove_record(cok_adventure *game, size_t index, bool keep, bo
  * returns false when out of memory. TREASURE and the end of combat put
  * items first. */
 bool cok_pool_insert(cok_pool *pool, size_t index, const uint8_t *item);
+/* The same with the link's 4 bytes at link cleared (0: none, nothing is). */
+bool cok_pool_insert_link(cok_pool *pool, size_t index, const uint8_t *item, uint8_t link);
+/* The game's insert: the link is its item record's (rules.h). Every shared
+ * path with the game in hand puts its items this way. */
+bool cok_adventure_pool_insert(cok_adventure *game, size_t index, const uint8_t *item);
 void cok_pool_remove(cok_pool *pool, size_t index);
 /* Free the pool's items; the coins stay. */
 void cok_pool_free_items(cok_pool *pool);

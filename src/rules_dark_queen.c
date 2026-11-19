@@ -577,6 +577,7 @@ const cok_rules cok_rules_dark_queen = {
             .cursed = 0x34, /* 5bb8:1271 (queen_ai.c) */
             .container = 0x49, /* 604b:05fd: a scroll's spells */
             .effect = 0x37,    /* 52db:18d6's spiritual hammer test (1b26) */
+            .link = 0,         /* none: 52db:1b56 (see cok_rules_item_record) */
         },
     .ecl =
         {

@@ -664,7 +664,7 @@ static bool deposit(cok_adventure *game, cok_character *c, size_t index)
     snprintf(text, sizeof text, "%s%s%s", I->deposit_before, name, I->deposit_after);
     print_low(game, text, true);
     cok_adventure_wait(game, game->speed * 100u); /* 14e4:0b56 */
-    if (!cok_pool_insert(&game->pool, game->pool.item_count, c->items[index]))
+    if (!cok_adventure_pool_insert(game, game->pool.item_count, c->items[index]))
         return undefined(game, "out of memory");
     delete_item(c, index); /* 65cd:1824 */
     return true;

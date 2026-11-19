@@ -690,10 +690,13 @@ static void test_attack(void)
     CHECK(game.pool.items[2][0x2e] == 0x02 && game.pool.items[2][0x34] == 0);
     game.pool.missile = 1;
     axe = give(a, 0x02, true, 0);
+    /* Champions' link (+0x2a-+0x2d) is cleared on the pool's copy (the game's item_record.link). */
+    for (int k = 0; k < 4; ++k) a->items[axe - 1][0x2a + k] = 0x41;
     a->record[0x18f] = 1;
     game.vm.seed = swing(2, 0, 0);
     CHECK(cok_combat_attack(&game, a, m, false, axe, &over));
     CHECK(game.pool.item_count == 4 && game.pool.missile == 2 && game.pool.items[1][0x2e] == 2);
+    for (int k = 0; k < 4; ++k) CHECK(game.pool.items[1][0x2a + k] == 0);
     /* A spiritual hammer (+0x3d 0x17) goes, not into the pool. */
     size_t hammer = give(a, 0x06, true, 0); /* a hammer: thrown, flags 0x14 */
     a->items[hammer - 1][0x3d] = 0x17;

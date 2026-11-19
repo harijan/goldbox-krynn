@@ -2702,15 +2702,15 @@ void cok_dark_queen_random_scroll(const cok_rules *rules, uint32_t *seed,
     }
 }
 
-/* cok_pool_insert, then the item's bytes +0x2a-+0x2d put back: Champions' insert clears them as
- * the link, which is Dark Queen's words 2 and 3 and its weight (+0x2c). Out of memory fails. */
+/* The game's pool insert (cok_adventure_pool_insert): Dark Queen's item record has no link, so its
+ * bytes +0x2a-+0x2d (name words 2 and 3, and the weight at +0x2c) are kept, as the original copies
+ * the whole node (52db:1b56). Out of memory fails. */
 static bool pool_put(cok_adventure *game, size_t index, const uint8_t *item)
 {
-    if (!cok_pool_insert(&game->pool, index, item)) {
+    if (!cok_adventure_pool_insert(game, index, item)) {
         cok_adventure_fail(game, COK_ECL_LOAD_FAILED, "out of memory");
         return false;
     }
-    memcpy(game->pool.items[index] + 0x2a, item + 0x2a, 4);
     return true;
 }
 
