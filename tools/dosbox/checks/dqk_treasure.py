@@ -90,6 +90,13 @@ before COMBAT are its `extra`, and each member's record changes are its `changes
   share 266 (1600 / 6); each item's 17 bytes are compared with the original's list (pool_items,
   member_items: the 0x3d-byte nodes of DS:b1e7 and of each record's +8, 17 bytes at +0x28). Steps:
   the menu (View Take Pool Exit), Exit's question (e), No (n).
+- `takeitems` (part 21b): `items`'s pool, Take's items (t) with TIMASALIN selected by Down: id 80
+  (Return), the Red Mage's scroll (Return), id 1 (Down, Return), then Escape and Exit (e), No (n).
+  Her items are compared through member_items, her weight (660, 661, 671) through the records.
+  This flow and takeboth run eclplay with --mouse (the list's sword cursor compared; see MASKS).
+- `takeboth` (part 21b): ROLAND's steel 64000 with TREASURE ITEMS 1000 3 1 2 : 255 80: Take's
+  items (i) on Return is "OverLoaded" and nothing is taken (RandSeed one draw more), Escape, Down
+  to TIMASALIN, i, Return (id 80 taken), Escape, Exit (e), No (n).
 
 eclplay runs the same block from the same saved game (--load, --play) and stops at its cited stop;
 its state is --vars, --records and --state (the mode, RandSeed, the flags, and the end-of-combat
@@ -182,8 +189,25 @@ NEGATIVE_STEPS = [("the treasure menu after the results", ""), ("Exit's question
 # (head first), RandSeed 0x476726e9; at the question, RandSeed 0x5202e7e7.
 ITEMS = ("TREASURE_ITEMS", (dqkecl.word(0), imm(0), imm(0), imm(5), imm(1), imm(0), imm(0xff),
                             imm(0xff), imm(80)))
+# Steel 1000, gems 3, jewelry 1 and two items: id 80 and a random scroll (part 21b's takeboth).
+ITEMS_TWO = ("TREASURE_ITEMS", (dqkecl.word(1000), imm(3), imm(1), imm(2), imm(0xff), imm(80)))
 ITEMS_STEPS = [("the treasure menu after the results", ""), ("Exit's question", "e"),
                ("the adventure after No", "n")]
+# Take's items (part 21b): TIMASALIN (member 1, Down at the menu) takes id 80, the Red Mage's
+# scroll, then Down and id 1; the White Mage's scroll is left in the pool.
+TAKEITEMS_STEPS = [("the treasure menu after the results", ""), ("Down: TIMASALIN", "\\v"),
+                   ("Take's item list", "t"), ("id 80 taken by TIMASALIN", "\\r"),
+                   ("the Red Mage scroll taken", "\\r"), ("Down, id 1 taken", "\\v\\r"),
+                   ("the menu after Escape", "\\e"), ("Exit's question", "e"),
+                   ("the adventure after No", "n")]
+# Take's items with ROLAND's steel 64000: OverLoaded (nothing taken, the list again), then
+# TIMASALIN takes id 80 (the list's Escape leaves it to Take's bar each time).
+TAKEBOTH_STEPS = [("the treasure menu after the results", ""), ("Take's bar", "t"),
+                  ("the item list", "i"), ("OverLoaded: nothing taken", "\\r"),
+                  ("Take's bar after Escape", "\\e"), ("Down: TIMASALIN", "\\v"),
+                  ("the item list again", "i"), ("id 80 taken", "\\r"), ("Take's bar", "\\e"),
+                  ("the menu after Exit", "e"), ("Exit's question", "e"),
+                  ("the adventure after No", "n")]
 ITEMS_POOL = ["1e00701e0200dc0502000006000a000000", "276627880100b80b0100001000002e5b0f",
               "276627890100b80b0100002000005c540a", "1e00001e0100000000000000000a000000"]
 FLOWS = {
@@ -256,7 +280,25 @@ FLOWS = {
                     gained=[525, 175, 175, 262, 262, 262], may=[0, 0, 0, 0, 1, 0]),
     "items": dict(changes=None, extra=[ITEMS], end="end", steps=ITEMS_STEPS, items=True,
                   expect=(True, False, False, 0), share=266, pool=NO_POOL,
-                  gained=[266, 88, 88, 133, 133, 133], may=[0, 0, 0, 0, 1, 0]),
+                  gained=[266, 88, 88, 133, 133, 133], may=[0, 0, 0, 0, 1, 0],
+                  seeds={0: "476726e9", 1: "5202e7e7"}),
+    # takeitems: the pool's four items (as items); TIMASALIN takes id 80 and the Red Mage's scroll
+    # (6, 7 items: weight 660, 661), then id 1 (8, 671); the White Mage's scroll is left.
+    "takeitems": dict(changes=None, extra=[ITEMS], end="end", steps=TAKEITEMS_STEPS, items=True,
+                      mouse=True, selects=(1, 1), expect=(True, False, False, 0), share=266,
+                      pool=NO_POOL, gained=[266, 88, 88, 133, 133, 133], may=[0, 0, 0, 0, 1, 0],
+                      seeds={**{i: "476726e9" for i in range(7)}, 7: "5202e7e7"}),
+    # takeboth: ROLAND's steel 64000 is OverLoaded (the bar's message, nothing taken); TIMASALIN
+    # takes id 80 (6 items, weight 660); ROLAND is unchanged.
+    "takeboth": dict(changes=[{0x4c: 0x00, 0x4d: 0xFA}, {}, {}, {}, {}, {}], extra=[ITEMS_TWO],
+                     end="end", steps=TAKEBOTH_STEPS, items=True, mouse=True,
+                     expect=(True, False, False, 0), share=1025,
+                     pool=NO_POOL, gained=[1025, 341, 341, 512, 512, 512],
+                     may=[0, 0, 0, 0, 1, 0],
+                     pool_at_menu=["1e00701e0200dc0502000006000a000000",
+                                   "276627890100b80b0100002000005c540a"],
+                     seeds={**{i: "44bac876" for i in range(3)},
+                            **{i: "7659370f" for i in range(4, 10)}, 10: "a392891d"}),
     "lost9": dict(changes=[{0x64: 2, 0x65: 0, 0x18b: 0}] * MEMBERS,
                   extra=[("SAVE", (imm(9), var(0x20)))], end="lost",
                   expect=(False, False, True, MEMBERS), share=None, pool=NO_POOL, gained=[],
@@ -524,11 +566,12 @@ def original(work, name, changes, patched, verbose, end, steps=None, frame_check
         return state, qsv, wait_shot, end_shot
 
 
-def port(work, name, patched, qsv, typed, shots=False):
+def port(work, name, patched, qsv, typed, shots=False, mouse=False):
     """eclplay's run of the block from the saved game's copy (qsv, --load, --play), the keys TYPED
     after the entry. With SHOTS its screen is the last of its shots (one at each key wait: the
-    one where the keys ran out); else its --screen at its end. Returns (variables, the records as
-    raw bytes, the state's lines, the transcript, the screen or None)."""
+    one where the keys ran out); else its --screen at its end. With MOUSE, --mouse: the game's
+    own cursor drawn as the box's driver has it (the pointer at 8, 8). Returns (variables, the
+    records as raw bytes, the state's lines, the transcript, the screen or None)."""
     entry = dqk_shops.entry_file(work, name, qsv)
     records = work / f"port-{name}.records"
     state = work / f"port-{name}.state"
@@ -543,6 +586,7 @@ def port(work, name, patched, qsv, typed, shots=False):
     extra = ["--load", str(entry), "--play", "--records", str(records), "--state", str(state),
              "--items", str(items_path)]
     extra += ["--shots", str(shot_dir)] if shots else ["--screen", str(screen)]
+    extra += ["--mouse"] if mouse else []
     variables, _, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra, block=None)
     data = records.read_bytes() if records.exists() else b""
     size = L.RECORD
@@ -569,7 +613,12 @@ def port(work, name, patched, qsv, typed, shots=False):
     return variables, ported, lines, transcript, picture
 
 
-MASKS = [dqk_ecl_text.POINTER_WIDE]  # the mouse's pointer at the corner (DOSBox-X's own)
+# The mouse's cursor at the corner: the game's own (22b7:1871, 2aa6:15e3: ALWAYS.TLB's shield,
+# the pointer at 8, 8 over no control), which the box's mouse driver lets it draw and eclplay
+# without --mouse does not. Over a list (1bdb:1f25: its rows from cell 1, 1 are a control) the
+# cursor is the sword, down to row 21, past this mask: the flows that show a list (`mouse`) run
+# eclplay with --mouse and compare their steps' screens whole, the cursor too.
+MASKS = [dqk_ecl_text.POINTER_WIDE]
 
 
 def check_items(v, what, want, have, name):
@@ -582,20 +631,22 @@ def check_items(v, what, want, have, name):
             f"original {want['member_items']}, port {have.get('member_items')}")
 
 
-def check_steps(v, work, patched, name, steps, selects, qsv, found, items=False):
+def check_steps(v, work, patched, name, steps, selects, qsv, found, items=False, mouse=False):
     """Each treasure menu wait but the last (the end): eclplay's run typed up to that step, its
     last shot compared with the original's screen, and its variables, records and pool compared
     with the original's there. SELECTS (step, member): the selected record is that member, by
-    name, at that step (the original's DS:ad67; eclplay's screen shows the highlight)."""
+    name, at that step (the original's DS:ad67; eclplay's screen shows the highlight). With
+    MOUSE, eclplay draws the cursor (--mouse) and the screens are compared whole."""
+    masks = [] if mouse else MASKS
     for i, ((what, _), o) in enumerate(zip(steps[:-1], found)):
         typed = TYPED_TO_RESULTS + "".join(keys for _, keys in steps[:i + 1])
         variables, ported, lines, transcript, shot = port(work, f"{name}-{i}", patched, qsv,
-                                                          typed=typed, shots=True)
+                                                          typed=typed, shots=True, mouse=mouse)
         v.check(o["waiting"], f"the original waits for a key at {what} ({name})")
         v.check(len(variables) == VARIABLES and "error:" not in transcript,
                 f"eclplay runs to {what} with no error ({name})", transcript.strip()[-200:])
         if shot is not None:
-            v.screen(f"the screen at {what} ({name})", o["shot"], shot, masks=MASKS, work=work)
+            v.screen(f"the screen at {what} ({name})", o["shot"], shot, masks=masks, work=work)
         else:
             v.check(False, f"eclplay saves the screen at {what} ({name})")
         differing = [a for a in range(1, VARIABLES + 1) if o["vars"][a - 1] != variables[a - 1]]
@@ -641,6 +692,7 @@ def run_flow(v, work, patched, name, verbose):
     end = spec["end"]
     steps = spec.get("steps")
     items = spec.get("items", False)
+    mouse = spec.get("mouse", False)
     orig, qsv, wait_shot, end_shot = original(work, name, spec["changes"], patched, verbose, end,
                                               steps, spec.get("frame", False), items)
     v.check(orig["waiting"], f"the original waits at the PRESS KEY before COMBAT ({name})")
@@ -681,26 +733,30 @@ def run_flow(v, work, patched, name, verbose):
             f"{may}, want {spec['may']}")
 
     # The first key wait: the port's run with the keys ran out there (its last shot).
-    _, _, _, _, first = port(work, name + "-wait", patched, qsv, typed=TYPED_TO_WAIT, shots=True)
-    v.screen(f"the screen at the first key wait ({name})", wait_shot, first, masks=MASKS,
-             work=work)
+    _, _, _, _, first = port(work, name + "-wait", patched, qsv, typed=TYPED_TO_WAIT, shots=True,
+                             mouse=mouse)
+    v.screen(f"the screen at the first key wait ({name})", wait_shot, first,
+             masks=[] if mouse else MASKS, work=work)
 
-    if items:  # the flow's own expectations: the four items at the menu, RandSeed there and after
+    if items:  # the flow's own expectations: the pool's items at the menu, RandSeed at its steps
         menu = orig["steps"][0]
-        v.check(menu["pool_items"] == ITEMS_POOL, f"the original's pool at the menu holds the four "
-                f"items of TREASURE ITEMS ({name})", f"{menu['pool_items']}")
-        v.check(menu["seed"] == "476726e9" and orig["steps"][1]["seed"] == "5202e7e7",
-                f"RandSeed at the menu and at the question is as measured ({name})",
-                f"{menu['seed']}, {orig['steps'][1]['seed']}")
+        want_pool = spec.get("pool_at_menu", ITEMS_POOL)
+        v.check(menu["pool_items"] == want_pool, f"the original's pool at the menu is as the flow "
+                f"sets it ({name})", f"{menu['pool_items']}, want {want_pool}")
+        for i, seed in spec.get("seeds", {}).items():
+            v.check(orig["steps"][i]["seed"] == seed, f"RandSeed at {orig['steps'][i]['what']} is "
+                    f"as measured ({name})", f"{orig['steps'][i]['seed']}, want {seed}")
     if steps:
-        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"], items)
+        check_steps(v, work, patched, name, steps, spec.get("selects"), qsv, orig["steps"], items,
+                    mouse)
     if orig["frame"] is not None:
         check_frame(v, work, name, orig["frame"])
     # The menu's last keys (the end's) are the last of the typed keys, then the adventure's wait.
     typed_end = TYPED_TO_RESULTS + "".join(keys for _, keys in steps) + "\\r" if steps \
         else TYPED_TO_END
+    # The end keeps MASKS: there the original shows no cursor at the corner (after CLEAR EXIT).
     variables, ported, lines, transcript, end_screen = port(work, name, patched, qsv,
-                                                           typed=typed_end)
+                                                           typed=typed_end, mouse=mouse)
     stop = {"lost": "dqk 5f07:11f3", "end": None}[end]
     if stop is not None:
         v.check(stop in transcript and "error:" in transcript,

@@ -2841,13 +2841,12 @@ static void test_dark_queen_treasure_menu(void)
     CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 3);
     CHECK(dq_count(dq_quiet.log, items_menu) == 1);
 
-    /* Take with items and no money stops at the items (75cc:0bbe, part 21). */
+    /* Take with items and no money is the list (75cc:0bbe, part 21b): Escape leaves it, then
+     * Exit asks (the item is still there). */
     dq_clear_pool(&dqk);
     dq_pool_item(&dqk, 3);
-    dq_menu(&dqk, "t");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe (Take's items, part 21)")
-              != NULL);
+    dq_menu(&dqk, "t\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_count(dq_quiet.log, "item: ") == 1);
 
     /* Detect is listed with an item and a spell found: 0x3c at +0xce+i with +0x18b set. Its stop
      * is cited (part 28). Without +0x18b, or with the byte 0x67, it is not listed. */
@@ -2950,7 +2949,7 @@ static void test_dark_queen_treasure_take(void)
     CHECK(cok_field_u16_at(L, a->record, COK_FIELD_COINS, 4) == 64000);
 
     /* With items too, Take asks Money or Items: Money takes (the list, Escape, then Take's bar,
-     * Escape), Items stops at 0bbe. */
+     * Escape), Items takes (test_dark_queen_take_items). */
     dq_clear_pool(&dqk);
     dqk.pool.coins[4] = 1000;
     dq_pool_item(&dqk, 3);
@@ -2959,23 +2958,242 @@ static void test_dark_queen_treasure_take(void)
     dq_clear_pool(&dqk);
     dqk.pool.coins[4] = 1000;
     dq_pool_item(&dqk, 3);
-    dq_menu(&dqk, "ti");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe (Take's items, part 21)")
-              != NULL);
     /* End in Take's bar picks the next member (75cc:0e15 -> 5e22:067c); with the money gone the
-     * bar is "Items Exit" (0d61-0dd2: DS:7fda, index + 1), logged; its Items stops. */
+     * bar is "Items Exit" (0d61-0dd2: DS:7fda, index + 1), logged; its Items' list is left by
+     * Escape (the bar again) and Escape ends Take. */
     cok_character *b = dqk.party.count > 1 ? dqk.party.members[1] : NULL;
     dq_clear_pool(&dqk);
     dqk.pool.coins[4] = 10;
     dq_pool_item(&dqk, 3);
     dqk.vm.character = a->record;
-    dq_menu(&dqk, "t\x01O" "m\r" "10\r" "i");
-    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:0bbe") != NULL);
+    dq_menu(&dqk, "t\x01O" "m\r" "10\r" "i\x1b\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
     CHECK(b != NULL && dqk.vm.character == b->record);
     CHECK(cok_field_u16_at(L, b->record, COK_FIELD_COINS, 4) == 10);
     CHECK(strstr(dq_quiet.log, "menu: ~Money ~Items ~Exit;menu: ~Items ~Exit;") != NULL);
+}
+
+/* A pool item of type 0x27 with a count and a weight, at index (the count is what Take's items
+ * joins and the bundles count: 771f:0295). */
+static void dq_pool_counted(cok_adventure *adv, size_t index, uint8_t count, uint8_t weight)
+{
+    const cok_rules_item_record *ir = &cok_rules_dark_queen.item_record;
+    uint8_t it[COK_ITEM_SIZE] = {0};
+    it[ir->type] = 0x27;
+    it[ir->bonus] = 5;
+    it[ir->count] = count;
+    it[ir->weight] = weight;
+    CHECK(cok_pool_insert(&adv->pool, index, it));
+}
+
+/* A scroll bundle (type 0x49) with its count, at the head of the pool. */
+static void dq_pool_bundle(cok_adventure *adv, uint8_t count)
+{
+    const cok_rules_item_record *ir = &cok_rules_dark_queen.item_record;
+    uint8_t it[COK_ITEM_SIZE] = {0};
+    it[ir->type] = 0x49;
+    it[ir->count] = count;
+    CHECK(cok_pool_insert(&adv->pool, 0, it));
+}
+
+/* An item's 17 bytes (the file's, at +0x28) from hex: the joins' items of 771f:0295's tests. */
+static void dq_item_hex(uint8_t *item, const char *hex)
+{
+    memset(item, 0, COK_ITEM_SIZE);
+    for (size_t k = 0; k < 17; ++k) {
+        unsigned byte;
+        CHECK(sscanf(hex + 2 * k, "%2x", &byte) == 1);
+        item[0x28 + k] = (uint8_t)byte;
+    }
+}
+
+/* A pool item (its 17 bytes as the file's, from item) at index, its link bytes kept as
+ * TREASURE's pool_put keeps them (cok_pool_insert clears +0x2a-+0x2d). */
+static void dq_pool_put(cok_adventure *adv, size_t index, const uint8_t *item)
+{
+    CHECK(cok_pool_insert(&adv->pool, index, item));
+    memcpy(adv->pool.items[index] + 0x2a, item + 0x2a, 4);
+}
+
+/* Gives member m an item (a copy of item) last. */
+static void dq_hold(cok_character *m, const uint8_t *item)
+{
+    CHECK(cok_character_insert_item(m, m->item_count, item));
+}
+
+/* Take's items (part 21b, 75cc:0bbe and 771f:0295, dark_queen.c's treasure_take_items and
+ * queen_view.c's queen_take_item) with no money: the list's Take gives the row to the selected
+ * member, last of its items, joined with the others of its kind (1fda) when it has a count, and
+ * its stats are recomputed; a refused item (a bundle with the party's bundles, or the 16th item
+ * that does not join, or the weight) stays with "OverLoaded" or "Too many Bundles!" on the bar.
+ * The list comes back with the rows left, the cursor kept (clamped to the last row) and ends on
+ * Escape or when no item is left. A member with no items taking a counted item is a cited stop
+ * (771f:03b4). */
+static void test_dark_queen_take_items(void)
+{
+    static cok_adventure dqk;
+    if (!dq_open(&dqk)) {
+        puts("monster: DQKAssets not found; Dark Queen's Take's items not run");
+        return;
+    }
+    DQK_RUN(&dqk, DQK_CLEARMONSTERS);
+    const cok_character_layout *L = cok_rules_dark_queen.character;
+    const cok_rules_item_record *ir = &cok_rules_dark_queen.item_record;
+    cok_character *a = dq_member(&dqk, 0, 1), *b = dq_member(&dqk, 0, 1);
+    uint8_t item[COK_ITEM_SIZE];
+
+    /* The head (uncounted, weight 10) goes to a, last; the list comes back with one row, the
+     * second (a counted item) is left; Escape leaves, then Exit asks. The member's weight is up
+     * by the head's weight (10, one of it). */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dqk.pool.items[0][ir->weight] = 10;
+    dq_pool_counted(&dqk, 1, 4, 5);
+    dqk.vm.character = a->record;
+    uint16_t before = cok_field_u16(L, a->record, COK_FIELD_WEIGHT);
+    dq_menu(&dqk, "t\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 1 && a->items[0][ir->bonus] == 3);
+    CHECK(cok_field_u16(L, a->record, COK_FIELD_WEIGHT) == before + 10);
+    CHECK(dq_count(dq_quiet.log, "item: ") == 3); /* two rows, then the one left */
+
+    /* Down, then Return takes the second row: a counted one, to b, which holds a plain item
+     * (so no stop). The pool keeps the head. */
+    uint8_t plain[COK_ITEM_SIZE] = {0};
+    plain[ir->type] = 0x27;
+    plain[ir->bonus] = 9;
+    dq_hold(b, plain);
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dq_pool_counted(&dqk, 1, 4, 5);
+    dq_menu(&dqk, "\x01P" "t\x01P\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(b->item_count == 2 && b->items[1][ir->count] == 4);
+    CHECK(dq_count(dq_quiet.log, "item: ") == 3);
+    dq_clear_pool(&dqk);
+
+    /* Return on the last row, taken, leaves the cursor on the new last row (the clamp, 1b05:0055,
+     * where the list would reset it to the first): the pool is 5, 4, 3 (head first); Down twice
+     * and Return takes 3, then Return takes 4 (the clamp to the last row), and Escape leaves 5. */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    dq_pool_item(&dqk, 4);
+    dq_pool_item(&dqk, 5);
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\x01P\x01P\r\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 2 && a->items[0][ir->bonus] == 3 && a->items[1][ir->bonus] == 4);
+    CHECK(dq_count(dq_quiet.log, "item: ") == 3 + 2 + 1); /* rows: 3, then 2, then 1 */
+
+    /* OverLoaded: a's steel 64000 (its weight over the allowance and 1,500 with the item): the
+     * bar says so and nothing moves; Escape leaves. */
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 64000);
+    dqk.vm.character = a->record;
+    size_t held = a->item_count;
+    dq_menu(&dqk, "t\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == held && dq_count(dq_quiet.log, "item: ") == 2);
+    cok_field_set16_at(L, a->record, COK_FIELD_COINS, 4, 0);
+
+    /* Too many Bundles!: a scroll bundle with a count and none held by the party. Nothing moves;
+     * a bundle with no count (0) is taken as any item. */
+    dq_clear_pool(&dqk);
+    dq_pool_bundle(&dqk, 1);
+    dqk.vm.character = a->record;
+    held = a->item_count;
+    dq_menu(&dqk, "t\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == held && dq_count(dq_quiet.log, "item: ") == 2);
+    dq_clear_pool(&dqk);
+    dq_pool_bundle(&dqk, 0);
+    dq_menu(&dqk, "t\r" "e");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == held + 1);
+
+    /* Joining (86b8:2fbf with stack, 1fda): a holds the joiner (count 40, +0x33 0) and the pool
+     * has ITEM.DAT 80 (count 10, +0x33 6): the 2fbf test joins them, the 1fda test (+0x33
+     * compared) does not, so two items. */
+    dq_item_hex(item, "1e00701e0200dc05020001000028000000");
+    dq_hold(a, item);
+    dq_item_hex(item, "1e00701e0200dc0502000006000a000000");
+    dq_clear_pool(&dqk);
+    dq_pool_put(&dqk, 0, item);
+    held = a->item_count;
+    dq_menu(&dqk, "t\r" "e");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == held + 1 && a->items[held][ir->count] == 10);
+    CHECK(a->items[held - 1][ir->count] == 40);
+    dq_clear_pool(&dqk);
+
+    /* With +0x33 equal, 1fda joins them: the count 40 + 10 is one item of 50. */
+    dq_clear_pool(&dqk);
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+    dq_item_hex(item, "1e00701e0200dc05020001000028000000");
+    item[0x33] = 6;
+    dq_hold(a, item);
+    dq_item_hex(item, "1e00701e0200dc0502000006000a000000");
+    dq_pool_put(&dqk, 0, item);
+    dq_menu(&dqk, "t\r" "e");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 1 && a->items[0][ir->count] == 50);
+
+    /* The sixteenth item: a holds 15 plain ones and the joiner (16). The pool's head (not joined)
+     * is OverLoaded; ITEM.DAT 80 joins the joiner (+0x33 equal) and is taken: the member keeps
+     * sixteen, the joiner's count 50, and the head stays in the pool. */
+    dq_clear_pool(&dqk);
+    while (a->item_count > 0) cok_character_remove_item(a, 0);
+    for (int k = 0; k < 15; ++k) {
+        dq_pool_item(&dqk, 9);
+        CHECK(dqk.pool.item_count == 1);
+        dq_hold(a, dqk.pool.items[0]);
+        dq_clear_pool(&dqk);
+    }
+    dq_item_hex(item, "1e00701e0200dc05020001000028000000");
+    item[0x33] = 6;
+    dq_hold(a, item);
+    dq_pool_item(&dqk, 3);
+    dq_item_hex(item, "1e00701e0200dc0502000006000a000000");
+    dq_pool_put(&dqk, 1, item);
+    dqk.vm.character = a->record;
+    dq_menu(&dqk, "t\r" "\x01P\r" "\x1b" "en");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 16 && a->items[15][ir->count] == 50);
+    CHECK(dq_count(dq_quiet.log, "item: ") == 5); /* 2 rows, 2 rows, then the head's 1 */
+    dq_clear_pool(&dqk);
+
+    /* With money too, Items takes the last item and Take ends at once (done when no items is
+     * left: pool_flags reads the count, so the Take bar is not drawn again); the menu's Exit then
+     * asks, the money being left. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 10;
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "\x01P" "ti\r" "e" "n");
+    CHECK(dqk.vm.status == COK_ECL_OK);
+    CHECK(dq_count(dq_quiet.log, "menu: ~Money ~Items ~Exit;") == 1);
+    /* the item's list (one row, taken), then the menu at once: the Take bar is not drawn again */
+    CHECK(strstr(dq_quiet.log, "menu: ~Take ~Exit;menu: ~View ~Take ~Pool ~Share ~Exit;choice: 5;")
+          != NULL);
+
+    /* Escape in the list is the Take bar again; its Exit leaves Take with the item still there. */
+    dq_clear_pool(&dqk);
+    dqk.pool.coins[4] = 10;
+    dq_pool_item(&dqk, 3);
+    dq_menu(&dqk, "\x01P" "ti\x1b" "ee" "n");
+    CHECK(dqk.vm.status == COK_ECL_OK && dq_count(dq_quiet.log, "item: ") == 1);
+    CHECK(dq_count(dq_quiet.log, "menu: ~Money ~Items ~Exit;") == 2);
+    dq_clear_pool(&dqk);
+
+    /* A member with no items taking a counted item stops (771f:03b4: 1fda's node unset). */
+    dq_clear_pool(&dqk);
+    dq_pool_counted(&dqk, 0, 2, 5);
+    while (b->item_count > 0) cok_character_remove_item(b, 0);
+    dq_menu(&dqk, "\x01P" "t\r");
+    CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 771f:03b4") != NULL);
+    dq_clear_pool(&dqk);
 }
 
 /* Share (part 20b, 74b9:01ee) over six standing members with 200 steel each, the pool 1000 steel,
@@ -3207,6 +3425,7 @@ int main(void)
     test_dark_queen_pool_and_past_party();
     test_dark_queen_treasure_menu();
     test_dark_queen_treasure_take();
+    test_dark_queen_take_items();
     test_dark_queen_treasure_share();
     test_dark_queen_treasure_share_none_counted();
     test_dark_queen_treasure_pool_and_share();

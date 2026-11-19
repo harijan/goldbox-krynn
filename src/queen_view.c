@@ -82,10 +82,31 @@ static int may_lose(cok_adventure *game, cok_character *character, const uint8_t
     return answer;
 }
 
+/* 86b8:2fbf's join test (stack only, with a count): who holds an item a of item's kind, the
+ * words (+0x29-+0x2b), type, bonus, +0x31, flag, weight (+0x2c word), special (+0x36, below 2)
+ * and +0x37-+0x38 equal. The count of a is not tested and +0x33 is not compared (1fda does). */
+static bool joinable(const cok_character *who, const uint8_t *item)
+{
+    for (size_t j = 0; j < who->item_count; ++j) {
+        const uint8_t *a = who->items[j];
+        if (a[0x29] == item[0x29] && a[0x2a] == item[0x2a] && a[0x2b] == item[0x2b] &&
+            a[ITEM_TYPE] == item[ITEM_TYPE] && a[ITEM_BONUS] == item[ITEM_BONUS] &&
+            a[0x31] == item[0x31] && a[ITEM_FLAG] == item[ITEM_FLAG] &&
+            a[ITEM_WEIGHT] == item[ITEM_WEIGHT] && a[ITEM_WEIGHT + 1] == item[ITEM_WEIGHT + 1] &&
+            a[ITEM_SPECIAL] == item[ITEM_SPECIAL] && a[ITEM_SPECIAL] < 2 &&
+            a[0x37] == item[0x37] && a[0x38] == item[0x38])
+            return true;
+    }
+    return false;
+}
+
 /* Whether the weight of item (its weight times its count) would overload
- * who (86b8:2fbf with no stacking: the sixteenth item, or past the
- * strength's allowance and 1,500 more). */
-static bool overloads(cok_adventure *game, cok_character *who, const uint8_t *item, bool *failed)
+ * who (86b8:2fbf: the sixteenth item, or past the strength's allowance and
+ * 1,500 more). With stack (Take's items, 771f:0295), an item with a count
+ * that joins one of who's is not refused for the sixteenth. Trade passes
+ * false. */
+static bool overloads(cok_adventure *game, cok_character *who, const uint8_t *item, bool stack,
+                      bool *failed)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
@@ -96,7 +117,8 @@ static bool overloads(cok_adventure *game, cok_character *who, const uint8_t *it
         return false;
     }
     bool over = false;
-    if (cok_field_u8(L, who->record, COK_FIELD_ITEM_COUNT) > 15) over = true;
+    bool joins = stack && item[ITEM_COUNT] > 0 && joinable(who, item);
+    if (cok_field_u8(L, who->record, COK_FIELD_ITEM_COUNT) > 15 && !joins) over = true;
     uint16_t weight = (uint16_t)(item[ITEM_WEIGHT] | item[ITEM_WEIGHT + 1] << 8);
     if (item[ITEM_COUNT] != 0) weight = (uint16_t)(weight * item[ITEM_COUNT]);
     int16_t allowance;
@@ -300,7 +322,7 @@ static bool trade_item(cok_adventure *game, cok_character *character, size_t ind
     if (to == NULL) return true;
     *last = to;
     bool bad;
-    if (overloads(game, to, character->items[index], &bad)) {
+    if (overloads(game, to, character->items[index], false, &bad)) {
         queen_bar_message(game, "Overloaded");
         return true;
     }
@@ -315,6 +337,63 @@ static bool trade_item(cok_adventure *game, cok_character *character, size_t ind
     }
     cok_character_remove_item(character, index);
     return stats(game, to);
+}
+
+/* 86b8:1f75: the bundles the party carries, the sum of each type-0x49 item's count over the
+ * party's items (a word). */
+static uint16_t bundles(const cok_party *party)
+{
+    uint16_t sum = 0;
+    for (size_t i = 0; i < party->count; ++i) {
+        const cok_character *c = party->members[i];
+        for (size_t k = 0; k < c->item_count; ++k)
+            if (c->items[k][ITEM_TYPE] == SCROLL) sum = (uint16_t)(sum + c->items[k][ITEM_COUNT]);
+    }
+    return sum;
+}
+
+/* 771f:0295: a pool item (item) to the selected member (game->vm.character): a bundle (0x49)
+ * with the party's bundles and its count above 0 is "Too many Bundles!"; else overloads (stack,
+ * 86b8:2fbf) is "OverLoaded"; both set *failed (the message on the bar, the item left in the
+ * pool). Else a copy goes last in the member's items, joined with the others of its kind when
+ * it has a count (86b8:1fda), and the member's stats are recomputed (177e:0be2). A member with
+ * no items takes a counted item to 1fda with an unset node: a cited stop (771f:03b4). False
+ * where the run stopped. */
+bool queen_take_item(cok_adventure *game, const uint8_t *item, bool *failed)
+{
+    *failed = false;
+    cok_party *party = &game->party;
+    size_t index = cok_party_index(party, game->vm.character);
+    if (index >= party->count) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "no member selected");
+        return false;
+    }
+    cok_character *who = party->members[index];
+    if (item[ITEM_TYPE] == SCROLL &&
+        (int16_t)(uint16_t)(bundles(party) + item[ITEM_COUNT]) > 0) {
+        queen_bar_message(game, "Too many Bundles!");
+        *failed = true;
+        return true;
+    }
+    bool bad;
+    if (overloads(game, who, item, true, &bad)) {
+        queen_bar_message(game, "OverLoaded");
+        *failed = true;
+        return true;
+    }
+    if (bad) return false;
+    if (who->item_count == 0 && item[ITEM_COUNT] > 0)
+        return cok_adventure_not_yet(game, "a counted item taken by a member with no items",
+                                     "dqk 771f:03b4 (86b8:1fda given an unset node: a member "
+                                     "with no items takes a counted item)");
+    uint8_t copy[COK_ITEM_SIZE];
+    memcpy(copy, item, sizeof copy);
+    if (!cok_character_insert_item(who, who->item_count, copy)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory");
+        return false;
+    }
+    if (item[ITEM_COUNT] > 0) join_items(who, who->item_count - 1);
+    return stats(game, who);
 }
 
 bool queen_readied_8c(const cok_character *character)
