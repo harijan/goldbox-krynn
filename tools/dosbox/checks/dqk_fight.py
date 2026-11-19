@@ -4041,7 +4041,6 @@ MOUSE_SPOTS = [((50, 90), "area 0 (0x86)"), ((110, 30), "area 1 (0x88)"),
                ((110, 90), "the cell (no area)"), ((110, 78), "the gap above the cell (no area)")]
 MOUSE_CLICK = (50, 40)                   # area 4 (0x87): Move, which 5045:1099 begins
 MOVE = (0x5045, 0x1099)
-MOVE_NOT_YET = re.compile(r".*Move with a direction key \(dqk 5045:1099.*")
 FRAME_ADVANCE = (0x1BDB, 0x1168)          # freeze_frame, as dqk_treasure's (which imports this module)
 FRAME_ADVANCE_BYTES = bytes.fromhex("fe060eb2")  # incb DS:b20e
 
@@ -4094,6 +4093,11 @@ def mouse_original(work, patched, verbose):
             out["reached"] = True
         except cokbox.BoxError:
             out["reached"] = False
+        if out["reached"]:
+            # The spin given back: Move steps her and draws its menu, which waits for a key.
+            L.untrap(box, t)
+            box.settled(quiet=1.0, tolerance=0)
+            out["after"] = box.screenshot(path=str(work / "mouse-click.png"))
     return out
 
 
@@ -4114,8 +4118,8 @@ def mouse_check(v, work, patched, opts):
     """The mouse areas (dqk_fight's `mouse` flow): the mouse on at the menu in both; each spot's screen
     agrees with eclplay's run to the spot ("\\r\\r" then the pointer's move and an Escape, which
     leaves the menu waiting, its last shot taken after the move); the click on area 4 reaches Move
-    (5045:1099) in the original, and eclplay stops there: "not yet ported: ... Move with a direction key"
-    after the code 0x87 is logged."""
+    (5045:1099) in the original, and eclplay's Move menu after it (its last shot, where the keys run
+    out) is the original's screen, with the code 0x87 logged."""
     o = mouse_original(work, patched, opts.verbose)
     v.check(o["space"] is True, "Space at the command menu enters 1595 again (the menu takes it)",
             f"{o['space']}")
@@ -4130,10 +4134,15 @@ def mouse_check(v, work, patched, opts):
                                   f"{MOUSE_CLICK[1]},1.")
     v.check(o["reached"], "the original reaches 5045:1099 (Move) after the click on area 4 (the spin "
             "holds)", f"{o['reached']}")
-    v.check(MOVE_NOT_YET.match(last or "") is not None, "eclplay stops at Move, not yet ported, after "
-            "the click on area 4", last)
+    v.check(BATTLE_STOP.fullmatch(last or "") is not None, "eclplay stops at Move's menu (the keys run "
+            "out there) after the click on area 4", last)
     v.check("code: 0x87" in text.splitlines(), "eclplay logs the code 0x87 of the click on area 4",
             [line for line in text.splitlines() if line.startswith("code:")])
+    if "after" in o:
+        v.screen("the Move menu after the click on area 4 (TIMASALIN at 27, 12, Move Left = 10), the "
+                 "whole screen (the pointer at 50, 40)", o["after"], shot, work=work)
+    else:
+        v.check(False, "the original's Move menu after the click on area 4 is drawn")
 
 
 def mouse(v, work, opts):
@@ -4142,6 +4151,150 @@ def mouse(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     patched = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     mouse_check(v, work, patched, opts)
+
+
+# Move (step 4, part 23: dqk 5045:1099, queen_commands.c's move): the direction keys at the command menu
+# and the Move menu's keys, against the original's stops. The command menu is built again (5045:0cd7) after
+# every Move that ends (Undo, Done, a melee's turn end): the first build is Undo's, so the keys are typed in
+# two stages (MOVE_FIRST, then MOVE_SECOND, the trap re-armed at the second build).
+MOVE_BUILT = (0x5045, 0x0CD7)           # the command menu's build: the menu's keys are read after it
+MOVE_TAIL = (0x5045, 0x066A)            # the turn's tail after a melee by a step (the turn ends)
+MOVE_FIRST = "\\>U"                   # Right (one square, 29,13), then Undo (back to 28,13)
+MOVE_SECOND = "\\>\\>D"             # Right (29,13), Right into a wall ("can't go there"), Done
+MOVE_DRAWS = 1                          # RandSeed draws past the menu after MOVE_SECOND: the message's wait
+MOVE_SEED = 0x23057A5D                  # the RandSeed then (from the menu's 0x1756582C)
+MOVE_FACING, MOVE_MOVEMENT = 2, 0x16    # TIMASALIN after Done: facing 2 (right), movement 0x16 (two squares)
+MOVE_WILD_KEYS = "\\#51\\#51\\#51\\v"  # PgDn three times (diagonals to 32,17), then Down into SHARKMAN 2
+MOVE_WILD_DRAWS = 4                     # RandSeed draws past the menu up to the turn's tail (066a)
+MOVE_WILD_SEED = 0x1AD549DA             # RandSeed at the turn's tail
+MOVE_WILD_BLOCK = "000001000001000000010408000000000000000000000001"  # BALTHIR's combat block at it
+MOVE_WILD_NEXT = "57fb:0816"            # the next combatant's record at its command menu
+MOVE_ALLY_KEYS = "\\>\\v"           # Right, then Down into ROARK (below): "ATTACK ALLY? YES NO"
+BLOCK_FACING, BLOCK_MOVEMENT, BLOCK_TARGET = 0x0A, 0x07, 0x0B  # a combat block's bytes
+SHIELD_POINTER = (2, 2, 16, 18, "the mouse cursor (the shield at the corner, off the menu's controls)")
+
+
+def selected_block(stop):
+    """The combat block (bytes) of the selected record (DS:ad67) at a stop: its index in the state's
+    record list (the blocks' order), as turn_record reads the turn list."""
+    at = [r["at"] for r in stop["state"]["records"]]
+    return bytes.fromhex(stop["blocks"][at.index(stop["selected"])])
+
+
+def move_original(work, patched, verbose):
+    """The original at the first turn's menu (to_menu) with the command menu's build (5045:0cd7) trapped:
+    MOVE_FIRST typed there, the trap reached at the build after Undo, given back; then the trap re-armed and
+    MOVE_SECOND typed, reached at the build after Done. `stop` is the state there (the selected record too),
+    `again` the menu drawn and waiting (its screen and RandSeed)."""
+    with cokbox.Box(workdir=work / "box-move", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], MOVE_BUILT)
+        box.keys(MOVE_FIRST)
+        wait_trap(box, t, "5045:0cd7")
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        t = arm(box, menu["handle"], MOVE_BUILT)
+        box.keys(MOVE_SECOND)
+        wait_trap(box, t, "5045:0cd7")
+        stop = snapshot(box)
+        stop.update(tail_state(box), selected=selected(box))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        again = dict(screen=box.screenshot(path=str(work / "move-menu.png")), seed=box.ds_dword(L.DS_SEED))
+    return dict(menu=menu, stop=stop, again=again)
+
+
+def move_wild_original(work, patched, verbose):
+    """The original's wild melee by a step (the open ground, wild_block(1, 0)): to_menu, MOVE_WILD_KEYS typed,
+    the turn's tail (5045:066a) reached (`tail`), then the next combatant's command menu (5045:08cf, `next`)."""
+    with cokbox.Box(workdir=work / "box-move-wild", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], MOVE_TAIL)
+        box.keys(MOVE_WILD_KEYS)
+        wait_trap(box, t, "5045:066a")
+        tail = snapshot(box)
+        tail.update(tail_state(box), selected=selected(box))
+        # The next menu's trap is armed while the tail's spin holds: the copies given back later may
+        # have been moved by the overlay manager (after the release the turn ran on past 08cf's copies).
+        n = arm(box, menu["handle"], MENU)
+        L.untrap(box, t)
+        wait_trap(box, n, "5045:08cf")
+        nxt = snapshot(box)
+        nxt.update(selected=selected(box))
+        L.untrap(box, n)
+    return dict(menu=menu, tail=tail, next=nxt)
+
+
+def move_ally_original(work, patched, verbose):
+    """The original's screen after MOVE_ALLY_KEYS (Right, then Down into the ally below): the question waits."""
+    with cokbox.Box(workdir=work / "box-move-ally", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        to_menu(box)
+        box.keys(MOVE_ALLY_KEYS)
+        box.settled(quiet=1.0, tolerance=0)
+        return box.screenshot(path=str(work / "move-ally.png"))
+
+
+def move(v, work, opts):
+    """Move (step 4, part 23): the Move menu's Done after a step into the empty square and into a wall (the
+    dungeon: the menu built again, facing, movement, RandSeed, the records and blocks), a melee by a step on
+    the open ground (the turn's tail and the next combatant's menu), and the ally question's screen (the
+    dungeon)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    o = move_original(work, dungeon, opts.verbose)
+    p = command_port(work, dungeon, "move", MOVE_FIRST + MOVE_SECOND)
+    m, s = o["menu"], o["stop"]
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the battle's command menu (out of keys) after Right, Undo, Right, Right, Done",
+            p["last"])
+    draws = command_state(v, "Move's Done", s, p, m["seed"])
+    v.check(draws == MOVE_DRAWS and s["seed"] == MOVE_SEED, f"the original's RandSeed past the menu after "
+            f"Move's Done is {MOVE_DRAWS} draw (the wait of 'can't go there') at {MOVE_SEED:#x}",
+            f"{draws} draws, {s['seed']:#x}")
+    block = selected_block(s)
+    v.check(block[BLOCK_FACING] == MOVE_FACING and block[BLOCK_MOVEMENT] == MOVE_MOVEMENT,
+            f"the selected record (TIMASALIN) after Done has facing {MOVE_FACING} and movement "
+            f"{MOVE_MOVEMENT:#x} (her combat block at the menu)",
+            f"facing {block[BLOCK_FACING]}, movement {block[BLOCK_MOVEMENT]:#x}")
+    field = p["base"].with_suffix(".field")
+    fight = parse_field(field)[5] if field.exists() else None
+    v.check(fight == s["combatants"], "every combatant's position agrees at the menu after Move's Done "
+            "(TIMASALIN back on 29, 13)", f"eclplay {fight}, the original {s['combatants']}")
+    command_screen(v, "the command menu after Move's Done", o["again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+    w = move_wild_original(work, wild, opts.verbose)
+    pw = command_port(work, wild, "move-wild", MOVE_WILD_KEYS)
+    draws = L.draws(w["menu"]["seed"], w["tail"]["seed"])
+    v.check(draws == MOVE_WILD_DRAWS and w["tail"]["seed"] == MOVE_WILD_SEED,
+            f"the original's RandSeed at the turn's tail after the melee by a step is {MOVE_WILD_DRAWS} draws "
+            f"past the menu, at {MOVE_WILD_SEED:#x}", f"{draws} draws, {w['tail']['seed']:#x}")
+    v.check(selected_block(w["tail"]).hex() == MOVE_WILD_BLOCK,
+            "BALTHIR's combat block at the turn's tail (initiative 0, movement 0, target 8, facing 4)",
+            selected_block(w["tail"]).hex())
+    v.check(w["next"]["selected"] == MOVE_WILD_NEXT,
+            f"the next combatant's record at its menu is {MOVE_WILD_NEXT}", w["next"]["selected"])
+    v.check(BATTLE_STOP.fullmatch(pw["last"] or "") is not None,
+            "eclplay ends at the next combatant's command menu (out of keys) after the melee by a step",
+            pw["last"])
+    command_state(v, "the melee by a step (the next combatant's menu)", w["next"], pw, w["menu"]["seed"])
+    shots = work / "move-ally-shots"
+    if shots.exists():
+        shutil.rmtree(shots)
+    port(work, dungeon, name="move-ally", typed="\\r\\r" + MOVE_ALLY_KEYS, shots=shots)
+    shot = cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() else None
+    ally = move_ally_original(work, dungeon, opts.verbose)
+    v.screen("the ATTACK ALLY? question after Right and Down into ROARK, the whole screen", ally, shot,
+             masks=[SHIELD_POINTER], work=work)
 
 
 def commands(v, work, patched, opts):
@@ -4163,10 +4316,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse")
+                             "won, drop, timer, walk, mouse, move")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -4219,6 +4372,8 @@ def main():
         walk(v, work, opts)
     if "mouse" in flows:
         mouse(v, work, opts)
+    if "move" in flows:
+        move(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

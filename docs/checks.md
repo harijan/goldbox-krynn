@@ -999,8 +999,20 @@ the game draws its cursor, whose shape is the area's) is compared with eclplay's
 `\r\r\mX,Y,0.\e` (the pointer's move, then an Escape, which leaves the menu waiting, its last shot taken after the
 move). Space typed at the menu enters `1595` again (the menu takes it and goes on: its controls are kept, and the
 type-7 control at `1810` answers with the same 0x20). Then the pointer is on area 4 and clicked: the original's
-Move routine (5045:1099) is trapped where the turn's copies start (`arm`) and reached, and eclplay stops at "not yet
-ported: ... Move with a direction key (dqk 5045:1099 ...)" after logging the code `code: 0x87`.
+Move routine (5045:1099) is trapped where the turn's copies start (`arm`) and reached; the trap given back, the Move
+menu ("MOVE/ATTACK, MOVE LEFT = 10", TIMASALIN at 27, 12) is drawn and waits, and the whole screen is compared with
+eclplay's `--mouse` run to the click, whose last shot is that menu (the keys run out there); `code: 0x87` is logged.
+
+`move` (`move`, after `mouse` in `main`'s flows; its originals `move_original`, `move_wild_original` and
+`move_ally_original`) is Move with the keys (part 23). Three runs, each against eclplay's run of the same keys. The dungeon's `\>U`, then `\>\>D` (Right, Undo,
+Right, Right into the wall, Done): the command menu's build (`5045:0cd7`) is trapped for the Undo's (the first), given
+back, and re-armed for Done's; the state there agrees (RandSeed 23057a5d, one draw: the wall's message; TIMASALIN's facing
+2 and movement 0x16 in her block; the combatants, the records, blocks and turn list), and the menu's screen after it
+agrees. The wild's `\#51` three times, then `\v` (the diagonals, then Down into SHARKMAN 2): the melee's turn tail
+(`5045:066a`) is reached (four draws, RandSeed 1ad549da, BALTHIR's block 000001000001000000010408000000000000000000000001),
+and the next combatant's menu (`5045:08cf`, record 57fb:0816, armed before the tail's spin is given back: after the
+release the overlay's copies can move) agrees with eclplay's stop there. The dungeon's `\>\v` (Right, then Down into
+ROARK): the "ATTACK ALLY?" screen is compared with eclplay's last shot (the shield cursor at the corner masked).
 
 `view` (`view_check`, last in `commands`) is V at TIMASALIN's first menu (`view_original`: the menu trapped at `5045:0cd7`
 for the rebuilt menu, Escape typed on the sheet). Checked: the sheet's bar is "Items Drop Exit" (TIMASALIN has items and
