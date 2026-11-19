@@ -922,6 +922,17 @@ b7a7 0, share 1336, pool 8 0 0, RandSeed 0x3039 (the won path draws nothing). ec
 results' key wait (its screen, the mouse pointer and the bar masked: RETURN's cell blinks) and to the treasure menu
 (`--state`, `--records`, the variables, the screen) agrees with them.
 
+Flow `drop` (part 21c: a defeated monster's items go to the pool, `dqk_fight.py`'s `drop`, `make dqk-checks
+ARGS="--only dqk_fight --flows drop"`, about 30 s, in the default flows). Won's run with THENOL WIZARD x2 (MONCHA 41: a
+readied dagger and 20 darts each; the copy's list is reversed) in place of SHARKMAN, to the results' key wait, the
+treasure menu, then Take's bar (`t`), its item list (`i`), ROLAND's Return on the darts, Escape and Exit's question
+(`e`). The original's pool at the menu is 32 6 0 and the four items, head first; RandSeed 0x3039 at each wait; the
+darts go to ROLAND (5 items, weight 910 to 1010). eclplay runs `--combat won --mouse --items` with the keys so far, and
+`--shots` (the screen where the keys ran out: list_menu clears its controls on that exit, so `--screen` would miss the
+sword cursor over the list): each screen agrees whole with the original's (the sword over the list, the pointer's corner
+masked at the end only), and so do the variables, the records (pointers masked), the coins, RandSeed, the share and
+the pool's and each record's items.
+
 Flow `walk` (`make dqk-checks ARGS="--only dqk_fight --flows walk"`, about a minute): `tests/test_dark_queen.py`'s
 `test_first_fight` in the original, the shipped ECL (no test block): the start menu, Load's saved game A (plta),
 Begin, block 4's texts to Caergoth and the steps to the dragons (`TO_FIGHT`), THEY ATTACK!'s Return, the first
