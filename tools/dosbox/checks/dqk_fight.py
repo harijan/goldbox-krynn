@@ -4495,8 +4495,9 @@ def aim(v, work, opts):
 # Turn Undead (step 4, part 26: dqk 52db:1117 and the undead search 52db:135e, queen_turn_undead and queen_undead).
 # The turn flow's undead is ZOMBIE (monster 37, kind 1: its +0x5c word is 1), COUNT of them. T's runs stop at the next
 # combatant's command menu (5045:08cf), reached once the turn is over (End, 0b29, done); a trap at the turn's tail
-# (5045:066a) does not hold at the turn's end after Turn (it holds before End: the block not yet ended), so it is not
-# used. Alt-Q (the computer's turn of BALTHIR, the first combatant) runs on to the battle's end: its state is the second
+# (5045:066a) is not used: after Turn the state it sees is the middle of 1117 (initiative 9, bd2e 0, 3 draws), where
+# wait_trap's 0.6 s false hold fires inside the turn's timed pauses (1df9:052a polls no keys), not at the turn's end.
+# Alt-Q (the computer's turn of BALTHIR, the first combatant) runs on to the battle's end: its state is the second
 # computer dispatch (5045:0891) of the next combatant, after BALTHIR's computer turn, against the port's second turn
 # mark (turn_eclplay).
 ZOMBIE = 37
