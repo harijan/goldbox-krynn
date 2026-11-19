@@ -583,47 +583,208 @@ static void test_computer_spell(void)
     game.vm.status = COK_ECL_OK;
 }
 
-/* 5bb8:0268: the cleric level 3 of 3 (the undead search 52db:135e: its stop); a paladin above 2
- * too; a paladin at 2 not; a forced (fleeing) cleric not. */
+/* 5bb8:0268: a cleric or a paladin above 2 searches for undead (52db:135e, limit 13); a paladin at
+ * 2 does not, and a forced (fleeing) cleric does not turn. With no undead in sight the turn goes on
+ * (the weapon's choice, the fight); with one that turns (a cleric of level 9: its value -1, destroyed)
+ * the turn ends at once (queen_turn_undead). */
 static void test_computer_undead(void)
 {
     const cok_character_layout *L = R->character;
+    const cok_rules *rules = R;
     cok_character *a;
     cok_character *m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
-    game.vm.status = COK_ECL_OK;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && !LOGGED("turns undead"));
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 3);
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
-    game.vm.status = COK_ECL_OK;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && !LOGGED("turns undead"));
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, 2);
-    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
-    game.vm.status = COK_ECL_OK;
+    cok_combat_set_field_word(rules, a->record, COK_FIELD_UNDEAD, 1);
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && !LOGGED("turns undead"));
     m = computer_pair(1, &a);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
     m->combat->forced = 1;
     CHECK(queen_computer(&game, m) && LOGGED("is forced to flee") && game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
+    /* The cleric of 9 (level 9 in the table) against kind 1: value -1, destroyed on any d20: the turn
+     * ends (initiative 0, the attack over flag set, the turn counted). */
+    m = computer_pair(1, &a);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 9);
+    cok_combat_set_field_word(rules, a->record, COK_FIELD_UNDEAD, 1);
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("turns undead...") && LOGGED("Is destroyed"));
+    CHECK(cok_combat_field_word(rules, a->record, COK_FIELD_STATUS) == 8 &&
+          cok_field_u8(L, a->record, COK_FIELD_ACTIVE) == 0);
+    CHECK(m->combat->turns == 1 && m->combat->initiative == 0 && game.combat.attack_over);
+    game.vm.status = COK_ECL_OK;
 }
 
 /* 5bb8:0268: a record that has turned as often as the undead count (+0x12 turns, unsigned, against
- * DS:c2ed) does not turn: at the count it goes on to the weapon's stop, one short of it searches. */
+ * DS:c2ed) does not turn: at 4 it turns (the fifth), at 5 it does not search. */
 static void test_computer_undead_count(void)
 {
     const cok_character_layout *L = R->character;
     cok_character *a;
     cok_character *m = computer_pair(1, &a);
-    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 9);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_UNDEAD, 1);
     m->combat->turns = 4;
-    CHECK(!queen_computer(&game, m) && strstr(game.error, "52db:135e") != NULL);
-    game.vm.status = COK_ECL_OK;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && m->combat->turns == 5);
+    CHECK(LOGGED("turns undead..."));
     m = computer_pair(1, &a);
-    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, 9);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_UNDEAD, 1);
     m->combat->turns = 5;
     CHECK(queen_computer(&game, m) && strstr(game.error, "52db:135e") == NULL &&
-          game.vm.status == COK_ECL_OK);
+          game.vm.status == COK_ECL_OK && !LOGGED("turns undead") && m->combat->turns == 5);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* 52db:135e (queen_undead): the highest kind of undead in sight, kind 0 and below skipped, forced
+ * skipped, no higher than the limit; the limit is set to the kind found, or 0. */
+static void test_undead_search(void)
+{
+    battle_clear();
+    const cok_rules *rules = R;
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_character *b = record('B', 0, 0), *c = record('C', 0, 0), *d = record('D', 0, 0);
+    cok_character *e = record('E', 0, 0);
+    place(b, 12, 10);
+    place(c, 8, 10);
+    place(d, 10, 12);
+    place(e, 10, 8);
+    cok_combat_set_field_word(rules, b->record, COK_FIELD_UNDEAD, 3);
+    cok_combat_set_field_word(rules, c->record, COK_FIELD_UNDEAD, 7);
+    c->combat->forced = 1;
+    cok_combat_set_field_word(rules, d->record, COK_FIELD_UNDEAD, 0);
+    cok_combat_set_field_word(rules, e->record, COK_FIELD_UNDEAD, 0xffff); /* -1 */
+    cok_character *u = NULL;
+    bool found = false;
+    int16_t limit = 13;
+    CHECK(queen_undead(&game, m, &u, &limit, &found) && found && u == b && limit == 3);
+    limit = 2;
+    CHECK(queen_undead(&game, m, &u, &limit, &found) && !found && u == NULL && limit == 0);
+    c->combat->forced = 0;
+    limit = 13;
+    CHECK(queen_undead(&game, m, &u, &limit, &found) && found && u == c && limit == 7);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* The first seed whose first draw is a d20 below 4 (a turn at value 4 or more fails on it). */
+static uint32_t low_d20_seed(void)
+{
+    for (uint32_t seed = 1;; ++seed) {
+        uint32_t copy = seed;
+        if (cok_dice(&copy, 1, 20) < 4) return seed;
+    }
+}
+
+/* Turning undead (52db:1117, queen_turn_undead) against one undead a square away. The table's
+ * kind 1 by level (DS:5a6a, 11 a kind): 0x63 at 0 (never), 10, 7 and 4 at 1 to 3, 1 at 4 and 5
+ * (turned: value above 0), 0 at 6 and 7 and -1 at 8 to 10 (destroyed); kind 3 is 4 at level 4. A
+ * fresh battle with the cleric at ccl, the paladin at pal (-1 for none), the deity word deity, and
+ * the undead's kind; the undead is returned in *undead. */
+static cok_character *turn_fight(uint8_t ccl, int pal, unsigned deity, unsigned kind,
+                                 cok_character **undead)
+{
+    const cok_character_layout *L = R->character;
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 0, ccl);
+    if (pal >= 0) cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 3, (uint8_t)pal);
+    cok_combat_set_field_word(R, m->record, COK_FIELD_DEITY, deity);
+    cok_character *a = record('A', 0, 0);
+    place(a, 12, 10);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_UNDEAD, kind);
+    m->combat->turns = 0;
+    game.undead = 5;
+    game.combat.attack_over = false;
+    *undead = a;
+    return m;
+}
+
+static void test_turn_undead_levels(void)
+{
+    cok_character *a;
+    /* The cleric of 3 less var 0x0f 5: level 0, never (0x63). Nothing turns, and "Nothing Happens..."
+     * is said once (one draw); the turn is over and counted. */
+    cok_ecl_set_var(&game.vm, COK_VAR_TURNING, 5);
+    cok_character *m = turn_fight(3, -1, 0, 1, &a);
+    CHECK(queen_turn_undead(&game, m) && LOGGED("Nothing Happens...") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 1);
+    CHECK(m->combat->turns == 1 && m->combat->initiative == 0 && game.combat.attack_over);
+    cok_ecl_set_var(&game.vm, COK_VAR_TURNING, 0);
+    /* The cleric of 2 with deity 2 is level 4: value 1, turned (status 3, the battle's leave) on
+     * any d20; without the deity it is level 2, value 7, which a d20 below 4 does not turn. */
+    m = turn_fight(2, -1, 2, 1, &a);
+    game.vm.seed = low_d20_seed();
+    CHECK(queen_turn_undead(&game, m) && LOGGED("is turned") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 3);
+    /* The cleric of 15 is level 10 (above 14: 10): value -1, destroyed. */
+    m = turn_fight(15, -1, 0, 1, &a);
+    CHECK(queen_turn_undead(&game, m) && LOGGED("Is destroyed") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 8 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 0);
+    /* A paladin of 6 beats a cleric of 3: level 4, turned as the cleric of 2 with deity 2 is. */
+    m = turn_fight(3, 6, 0, 1, &a);
+    CHECK(queen_turn_undead(&game, m) && LOGGED("is turned") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 3);
+    game.vm.status = COK_ECL_OK;
+}
+
+/* The d20 is the first draw of queen_turn_undead (before the count): a cleric of 3 against kind 1 at
+ * level 3 (value 4) is turned exactly where the d20 is 4 or more; below, the limit drops to 0 and
+ * nothing turns. Checked on a run of seeds, each d20 worked out from the seed's first draw. */
+static void test_turn_undead_d20(void)
+{
+    for (uint32_t seed = 1; seed <= 24; ++seed) {
+        cok_character *a;
+        cok_character *m = turn_fight(3, -1, 0, 1, &a);
+        uint32_t copy = seed * 0x9e3779b1u + 1;
+        unsigned d20 = cok_dice(&copy, 1, 20);
+        game.vm.seed = seed * 0x9e3779b1u + 1;
+        CHECK(queen_turn_undead(&game, m) && game.vm.status == COK_ECL_OK);
+        bool turned = cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 3;
+        if (turned != (d20 >= 4)) {
+            fprintf(stderr, "seed %u: d20 %u, turned %d\n", (unsigned)seed, d20, (int)turned);
+            exit(1);
+        }
+    }
+}
+
+/* Turning undead's limit (queen_turn_undead's search, 52db:135e): a paladin of 6 (level 4) against
+ * kind 3 (value 4 at level 4) and kind 1 (value 1): a d20 below 4 lowers the limit to 2 (one less
+ * than kind 3), so kind 1 is turned and kind 3 is not; from 4 kind 3 is turned first. */
+static void test_turn_undead_limit(void)
+{
+    for (uint32_t seed = 1; seed <= 16; ++seed) {
+        battle_clear();
+        cok_character *m = record('M', 1, 0);
+        place(m, 10, 10);
+        cok_field_set8_at(R->character, m->record, COK_FIELD_CLASS_LEVEL, 3, 6);
+        cok_character *k2 = record('K', 0, 0), *k1 = record('J', 0, 0);
+        place(k2, 12, 10);
+        place(k1, 10, 12);
+        cok_combat_set_field_word(R, k2->record, COK_FIELD_UNDEAD, 3);
+        cok_combat_set_field_word(R, k1->record, COK_FIELD_UNDEAD, 1);
+        m->combat->turns = 0;
+        game.undead = 5;
+        uint32_t copy = seed * 0x85ebca6bu + 3;
+        unsigned d20 = cok_dice(&copy, 1, 20);
+        game.vm.seed = seed * 0x85ebca6bu + 3;
+        CHECK(queen_turn_undead(&game, m) && game.vm.status == COK_ECL_OK);
+        unsigned st2 = cok_combat_field_word(R, k2->record, COK_FIELD_STATUS);
+        unsigned st1 = cok_combat_field_word(R, k1->record, COK_FIELD_STATUS);
+        if (d20 < 4 ? (st1 != 3 || st2 != 0) : st2 != 3) {
+            fprintf(stderr, "seed %u: d20 %u, kind 3 status %u, kind 1 status %u\n", (unsigned)seed,
+                    d20, st2, st1);
+            exit(1);
+        }
+    }
     game.vm.status = COK_ECL_OK;
 }
 
@@ -1350,6 +1511,10 @@ int main(void)
     test_computer_spell();
     test_computer_undead();
     test_computer_undead_count();
+    test_undead_search();
+    test_turn_undead_levels();
+    test_turn_undead_d20();
+    test_turn_undead_limit();
     test_computer_pick();
     test_spell_choice();
     test_weapon_needs();

@@ -44,6 +44,15 @@ static unsigned class_level(const cok_character_layout *L, const uint8_t *r, siz
     return cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, k);
 }
 
+/* Turn's test (0cd7 and 08cf's 0x9c7): a cleric (class level 0 above 0) or a paladin (class level
+ * 3 above 2), with fewer turns (+0x12) than the undead count DS:c2ed (game->undead). */
+static bool can_turn(cok_adventure *game, const cok_character *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    return (class_level(L, c->record, 0) > 0 || class_level(L, c->record, 3) > 2) &&
+           c->combat->turns < game->undead;
+}
+
 /* 0cd7: the items the record may choose, in index order (Aim always; Use while it has items;
  * Cast while a memorised spell's byte (0x89 bytes from +0xce, low 7 bits) is set, it may cast
  * this round and var COK_VAR_NO_MAGIC is 0; Turn for a cleric (class level 0 above 0, or class 3
@@ -65,8 +74,7 @@ static bool build(cok_adventure *game, cok_character *c, int ids[ITEM_COUNT], si
         if ((r[at + i] & 0x7f) != 0) memorised = true;
     if (memorised && cr->may_cast != 0 && cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) == 0)
         ids[n++] = ITEM_CAST;
-    if ((class_level(L, r, 0) > 0 || class_level(L, r, 3) > 2) && cr->turns < game->undead)
-        ids[n++] = ITEM_TURN;
+    if (can_turn(game, c)) ids[n++] = ITEM_TURN;
     bool missile = false, thrown = false;
     if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return type_past(game);
     if (missile && !cok_combat_thrown(&game->item_types, c, &thrown)) return type_past(game);
@@ -362,7 +370,15 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
     }
     case ITEM_USE: return cok_adventure_not_yet(game, "Use", "dqk 86b8:0f41");
     case ITEM_CAST: return cok_adventure_not_yet(game, "Cast", "dqk 52db:2543 (part 28)");
-    case ITEM_TURN: return cok_adventure_not_yet(game, "Turn", "dqk 52db:1117 (part 26)");
+    case ITEM_TURN: {
+        /* 08cf's 0x9c7: the checks again, else the menu again (c8c); then 1117 (queen_turn_undead),
+         * then End (0b29): the turn ended. */
+        if (!can_turn(game, c)) return true;
+        if (!queen_turn_undead(game, c)) return false;
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
+    }
     case ITEM_GUARD:
         /* 0a19: 51c2:0c52 (the end, then Guarding unless forced; its message 177e:153c). */
         cok_combat_end_turn(c);

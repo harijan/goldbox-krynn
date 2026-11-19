@@ -169,6 +169,15 @@ int queen_read_code(cok_adventure *game);
 /* Whether a key waits on the keyboard (hooks.key_pending, 1df9:045b): a mouse button does not
  * count. */
 bool queen_key_waiting(cok_adventure *game);
+/* The undead search (dqk 52db:135e, queen_ai.c): the first of the highest kind of undead c sees
+ * (the enemies in sight, not forced; a kind above 0 and no higher than *limit, signed words) into
+ * *undead, with *found; *limit is that kind, 0 for none. False where the run stopped. */
+bool queen_undead(cok_adventure *game, cok_character *c, cok_character **undead, int16_t *limit,
+                  bool *found);
+/* Turning undead (dqk 52db:1117, queen_ai.c): c's "turns undead...", the search and the turning
+ * until the count runs out, "Nothing Happens..." where none is turned, then c's turn is ended and
+ * DS:bd2e set (the command Turn and the computer's turn both). False where the run stopped. */
+bool queen_turn_undead(cok_adventure *game, cok_character *c);
 /* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast false where it casts nothing;
  * else its choice is a cited stop. False where the run stopped. */
 bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);

@@ -1916,6 +1916,34 @@ static void test_command_menu_text(void)
     menu_close();
 }
 
+/* Turn (dqk 08cf's 0x9c7, 52db:1117, 0b29): a cleric with fewer turns than undead turns, the
+ * search finds none here (CINDER alone), so "Nothing Happens..." and the turn is over (done, the
+ * turn counted, the attack-over flag set); with as many turns as undead the item is not built and
+ * T does nothing (the menu again, the turn kept). */
+static void test_command_turn(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the command Turn not checked");
+        return;
+    }
+    const cok_character_layout *L = R->character;
+    menu_open();
+    cok_field_set8_at(L, menu_c->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    menu_game.undead = 1;
+    CHECK(menu_run("T") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->turns == 1 && menu_c->combat->initiative == 0 && menu_game.combat.attack_over);
+    CHECK(strstr(script.prints, "turns undead...") != NULL);
+    CHECK(strcmp(script.messages, "Nothing Happens...;") == 0);
+    menu_open();
+    cok_field_set8_at(L, menu_c->record, COK_FIELD_CLASS_LEVEL, 0, 3);
+    menu_game.undead = 1;
+    menu_c->combat->turns = 1; /* as many as undead: Turn is not built */
+    CHECK(menu_run("T") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->turns == 1 && menu_c->combat->initiative == 5 && script.prints[0] == '\0');
+    CHECK(strcmp(script.menu, "Aim Guard Quick@Delay View Speed End") == 0);
+    menu_close();
+}
+
 /* End, Guard, Delay and the keys: Escape does nothing, the keys running out end the run with the
  * turn kept. */
 static void test_command_menu_keys(void)
@@ -3420,6 +3448,7 @@ int main(void)
     test_auto_seed_line();
     test_timer_walk();
     test_command_menu_items();
+    test_command_turn();
     test_command_menu_text();
     test_command_menu_keys();
     test_combat_menu_areas();
