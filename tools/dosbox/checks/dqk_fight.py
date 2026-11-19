@@ -4338,8 +4338,96 @@ def aim_exit_original(work, patched, verbose, tag, typed):
     return dict(menu=menu, stop=stop, again=again)
 
 
+# Aim's Target when attacking (part 24b: 52db:2d46, the strike). On the open ground TIMASALIN's Move steps are
+# the same as Move's (PgDn three times, then Done), and Aim's Next then Target strike SHARKMAN 2 two squares off
+# (the probe's targetwild): the melee by a step's numbers (MOVE_WILD_*) are the strike's. Its Aim menu after
+# A and N shows TARGET. The carry-over, an "attack ally?" answered Yes (queen_attack_ally's Yes path), cannot be
+# typed from Aim (52db:36c6's list excludes her side: 52db:1030 is called with allies 0), so it is Move's:
+# the dungeon's Right, Down into ROARK, then Y (52db:2aef's Yes, the attack, var 0x36 set).
+AIM_TARGET_SCREEN = "\\#51\\#51\\#51DAN"        # Move's three steps, Done, then Aim and Next (TARGET listed)
+AIM_TARGET_KEYS = AIM_TARGET_SCREEN + "T"            # then Target: the strike
+ALLY_YES_KEYS = MOVE_ALLY_KEYS + "Y"                 # Move into ROARK, the question answered Yes
+FLED_VAR = 0x36                                      # var 0x36 (FLED): 52db:2aef's Yes sets it
+ALLY_YES_STOP = "not yet ported: The Dark Queen of Krynn's effect 0x2f (dqk 78e4:09b2)"  # the attack's effect 0x2f
+
+
+def strike_original(work, patched, verbose, tag, keys):
+    """The original's turn for KEYS typed at the first turn's menu: the turn's tail (5045:066a, `tail`), then the
+    next combatant's command menu (5045:08cf, `next`, its screen too: `screen`). The strike's and the ally Yes's
+    melee are the same routine's steps (52db:1853, 18d6)."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], MOVE_TAIL)
+        box.keys(keys)
+        wait_trap(box, t, "5045:066a")
+        tail = snapshot(box)
+        tail.update(tail_state(box), selected=selected(box))
+        n = arm(box, menu["handle"], MENU)
+        L.untrap(box, t)
+        wait_trap(box, n, "5045:08cf")
+        nxt = snapshot(box)
+        nxt.update(selected=selected(box))
+        L.untrap(box, n)
+        box.settled(quiet=1.0, tolerance=0)
+        nxt["screen"] = box.screenshot(path=str(work / f"{tag}-menu.png"))
+    return dict(menu=menu, tail=tail, next=nxt)
+
+
+def aim_target_check(v, work, opts):
+    """Aim's Target on the open ground (part 24b): the Aim menu after Move's steps, Done, A and N against eclplay's
+    shot (TARGET listed); the strike's turn tail (RandSeed draws, BALTHIR's block) and the next combatant's menu
+    (records, blocks, turn list, RandSeed, screen) against eclplay's run to that menu."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    shots = work / "aim-target-shots"
+    if shots.exists():
+        shutil.rmtree(shots)
+    port(work, wild, name="aim-target", typed="\\r\\r" + AIM_TARGET_SCREEN, shots=shots)
+    shot = cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() else None
+    a = aim_screen_original(work, wild, opts.verbose, "aim-target-a", AIM_TARGET_SCREEN)
+    v.screen("the Aim menu after Move's three steps, Done, A and N on the open ground (TARGET listed: SHARKMAN 2 "
+             "two squares off)", a["screen"], shot, masks=[SHIELD_POINTER], work=work)
+    s = strike_original(work, wild, opts.verbose, "aim-target", AIM_TARGET_KEYS)
+    p = command_port(work, wild, "aim-target", AIM_TARGET_KEYS)
+    draws = L.draws(a["menu"]["seed"], s["tail"]["seed"])
+    v.check(draws == MOVE_WILD_DRAWS and s["tail"]["seed"] == MOVE_WILD_SEED,
+            f"the original's RandSeed at the turn's tail after Aim's Target is {MOVE_WILD_DRAWS} draws past the "
+            f"menu, at {MOVE_WILD_SEED:#x}", f"{draws} draws, {s['tail']['seed']:#x}")
+    v.check(selected_block(s["tail"]).hex() == MOVE_WILD_BLOCK,
+            "BALTHIR's combat block at the turn's tail after Aim's Target is the melee's (initiative 0, movement 0, "
+            "target 8, facing 4)", selected_block(s["tail"]).hex())
+    v.check(s["next"]["selected"] == MOVE_WILD_NEXT,
+            f"the next combatant's record at its menu is {MOVE_WILD_NEXT}", s["next"]["selected"])
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the next combatant's command menu (out of keys) after Aim's Target", p["last"])
+    command_state(v, "Aim's Target (the next combatant's menu)", s["next"], p, a["menu"]["seed"])
+    command_screen(v, "the command menu after Aim's Target on the open ground", s["next"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
+def ally_yes_check(v, work, opts):
+    """Move's "attack ally?" answered Yes (queen_attack_ally's Yes path, the carry-over, see above) on the dungeon.
+    The original's var 0x36 (FLED) is 1 at the turn's tail. eclplay's run stops in the attack at the cited
+    unported effect 0x2f (78e4:09b2, COK_FX_MISSING), before the turn's tail, so the state after it (RandSeed,
+    records, blocks, the screen) has no comparable stop: the Yes path is compared up to that stop, where var 0x36
+    is set in both (the question's Yes sets it before the attack)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    y = strike_original(work, dungeon, opts.verbose, "ally-yes", ALLY_YES_KEYS)
+    p = command_port(work, dungeon, "ally-yes", ALLY_YES_KEYS)
+    v.check(y["tail"]["variables"][FLED_VAR - 1] == 1, "the original's var 0x36 (FLED) after Yes is 1 at the turn's "
+            "tail", str(y["tail"]["variables"][FLED_VAR - 1]))
+    v.check(p["vars"] and p["vars"][FLED_VAR - 1] == 1, "eclplay's var 0x36 (FLED) after Yes is 1 at its stop",
+            str(p["vars"][FLED_VAR - 1] if p["vars"] else None))
+    v.check(p["last"] is not None and ALLY_YES_STOP in p["last"], "eclplay stops at the cited unported effect 0x2f "
+            "(dqk 78e4:09b2) inside the attack after Yes, the state past it not compared", p["last"])
+
+
 def aim(v, work, opts):
-    """Aim (step 4, part 24a): the Aim menu on the dungeon's self-only list and on the open ground's two
+    """Aim (step 4, part 24a; Target's strike, part 24b: aim_target_check and ally_yes_check): the Aim menu on the dungeon's self-only list and on the open ground's two
     targets, each screen against eclplay's last shot, and the command menu after Exit against eclplay's
     stop (the state, the RandSeed, the screen). The dungeon's Exit draws nothing; the open ground's N and P
     hold the RandSeed."""
@@ -4383,6 +4471,8 @@ def aim(v, work, opts):
             "unchanged", f"{draws} draws")
     command_screen(v, "the command menu after Aim's Exit on the open ground", x["again"]["screen"],
                    px["base"].with_suffix(".bmp"), MENU_POINTER)
+    aim_target_check(v, work, opts)
+    ally_yes_check(v, work, opts)
 
 
 def commands(v, work, patched, opts):

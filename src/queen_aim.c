@@ -244,6 +244,56 @@ static bool readied_range(cok_adventure *game, const cok_character *c, uint8_t *
     return true;
 }
 
+/* 52db:2d46 (rec, target, attack, done, res): the strike of Aim's Target (37dd 3b2d, with attack 1
+ * only). The ally question first (queen_attack_ally, 2aef: done clear where it is refused); not done,
+ * res is cleared. Else res is the target and its own cell, the cursor is off and the view centred on
+ * its corner plus 3 (margin 3), then the book and the attack with the missile weapon's ammunition, none
+ * when it is thrown at one square (no sweep: Dark Queen's has none). A keys-out question returns with
+ * done clear and the run ended (the caller checks vm.abort). */
+static bool strike(cok_adventure *game, cok_character *c, cok_character *target, bool *done,
+                   cok_combat_aimed *res)
+{
+    cok_combat *combat = &game->combat;
+    bool go = false;
+    *done = true;
+    if (!queen_attack_ally(game, c, target, &go)) return false;
+    if (game->vm.abort) {
+        *done = false;
+        return true;
+    }
+    if (!go) *done = false;
+    if (!*done) {
+        *res = (cok_combat_aimed){NULL, 0, 0};
+        return true;
+    }
+    res->target = target->record;
+    res->x = cok_combat_x(combat, target->record);
+    res->y = cok_combat_y(combat, target->record);
+    combat->cursor = 0;
+    if (!cok_arena_centre(game, (int8_t)(combat->view_x + 3), (int8_t)(combat->view_y + 3), 3, 8))
+        return false; /* 5837:0846 */
+    if (!cok_combat_book(game, c, target)) return false; /* 52db:1853 */
+    size_t item = 0;
+    bool missile = false, has = false, thrown = false;
+    const char *past = "an item type past ITEMS reads past the table (52db:2d46)";
+    if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return undefined(game, past);
+    if (missile) {
+        if (!cok_combat_ammunition(game, c, &item, &has)) return undefined(game, past); /* 51c2:10c3 */
+        if (has) {
+            if (!cok_combat_thrown(&game->item_types, c, &thrown)) return undefined(game, past);
+            if (thrown) {
+                uint8_t d = 0;
+                if (!cok_combat_distance(combat, cok_game_rules(game), c->record, target->record,
+                                         &d))
+                    return undefined(game, "the distance (51c2:0b26) lists the combatants around one "
+                                           "(6b30:08d8) past its tables");
+                if (d == 1) item = 0;
+            }
+        }
+    }
+    return cok_combat_attack(game, c, target, false, item, done); /* 52db:18d6 */
+}
+
 bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack, uint8_t empty,
                uint8_t creatures, bool *done, cok_combat_aimed *res)
 {
@@ -284,13 +334,20 @@ bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t att
         case AIM_MANUAL:
             return cok_adventure_not_yet(game, "Aim's Manual", "dqk 52db:2e9c (part 25)");
         case AIM_TARGET:
-            /* 37dd 3aec: the cell and the record, done; attacking, the strike (52db:2d46). */
+            /* 37dd 3aec: the record and the cell, done; attacking, the strike (52db:2d46) may clear
+             * done (the ally refused), then the cursor off and the cell centred (0846, margin 0). */
             res->x = x;
             res->y = y;
             res->target = target->record;
             *done = true;
-            if (attack == 1)
-                return cok_adventure_not_yet(game, "Aim's Target", "dqk 52db:2d46 (part 24b)");
+            if (attack == 1) {
+                if (!strike(game, c, target, done, res)) return false;
+                if (game->vm.abort) return true;
+            }
+            if (!*done) {
+                combat->cursor = 0;
+                if (!cok_arena_centre(game, x, y, 0, 8)) return false; /* 5837:0846 */
+            }
             leave = true;
             break;
         case AIM_CENTER:
