@@ -2394,6 +2394,7 @@ static void test_command_aim(void)
     CHECK(menu_run("AE") && menu_game.vm.status == COK_ECL_OK);
     CHECK(strstr(script.all, "Next Prev Manual Center Exit;") != NULL);
     CHECK(strstr(script.all, "Target") == NULL && script.menus == 3);
+    CHECK(strncmp(script.menu, "Aim ", 4) == 0); /* the command menu again, not Aim's */
     CHECK(k->view_x == vx && k->view_y == vy);
     aim_open();
     CHECK(menu_run("A") && menu_game.vm.status == COK_ECL_OK && menu_c->combat->initiative == 5);
@@ -2420,6 +2421,12 @@ static void test_command_aim(void)
     aim_foe(5, 20, 1);
     menu_c->combat->target = east->record;
     CHECK(menu_run("AC") && centred_on(20, 5));
+    /* The keypad's 5 (0x80) is Center too: Aim's menu again, the view on her. */
+    aim_open();
+    east = aim_foe(20, 5, 1);
+    menu_c->combat->target = east->record;
+    CHECK(menu_run("A~L") && centred_on(20, 5) && script.menus == 3);
+    CHECK(strcmp(script.menu, "Next Prev Manual Center Exit") == 0);
     /* Target: a foe beside her (range 1, distance 1) is listed with it, one three squares off is
      * not, self never is. Target when attacking is the cited strike (part 24b). */
     aim_open();
@@ -2433,11 +2440,17 @@ static void test_command_aim(void)
     aim_foe(8, 5, 1);
     CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Center Exit;") != NULL);
     CHECK(strstr(script.all, "Target") == NULL);
+    /* A weapon of range 0 reaches as 1 (37dd's a938: 0 or 0xff is 1). */
+    aim_open();
+    aim_weapon(0, 0x00);
+    aim_foe(6, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Target Center Exit;") != NULL);
     aim_open();
     CHECK(menu_run("AT") && menu_game.vm.status == COK_ECL_OK);
     CHECK(strstr(script.all, "Target") == NULL);
-    /* A readied missile weapon of range 3: a thrown one reaches the foe three squares off (Target
-     * listed, then its strike), one not thrown with no ammunition does not. */
+    /* A readied missile weapon of range 3: one that is its own ammunition (flags 0x10, not thrown)
+     * reaches the foe three squares off with no foe beside her (Target listed, then its strike),
+     * one with no ammunition does not. */
     aim_open();
     aim_weapon(3, 0x10);
     aim_foe(8, 5, 1);
@@ -2451,6 +2464,23 @@ static void test_command_aim(void)
     aim_weapon(3, 0x00);
     aim_foe(8, 5, 1);
     CHECK(menu_run("AN") && strstr(script.all, "Target") == NULL);
+    /* With a foe beside her: a missile weapon with its ammunition (flags 0x0a) but not thrown has no
+     * Target (2b60's 51c2:0980), a thrown one (0x14: itself the ammunition) has. */
+    aim_open();
+    aim_weapon(3, 0x0a);
+    aim_foe(6, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Target") == NULL);
+    aim_open();
+    aim_weapon(3, 0x14);
+    aim_foe(6, 5, 1);
+    CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Target Center Exit;") != NULL);
+    /* The party's side is not listed (52db:1030 refuses the attacker's side): an ally kept as the
+     * target is not shown first, she is. */
+    aim_open();
+    cok_character *ally = aim_foe(2, 5, 0);
+    aim_foe(20, 5, 1);
+    menu_c->combat->target = ally->record;
+    CHECK(menu_run("AC") && centred_on(5, 5));
     /* Manual: its stop by its letter, by a direction key; Escape leaves the menu (the command
      * menu again) and Center shows it again. */
     aim_open();
@@ -2461,10 +2491,10 @@ static void test_command_aim(void)
     CHECK(strstr(menu_game.error, "dqk 52db:2e9c") != NULL);
     aim_open();
     CHECK(menu_run("A\x1b") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
-    CHECK(menu_c->combat->initiative == 5);
+    CHECK(menu_c->combat->initiative == 5 && strncmp(script.menu, "Aim ", 4) == 0);
     aim_open();
     CHECK(menu_run("AC") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
-    CHECK(k->cursor == 0);
+    CHECK(k->cursor == 0 && strcmp(script.menu, "Next Prev Manual Center Exit") == 0);
     /* queen_aim with a spell's attack (0): with creatures, the foe three squares off is the
      * Target: done, its record and cell, no strike and no stop. */
     aim_open();
@@ -2473,16 +2503,40 @@ static void test_command_aim(void)
     cok_combat_aimed res = {NULL, 0, 0};
     CHECK(aim_direct("NT", 4, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
     CHECK(done && res.target == foe->record && res.x == 8 && res.y == 5);
+    CHECK(script.menus == 2); /* Target leaves: no menu after it */
+    /* Exit when attacking clears the range line (1bdb:03a4): rows 176-185 are FRAME 6's again. */
+    aim_open();
+    CHECK(aim_direct("E", 0xff, 1, 0, 1, &done, &res) && !done);
+    static uint8_t line[10 * 320];
+    memcpy(line, menu_game.screen.pixels + 176 * 320, sizeof line);
+    queen_range_line_clear(&menu_game);
+    CHECK(memcmp(line, menu_game.screen.pixels + 176 * 320, sizeof line) == 0);
     /* The keys running out at the menu: true, nothing picked. */
     aim_open();
     done = false;
     res = (cok_combat_aimed){NULL, 0, 0};
     CHECK(aim_direct("", 1, 1, 0, 1, &done, &res) && !done && res.target == NULL);
     CHECK(menu_game.vm.status == COK_ECL_OK);
-    /* The battle's row 23 text (1a62:01d0): drawn, no stop. */
+    /* The battle's row 23 text (1a62:01d0) on a screen of 0xfe: the grey line on row 177 and the
+     * 15 cells from column 8 to 127 on rows 178-185, nothing else. Then 1bdb:03a4 redraws rows
+     * 176-185 from FRAME 6, rows 175 and 186 kept. */
     aim_open();
+    uint8_t *px = menu_game.screen.pixels;
+    memset(px, 0xfe, 320 * 200);
     CHECK(cok_arena_text(&menu_game, 0, 0x17, "Aim: range = 0 ", 7, 0));
     CHECK(menu_game.vm.status == COK_ECL_OK && pixel_in(8, 178, 128, 186, 15));
+    for (int y = 175; y < 188; ++y)
+        for (int x = 0; x < 320; ++x) {
+            bool cell = x >= 8 && x < 128 && y >= 177 && y < 186;
+            if ((px[y * 320 + x] != 0xfe) != cell || (y == 177 && cell && px[y * 320 + x] != 0x17)) {
+                fprintf(stderr, "row 23's text: pixel %d, %d is %#x\n", x, y, px[y * 320 + x]);
+                exit(1);
+            }
+        }
+    queen_range_line_clear(&menu_game);
+    for (int x = 0; x < 320; ++x)
+        CHECK(px[175 * 320 + x] == 0xfe && px[186 * 320 + x] == 0xfe);
+    CHECK(!pixel_in(0, 176, 320, 186, 0xfe));
     aim_open();
     menu_close();
 }
