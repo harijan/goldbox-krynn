@@ -2434,9 +2434,10 @@ static void test_command_aim(void)
     aim_foe(6, 5, 1);
     CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Target Center Exit;") != NULL);
     /* Target at a foe beside her, bare-handed (range 1, no missile): the strike (52db:2d46) runs. The
-     * book (the foe's hits) and the attack (the seed moves), the view centred on her view's corner
-     * plus 3 (the view the Aim menu left, margin 3), the cursor off, and the turn ended: Target leaves
-     * with no command menu after it. The view is compared with the same centring made directly. */
+     * book (the foe's hits) and the attack (the seed moves), and the turn ended: Target leaves with
+     * no command menu after it. The strike's centre (5837:0846 at the view's own centre, margin 3)
+     * never scrolls, so the view is the one Aim's menu left (compared with the same centring made
+     * directly: it guards against a centre on another cell); it only redraws that cell. */
     aim_open();
     aim_foe(6, 5, 1);
     CHECK(menu_run("AN") && menu_game.vm.status == COK_ECL_OK);
@@ -2448,6 +2449,24 @@ static void test_command_aim(void)
     CHECK(menu_run("ANT") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
     CHECK(beside->combat->hits == 1 && menu_game.vm.seed != seed && menu_c->combat->initiative == 0);
     CHECK(k->view_x == cx && k->view_y == cy && k->cursor == 0);
+    /* The target down with attacks left: the attack (52db:18d6) leaves done clear, so Target's
+     * not-done path (37dd 3b5e) runs: the cell centred at margin 0 (the view's corner the cell less
+     * 3; Aim's turn at margin 3 had not moved the view to it), Target leaves, and the command menu
+     * comes again for the attacks left (four menus), her turn not ended. A second foe keeps the
+     * battle going; the foe beside her has 1 hit point and armour class 0. */
+    aim_open();
+    beside = aim_foe(6, 5, 1);
+    aim_foe(20, 20, 1);
+    cok_field_set8(R->character, beside->record, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(R->character, beside->record, COK_FIELD_AC, 0);
+    cok_field_set8_at(R->character, menu_c->record, COK_FIELD_ATTACKS_LEFT, 1, 10);
+    CHECK(menu_run("AN") && !centred_on(6, 5));
+    CHECK(menu_run("ANT") && menu_game.vm.status == COK_ECL_OK && script.menus == 4);
+    CHECK(strncmp(script.menu, "Aim ", 4) == 0 && beside->combat->hits == 1);
+    CHECK(cok_field_u8(R->character, beside->record, COK_FIELD_ACTIVE) == 0);
+    uint8_t left = cok_field_u8_at(R->character, menu_c->record, COK_FIELD_ATTACKS_LEFT, 1);
+    CHECK(left > 0 && left < 10 && menu_c->combat->initiative != 0);
+    CHECK(centred_on(6, 5) && k->cursor == 0);
     aim_open();
     aim_foe(8, 5, 1);
     CHECK(menu_run("AN") && strstr(script.all, "Next Prev Manual Center Exit;") != NULL);
