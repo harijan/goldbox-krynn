@@ -5417,11 +5417,11 @@ int queen_bar_menu_areas(cok_adventure *game, const char *prompt, const char *co
 static const uint8_t combat_cursors[8] = {9, 11, 5, 7, 10, 4, 6, 8};
 static const int combat_codes[8] = {0x86, 0x88, 0x82, 0x84, 0x87, 0x81, 0x83, 0x85};
 
-int queen_combat_menu(cok_adventure *game, const char *const *items, size_t count, int split,
-                      int p, int q, uint8_t pressed)
+int queen_combat_menu(cok_adventure *game, const char *prompt, const char *const *items,
+                      size_t count, int split, int p, int q, uint8_t pressed)
 {
     if (!game->mouse.on)
-        return bar_menu_areas(game, "", items, count, true, false, 0, 0, NULL, NULL, 0, split,
+        return bar_menu_areas(game, prompt, items, count, true, false, 0, 0, NULL, NULL, 0, split,
                               true, pressed);
     int P = 24 * (uint8_t)p, Q = 24 * (uint8_t)q;
     const rect areas[8] = {
@@ -5434,8 +5434,8 @@ int queen_combat_menu(cok_adventure *game, const char *const *items, size_t coun
         {P + 32, Q + 32, 184, 184},
         {P + 32, 0, 184, Q + 8},
     };
-    int result = bar_menu_areas(game, "", items, count, true, false, 0, 0, areas, combat_cursors,
-                                8, split, true, pressed);
+    int result = bar_menu_areas(game, prompt, items, count, true, false, 0, 0, areas,
+                                combat_cursors, 8, split, true, pressed);
     return result >= AREA_MENU ? combat_codes[result - AREA_MENU] : result;
 }
 
