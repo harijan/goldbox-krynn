@@ -3,6 +3,7 @@
 #include "ai.h"
 #include "arena.h"
 #include "attack.h"
+#include "cast.h"
 #include "combat.h"
 #include "data.h"
 #include "ecl.h"
@@ -105,24 +106,35 @@ bool queen_can_step(cok_adventure *game, cok_character *c, uint8_t try_, uint8_t
     return true;
 }
 
+/* The highest kind of undead the computer's turn and the party's Turn turn (dqk 5bb8:0268 and
+ * 52db:1117 set 0x0d). */
+enum { QUEEN_TURN_LIMIT = 13 };
+
 /* 5bb8:0268, turn undead: the decision. A fleeing record does not turn (0279); nor one that has
  * turned as often as the undead count DS:c2ed (+0x12 turns, unsigned); nor one with no cleric
  * level and no paladin level above the descriptor's paladin_turns (both bytes read unsigned,
- * 2234). The undead search 52db:135e, with the limit turn_limit (0x0d), is not ported for Dark
- * Queen: the stop. Its found branch is 52db:1117 (turning, part 26) and 0268 returns 1 for it. */
-static bool turn_undead(cok_adventure *game, cok_character *c)
+ * 2234). The undead search 52db:135e with the limit 13 (queen_undead); found, 52db:1117 turns
+ * (queen_turn_undead) and 0268 returns 1: *turned. */
+static bool turn_undead(cok_adventure *game, cok_character *c, bool *turned)
 {
     const cok_rules *rules = cok_game_rules(game);
     const cok_character_layout *L = rules->character;
     const cok_rules_fight *F = &rules->fight;
     const uint8_t *r = c->record;
+    *turned = false;
     if (c->combat->fleeing != 0) return true;
     if (c->combat->turns >= game->undead) return true;
     bool cleric = cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 0) > 0;
     bool paladin = cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) > F->paladin_turns;
     if (!cleric && !paladin) return true;
-    return cok_adventure_not_yet(game, "turning undead",
-                                 "dqk 52db:135e (the undead search, not ported)");
+    cok_character *undead;
+    bool found;
+    int16_t limit = QUEEN_TURN_LIMIT;
+    if (!queen_undead(game, c, &undead, &limit, &found)) return false;
+    if (!found) return true;
+    if (!queen_turn_undead(game, c)) return false;
+    *turned = true;
+    return true;
 }
 
 /* The record of a party member (or monster) at record, or NULL. */
@@ -401,6 +413,124 @@ static bool combatant_of(cok_adventure *game, uint8_t n, cok_character **c)
     return undefined_fight(game, "a combatant picked has no record, read through NULL (5bb8:0b3d)");
 }
 
+/* The undead search (dqk 52db:135e): the enemies of c within sight (51c2:0980 with range 0xff, in
+ * the list's order, nearest first), the first of the highest kind (the signed word +0x5c, above 0
+ * and no higher than *limit, read as signed words) not forced (+0x11); *limit is that kind, 0 for
+ * none. A kind equal to the best found earlier keeps that one. False where the run stopped. */
+bool queen_undead(cok_adventure *game, cok_character *c, cok_character **undead, int16_t *limit,
+                  bool *found)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    cok_combat *combat = &game->combat;
+    int16_t best = 0;
+    uint8_t n;
+    *undead = NULL;
+    *found = false;
+    if (!cok_combat_enemies(game, c, 0xff, &n)) return false;
+    for (unsigned i = 1; i <= n; ++i) {
+        cok_character *e;
+        if (!combatant_of(game, combat->enemies[i], &e)) return false;
+        if (e->combat == NULL)
+            return undefined_fight(game, "a combatant in sight has no combat record, read through "
+                                         "NULL (52db:135e)");
+        int16_t kind = (int16_t)cok_combat_field_word(rules, e->record, COK_FIELD_UNDEAD);
+        if (e->combat->forced != 0 || kind <= 0 || kind <= best || kind > *limit) continue;
+        best = kind;
+        *undead = e;
+        *found = true;
+    }
+    *limit = best;
+    return true;
+}
+
+/* Turning undead (dqk 52db:1117): c's "turns undead..." (row 10), the bottom bar blanked and a
+ * pause; c's turn count (+0x12) up. The d20 is drawn first, then the level: the cleric's level
+ * (signed), or the paladin's less 2 where that is higher; deity word 2 adds 2; above 8 it is 9
+ * below 14, else 10; var COK_VAR_TURNING is taken from it (0 where the var is above it, unsigned).
+ * Then each undead the search (queen_undead, from the limit 13) finds, with the count (1d12, or
+ * 1d6 + 6 at the first one whose table value is negative): the value of its kind and the level
+ * (DS:5a6a, cok_data_offset2) with |value| above the d20 lowers the limit and is not turned; else
+ * it is turned away (value above 0: "is turned", leaves the battle with status 3) or destroyed
+ * (value 0 or below: "Is destroyed", its status word 8, inactive). The count drops by one each
+ * time, the bonus of 6 turns ("extra") with it; the text is cleared after each. None turned:
+ * "Nothing Happens..." (one draw). Then the sides are counted, c's turn is ended (51c2:0c11) and
+ * the attack-over flag DS:bd2e is set. False where the run stopped. */
+bool queen_turn_undead(cok_adventure *game, cok_character *c)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const cok_data_segment *D = rules->data;
+    const cok_rules_fight *F = &rules->fight;
+    const uint8_t *r = c->record;
+    cok_combat *combat = &game->combat;
+    cok_combat_record *cr = c->combat;
+    if (cr == NULL)
+        return undefined_fight(game, "a combatant has no combat record, read through NULL "
+                                     "(dqk 52db:1117)");
+    if (!cok_arena_say(game, c, "turns undead...", 10, false)) return false;
+    cok_arena_clear_bar(game); /* 1bdb:036c */
+    cok_arena_pause(game);     /* 1a62:0949 */
+    bool any = false;
+    ++cr->turns;
+    int16_t limit = QUEEN_TURN_LIMIT;
+    uint8_t extra = 6, count = 0xff;
+    uint8_t d20 = cok_dice(&game->vm.seed, 1, 20);
+    /* The level (52db:1117's 1190-11f7): the cleric's, or the paladin's less 2 where higher. */
+    int8_t lv = cok_field_s8_at(L, r, COK_FIELD_CLASS_LEVEL, 0);
+    int paladin = (int)cok_field_u8_at(L, r, COK_FIELD_CLASS_LEVEL, 3) - 2;
+    if (paladin > lv) lv = (int8_t)paladin;
+    if (cok_combat_field_word(rules, r, COK_FIELD_DEITY) == 2) lv = (int8_t)(lv + 2);
+    if (lv > 8) lv = lv < 14 ? 9 : 10;
+    uint8_t less = (uint8_t)cok_ecl_var(&game->vm, COK_VAR_TURNING);
+    uint8_t level = (uint8_t)lv < less ? 0 : (uint8_t)((uint8_t)lv - less);
+    for (;;) {
+        cok_character *u;
+        bool found;
+        if (!queen_undead(game, c, &u, &limit, &found)) return false;
+        if (!found || count == 0) break;
+        int16_t kind = (int16_t)cok_combat_field_word(rules, u->record, COK_FIELD_UNDEAD);
+        long at = cok_data_offset2(D, COK_DATA_TURNING, kind, (int8_t)level);
+        if (!cok_data_holds(D, COK_DATA_TURNING, at))
+            return undefined_fight(game, "turning undead reads a kind or level past DS:5a6a's "
+                                         "table (dqk 52db:1117)");
+        int8_t v = (int8_t)cok_data_held(D, at);
+        if (count == 0xff) count = v < 0 ? (uint8_t)(cok_dice(&game->vm.seed, 1, 6) + 6)
+                                         : cok_dice(&game->vm.seed, 1, 12);
+        int magnitude = v < 0 ? -v : v;
+        if (d20 < magnitude) {
+            --limit;
+            continue;
+        }
+        any = true;
+        if (!cok_arena_turn(game, u, 3, false)) return false;
+        combat->panel = true;
+        if (!cok_arena_panel(game, u)) return false;
+        if (v > 0) {
+            if (!cok_combat_leave(game, u, 3, "is turned")) return false;
+        } else {
+            /* The stale byte is not read (dqk 5837:0d55's kill_finds_body, as attack.c's). */
+            cok_arena_reachable also = cok_cast_reachable(game);
+            if (!cok_arena_say(game, u, F->words.destroyed, 10, false) ||
+                !cok_arena_kill(game, u, COK_ARENA_STALE_UNKNOWN, &also))
+                return false;
+            cok_combat_set_field_word(rules, u->record, COK_FIELD_STATUS, 8);
+            cok_field_set8(L, u->record, COK_FIELD_ACTIVE, 0);
+        }
+        if (extra > 0) --extra;
+        --count;
+        if (count == 0 && extra > 0 && v < 0) ++count;
+        cok_arena_clear_text(game);
+    }
+    if (!any) queen_bar_message(game, F->words.nothing); /* 177e:153c: one draw */
+    if (!cok_combat_count_sides(combat, &game->party, rules, game->ambush))
+        return undefined_fight(game, "a record on a side other than 0 or 1 (+0x18a) counts past "
+                                     "DS:6b2d (dqk 51c2:0920)");
+    cok_combat_end_turn(c); /* 51c2:0c11 (its result, 1, is DS:bd2e) */
+    combat->attack_over = true;
+    cok_arena_clear_text(game);
+    return true;
+}
+
 /* The computer's fight of one pass (dqk 5bb8:0b3d), with the target the loop of queen_computer
  * picked (its record found and active; the fight is entered only then). The original's frame: the
  * last step 8 and stuck, stuck_more 0 (aca5-aca7), the pass's count, going and done. The steps, by
@@ -571,9 +701,10 @@ bool queen_fight(cok_adventure *game, cok_character *c, bool *over)
  * shared cok_ai_morale, unless over); one fleeing and not forced says "flees in panic"; over ends.
  * 5bb8:02f5 (cok_ai_use_item) is never taken: it returns 0 with no draw (DKK's draws its die;
  * the port's use_item must not run here). A pending spell's cast (849a:145b) is the stop; then
- * turn undead (0268, turn_undead), the spell choice (0306, queen_spell_choice; a cast ends the
- * turn), and the weapon's choice (1396, queen_choose_weapon), then the keys again (1050: over ends
- * the turn). Then the loop of step 14 (0209: its pick, 52db:3d9e, and the fight, 0b3d, queen_fight).
+ * turn undead (0268, turn_undead: found, queen_turn_undead turns them and the turn ends), the spell
+ * choice (0306, queen_spell_choice; a cast ends the turn), and the weapon's choice (1396,
+ * queen_choose_weapon), then the keys again (1050: over ends the turn). Then the loop of step 14
+ * (0209: its pick, 52db:3d9e, and the fight, 0b3d, queen_fight).
  * DS:ae48, the effect handlers' "hook done" byte, is written by 0000:01bf (0c11's result, 1) after
  * 0268 returns 1; 0268 itself does not write it. Each handler writes it before it reads it (scope
  * 0000, step 11), so it is not modelled. */
@@ -615,7 +746,12 @@ bool queen_computer(cok_adventure *game, cok_character *c)
         cok_combat_end_turn(c); /* 0c11, then the stop */
         return cok_adventure_not_yet(game, "a pending spell's cast", rules->combat.spell_unported);
     }
-    if (!turn_undead(game, c)) return false;
+    bool turned = false;
+    if (!turn_undead(game, c, &turned)) return false;
+    if (turned) {
+        cok_combat_end_turn(c); /* 5bb8:01b8: 0c11, then the turn is over */
+        return true;
+    }
     bool cast = false;
     if (!queen_spell_choice(game, c, &cast)) return false;
     if (cast) return true;

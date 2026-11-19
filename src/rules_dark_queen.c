@@ -414,6 +414,7 @@ static const cok_rules_var dark_queen_vars[COK_VARS] = {
     [COK_VAR_HIT_PARTY] = VAR(0x2f),    /* 148f:1771: the party's to-hit bonus */
     [COK_VAR_HIT_MONSTERS] = VAR(0x01), /* 148f:1771: the monsters' */
     [COK_VAR_MORALE] = VAR(0x1b),       /* 5bb8:1117: 100 less it is the morale's need, a byte */
+    [COK_VAR_TURNING] = VAR(0x0f),      /* 52db:1117: the turning undead's level less, a byte */
 };
 
 /* The effects that bar a free attack's blow (52db:08e6's tests on each neighbour: 0xd2, 0x6a,
@@ -827,6 +828,9 @@ const cok_rules cok_rules_dark_queen = {
                     /* Fleeing (52db:0e26): away (DS:5bac), or blocked (DS:5bb5). */
                     .got_away = "Got Away",
                     .blocked = "Escape is blocked",
+                    /* Turning undead (52db:1117): one destroyed, and none turned (DS:5be1, 5bee). */
+                    .destroyed = "Is destroyed",
+                    .nothing = "Nothing Happens...",
                 },
             /* 5bb8:06b0's "Move/Attack, Move Left = N" (5ded, 5e0a): 7, which 1a62:0046 makes
              * white on the bar's grey. */
@@ -854,12 +858,11 @@ const cok_rules cok_rules_dark_queen = {
             /* 5bb8:1050: the keys read through the Dark Queen's reader, not flushed after. */
             .keys = COK_KEYS_DARK_QUEEN,
             .keys_unflushed = true,
-            /* 5bb8:0000 is queen_computer (queen_ai.c): its undead limit (0x0d, for 52db:135e) is
-             * not set here (turn_limit stays 0; queen_computer stops at 135e first); its paladin
-             * levels above 2 turn undead
-             * (5bb8:0268, read by queen_computer). Morale (5bb8:1117): a signed 100 less var 0x1b,
-             * the roll not capped at 0x66, and no effects removed on a flight (none for
-             * Dark Queen). The surrender is 148f:1a69 (part 16). */
+            /* 5bb8:0000 is queen_computer (queen_ai.c): its undead limit (0x0d, the search 52db:135e
+             * and the turning 52db:1117, both in queen_ai.c) is not set here (turn_limit stays 0);
+             * its paladin levels above 2 turn undead (5bb8:0268, read by queen_computer). Morale
+             * (5bb8:1117): a signed 100 less var 0x1b, the roll not capped at 0x66, and no effects
+             * removed on a flight (none for Dark Queen). The surrender is 148f:1a69 (part 16). */
             .computer_routine = COK_COMPUTER_DARK_QUEEN,
             .paladin_turns = 2,
             .morale_signed = true,

@@ -165,7 +165,8 @@ About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
-         altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse] (auto alone)
+         altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn]
+        (auto alone)
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -234,16 +235,17 @@ SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 
 
-def fight_block(lower=None):
+def fight_block(lower=None, monster=MONSTER):
     """Block 1 of the test: the entry PRESS KEY, the fight (dqkecl.fight: LOAD
     FILES, CLEARMONSTERS, a PRESS KEY labelled 'monsters', LOAD MONSTER, a PRESS
     KEY labelled 'loaded', SETUP MONSTERS, APPROACH, COMBAT), then the block's EXIT.
     LOWER, if given, is a party member's index whose hit points are set to 1 before
-    COMBAT (lower_hit_points); None is the block every other flow runs."""
+    COMBAT (lower_hit_points); None is the block every other flow runs. MONSTER is
+    the monster loaded (COUNT of them; the turn flow loads ZOMBIE)."""
     b = Block()
     b.op("PRESS_KEY")
     before = None if lower is None else (lambda blk: lower_hit_points(blk, lower))
-    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, before_combat=before)
+    dqkecl.fight(b, [(monster, COUNT)], sprite=SPRITE, pause=True, before_combat=before)
     b.op("EXIT")
     return b
 
@@ -1320,11 +1322,11 @@ def field_one(v, work, opts, square, tag):
     placement(v, work, patched, tag, where, square, r)
 
 
-def wild_block(state, river):
+def wild_block(state, river, monster=MONSTER):
     """Block 1 of the wild flow: the fight block, outside 3D (see dqkecl.fight's GROUND)."""
     b = Block()
     b.op("PRESS_KEY")
-    dqkecl.fight(b, [(MONSTER, COUNT)], sprite=SPRITE, pause=True, ground=(state, river))
+    dqkecl.fight(b, [(monster, COUNT)], sprite=SPRITE, pause=True, ground=(state, river))
     b.op("EXIT")
     return b
 
@@ -1968,6 +1970,21 @@ def wait_trap(box, t, where):
     while time.monotonic() < end:
         box.settle(0.5)
         if L.held(box, t, seconds=0.6)[0]:
+            return
+    raise cokbox.BoxError(f"the original's trap at {where} is not reached after {TAIL_SECONDS} s")
+
+
+TURN_HOLD = 4.0                         # the turn flow's hold (game seconds): a timed wait of the game (1df9:052a) stops the polls too
+
+
+def wait_spin(box, t, where, seconds=TURN_HOLD):
+    """wait_trap with a longer hold: the spin's polls must not move over SECONDS of game time (a timed wait of the
+    game, such as the message's, stops them for a second or two as a spin does, so the 0.6 s of wait_trap is not
+    enough for the turn flow's traps)."""
+    end = time.monotonic() + TAIL_SECONDS
+    while time.monotonic() < end:
+        box.settle(0.5)
+        if L.held(box, t, seconds=seconds)[0]:
             return
     raise cokbox.BoxError(f"the original's trap at {where} is not reached after {TAIL_SECONDS} s")
 
@@ -4475,6 +4492,181 @@ def aim(v, work, opts):
     ally_yes_check(v, work, opts)
 
 
+# Turn Undead (step 4, part 26: dqk 52db:1117 and the undead search 52db:135e, queen_turn_undead and queen_undead).
+# The turn flow's undead is ZOMBIE (monster 37, kind 1: its +0x5c word is 1), COUNT of them. T's runs stop at the next
+# combatant's command menu (5045:08cf), reached once the turn is over (End, 0b29, done); a trap at the turn's tail
+# (5045:066a) is not used: after Turn the state it sees is the middle of 1117 (initiative 9, bd2e 0, 3 draws), where
+# wait_trap's 0.6 s false hold fires inside the turn's timed pauses (1df9:052a polls no keys), not at the turn's end.
+# Alt-Q (the computer's turn of BALTHIR, the first combatant) runs on to the battle's end: its state is the second
+# computer dispatch (5045:0891) of the next combatant, after BALTHIR's computer turn, against the port's second turn
+# mark (turn_eclplay).
+ZOMBIE = 37
+TURN_WILD_KEYS = "T"                  # ZOMBIES: T at BALTHIR's menu (the wild ground, wild_block(1, 0))
+TURN_DUNGEON_KEYS = "T"               # ZOMBIE-DUNGEON: T at TIMASALIN's menu (the dungeon, fight_block(monster=37))
+TURN_ALTQ_KEYS = "\\@Q"               # ZOMBIES: Alt-Q at BALTHIR's menu (the computer turns her)
+TURN_WILD_DRAWS, TURN_WILD_SEED = 13, 0x949F681B        # RandSeed draws past the first menu up to the next menu, and at it
+TURN_DUNGEON_DRAWS, TURN_DUNGEON_SEED = 3, 0xC7D7027B   # "Nothing Happens...": 3 draws
+TURN_ALTQ_DRAWS, TURN_ALTQ_SEED = 16, 0x3A060FCE        # BALTHIR's computer turn: 16 draws past the menu, at its end
+TURN_ALTQ_FIRST_DRAWS = 1                               # Alt-Q's own wait, before BALTHIR's computer turn
+TURN_TAIL_AT = "            if (!cok_combat_turn_tail(game)) return false;\n"  # round.c, after each turn's tail
+TURN_MARK = '            cok_adventure_log(game, "dqk", "turn");\n'
+
+
+def turn_mark(name, text):
+    """src/round.c: the "dqk" mark logged after each turn's tail (the state the turn's end leaves). round_log writes the
+    same files as the rounds' (NN.* in COK_DQK_ROUNDS), one per turn: 01 is the first turn's, 02 the second's."""
+    if text.count(TURN_TAIL_AT) != 1:
+        raise cokbox.BoxError("src/round.c's turn tail changed: update dqk_fight.turn_mark")
+    return text.replace(TURN_TAIL_AT, TURN_TAIL_AT + TURN_MARK)
+
+
+def turn_eclplay():
+    """eclplay built with the turn marks (checklib.build; cached by the sources): round_log's writer for the
+    "dqk" kind, the round mark (round_mark) left out."""
+    return checklib.build("eclplay", transforms=[("eclplay.c", round_log), ("round.c", turn_mark)])
+
+
+def turn_port(work, patched, name, typed):
+    """eclplay's run of TYPED with the turn marks (command_port's, with turn_eclplay): the port dict, with `tails` the
+    directory of the turns' marks (NN.*: the state after each turn's tail, 01 the first)."""
+    tails = work / f"tails-{name}"
+    if tails.exists():
+        shutil.rmtree(tails)
+    tails.mkdir(parents=True)
+    os.environ["COK_DQK_ROUNDS"] = str(tails)
+    try:
+        p = command_port(work, patched, name, typed, exe=turn_eclplay())
+    finally:
+        del os.environ["COK_DQK_ROUNDS"]
+    p["tails"] = tails
+    return p
+
+
+def turn_original(work, patched, keys, tag, verbose):
+    """The original at the first turn's menu (to_menu), KEYS typed there, and the next combatant's command menu
+    (5045:08cf) reached once the turn is over: `next` (the state there, with DS:bd2e as `attack_over`), and `again` (the
+    menu drawn and waiting: its screen and RandSeed)."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], MENU)
+        box.keys(keys)
+        wait_spin(box, t, "5045:08cf")
+        nxt = snapshot(box)
+        nxt.update(tail_state(box), selected=selected(box), attack_over=box.ds_byte(0xBD2E))
+        L.untrap(box, t)
+        box.settled(quiet=1.0, tolerance=0)
+        again = dict(screen=box.screenshot(path=str(work / f"{tag}-menu.png")), seed=box.ds_dword(L.DS_SEED))
+    return dict(menu=menu, next=nxt, again=again)
+
+
+def altq_original(work, patched, verbose):
+    """The original at the first turn's menu with Alt-Q typed there: the computer's dispatch (5045:0891) of BALTHIR, after
+    Alt-Q's own wait (`first`: 1 draw past the menu), then BALTHIR's computer turn's tail (5045:066a, the trap moved
+    from the dispatch's: `second`, the state there, with DS:bd2e as `attack_over`). The battle goes on past her turn, so
+    the state is read at the tail, not at the next dispatch (the battle is over in round 1 here)."""
+    with cokbox.Box(workdir=work / "box-turn-altq", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        t = arm(box, menu["handle"], COMPUTER)
+        box.keys(TURN_ALTQ_KEYS)
+        wait_spin(box, t, "5045:0891")
+        first = snapshot(box)
+        first.update(tail_state(box), selected=selected(box))
+        t2 = arm(box, menu["handle"], MOVE_TAIL)
+        L.untrap(box, t)
+        wait_spin(box, t2, "5045:066a")
+        second = snapshot(box)
+        second.update(tail_state(box), selected=selected(box), attack_over=box.ds_byte(0xBD2E))
+        L.untrap(box, t2)
+    return dict(menu=menu, first=first, second=second)
+
+
+def turn_run(v, work, patched, name, keys, what, draws, seed, verbose, destroyed):
+    """One of T's runs: the original's next combatant's menu (turn_original) against eclplay's stop there (BATTLE_STOP:
+    the records, blocks, turn list, RandSeed and screen), the RandSeed draws past the first menu (`draws`, at `seed`),
+    the ZOMBIE records at status 8 and inactive (`destroyed`), DS:bd2e 1 and the turn index (DS:bd2d) 2 there."""
+    o = turn_original(work, patched, keys, f"turn-{name}", verbose)
+    p = command_port(work, patched, f"turn-{name}", "\\r\\r" + keys)
+    m, s = o["menu"], o["next"]
+    got = L.draws(m["seed"], s["seed"])
+    v.check(got == draws and s["seed"] == seed,
+            f"the original's RandSeed past the menu after {what} is {draws} draws (the next menu), at {seed:#x}",
+            f"{got} draws, {s['seed']:#x}")
+    hit = [i for i, r in enumerate(s["records"]) if turn_status(r) == 8]
+    v.check(len(hit) == destroyed and all(turn_zombie(s["records"][i]) and
+                                          bytes.fromhex(s["records"][i])[0x18B] == 0 for i in hit),
+            f"after {what}: {destroyed} ZOMBIE record(s) at status 8 and inactive in the original",
+            f"{len(hit)} at status 8")
+    v.check(s["attack_over"] == 1, f"the original's attack-over byte (DS:bd2e) after {what} is 1",
+            f"{s['attack_over']}")
+    v.check(s["state"]["turn"] == 2, f"the original's turn index (DS:bd2d) after {what} is 2 (the next combatant)",
+            f"{s['state']['turn']}")
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            f"eclplay ends at the next combatant's command menu (out of keys) after {what}", p["last"])
+    command_state(v, f"the next combatant's menu after {what}", s, p, m["seed"])
+    command_screen(v, f"the command menu after {what}", o["again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+    return o, p
+
+
+def turn_zombie(record):
+    """Whether a record (its hex) is a ZOMBIE (the turn flow's undead)."""
+    return cstr(bytes.fromhex(record)[0x68:0x78]).startswith("ZOMBIE")
+
+
+def turn_status(record):
+    raw = bytes.fromhex(record)
+    return raw[0x64] | raw[0x65] << 8
+
+
+def turn_altq(v, work, patched, opts):
+    """Alt-Q at BALTHIR's menu on the open ground (the computer turns her): the original's first dispatch (1 draw, Alt-Q's
+    own wait) and its second (BALTHIR's computer turn's end: 16 draws past the menu, ZOMBIE 2 destroyed, DS:bd2e 1), against
+    eclplay's second turn mark (the state after her computer turn: records, blocks, turn list, RandSeed)."""
+    o = altq_original(work, patched, opts.verbose)
+    p = turn_port(work, patched, "turn-altq", "\\r\\r" + TURN_ALTQ_KEYS)
+    m, f, s = o["menu"], o["first"], o["second"]
+    got = L.draws(m["seed"], f["seed"])
+    v.check(got == TURN_ALTQ_FIRST_DRAWS, "the original's RandSeed past the menu at BALTHIR's first dispatch after Alt-Q "
+            f"is {TURN_ALTQ_FIRST_DRAWS} draw (the wait)", f"{got} draws")
+    got = L.draws(m["seed"], s["seed"])
+    v.check(got == TURN_ALTQ_DRAWS and s["seed"] == TURN_ALTQ_SEED,
+            f"the original's RandSeed past the menu after BALTHIR's computer turn (Alt-Q) is {TURN_ALTQ_DRAWS} draws, "
+            f"at {TURN_ALTQ_SEED:#x}", f"{got} draws, {s['seed']:#x}")
+    hit = [i for i, r in enumerate(s["records"]) if turn_status(r) == 8]
+    v.check(len(hit) == 1 and turn_zombie(s["records"][hit[0]]) and
+            bytes.fromhex(s["records"][hit[0]])[0x18B] == 0,
+            "after BALTHIR's computer turn (Alt-Q): one ZOMBIE record at status 8 and inactive in the original",
+            f"{len(hit)} at status 8")
+    v.check(s["attack_over"] == 1, "the original's attack-over byte (DS:bd2e) after BALTHIR's computer turn is 1",
+            f"{s['attack_over']}")
+    mark = p["tails"] / "02"
+    if not mark.with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's computer turn's mark after Alt-Q", p["last"])
+    else:
+        command_state(v, "BALTHIR's computer turn after Alt-Q", s, dict(base=mark, last=p["last"]), m["seed"])
+
+
+def turn(v, work, opts):
+    """Turn Undead (step 4, part 26): T at the first turn's menu on the open ground (ZOMBIES: BALTHIR, a cleric of level 10:
+    ZOMBIE 2 is destroyed, ZOMBIE 1 is out of sight) and in the dungeon (ZOMBIE-DUNGEON: TIMASALIN, nothing in sight: "Nothing
+    Happens..."), each against eclplay's next combatant's menu; and Alt-Q at BALTHIR's menu (the computer turns her), against
+    eclplay's mark after her computer turn."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0], monster=ZOMBIE)))
+    dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block(monster=ZOMBIE)))
+    turn_run(v, work, wild, "wild", TURN_WILD_KEYS, "T at BALTHIR's menu (ZOMBIES)", TURN_WILD_DRAWS,
+             TURN_WILD_SEED, opts.verbose, destroyed=1)
+    turn_run(v, work, dungeon, "dungeon", TURN_DUNGEON_KEYS, "T at TIMASALIN's menu (ZOMBIE-DUNGEON, nothing in sight)",
+             TURN_DUNGEON_DRAWS, TURN_DUNGEON_SEED, opts.verbose, destroyed=0)
+    turn_altq(v, work, wild, opts)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -4494,10 +4686,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse, move, aim")
+                             "won, drop, timer, walk, mouse, move, aim, turn")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -4554,6 +4746,8 @@ def main():
         move(v, work, opts)
     if "aim" in flows:
         aim(v, work, opts)
+    if "turn" in flows:
+        turn(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
