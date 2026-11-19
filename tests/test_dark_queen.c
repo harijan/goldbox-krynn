@@ -2066,8 +2066,10 @@ static void test_combat_menu_areas(void)
  * step and shows the command menu again. A cost above the movement says "can't go there", and Done
  * under 2 movement leaves 0. A combatant in the cell is melee by the step: the ally question first
  * for one on her side (No: no attack; Yes: var 0x36 set, the attack), a foe attacked; a missile
- * weapon not thrown is "Not with that weapon". A wall in the cell asks "flee ? ". The keys running
- * out at the Move menu end the run with the turn kept. The Move menu's prompt is drawn by
+ * weapon not thrown is "Not with that weapon". A wall in the cell asks "flee ? ". An enemy beside
+ * the square left takes its attack of opportunity before the step; a step onto a cloud's square
+ * (0x1d) stops at the unported square test; a helpless mover's turn ends after its step. The keys
+ * running out at the Move menu end the run with the turn kept. The Move menu's prompt is drawn by
  * queen_combat_menu (dark_queen.c), not checked here: no test reads its text, and the DOSBox move
  * flow compares no Move-menu screen (only the mouse flow's "MOVE LEFT = 10" is compared). */
 /* The foes the move test makes (WALKERKE's record, a foe or an ally by its +0x66): kept to be freed
@@ -2253,6 +2255,45 @@ static void test_command_move(void)
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 1);
     CHECK(menu_run("~M") && menu_game.vm.status == COK_ECL_OK);
     CHECK(strcmp(script.messages, "Can't use that underwater;Not with that weapon;") == 0);
+    /* An enemy beside the square she leaves (4, 5) and none beside the square she steps to (6, 5):
+     * its attack of opportunity (attack_slot set) runs before the step, which is then taken. */
+    menu_open();
+    battle_map();
+    foe = foe_of();
+    foe->combat = calloc(1, sizeof *foe->combat);
+    CHECK(foe->combat != NULL);
+    cok_field_set8(R->character, foe->record, COK_FIELD_HOSTILE, 1);
+    place(&menu_game, foe, 4, 5);
+    CHECK(queen_added_icons(&menu_game, foe->record)); /* the foe's body icon (its slot) */
+    CHECK(menu_run("~M") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(foe->combat->attack_slot != 0 && cok_combat_x(k, menu_c->record) == 6);
+    /* A step onto a cloud's square (terrain 0x1d, which a step stops at: 148f:12ab, not ported):
+     * the step itself is taken, then the stop is the run's unported. */
+    menu_open();
+    battle_map();
+    k->cells[5][6] = 0x1d;
+    CHECK(!menu_run("~MD") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(cok_combat_x(k, menu_c->record) == 6);
+    /* A helpless mover (its effect, which ends the turn when it is put on, so the movement and
+     * initiative are set back after it): the step is taken, then the turn ends (one menu, the Move
+     * menu not shown again; initiative 0). */
+    menu_open();
+    battle_map();
+    cr = menu_c->combat;
+    uint8_t movement_before = cr->movement;
+    CHECK(cok_character_add_effect(menu_c, cok_data_u8_at(R->data, COK_DATA_HELPLESS, 0), 0, 0, false) !=
+          NULL);
+    CHECK(cok_combat_helpless(menu_c, R));
+    cr->movement = movement_before;
+    cr->initiative = 5;
+    CHECK(menu_run("~MD") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(cok_combat_x(k, menu_c->record) == 6 && cr->initiative == 0 && script.menus == 1);
+    /* No movement: the cost check refuses the step (every terrain's cost is 2 or more), so no step. */
+    menu_open();
+    battle_map();
+    menu_c->combat->movement = 0;
+    CHECK(menu_run("~MD") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.messages, "can't go there;") == 0 && cok_combat_x(k, menu_c->record) == 5);
     menu_close();
     for (size_t i = 0; i < foe_count; ++i) {
         cok_character_free(foes[i]);
