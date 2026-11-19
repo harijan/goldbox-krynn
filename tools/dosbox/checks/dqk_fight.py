@@ -165,7 +165,7 @@ About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
-         altq_missile,turns,round,melee,melee-long,melee-dying,won,timer,walk,mouse] (auto alone)
+         altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse] (auto alone)
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
 import argparse
@@ -187,6 +187,7 @@ import dqk_ecl  # noqa: E402
 import dqk_ecl_text  # noqa: E402
 import dqk_fight_lib as L  # noqa: E402
 import dqk_lib  # noqa: E402
+import dqk_modify  # noqa: E402
 import dqk_views  # noqa: E402
 import dqkecl  # noqa: E402
 import hlib  # noqa: E402
@@ -346,7 +347,7 @@ def saved_entry(work, data=None):
 
 def port(work, patched, name="fight", typed="", records=None, difficulty=None, screen=None,
          field=None, at=None, blocks=None, turns=None, combat=None, state=None, sets=(),
-         effects=None, entry=None, exe=None):
+         effects=None, entry=None, exe=None, items=None, mouse=False, shots=None):
     """eclplay's run of the block as the original's Load then Begin Adventuring
     gives it: saved game A's copy (--load) and --play, which is Begin Adventuring's
     entry (without it the block is entered in load_saved's mode 0, not the mode the
@@ -377,6 +378,12 @@ def port(work, patched, name="fight", typed="", records=None, difficulty=None, s
         extra += ["--field", str(field)]
     if at is not None:
         extra += ["--at", "%d,%d,%d" % at]
+    if items is not None:
+        extra += ["--items", str(items)]
+    if shots is not None:
+        extra += ["--shots", str(shots)]  # DIR/NNN.bmp at each key wait (the last is where the keys ran out)
+    if mouse:
+        extra += ["--mouse"]  # the game's own cursor drawn (the box's mouse driver has it at 8, 8)
     variables, last, _ = dqk_ecl.port(work, name, patched, typed=typed, extra=extra,
                                       block=None, exe=exe)
     return variables, last
@@ -3442,6 +3449,212 @@ def won(v, work, opts):
                    WON_WAIT_MASKS)
     command_screen(v, "at the treasure menu", o["end_screen"], base.with_suffix(".bmp"), WON_SCREEN_MASK)
 
+# The drop flow (step 4, part 21c: a defeated monster's items go to the pool, 75cc:02cb). The fight is
+# THENOL WIZARD x2 (MONCHA 41: coins 16 3 0 each, a readied dagger and 20 darts; the copy's list is
+# reversed): won's run to the results' key, the treasure menu, then Take's bar, its item list (the game's
+# sword cursor over it: the port runs with --mouse and the step screens are compared whole), ROLAND's
+# Return on the darts, Escape, and Exit's question. Measured (scope's probe): the menu's pool 32 6 0,
+# share 2260, RandSeed 0x3039 at every wait; each member gains [2260, 753, 753, 1130, 1130, 1130].
+DROP_MONSTER, DROP_COUNT, DROP_NAME = 41, 2, b"THENOL WIZARD"
+DROP_STEPS = [("Take's bar", "t"), ("the item list", "i"), ("the darts taken by ROLAND", "\\r"),
+              ("Take's bar after Escape", "\\e"), ("the menu after Exit", "e")]
+DROP_TYPED = "\\r\\r\\r\\r"       # eclplay's keys to the treasure menu (won's, from the scope's probe)
+DROP_WAIT_TYPED = "\\r\\r"        # to the results' key wait (won's)
+DROP_POOL = (32, 6, 0)
+DROP_SHARE = 2260
+DROP_SEED = 0x3039
+DROP_GAINED = [2260, 753, 753, 1130, 1130, 1130]
+DROP_MAY = [0, 0, 0, 0, 1, 0]
+DROP_POOL_ITEMS = ["0500000505000000000000000014000000",   # the copy's darts (head)
+                   "040000040a000200000000000000000000",   # W2's dagger, unreadied
+                   "040000040a000200000000000000000000",   # W1's dagger, unreadied
+                   "0500000505000000000000000014000000"]   # W1's darts
+DROP_ROLAND = 0                  # the record taking the darts (ROLAND OF DUST)
+DROP_WEIGHTS = (910, 1010)       # ROLAND's weight (+0x56) before and after the darts
+DROP_OUT = re.compile(r".*\(out of keys in block 1 at [0-9a-f]+\).*")
+
+
+def drop_block():
+    """Block 1 of the drop check: the entry PRESS KEY, the fight with THENOL WIZARD x2 (dqkecl.fight, as
+    fight_block's with MONSTER 41), then the block's EXIT."""
+    b = Block()
+    b.op("PRESS_KEY")
+    dqkecl.fight(b, [(DROP_MONSTER, DROP_COUNT)], sprite=SPRITE, pause=True)
+    b.op("EXIT")
+    return b
+
+
+def drop_list(box, head):
+    """The items of the list whose far pointer lies at linear address HEAD: each node's 17 bytes at +0x28
+    (hex), in order; a node is 0x3d bytes with the next far pointer at +0 (dqk_treasure's item_list)."""
+    out, node = [], box.far(head)
+    while node is not None:
+        if len(out) >= 64:
+            raise cokbox.BoxError("the item list does not end")
+        out.append(box.read(node + 0x28, 17).hex())
+        node = box.far(node)
+    return out
+
+
+def drop_state(box, what):
+    """The key wait at WHAT (settled): the screen, the variables, the records, the pool's coins (DS:b1db,
+    b1df, b1e3), RandSeed, the share (DS:ae4f), the pool's items (DS:b1e7, head first) and each record's."""
+    t0 = time.monotonic()
+    while not box.waiting():
+        if time.monotonic() - t0 > 60:
+            raise cokbox.BoxError(f"the game waits for no key at {what}")
+    shot = box.settled()
+    return dict(what=what, shot=shot, vars=block_vars(box), records=[raw for _, raw in L.records(box)],
+                pool=tuple(int.from_bytes(box.ds_read(at, 4), "little") for at in (0xB1DB, 0xB1DF, 0xB1E3)),
+                seed=box.ds_dword(L.DS_SEED), share=int.from_bytes(box.ds_read(0xAE4F, 4), "little"),
+                pool_items=drop_list(box, box.ds * 16 + 0xB1E7),
+                member_items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+
+
+def drop_original(work, patched, verbose):
+    """The drop flow's original: won_original's run to the results' key (148f:0512 spun at the 'loaded' PRESS
+    KEY; each THENOL WIZARD +0x64 6 and +0x18b 0; DS:b7f3 0; then untrapped, no other trap), then the key
+    wait's state, Return to the treasure menu's, and the state after each of DROP_STEPS."""
+    with cokbox.Box(workdir=work / "box-drop", game="dark-queen", verbose=verbose, timeout=900,
+                    files=L.files(patched)) as box:
+        enter(box)
+        freeze_frame(box)
+        box.set_seed(SEED)
+        box.keys("\\r")
+        box.settled(tolerance=64)                       # 'monsters'
+        box.keys("\\r")
+        box.settled(tolerance=64)                       # 'loaded'
+        code = L.code(box, 0x148F, 0x0512)
+        orig = box.read(code, 2)
+        if orig != b"\x55\x8b":
+            raise cokbox.BoxError(f"148f:0512 is not where it was expected: {orig.hex()}")
+        box.write(code, b"\xeb\xfe")
+        hA = L.Trap([(code, orig)], 0x148F, 0x0512)
+        box.keys("\\r")                                 # SETUP MONSTERS, APPROACH, COMBAT
+        wait_held_at(box, hA, "148f:0512")
+        mons = 0
+        for ptr, raw in L.records(box):
+            if raw[0x68:0x78].split(b"\0")[0] == DROP_NAME:
+                a = ptr[0] * 16 + ptr[1]
+                box.write(a + 0x64, b"\x06\x00")
+                box.write(a + 0x18B, b"\x00")
+                mons += 1
+        box.ds_write(0xB7F3, b"\x00")
+        L.untrap(box, hA)
+        results = drop_state(box, "the results' key wait")
+        box.keys("\\r")
+        states = [drop_state(box, "the treasure menu")]
+        for what, keys in DROP_STEPS:
+            box.keys(keys)
+            states.append(drop_state(box, what))
+    return results, states, mons
+
+
+def drop_saved(work):
+    """Saved game A's experience (+0x44) by member, matched by name (the drop's party is saved game A's)."""
+    qsv = (dqk_lib.ASSETS / "SAVE" / "SAVGAMA.QSV").read_bytes()
+    out = []
+    for m in range(6):
+        at = dqk_modify.record_at(qsv, m)
+        out.append((qsv[at + 0x68:at + 0x78], int.from_bytes(qsv[at + 0x44:at + 0x48], "little")))
+    return out
+
+
+def drop(v, work, opts):
+    """The drop flow (part 21c): the original's state at the results' key wait, the treasure menu and after
+    each of DROP_STEPS; eclplay's run to each of them (--combat won, --mouse, --items, --records, --state,
+    --screen) agrees with each: the screen (whole at the steps, the pointer's corner masked at the end, the
+    blink's BAR at the results' wait), the variables, the records (pointers masked), the coins, RandSeed,
+    the share and the pool's and each record's items. The original's own values are checked against the
+    measured ones (DROP_*)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    patched = hlib.replace(glb, JUMP, dqkecl.assemble(drop_block()))
+    results, states, mons = drop_original(work, patched, opts.verbose)
+    menu = states[0]
+    v.value("the records poked (THENOL WIZARD) are the two monsters", mons, DROP_COUNT)
+    v.check(len(menu["records"]) == 6, "the original's party is six records at the treasure menu",
+            f"{len(menu['records'])}")
+    v.check(all(s["seed"] == DROP_SEED for s in [results] + states),
+            "RandSeed is 0x3039 at the results' wait and at every step (the won path draws nothing)",
+            [hex(s["seed"]) for s in [results] + states])
+    v.check(menu["pool"] == DROP_POOL and menu["share"] == DROP_SHARE,
+            "at the treasure menu the pool's coins are 32 6 0 and the share 2260 (the original)",
+            f"pool {menu['pool']}, share {menu['share']}")
+    v.check(menu["pool_items"] == DROP_POOL_ITEMS,
+            "at the treasure menu the pool holds the copy's darts, two daggers (unreadied) and W1's darts, "
+            "head first (the original)", menu["pool_items"])
+    saved = drop_saved(work)
+    gained, may = [], []
+    for raw in menu["records"]:
+        before = [e for name, e in saved if name == raw[0x68:0x78]]
+        gained.append((int.from_bytes(raw[0x44:0x48], "little") - before[0] + 2 ** 31) % 2 ** 32 - 2 ** 31
+                      if before else None)
+        may.append(raw[0xcd])
+    v.check(gained == DROP_GAINED and may == DROP_MAY,
+            "each member gains the experience the flow's arithmetic gives, and may-train is as measured "
+            "(the original)", f"gained {gained}, may {may}")
+    after_darts = states[3]        # the menu after ROLAND's Return on the darts
+    v.check(after_darts["records"][DROP_ROLAND][0x56:0x58] == DROP_WEIGHTS[1].to_bytes(2, "little")
+            and menu["records"][DROP_ROLAND][0x56:0x58] == DROP_WEIGHTS[0].to_bytes(2, "little"),
+            f"ROLAND's weight goes {DROP_WEIGHTS[0]} -> {DROP_WEIGHTS[1]} with the darts (the original)")
+    v.check(len(after_darts["member_items"][DROP_ROLAND]) == 5
+            and after_darts["member_items"][DROP_ROLAND][-1] == DROP_POOL_ITEMS[0]
+            and after_darts["pool_items"] == DROP_POOL_ITEMS[1:],
+            "ROLAND has five items, the darts last; the pool keeps the two daggers and W1's darts (the original)")
+
+    # eclplay: the results' wait, then the menu and each step (each run types the keys so far)
+    wait = work / "port-drop-wait"
+    port(work, patched, name="drop-wait", typed=DROP_WAIT_TYPED, combat="won", mouse=True,
+         screen=wait.with_suffix(".bmp"))
+    command_screen(v, "at the results' key wait", results["shot"], wait.with_suffix(".bmp"), [dqk_views.BAR])
+    names = ["the treasure menu"] + [what for what, _ in DROP_STEPS]
+    for i, state in enumerate(states):
+        what = names[i]
+        base = work / f"port-drop-{i}"
+        shot_dir = work / f"port-drop-{i}-shots"
+        if shot_dir.exists():
+            shutil.rmtree(shot_dir)
+        typed = DROP_TYPED + "".join(keys for _, keys in DROP_STEPS[:i])
+        variables, last = port(work, patched, name=f"drop-{i}", typed=typed, combat="won", mouse=True,
+                               records=base.with_suffix(".records"), state=base.with_suffix(".state"),
+                               items=base.with_suffix(".items"), shots=shot_dir)
+        v.check(DROP_OUT.fullmatch(last or "") is not None,
+                f"eclplay waits for a key at {what} (keys run out)", last)
+        # the screen at the key wait where the keys ran out: its shot, taken before list_menu clears the
+        # controls (the cursor's shape is the control's: the sword over the list); whole, the pointer's
+        # corner masked at the end only (the original shows no cursor there)
+        waits = sorted(shot_dir.glob("*.bmp"), key=lambda p: int(p.stem)) if shot_dir.is_dir() else []
+        shot = waits[-1] if waits else base.with_suffix(".bmp")
+        command_screen(v, f"at {what}", state["shot"], shot,
+                       WON_SCREEN_MASK if i == len(states) - 1 else [])
+        v.check(variables == state["vars"], f"the variables agree at {what} (the 1 KB)")
+        data = base.with_suffix(".records").read_bytes() if base.with_suffix(".records").exists() else b""
+        ported = [data[k:k + L.RECORD].hex() for k in range(0, max(len(data) - 3, 0), L.RECORD)]
+        want = [raw.hex() for raw in state["records"]]
+        differ = [k for k in range(min(len(ported), len(want))) if masked(ported[k]) != masked(want[k])]
+        v.check(not differ and len(ported) == len(want), f"every record agrees at {what} (pointers masked)",
+                f"{len(ported)} against {len(want)}; differ: {' '.join(map(str, differ))}")
+        lines = base.with_suffix(".state").read_text().splitlines() if base.with_suffix(".state").exists() else []
+        got = dict(line.split(" ", 1) for line in lines if " " in line)
+        port_pool = tuple(int(x) for x in got.get("pool", "").split())
+        v.check(got.get("seed") == f"{state['seed']:08x}" and port_pool == state["pool"]
+                and int(got.get("share", -1)) == state["share"],
+                f"RandSeed, the pool's coins and the share agree at {what} (eclplay's --state)",
+                f"eclplay {got}; the original seed {state['seed']:#x}, pool {state['pool']}, "
+                f"share {state['share']}")
+        ported_items, ported_members = [], []
+        if base.with_suffix(".items").exists():
+            for line in base.with_suffix(".items").read_text().splitlines():
+                fields = line.split()
+                if fields[0] == "pool":
+                    ported_items = fields[1:]
+                else:
+                    ported_members.append(fields[1:])
+        v.check(ported_items == state["pool_items"] and ported_members == state["member_items"],
+                f"the pool's items and each record's agree at {what} (eclplay's --items)",
+                f"original {state['pool_items']}, eclplay {ported_items}")
+
+
 # The walk flow: tests/test_dark_queen.py's test_first_fight in the original, the shipped block 4 (no
 # test block): from the start menu, Load saved game A (plta), Begin Adventuring, block 4's texts to
 # Caergoth, the steps along the ruins to the dragons (TO_FIGHT), THEY ATTACK!'s Return, the first
@@ -3950,11 +4163,10 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,timer,walk,mouse",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, timer, "
-                             "walk, mouse")
+                             "won, drop, timer, walk, mouse")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -4001,6 +4213,8 @@ def main():
         melee_dying(v, work, opts)
     if "won" in flows:
         won(v, work, opts)
+    if "drop" in flows:
+        drop(v, work, opts)
     if "walk" in flows:
         walk(v, work, opts)
     if "mouse" in flows:

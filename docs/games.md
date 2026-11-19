@@ -713,8 +713,9 @@ run, citing their handlers (`unported`). It holds:
   bonuses x400, a magic item's bonus a signed word, over var 0x20 less those out, DS:b1da, which 01fb
   decrements where var 0x20 is no more; the division is Borland's LDIV@ (`10d7:2a72`, signed, with no
   test for 0: a divisor of 0 gives 0xffffffff, or 1 for a negative dividend, and no error); the
-  monsters past the party add their coins, experience and items, the items moved at `02cb` (`000b`
-  merges counted items), part 19b) and 0427 (the award by class, as Champions'; half and a third
+  monsters past the party add their coins and experience, and their items go to the pool first, in
+  their list order, unreadied, at `02cb` (part 21c; `000b`, a merge of counted items, stops the run
+  cited: no shipped monster has two of a kind; part 19b) and 0427 (the award by class, as Champions'; half and a third
   divide by LDIV@ too) run; then its rest from `75cc:0736`: with no load asked (b7a7 clear) each record
   until one past the party walks its status (3 revived, 4 revived with hit points or var 0x1d, else
   kept; 5 revived with var 0x1d, else 4), a fled party's members not status 3 are removed (`177e:1e31`:

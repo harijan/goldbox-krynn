@@ -1506,7 +1506,8 @@ static void dq_pool_item(cok_adventure *adv, uint8_t bonus)
  * its item. The share is LDIV@ (2a72): a divisor of 0 gives 0xffffffff, a negative dividend 1.
  * A record past the party (not_party 1, hostile 1, status not 0, 3 or 9) sets DS:c7df, adds its
  * coins to the pool's 4-6 and its +0x54 to the sum, unless var 0x1e keeps its items (2a5); an
- * item whose +0x28 is not 0x69 stops at 01fb's item move (02cb, part 19b, cited). */
+ * item whose +0x28 is not 0x69 moves to the pool first, in list order (02cb, part 21c), unless
+ * a counted item merges (000b: a cited stop). */
 static void test_dark_queen_pool_and_past_party(void)
 {
     static cok_adventure dqk;
@@ -1611,25 +1612,104 @@ static void test_dark_queen_pool_and_past_party(void)
     CHECK(cok_dark_queen_end_state_of(&dqk).share ==
           (uint32_t)((100 + 5 * 2 + 7 * 250 + 11 * 2200) / 2));
 
-    /* Its item: var 0x1e keeps it (2a5, no stop); without, its first item not 'i' (+0x28 not
-     * 0x69) stops at 01fb's item move (02cb, cited) before 11b0 removes the record; 'i' is no
-     * move. Each run after one that removes the record is given a new one. */
+    /* Its items (75cc:02cb, part 21c). var 0x1e keeps them (2a5): no move, the record goes. */
+    const cok_rules_item_record *ir = &cok_rules_dark_queen.item_record;
     uint8_t it[COK_ITEM_SIZE] = {0};
-    it[cok_rules_dark_queen.item_record.type] = 0x27;
+    it[ir->type] = 0x27;
+    dq_clear_pool(&dqk);
     p = dq_past_party(&dqk, 2);
     CHECK(cok_character_insert_item(p, p->item_count, it));
     cok_ecl_store(&dqk.vm, 0x1e, 1);
-    dq_combat_leave(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
+    dq_combat(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.pool.item_count == 0);
     cok_ecl_store(&dqk.vm, 0x1e, 0);
+
+    /* A first item of 0x69 keeps its items: 'i' is no move. */
+    dq_clear_pool(&dqk);
     p = dq_past_party(&dqk, 2);
+    it[ir->type] = 0x69;
     CHECK(cok_character_insert_item(p, p->item_count, it));
     dq_combat(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.pool.item_count == 0);
+
+    /* Two items, the first a 0x27 readied with a weight and name words, the second ITEM.DAT 1's
+     * bytes, also readied: both go first in the pool, in list order, unreadied, with their weight
+     * and words (the game's insert keeps +0x2a-+0x2d). An item already in the pool stays behind. */
+    uint8_t one[COK_ITEM_SIZE] = {0}, two[COK_ITEM_SIZE] = {0}, before[COK_ITEM_SIZE] = {0};
+    one[ir->type] = 0x27;
+    one[ir->readied] = 1;
+    one[ir->weight] = 0x34;
+    one[ir->weight + 1] = 0x12;
+    one[0x29] = 'A';
+    one[0x2a] = 'B';
+    one[0x2b] = 'C';
+    memcpy(two + ir->file_at, dqk.item_table[1], COK_ITEM_ENTRY);
+    two[ir->readied] = 1;
+    before[ir->type] = 0x27;
+    before[ir->bonus] = 3;
+    dq_clear_pool(&dqk);
+    dq_pool_item(&dqk, 3);
+    p = dq_past_party(&dqk, 2);
+    CHECK(cok_character_insert_item(p, p->item_count, one));
+    CHECK(cok_character_insert_item(p, p->item_count, two));
+    one[ir->readied] = 0;
+    two[ir->readied] = 0;
+    dq_combat(&dqk);
+    CHECK(dqk.pool.item_count == 3);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[0], one, COK_ITEM_SIZE) == 0);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[1], two, COK_ITEM_SIZE) == 0);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[2], before, COK_ITEM_SIZE) == 0);
+
+    /* Two records past the party: the second's items come first (each record's go to index 0
+     * on): with X (bonus 1) in the first and Y (bonus 2) in the second, the pool is Y, X. */
+    uint8_t x[COK_ITEM_SIZE] = {0}, y[COK_ITEM_SIZE] = {0};
+    x[ir->type] = 0x27;
+    x[ir->bonus] = 1;
+    y[ir->type] = 0x27;
+    y[ir->bonus] = 2;
+    dq_clear_pool(&dqk);
+    cok_character *first = dq_past_party(&dqk, 2), *second = dq_past_party(&dqk, 2);
+    CHECK(cok_character_insert_item(first, first->item_count, x));
+    CHECK(cok_character_insert_item(second, second->item_count, y));
+    dq_combat(&dqk);
+    CHECK(dqk.pool.item_count == 2 && memcmp(dqk.pool.items[0], y, COK_ITEM_SIZE) == 0);
+    CHECK(dqk.pool.item_count == 2 && memcmp(dqk.pool.items[1], x, COK_ITEM_SIZE) == 0);
+
+    /* A first item with a count (+0x35) above 0, and a later item with +0x33 set, and a counted
+     * item of the first's kind (count above 0, +0x36 below 2, the same bytes): 75cc:000b, cited,
+     * stops before any item moves. The same list with the twin's weight (+0x2c) different moves,
+     * in list order. */
+    uint8_t f[COK_ITEM_SIZE] = {0}, g[COK_ITEM_SIZE] = {0}, h[COK_ITEM_SIZE] = {0};
+    f[ir->type] = 0x27;
+    f[ir->count] = 2;
+    f[ir->weight] = 5;
+    g[ir->type] = 0x29;
+    g[0x33] = 1;
+    memcpy(h, f, COK_ITEM_SIZE);
+    h[ir->count] = 1;
+    dq_clear_pool(&dqk);
+    p = dq_past_party(&dqk, 2);
+    CHECK(cok_character_insert_item(p, p->item_count, f));
+    CHECK(cok_character_insert_item(p, p->item_count, g));
+    CHECK(cok_character_insert_item(p, p->item_count, h));
+    dq_combat(&dqk);
     CHECK(dqk.vm.status == COK_ECL_UNPORTED &&
-          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:02cb") != NULL);
-    p->items[0][cok_rules_dark_queen.item_record.type] = 0x69;
-    dq_combat_leave(&dqk);
-    CHECK(dqk.vm.status == COK_ECL_OK && dq_quiet.at == 4);
+          strstr(cok_adventure_why(&dqk, dqk.vm.status), "dqk 75cc:000b") != NULL);
+    CHECK(dqk.pool.item_count == 0);
+    while (p->item_count != 0) cok_character_remove_item(p, 0);
+    uint8_t h2[COK_ITEM_SIZE];
+    memcpy(h2, h, COK_ITEM_SIZE);
+    h2[ir->weight] = 6;
+    CHECK(cok_character_insert_item(p, p->item_count, f));
+    CHECK(cok_character_insert_item(p, p->item_count, g));
+    CHECK(cok_character_insert_item(p, p->item_count, h2));
+    dq_clear_pool(&dqk);
+    dq_combat(&dqk);
+    CHECK(dqk.vm.status == COK_ECL_OK && dqk.pool.item_count == 3);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[0], f, COK_ITEM_SIZE) == 0);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[1], g, COK_ITEM_SIZE) == 0);
+    CHECK(dqk.pool.item_count == 3 && memcmp(dqk.pool.items[2], h2, COK_ITEM_SIZE) == 0);
+    dq_clear_pool(&dqk);
 }
 
 /* Whether item's file bytes (the item record's file_size at file_at) are the hex string. */

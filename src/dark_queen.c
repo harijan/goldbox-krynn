@@ -5839,6 +5839,54 @@ static uint32_t ldiv_borland(uint32_t a, uint32_t b)
     return negative ? 0u - q : q;
 }
 
+/* 75cc:000b's scan (the merge of counted items, not run): whether an item past the first (the
+ * first is skipped as itself) is a counted item of the first's kind. Its count (+0x35) is above
+ * 0 and its +0x36 below 2 (unsigned compares), and its +0x28-+0x2b, weight word (+0x2c), +0x30,
+ * +0x31 and +0x34 equal the first's. +0x33 is not compared, and +0x37 and +0x38 are compared with
+ * the item's own bytes in the original, so they never differ. */
+static bool counted_twin(const cok_character *c, const cok_rules_item_record *ir)
+{
+    static const size_t same[] = {0x28, 0x29, 0x2a, 0x2b, 0x2c, 0x2d, 0x30, 0x31, 0x34};
+    const uint8_t *first = c->items[0];
+    for (size_t p = 1; p < c->item_count; ++p) {
+        const uint8_t *q = c->items[p];
+        if (q[ir->count] == 0 || q[0x36] >= 2) continue;
+        bool match = true;
+        for (size_t k = 0; k < sizeof same / sizeof *same; ++k)
+            match = match && q[same[k]] == first[same[k]];
+        if (match) return true;
+    }
+    return false;
+}
+
+/* 75cc:02cb-0338, a monster's items to the pool (01fb's, after its coins and experience): its
+ * items go first in the pool, in its list order (item k at index k), each unreadied (+0x32, in
+ * the copy), and the monster holds none. Its record's +0xc9 count byte is not changed (11b0
+ * removes the record next). For each item but the last (2e0-323), with the first's count (+0x35)
+ * above 0 and the item's +0x33 set, 75cc:000b runs on the first (2f4-312): a counted item of the
+ * first's kind merges into it (counted_twin). No shipped monster has one, so a match stops the
+ * run, cited, before any item moves (the original would merge it during the move). */
+static bool monster_items(cok_adventure *game, cok_character *c)
+{
+    const cok_rules_item_record *ir = &cok_game_rules(game)->item_record;
+    for (size_t k = 0; k + 1 < c->item_count; ++k) {
+        if (c->items[0][ir->count] > 0 && c->items[k][0x33] != 0 && counted_twin(c, ir)) {
+            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:000b (a monster's counted items "
+                                                       "merged in the pool: no shipped monster has "
+                                                       "two of a kind)");
+            return false;
+        }
+    }
+    for (size_t k = 0; k < c->item_count; ++k) {
+        uint8_t copy[COK_ITEM_SIZE];
+        memcpy(copy, c->items[k], sizeof copy);
+        copy[ir->readied] = 0; /* 2e6 */
+        if (!pool_put(game, k, copy)) return false;
+    }
+    while (c->item_count != 0) cok_character_remove_item(c, 0); /* 335-33e: none held */
+    return true;
+}
+
 /* 75cc:01fb, the experience (after 0593 when a member stands): every monster in the list
  * (hostile word 1, status word neither 0, 3 nor 9) sets DS:c7df, and one past the party (its
  * combat record's not_party 1) puts its coins (three words, steel, gems, jewelry) in the pool
@@ -5847,8 +5895,9 @@ static uint32_t ldiv_borland(uint32_t a, uint32_t b)
  * 0x30; the last missile recovered, DS:c2e3, stops the walk). The sum, a LongInt, is divided by
  * the party's variable 0x20 less those out (DS:b1da, decremented first where the variable is no
  * more: 01fb 3a2-3ac), by ldiv_borland (2a72: a divisor of 0 gives 0xffffffff, not an error).
- * The share is DS:ae4f. A monster's items go to the pool through 02cb (part 19b): cited, the
- * first time one would move. The party with no monsters past it adds nothing here. */
+ * The share is DS:ae4f. A monster's items go to the pool first (monster_items, 02cb, part 21c),
+ * unless var 0x1e keeps them; a counted-item merge (000b) stops the run, cited. The party with
+ * no monsters past it adds nothing here. */
 static bool experience(cok_adventure *game)
 {
     queen *q = own(game);
@@ -5872,12 +5921,8 @@ static bool experience(cok_adventure *game)
         total += cok_field_u16(L, r, COK_FIELD_MONSTER_EXPERIENCE);
         if (cok_ecl_load_var(vm, 0x1e) == 1) continue; /* KEEP_ITEMS: the items stay (2a5) */
         if (c->item_count != 0 && c->items[0][ir->type] != 0x69) {
-            /* 2b3-2be: the first item (+0x28) is not 'i'; the items move to the pool (2cb-338,
-             * with 000b, the merge of counted items, for each: part 19b). */
-            cok_adventure_not_yet(game, "the treasure", "dqk 75cc:02cb (a monster's items to the "
-                                                       "pool; 000b merges counted items, part "
-                                                       "19b)");
-            return false;
+            /* 2b3-2be: the first item (+0x28) is not 'i'; the items move to the pool (2cb-338). */
+            if (!monster_items(game, c)) return false;
         }
     }
     const uint32_t *coins = game->pool.coins;
