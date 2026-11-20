@@ -3814,6 +3814,8 @@ static void test_spell_list(void)
     size_t len = strlen(name);
     CHECK(row_has(&menu_game, (int)len + 4, (int)len + 18, 1, 0x07));
     CHECK(!row_has(&menu_game, (int)len + 3, (int)len + 3, 1, 0x07)); /* the blank cell */
+    CHECK(row_has(&menu_game, (int)len + 4, (int)len + 4, 1, 0x07)); /* the 'S' at len + 4 */
+    CHECK(row_has(&menu_game, (int)len + 1, (int)len + 2, 1, 0x07)); /* the name's "'s" */
 
     /* Mode 5 (the battle) draws the full window; the title window (the other modes) has the frame
      * under row 2 as well: the screens differ there only. */
@@ -3825,6 +3827,14 @@ static void test_spell_list(void)
     memcpy(after, menu_game.screen.pixels, sizeof after);
     CHECK(memcmp(before + 8 * 320, after + 8 * 320, 8 * 320) == 0);
     CHECK(memcmp(before + 16 * 320, after + 16 * 320, 8 * 320) != 0);
+    /* Which is which: row 2 as queen_full_window and queen_title_window draw it. */
+    static uint8_t full[8 * 320], title[8 * 320];
+    queen_full_window(&menu_game);
+    memcpy(full, menu_game.screen.pixels + 16 * 320, sizeof full);
+    queen_title_window(&menu_game);
+    memcpy(title, menu_game.screen.pixels + 16 * 320, sizeof title);
+    CHECK(memcmp(before + 16 * 320, full, sizeof full) == 0);   /* mode 5 */
+    CHECK(memcmp(after + 16 * 320, title, sizeof title) == 0);  /* mode 0 */
 
     /* The last memorised byte (+0x156, the scan's 0x88) is listed too: Bless, level 1. */
     memset(menu_c->record + 0xce, 0, 0x89);
@@ -3843,6 +3853,35 @@ static void test_spell_list(void)
     /* The other modes stop (849a:2080 as View's Spells). */
     CHECK(queen_spell_pick(&menu_game, menu_c, 0) == -1);
     CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "849a:2080") != NULL);
+    menu_close();
+}
+
+/* A list longer than the 17 rows shown: "Special" (0x39, level 0), "1st Level" with 13 spells
+ * (rows 3-15), "2nd Level" at row 16 (the last row shown), 7 spells (rows 17-23). PgDn and PgUp
+ * landing on a heading at the bottom or top row shown go one row past it, the list scrolling
+ * (1b05:0ca2 through 079b and 0768). */
+static void test_spell_list_long(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Cast's long spell list not checked");
+        return;
+    }
+    static const uint8_t bytes[] = {0x39, 0x01, 0x03, 0x05, 0x06, 0x08, 0x09, 0x0a, 0x0b, 0x0c,
+                                    0x0d, 0x0e, 0x0f, 0x10, 0x16, 0x17, 0x18, 0x19, 0x1a, 0x1b,
+                                    0x1c};
+    static const uint8_t lv[7] = {1, 0, 0, 0, 9, 0, 0};
+    menu_open();
+    menu_game.vm.mode = 0;
+    spell_stats(9, 9, 0, lv);
+    memset(menu_c->record + 0xce, 0, 0x89);
+    memcpy(menu_c->record + 0xce, bytes, sizeof bytes);
+    CHECK(spell_pick_keys("C") == 0x39);
+    CHECK(strncmp(script.rows, "Special;\tProt. From Evil, 10' Radius;1st Level;\tBless;", 54) == 0);
+    /* PgDn from the first spell: the bottom row shown (16) is "2nd Level": row 17. */
+    CHECK(spell_pick_keys("~Q\r") == 0x16);
+    /* Down to row 18 (the top row shown is then "1st Level", row 2); PgUp: row 1, scrolling. */
+    CHECK(spell_pick_keys("~P~P~P~P~P~P~P~P~P~P~P~P~P~P~P\r") == 0x17);
+    CHECK(spell_pick_keys("~P~P~P~P~P~P~P~P~P~P~P~P~P~P~P~I\r") == 0x39);
     menu_close();
 }
 
@@ -3888,6 +3927,7 @@ int main(void)
     test_view_items_combat();
     test_spell_usable();
     test_spell_list();
+    test_spell_list_long();
     test_pass_draw();
     test_bar_message_place();
     test_text_delay_state();

@@ -1737,6 +1737,19 @@ static size_t next_row(const bool *heading, size_t count, size_t at, int step)
     return at;
 }
 
+/* 1b05:0ca2's move from at to target with headings: a heading there moves one row further the
+ * same way (clamped to the list), else one row back from target; at where that is a heading too
+ * (PgUp and PgDn: the heading at the top or bottom row shown is passed, the list scrolling). */
+static size_t heading_move(const bool *heading, size_t count, size_t at, size_t target)
+{
+    if (!is_heading(heading, target)) return target;
+    size_t t = target > at ? (target + 1 < count ? target + 1 : count - 1)
+                           : (target > 0 ? target - 1 : 0);
+    if (!is_heading(heading, t)) return t;
+    t = target > at ? target - 1 : target + 1;
+    return is_heading(heading, t) ? at : t;
+}
+
 /* The list (1bdb:1f25, 1b05:08b3, 0055, keys 0664) of count items in
  * rows y1 to y2 - 1 from cell 1 to x2 (one less with more items than rows,
  * room for the scroll bar), each row cleared, the current one (*at) in
@@ -1821,31 +1834,15 @@ static int list_menu_rows(cok_adventure *game, const char *prompt, const char *c
         switch (in.key) {
         case KEY_UP: case KEY_HOME: *at = next_row(heading, count, *at, -1); break;
         case KEY_DOWN: case KEY_END: *at = next_row(heading, count, *at, 1); break;
-        case KEY_PGUP: {
-            size_t first = top;
-            while (first < bottom && is_heading(heading, first)) ++first;
-            if (*at != first) {
-                *at = first;
-            } else {
-                size_t t = *at > page ? *at - page : 0;
-                while (t < *at && is_heading(heading, t)) ++t;
-                *at = t;
-            }
-            break;
-        }
-        case KEY_PGDN: {
+        case KEY_PGUP:
             if (count == 0) break;
-            size_t last = bottom;
-            while (last > top && is_heading(heading, last)) --last;
-            if (*at != last) {
-                *at = last;
-            } else {
-                size_t t = *at + page < count ? *at + page : count - 1;
-                while (t > *at && is_heading(heading, t)) --t;
-                *at = t;
-            }
+            *at = heading_move(heading, count, *at, *at != top ? top : *at > page ? *at - page : 0);
             break;
-        }
+        case KEY_PGDN:
+            if (count == 0) break;
+            *at = heading_move(heading, count, *at,
+                               *at != bottom ? bottom : *at + page < count ? *at + page : count - 1);
+            break;
         case '\r': case '\n': result = 0; break;
         case 0x1b: case 0x60: result = 0x1b; break;
         case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
