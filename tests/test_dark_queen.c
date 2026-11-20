@@ -3183,8 +3183,8 @@ static void test_yell(void)
      * no pause), and the turn ends. */
     yell_menu();
     menu_game.vm.mode = 5;
-    /* The flash's frames (icon slots 0x17 and 0x19) are the ECL's loads of the monsters' icons
-     * (the port's missiles come from CPIC too); the test loads CPIC 64 into each. */
+    /* The flash's frames (icon slots 0x17 and 0x19) are COMSPR 8 and 10, loaded at the battle's
+     * start (arena_tiles, 59c7:0e80-0f06), which this fixture skips; the test loads CPIC 64 into each. */
     CHECK(cok_adventure_drawing(&menu_game)->arena_load_icon(&menu_game, "CPIC.TLB", 64, 0x17));
     CHECK(cok_adventure_drawing(&menu_game)->arena_load_icon(&menu_game, "CPIC.TLB", 64, 0x19));
     cok_character *failing = yelled_monster(10, 0x7f);

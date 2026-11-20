@@ -99,11 +99,6 @@ static bool effect_failed(cok_adventure *game)
     return cok_adventure_effect_failed(game);
 }
 
-static bool dispatch(cok_adventure *game, cok_character *c, uint8_t event)
-{
-    return cok_effects_dispatch(&game->effects, c, event) || effect_failed(game);
-}
-
 static bool dispatch_at(cok_adventure *game, cok_character **c, uint8_t event)
 {
     return cok_effects_dispatch_at(&game->effects, c, event) || effect_failed(game);
@@ -264,18 +259,18 @@ bool queen_spell_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes)
     }
 }
 
-/* The first target (DS:6feb), which the handlers read; none, or one freed since a battle, is the
+/* The first target (DS:c5e3), which the handlers read; none, or one freed since a battle, is the
  * original's read through the table or the heap. */
 static cok_character *first_target(cok_adventure *game)
 {
     cok_character *t = game->spell_targets[1];
     if (t == NULL) {
-        undefined(game, "the first target is read through NULL (DS:6feb)");
+        undefined(game, "the first target is read through NULL (DS:c5e3)");
         return NULL;
     }
     if (t == &cok_arena_freed) {
         undefined(game, "the first target is a record freed since, read where the heap may have put "
-                        "another (DS:6feb)");
+                        "another (DS:c5e3)");
         return NULL;
     }
     return t;
@@ -299,12 +294,12 @@ bool queen_cast_damage(cok_adventure *game, cok_character *t, uint16_t amount, u
     cok_rolls *r = &game->effects.rolls;
     r->amount16 = (int16_t)amount;
     r->amount = (uint8_t)amount;
-    /* 148f:2214: event 6 first (it may turn the damage on another). */
+    /* 148f:2214: event 6 first (it may turn the damage on another); 0x14 is on &t too (225c). */
     if (!dispatch_at(game, &t, 6)) return false;
     if (saved) {
         if (save_kind == 1) r->amount16 = 0;
         else if (save_kind == 2) r->amount16 = (int16_t)(r->amount16 / 2);
-    } else if (!dispatch(game, t, 0x14)) {
+    } else if (!dispatch_at(game, &t, 0x14)) {
         return false;
     }
     r->amount = (uint8_t)r->amount16;

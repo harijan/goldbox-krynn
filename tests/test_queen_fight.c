@@ -1658,6 +1658,10 @@ static void test_caster_level(void)
     CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 10); /* moon 2: class 5 plus 1 */
     cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 1);
     CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 9); /* moon 1: no change */
+    set_class(a, 5, 5);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 2);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 5); /* moon 2, class 5 of 5 */
+    set_class(a, 5, 9);
     set_class(a, 4, 18);
     cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 0);
     CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 10); /* class 4 18: 10 over 8 */
@@ -1680,6 +1684,10 @@ static void test_caster_level(void)
     set_class(a, 0, 0x90);
     set_class(a, 1, 0x80);
     CHECK(queen_caster_level(&game, a->record, clw, true, &lv) && lv == 0x90);
+    /* The larger of classes 0 and 1 is signed (177e:1900's jl): 5 over 0x90 (-112). */
+    set_class(a, 0, 5);
+    set_class(a, 1, 0x90);
+    CHECK(queen_caster_level(&game, a->record, clw, false, &lv) && lv == 5);
     set_class(a, 0, 0x25);
     set_class(a, 1, 0);
     /* A kind above 4 (Curse's 0xff): undefined for a caster, 6 with an item. */
@@ -1877,7 +1885,8 @@ static void test_spell_apply(void)
 
 /* The damage's text and the death (dqk 148f:2214): a casting target "lost a spell" and its byte
  * marked 0x80; one brought down says "Goes Down and is Dying" (status 5), and quiet with bit 8 says
- * "Goes Down" alone. (The "is killed" of status 6-8 is not reached by a hit: the hit leaves 5.) */
+ * "Goes Down" alone; a hit 10 or more past the hit points leaves status 6 (177e:17a0), "is killed"
+ * alone, without "Goes Down". */
 static void test_spell_damage(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -1889,7 +1898,10 @@ static void test_spell_damage(void)
     t->combat->spell = 0x21;
     t->combat->initiative = 5;
     game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    uint32_t want = game.vm.seed;
+    for (unsigned k = 0; k < 5; ++k) cok_tp_random(&want, 1000); /* 4 frames, "lost a spell"'s wait */
     CHECK(queen_cast_damage(&game, t, 2, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
     CHECK(LOGGED("lost a spell") && t->record[0xce + 0x50] == 0xa1);
     CHECK(t->combat->spell == 0 && t->combat->initiative == 0 && t->combat->may_cast == 0);
     CHECK(LOGGED("takes 2 points of damage from Magic"));
@@ -1914,6 +1926,15 @@ static void test_spell_damage(void)
     CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
     CHECK(LOGGED("Goes Down;") && !LOGGED("and is Dying") && !LOGGED("is killed"));
     battle_clear();
+    /* 12 points on 1: 11 past it, status 6 (177e:17a0's > 9), "is killed" alone. */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    CHECK(queen_cast_damage(&game, t, 12, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6);
+    CHECK(LOGGED("is killed;") && !LOGGED("Goes Down") && !LOGGED("and is Dying"));
+    battle_clear();
     /* A save of kind 2 halves the damage (signed: 5 is 2), and one point is the singular text. */
     duel(&a, &t);
     cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
@@ -1925,6 +1946,16 @@ static void test_spell_damage(void)
     CHECK(LOGGED("takes 2 points of damage from Magic"));
     CHECK(queen_cast_damage(&game, t, 1, 0, false) && game.vm.status == COK_ECL_OK);
     CHECK(LOGGED("takes 1 point of damage from Magic"));
+    /* The source by the type less bit 8: 9 is Fire, 2 Cold; 0x10 has none (not 1, 2, 4, nor 8 alone). */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    game.effects.rolls.damage_type = 9;
+    CHECK(queen_cast_damage(&game, t, 1, 0, false) && LOGGED("takes 1 point of damage from Fire;"));
+    game.effects.rolls.damage_type = 2;
+    CHECK(queen_cast_damage(&game, t, 1, 0, false) && LOGGED("takes 1 point of damage from Cold;"));
+    log_text[0] = '\0';
+    game.effects.rolls.damage_type = 0x10;
+    CHECK(queen_cast_damage(&game, t, 1, 0, false) && LOGGED("takes 1 point of damage ;"));
+    game.effects.rolls.damage_type = 0;
     battle_clear();
 }
 
@@ -1943,12 +1974,19 @@ static void test_flash_draws(void)
     uint32_t want = 5;
     for (unsigned k = 0; k < 5; ++k) cok_tp_random(&want, 1000);
     CHECK(cok_arena_flash(&game, t, 0, "burst") && game.vm.status == COK_ECL_OK);
-    CHECK(game.vm.seed == want);
+    CHECK(game.vm.seed == want && LOGGED("sound: 4;") && !LOGGED("sound: 5;"));
+    log_text[0] = '\0';
     game.vm.seed = 5;
     want = 5;
     for (unsigned k = 0; k < 12; ++k) cok_tp_random(&want, 1000);
     CHECK(cok_arena_flash(&game, t, 1, "effect") && game.vm.status == COK_ECL_OK);
-    CHECK(game.vm.seed == want);
+    CHECK(game.vm.seed == want && LOGGED("sound: 5;") && !LOGGED("sound: 4;"));
+    /* A target off the view (30, 20 from the corner 0, 0) is centred on first (5837:0846(x, y, 3,
+     * 8): the corner 27, 17). */
+    duel_at(&a, &t, 30, 20);
+    CHECK(game.combat.view_x == 0 && game.combat.view_y == 0);
+    CHECK(cok_arena_flash(&game, t, 0, "burst") && game.vm.status == COK_ECL_OK);
+    CHECK(game.combat.view_x == 27 && game.combat.view_y == 17);
     cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
     battle_clear();
 }
