@@ -1610,6 +1610,349 @@ static void test_battle_only_leave_place(void)
     battle_clear();
 }
 
+
+/* The spell engine (queen_cast.c, dqk 177e:1900, 849a:0f34, 101b, 10f9, 148f:2214, 7fd8:00f8, 050a):
+ * the spell records are the table's (data_dark_queen.c's), so the ids below are the table's kinds:
+ * MM (0x0f) kind 2, CLW (0x03) kind 0, Curse (0x02) kind 0xff, a kind 1, a kind 3 and a kind 4 spell
+ * by search. The caster is a record with the class levels set, selected (vm.character). */
+static uint8_t spell_of_kind(unsigned kind)
+{
+    for (unsigned id = 1; id < 0x8d; ++id)
+        if (queen_spell_word(&game, id, 0) == kind) return (uint8_t)id;
+    return 0;
+}
+
+static void set_class(cok_character *c, unsigned k, uint8_t level)
+{
+    cok_field_set8_at(R->character, c->record, COK_FIELD_CLASS_LEVEL, k, level);
+}
+
+/* The caster level (dqk 177e:1900): the non-caster's 6, the kinds' (cleric and mage classes, the moon
+ * of the order, the fixed 12), the item's 6, the cap at 0x1f and the undefined kind above 4. */
+static void test_caster_level(void)
+{
+    cok_character *a = record('A', 0, 0);
+    uint8_t lv = 0;
+    uint8_t mm = 0x0f, clw = 0x03, k1 = spell_of_kind(1), k3 = spell_of_kind(3), k4 = spell_of_kind(4);
+    CHECK(k1 != 0 && k3 != 0 && k4 != 0);
+    set_class(a, 0, 0);
+    set_class(a, 1, 0);
+    set_class(a, 4, 0);
+    set_class(a, 5, 0);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 6); /* a non-caster */
+    set_class(a, 0, 3);
+    set_class(a, 1, 7);
+    CHECK(queen_caster_level(&game, a->record, clw, false, &lv) && lv == 7); /* cleric 3, class 1 7 */
+    set_class(a, 0, 0);
+    set_class(a, 1, 9);
+    set_class(a, 4, 6);
+    CHECK(queen_caster_level(&game, a->record, k1, false, &lv) && lv == 0); /* class 4 6: -1, none */
+    set_class(a, 4, 10);
+    CHECK(queen_caster_level(&game, a->record, k1, false, &lv) && lv == 3); /* class 4 10 */
+    set_class(a, 4, 0);
+    set_class(a, 5, 9);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 0);
+    a->record[0x19d] = 1; /* magic order 1 */
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 8); /* moon 0: class 5 less 1 */
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 2);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 10); /* moon 2: class 5 plus 1 */
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 1);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 9); /* moon 1: no change */
+    set_class(a, 4, 18);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 0);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 10); /* class 4 18: 10 over 8 */
+    a->record[0x19d] = 0;
+    set_class(a, 5, 0);
+    set_class(a, 4, 10);
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 2); /* no order: class 4 less 8 */
+    CHECK(queen_caster_level(&game, a->record, k4, false, &lv) && lv == 12);
+    game.effects.rolls.item = 1;
+    CHECK(queen_caster_level(&game, a->record, k4, false, &lv) && lv == 12); /* an item, kind 4 stays */
+    CHECK(queen_caster_level(&game, a->record, mm, false, &lv) && lv == 6);  /* an item: 6 */
+    game.effects.rolls.item = 0;
+    /* The cap: class 0 of 0x25 (37) is 0x1f capped, 37 uncapped. */
+    set_class(a, 0, 0x25);
+    set_class(a, 1, 0);
+    CHECK(queen_caster_level(&game, a->record, clw, true, &lv) && lv == 0x1f);
+    CHECK(queen_caster_level(&game, a->record, clw, false, &lv) && lv == 0x25);
+    /* The cap compares signed (177e:1900's jle): levels of 0x90 and 0x80 are -112 and -128, the
+     * larger 0x90, and it is not capped. */
+    set_class(a, 0, 0x90);
+    set_class(a, 1, 0x80);
+    CHECK(queen_caster_level(&game, a->record, clw, true, &lv) && lv == 0x90);
+    set_class(a, 0, 0x25);
+    set_class(a, 1, 0);
+    /* A kind above 4 (Curse's 0xff): undefined for a caster, 6 with an item. */
+    set_class(a, 0, 0);
+    set_class(a, 1, 9);
+    set_class(a, 4, 10);
+    CHECK(!queen_caster_level(&game, a->record, 0x02, false, &lv) &&
+          game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.rolls.item = 1;
+    CHECK(queen_caster_level(&game, a->record, 0x02, false, &lv) && lv == 6);
+    game.effects.rolls.item = 0;
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 0);
+}
+
+/* The range (dqk 849a:0f34): MM at level 2 is 14 (the base 6 and 4 a level), CLW 1 (its base 0 and a
+ * target), an item's 4 * 6 + 6 (30), the quarter of spell 0x7d, and the caster-level-free kind 4. */
+static void test_spell_range(void)
+{
+    cok_character *a = record('A', 0, 0);
+    uint8_t range = 0;
+    set_class(a, 4, 10); /* kind 2 at level 2 (class 4 less 8) */
+    game.vm.character = a->record;
+    CHECK(queen_spell_range(&game, 0x0f, &range) && range == 14);
+    CHECK(queen_spell_range(&game, 0x03, &range) && range == 1);
+    game.effects.rolls.item = 1;
+    CHECK(queen_spell_range(&game, 0x0f, &range) && range == 30);
+    game.effects.rolls.item = 0;
+    CHECK(queen_spell_range(&game, 0x7d, &range) && range == 1); /* 2 / 4, with a target */
+    game.vm.character = NULL;
+    CHECK(!queen_spell_range(&game, 0x0f, &range) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* The duration (dqk 849a:101b): the fixed ids, the dice (1d4 + 1, 5d4, 1d4 * 10 + 40) and the caster
+ * level's default (level times the table's per-level byte, plus its base). */
+static void test_spell_duration(void)
+{
+    cok_character *a = record('A', 0, 0);
+    set_class(a, 4, 10);
+    game.vm.character = a->record;
+    uint16_t minutes = 0;
+    game.vm.seed = 7;
+    CHECK(queen_spell_duration(&game, 0x1a, &minutes) && minutes == 0x0ec4);
+    CHECK(queen_spell_duration(&game, 0x7a, &minutes) && minutes == 0x5a0);
+    uint32_t want = 7;
+    CHECK(queen_spell_duration(&game, 0x79, &minutes) && minutes == cok_dice(&want, 1, 4) + 1);
+    CHECK(game.vm.seed == want);
+    game.vm.seed = 7;
+    want = 7;
+    CHECK(queen_spell_duration(&game, 0x7f, &minutes) && minutes == cok_dice(&want, 5, 4));
+    CHECK(game.vm.seed == want);
+    game.vm.seed = 7;
+    want = 7;
+    CHECK(queen_spell_duration(&game, 0x80, &minutes) && minutes == cok_dice(&want, 1, 4) * 10 + 40);
+    /* Bless (0x01): the level 2 (kind 0 with no class 0 or 1 level: class 1 at 0, class 4 10, so the
+     * class 4 level's 2 is not the cleric's; here the kind 0 level is max(0, 0) = 0). */
+    set_class(a, 4, 0);
+    set_class(a, 1, 0);
+    CHECK(queen_spell_duration(&game, 0x01, &minutes) &&
+          minutes == queen_spell_byte(&game, 0x01, 6) * 0 + queen_spell_byte(&game, 0x01, 5));
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Magic Missile (dqk 7fd8:050a, 849a:10f9) on a hostile in the battle: the level 2 caster's (class 4
+ * 10) lv 3 gives one die, 1d4 + 1. The target loses it, says "takes N points of damage from Magic"
+ * in the flash (one draw for the die, then the flash's four frames: five draws), and may no longer
+ * cast. */
+static void test_magic_missile(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    t->combat->may_cast = 1;
+    set_class(a, 4, 10);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = 0x0f;
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 0x4e);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 0x4e);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 3, 3}); /* the die is 3: 4 points */
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 1, 4);
+    for (unsigned k = 0; k < 4; ++k) cok_tp_random(&want, 1000);
+    CHECK(queen_magic_missile(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 0x4e - 4);
+    CHECK(LOGGED("takes 4 points of damage from Magic") && t->combat->may_cast == 0);
+    CHECK(game.effects.rolls.damage_type == 0);
+    battle_clear();
+    game.spell_target_count = 0;
+}
+
+/* The caster's dice and the target's hit points in CLW (dqk 7fd8:00f8): a deity 4 caster rolls its
+ * bonus d8 first, then the heal's d8; another rolls the heal's alone; none with no target. The heal
+ * is "is partially healed"; the guard (effect 0xd7) keeps it. */
+static void test_cure_light(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = 0x03;
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 40);
+    a->record[0x19b] = 4;
+    game.vm.seed = 11;
+    uint32_t want = 11;
+    uint8_t bonus = cok_dice(&want, 1, 8);
+    uint8_t amount = (uint8_t)(cok_dice(&want, 1, 8) + bonus);
+    cok_tp_random(&want, 1000); /* the say's speed wait (speed 0: 10 ms, one draw) */
+    CHECK(queen_cure_light(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 1 + amount);
+    CHECK(LOGGED("is partially healed"));
+    a->record[0x19b] = 0;
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    game.vm.seed = 11;
+    want = 11;
+    amount = cok_dice(&want, 1, 8);
+    cok_tp_random(&want, 1000);
+    CHECK(queen_cure_light(&game) && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 1 + amount);
+    /* Fully: the most is 5, the heal takes it there. */
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 5);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    log_text[0] = '\0';
+    CHECK(queen_cure_light(&game) && LOGGED("is fully healed"));
+    /* The guard: effect 0xd7 holds the heal off. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    CHECK(cok_character_add_effect(t, 0xd7, 0, 0, false) != NULL);
+    log_text[0] = '\0';
+    CHECK(queen_cure_light(&game) && cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 1);
+    CHECK(!LOGGED("healed"));
+    /* No target: no roll at all. */
+    game.spell_target_count = 0;
+    want = game.vm.seed;
+    CHECK(queen_cure_light(&game) && game.vm.seed == want);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* The apply (dqk 849a:10f9): no target (count 0) leaves the damage type it was given; a save spell
+ * (word +0xa) stops at 148f:1886; a touch (the cast's +3 0xff) stops at 148f:1771; a target's damage
+ * leaves the type cleared after. */
+static void test_spell_apply(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.spell_target_count = 0;
+    game.effects.rolls.damage_type = 8;
+    CHECK(queen_spell_apply(&game, 0x0f, 0, false, 3, 2, "") && game.effects.rolls.damage_type == 2);
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = 0x0f;
+    uint8_t saved_spell = spell_of_kind(0);
+    uint8_t saving = 0;
+    for (unsigned id = 1; id < 0x8d && saving == 0; ++id)
+        if (queen_spell_word(&game, id, 0xa) != 0) saving = (uint8_t)id;
+    CHECK(saving != 0 && saved_spell != 0);
+    game.vm.character = a->record;
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    CHECK(!queen_spell_apply(&game, saving, 0, false, 0, 0, "") &&
+          game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "148f:1886") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    uint8_t touch = 0;
+    for (unsigned id = 1; id < 0x8d && touch == 0; ++id)
+        if (queen_spell_byte(&game, id, 3) == 0xff) touch = (uint8_t)id;
+    CHECK(touch != 0);
+    game.effects.rolls.spell = touch;
+    CHECK(!queen_spell_apply(&game, 0x0f, 0, false, 0, 0, "") &&
+          game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "849a:10f9 touch") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.rolls.spell = 0x0f;
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 2, 2});
+    CHECK(queen_spell_apply(&game, 0x0f, 0, false, 3, 8, "") && game.effects.rolls.damage_type == 0);
+    CHECK(LOGGED("takes 3 points of damage from Magic"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* The damage's text and the death (dqk 148f:2214): a casting target "lost a spell" and its byte
+ * marked 0x80; one brought down says "Goes Down and is Dying" (status 5), and quiet with bit 8 says
+ * "Goes Down" alone. (The "is killed" of status 6-8 is not reached by a hit: the hit leaves 5.) */
+static void test_spell_damage(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    memset(t->record + 0xce, 0, 0x89);
+    t->record[0xce + 0x50] = 0x21;
+    t->combat->spell = 0x21;
+    t->combat->initiative = 5;
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    CHECK(queen_cast_damage(&game, t, 2, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("lost a spell") && t->record[0xce + 0x50] == 0xa1);
+    CHECK(t->combat->spell == 0 && t->combat->initiative == 0 && t->combat->may_cast == 0);
+    CHECK(LOGGED("takes 2 points of damage from Magic"));
+    battle_clear();
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_STATUS, 6);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    /* The damage leaves the target dying (status 5) before the text is chosen (148f:2214 reads the
+     * status after 177e:17a0): "Goes Down and is Dying", the death's sound 6 and the target inactive. */
+    CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("Goes Down and is Dying;") && LOGGED("sound: 6;"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_STATUS, 5);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("Goes Down;") && !LOGGED("and is Dying") && !LOGGED("is killed"));
+    battle_clear();
+    /* A save of kind 2 halves the damage (signed: 5 is 2), and one point is the singular text. */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){4, 4, 4});
+    CHECK(queen_cast_damage(&game, t, 5, 2, true) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 8);
+    CHECK(LOGGED("takes 2 points of damage from Magic"));
+    CHECK(queen_cast_damage(&game, t, 1, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("takes 1 point of damage from Magic"));
+    battle_clear();
+}
+
+/* A flash in the battle (dqk 51c2:0731, mode 5): kind 0 draws its four frames and the speed's pause
+ * (var 0x12 at 2: a draw of 200 ms), kind 1 its passes of four frames (var 0x12 + 1 times) and no
+ * pause. A target off the view is centred on (the view moves). */
+static void test_flash_draws(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x17));
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 2);
+    game.vm.seed = 5;
+    uint32_t want = 5;
+    for (unsigned k = 0; k < 5; ++k) cok_tp_random(&want, 1000);
+    CHECK(cok_arena_flash(&game, t, 0, "burst") && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
+    game.vm.seed = 5;
+    want = 5;
+    for (unsigned k = 0; k < 12; ++k) cok_tp_random(&want, 1000);
+    CHECK(cok_arena_flash(&game, t, 1, "effect") && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -1656,6 +1999,14 @@ int main(void)
     test_kill_off_view();
     test_under_cloud();
     test_battle_only_leave_place();
+    test_flash_draws();
+    test_caster_level();
+    test_spell_range();
+    test_spell_duration();
+    test_magic_missile();
+    test_cure_light();
+    test_spell_apply();
+    test_spell_damage();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

@@ -2,6 +2,7 @@
 #include "dark_queen.h"
 
 #include "adventure.h"
+#include "arena.h"
 #include "data_dark_queen.h"
 #include "hlib.h"
 #include "magic.h"
@@ -3958,6 +3959,12 @@ static void speed_pass(cok_adventure *game)
     pass(game, ms[speed < 10 ? speed : 9]);
 }
 
+/* The speed's wait for the battle's text (queen_cast.c's damage, after a kill is not made). */
+void cok_dark_queen_speed_wait(cok_adventure *game)
+{
+    speed_pass(game);
+}
+
 /* A message on the bar for the speed's time (1a62:0960: DS:1cd8's,
  * variable 0x12's): boxed from cell x + 1 in fg on bg, the bar again. */
 static void message_at(cok_adventure *game, const char *s, int x, unsigned fg, unsigned bg)
@@ -4017,17 +4024,6 @@ static void arena_name(cok_adventure *game, cok_character *c, int x, int y)
 static bool arena_report(cok_adventure *game, const char *text, cok_text_window window)
 {
     return print_window(game, text, window.left, window.top, window.right, window.bottom, 7, true);
-}
-
-/* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5: kind 1 is an effect's, the
- * four-frame missile, its sound and passes, the draws of each frame), not ported: its own part. A
- * kind 0 flash (a burst) is not checked against the original: it stops under the same citation. */
-static bool arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const char *text)
-{
-    (void)c;
-    (void)text;
-    return cok_adventure_not_yet(game, kind != 0 ? "an effect's flash" : "a flash",
-                                 "dqk 51c2:0731 (2d99:0f09)");
 }
 
 /* 177e:1665 in the battle: cells 0x17-0x26 by 0x0a-0x15 in the window's grey. */
@@ -5727,6 +5723,49 @@ static bool arena_missile_restore(cok_adventure *game, int x, int y)
     queen *q = own(game);
     cok_queen_arena_restore(&game->screen, cok_queen_arena_place(x), cok_queen_arena_place(y),
                             q->missile_under);
+    return true;
+}
+
+/* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5; cok_arena_flash calls this
+ * only there): c is centred unless shown whole, the sound (5 for kind 1, an effect's; 4 for kind 0, a
+ * damage's), the text said on row 10 with no wait, then the four frames of icon slot 0x17 (kind 1) or
+ * 0x19 (kind 0) drawn over c's cells, each for the wait of 70 ms, once for kind 0 and var 0x12 + 1
+ * times for kind 1 (the passes), then the speed's pause where there were none (1a62:0949). The
+ * draws are arena_missile_draw and _restore (the missile's sub-cell place, 19a4:09eb's save of 24
+ * by 24). */
+static bool arena_flash(cok_adventure *game, cok_character *c, uint8_t kind, const char *text)
+{
+    cok_combat *cb = &game->combat;
+    const cok_rules *R = cok_game_rules(game);
+    if (!cok_arena_missile_frames(game, kind != 0 ? 0x17 : 0x19)) return false;
+    uint8_t n = cok_combat_index(cb, c->record);
+    if (n == 0 || c->combat == NULL) {
+        snprintf(game->error, sizeof game->error,
+                 "a flash on a record that is not a combatant (6346:228c, 51c2:0731)");
+        return false;
+    }
+    bool whole = false;
+    if (!cok_combat_visible(cb, R, c->record, true, &whole)) {
+        snprintf(game->error, sizeof game->error,
+                 "a footprint past the table (6beb:06ef, 51c2:0731)");
+        return false;
+    }
+    if (!whole && !cok_arena_centre(game, cok_combat_x(cb, c->record), cok_combat_y(cb, c->record), 3,
+                                    8))
+        return false;
+    cok_arena_sound(game, kind != 0 ? 5 : 4);
+    if (!cok_arena_say(game, c, text, 10, false)) return false;
+    unsigned passes = kind != 0 ? cok_ecl_var(&game->vm, COK_VAR_SPEED) : 0;
+    int x = (int8_t)(cb->combatant[n].screen_x * 3), y = (int8_t)(cb->combatant[n].screen_y * 3);
+    for (unsigned pass = 0; pass <= passes; ++pass)
+        for (uint8_t frame = 0; frame < 4; ++frame) {
+            if (!arena_missile_draw(game, frame, x, y)) return false;
+            if (!cok_arena_show(game)) return false;
+            cok_arena_wait(game, 70);
+            if (!arena_missile_restore(game, x, y)) return false;
+        }
+    if (!cok_arena_show(game)) return false;
+    if (passes == 0) cok_arena_pause(game);
     return true;
 }
 
