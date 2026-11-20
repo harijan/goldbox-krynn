@@ -535,8 +535,8 @@ static bool computer_pick(cok_adventure *game, cok_character *c, uint8_t spell, 
  * (left and top at the inner box's for 0x22 and 0x65) adds its worth (42cc) to each cell of its
  * rows within the radius that the row's half width (DS:5a50) reaches, clipped to the inner box, as
  * words. The cell with the most (a sum above 0; a tie of positive sums is drawn, 25 in 100, before
- * the bounds test) is taken when it is inside the map (x 0..0x31, y 0..0x17) and seen from the
- * caster's cell within the range. found when a sum above 0 was taken. False where the run stopped. */
+ * the bounds test) is taken when it is inside the map (x 0..0x31, y 0..0x17) and the caster's cell is
+ * seen from it within the range. found when a sum above 0 was taken. False where the run stopped. */
 static bool area_aim(cok_adventure *game, cok_character *c, uint8_t spell, bool *found,
                      cok_combat_aimed *res)
 {
@@ -590,7 +590,8 @@ static bool area_aim(cok_adventure *game, cok_character *c, uint8_t spell, bool 
             }
         }
     }
-    /* The cell: dx outer, dy inner, over the inner box; sight from the caster's cell. */
+    /* The cell: dx outer, dy inner, over the inner box; the sight is the cell's, to the caster's cell
+     * (5d71:0328(cell x, cell y, &caster x, &caster y, &range): the cell's terrain gives the eye). */
     int ox = cok_combat_x(combat, c->record), oy = cok_combat_y(combat, c->record);
     int best = 0, bdx = 0, bdy = 0;
     for (int dx = -inner; dx <= inner; ++dx)
@@ -601,10 +602,10 @@ static bool area_aim(cok_adventure *game, cok_character *c, uint8_t spell, bool 
             if (!take) continue;
             int x = cx + dx, y = cy + dy;
             if (x < 0 || x > 0x31 || y < 0 || y > 0x17) continue;
-            int8_t sx = (int8_t)x, sy = (int8_t)y;
+            int8_t sx = (int8_t)ox, sy = (int8_t)oy;
             uint16_t sight = range;
             bool seen = false;
-            if (!cok_combat_sight(combat, rules, (int8_t)ox, (int8_t)oy, &sx, &sy, &sight, &seen))
+            if (!cok_combat_sight(combat, rules, (int8_t)x, (int8_t)y, &sx, &sy, &sight, &seen))
                 return undefined(game, "sight (5d71:0328) reads a cell past the terrain table");
             if (!seen) continue;
             best = v;

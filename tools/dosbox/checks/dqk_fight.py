@@ -5111,7 +5111,7 @@ def cast_auto(v, work, opts):
     o = cast_auto_original(work, wild, save, opts.verbose)
     m0 = o["menu"]["seed"]
     entry = saved_entry(work / "cast-auto-save", save)
-    p = command_port(work, wild, "cast-auto", "\\@M\\@Q", entry=entry)
+    p = turn_port(work, wild, "cast-auto", "\\@M\\@Q", entry=entry)
     magic, dispatch, tail, end = o["magic"], o["dispatch"], o["tail"], o["end"]
     v.check(magic["magic"] == 1 and (L.draws(m0, magic["seed"]), magic["seed"]) == CAST_AUTO_MAGIC,
             f"the original's Alt-M turns the magic on (DS:b1cb 1) with {CAST_AUTO_MAGIC[0]} draw past the menu, at "
@@ -5140,6 +5140,19 @@ def cast_auto(v, work, opts):
     v.check(all(rec_byte(end["records"][i], STATUS_AT) == CAST_AUTO_DEAD for i in CAST_AUTO_END_STATUS),
             "both SHARKMEN are status 5 at the fight's end",
             " ".join(f"{rec_byte(end['records'][i], STATUS_AT)}" for i in CAST_AUTO_END_STATUS))
+    # eclplay's mark after BALTHIR's computer turn's tail (turn_port's 02: 01 is the turn Alt-Q gives back) against the
+    # original's tail: the computer's aim and the cast compared (RandSeed, records, blocks, turn list).
+    mark = cast_mark(p, "02")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's computer turn's mark (02) after Alt-M and Alt-Q", p["last"])
+    else:
+        command_state(v, "BALTHIR's computer turn's tail (MM at SHARKMAN 2, turn mark 02)", tail, mark, m0)
+        marked = ported_records(mark)
+        v.check(rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS) == CAST_AUTO_HP[1] and
+                rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1) == CAST_AUTO_MEMO,
+                f"eclplay's tail after the computer's MM: SHARKMAN 2 at {CAST_AUTO_HP[1]:#x}, BALTHIR's +0xcf "
+                f"{CAST_AUTO_MEMO:#x}", f"SHARKMAN 2 {rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS):#x}, +0xcf "
+                f"{rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1):#x}")
     # eclplay runs the same keys past the tail and into SHARKMAN's turn, where effect 0x2f's handler (78e4:09b2, a
     # later part) is not ported: the fight's end is not reachable here, so the stop is the cited one. Later in the fight
     # SHARKMAN 2 is hurt again, so only BALTHIR's +0xcf (MM forgotten, not memorised again) is compared with the tail.

@@ -2080,6 +2080,219 @@ static void test_computer_aim_reach(void)
     battle_clear();
 }
 
+/* A monster caster m at mx, my and a party member a at ax, ay, on floor, with no other record (the
+ * computer's aim's tests below): m magic on, a fighter of level 3, the turn's selected record. */
+static cok_character *aim_pair(int8_t mx, int8_t my, int8_t ax, int8_t ay, cok_character **a_out)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(a, ax, ay);
+    place(m, mx, my);
+    cok_field_set8(R->character, m->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(R->character, m->record, COK_FIELD_HIT_POINTS, 10);
+    m->combat->may_cast = 1;
+    game.combat.magic_on = true;
+    game.vm.character = m->record;
+    *a_out = a;
+    return m;
+}
+
+/* The draws of 52db:48aa's ties where every positive sum is the same: each positive cell after the
+ * first is one draw (the cells less one); the spell found. */
+static unsigned area_draws(cok_character *m, uint8_t spell)
+{
+    uint32_t seed = 11;
+    game.vm.seed = seed;
+    bool done = false;
+    CHECK(queen_targets(&game, m, spell, true, &done) && done && game.vm.status == COK_ECL_OK);
+    unsigned n = 0;
+    while (seed != game.vm.seed && n < 100) {
+        cok_tp_random(&seed, 100);
+        ++n;
+    }
+    return n;
+}
+
+/* 52db:48aa's radius: Fireball (0x2f, +7 0x0b: 3) is one less with var 0x22 0; 0x57 (+7 0x0a: 2) is 3
+ * underwater (var 0x3c). Counted by the ties' draws over a's cells, far from m's -40 (radius 2: 21
+ * cells, 20 draws; radius 3: 37 cells, 36 draws). */
+static void test_computer_aim_radius(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 20, 10, &a);
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x2f, 0, &w) && w > 0);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    CHECK(area_draws(m, 0x2f) == 36);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    CHECK(area_draws(m, 0x2f) == 20);
+    CHECK(area_draws(m, 0x57) == 20);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(queen_target_worth(&game, a, 0x57, 0, &w) && w > 0);
+    CHECK(area_draws(m, 0x57) == 36);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    battle_clear();
+}
+
+/* 52db:48aa with the reach clamped (0x57: range 24 + 2 above 0x12, the inner box 16): round m, a's
+ * cells at (27, 10) are cut at x 26 (8 cells, 7 draws: an inner box of the whole reach would give
+ * more); a at (30, 10) is past them (nothing found); with m's target (+0x0b) a, the box is round her
+ * (found there). */
+static void test_computer_aim_centre(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 27, 10, &a);
+    CHECK(area_draws(m, 0x57) == 7 && game.spell_x >= 25 && game.spell_x <= 26);
+    m = aim_pair(10, 10, 30, 10, &a);
+    game.vm.seed = 5;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    m->combat->target = a->record;
+    done = false;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_x >= 28 && game.spell_x <= 32 && game.spell_y >= 8 && game.spell_y <= 12);
+    battle_clear();
+}
+
+/* 52db:48aa's sight (5d71:0328(cell, &caster's cell, &range)) looks from the cell to the caster, the
+ * cell's terrain giving the eye: a wall (terrain 1: block 2) down column 12 between m (floor, eye 1)
+ * and a's cells, which are terrain 0x1a (eye 2). From the cells the wall does not block (2 is not
+ * above 2): a cell of a's is taken; from m's floor it would block every one (nothing found). */
+static void test_computer_aim_sight(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 15, 10, &a);
+    for (int y = 0; y < 24; ++y) game.combat.cells[y][12] = 1;
+    for (int y = 7; y <= 13; ++y)
+        for (int x = 13; x <= 18; ++x) game.combat.cells[y][x] = 0x1a;
+    game.vm.seed = 5;
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_x >= 13 && game.spell_x <= 17 && game.spell_y >= 8 && game.spell_y <= 12);
+    battle_clear();
+}
+
+/* 52db:48aa's asymmetric 0x22 (+7 9: radius 1, range 3 here): a's rows run 0 to 1 down and her cells
+ * from her own column: a at (28, 10), m at (30, 10), gives 4 cells (3 draws; rows from 1 up would give
+ * 6). Its box's left is the inner box's (the centre less the range, 27, not the reach, 26): a at 26 is
+ * not summed and nothing is found (summed, the inner box's column 27 would be positive). */
+static void test_computer_aim_asymmetric(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(30, 10, 28, 10, &a);
+    uint8_t range = 0;
+    CHECK(queen_spell_range(&game, 0x22, &range) && range == 3);
+    CHECK(area_draws(m, 0x22) == 3);
+    m = aim_pair(30, 10, (int8_t)(30 - (range + 1)), 10, &a);
+    game.vm.seed = 5;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x22, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 52db:48aa skips an inactive record (+0x18b 0): a alone and inactive, nothing is found. */
+static void test_computer_aim_inactive(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 20, 10, &a);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 0);
+    game.vm.seed = 5;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 52db:48aa's sums are signed words: a's +4 and four monsters round her (the caster's side: -40 each)
+ * give -156 where all five reach, and every cell of a's is under one of them: nothing positive, nothing
+ * found. Signed bytes would wrap -156 to +100 and take a cell. */
+static void test_computer_aim_word_sums(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 25, 10, &a);
+    static const int8_t round_a[4][2] = {{24, 10}, {26, 10}, {25, 9}, {25, 11}};
+    for (unsigned i = 0; i < 4; ++i) place(record('B', 1, 0), round_a[i][0], round_a[i][1]);
+    game.vm.seed = 5;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 52db:48aa's bounds at the far corner: a at (49, 23), her positive cells past x 0x31 and y 0x17 (the
+ * port's row 24 too) are refused before the sight (which would read past the map); over 40 seeds the
+ * cell taken is always on the map. */
+static void test_computer_aim_far_edges(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(40, 18, 49, 23, &a);
+    for (uint32_t seed = 1; seed <= 40; ++seed) {
+        game.vm.seed = seed;
+        bool done = false;
+        CHECK(queen_targets(&game, m, 0x57, true, &done) && done && game.vm.status == COK_ECL_OK);
+        CHECK(game.spell_x >= 47 && game.spell_x <= 0x31 && game.spell_y >= 21 && game.spell_y <= 0x17);
+    }
+    battle_clear();
+}
+
+/* 52db:48aa's sight is within the spell's range (0x22: 3, so 7 half cells): a at (27, 13), diagonal to
+ * m at (30, 10), has her two cells in the inner box, (27, 13) and (28, 13), 9 and 8 half cells from m:
+ * neither is seen, nothing is found. */
+static void test_computer_aim_sight_range(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(30, 10, 27, 13, &a);
+    game.vm.seed = 5;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x22, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* 1d42's pick is forced (3d9e's force: c's target, +0x0b, cleared and picked again): with m's target
+ * already a, the pick still lists and draws (two enemies: the unused draw and the first try). */
+static void test_computer_aim_forced(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 10, 11, &a);
+    place(record('C', 0, 0), 11, 11);
+    m->combat->target = a->record;
+    game.vm.seed = 5;
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x0f, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed != 5 && m->combat->target != NULL);
+    battle_clear();
+}
+
+/* 1e78's computer branch takes 1d42 for a line (+7 8, here Lightning Bolt 0x33, picked as empty): the
+ * pick is c's target (+0x0b) and the spell's cell is its; 48aa would leave the target alone. */
+static void test_computer_aim_line(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 12, 11, &a);
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x33, queen_spell_side(&game, m, 0x33), &w) && w > 0);
+    game.vm.seed = 5;
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x33, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(m->combat->target == a->record && game.spell_x == 12 && game.spell_y == 11);
+    battle_clear();
+}
+
+/* 1f78's kind 0x0f (Silence 15' radius, 0x19: +7 0x1f) cast by the computer: 1e78 with empty 0 is 1d42,
+ * whose pick (c's combat target, +0x0b) is the one target; the spell's cell is the target's. */
+static void test_computer_aim_silence(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 11, 11, &a);
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x19, queen_spell_side(&game, m, 0x19), &w) && w > 0);
+    game.vm.seed = 5;
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x19, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(m->combat->target == a->record && game.spell_target_count == 1 && game.spell_targets[1] == a);
+    CHECK(game.spell_x == 11 && game.spell_y == 11);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -2134,6 +2347,17 @@ int main(void)
     test_computer_aim_negative();
     test_computer_aim_edges();
     test_computer_aim_reach();
+    test_computer_aim_radius();
+    test_computer_aim_centre();
+    test_computer_aim_sight();
+    test_computer_aim_asymmetric();
+    test_computer_aim_inactive();
+    test_computer_aim_word_sums();
+    test_computer_aim_far_edges();
+    test_computer_aim_sight_range();
+    test_computer_aim_forced();
+    test_computer_aim_line();
+    test_computer_aim_silence();
     test_weapon_needs();
     test_weapon_score();
     test_weapon_choice();
