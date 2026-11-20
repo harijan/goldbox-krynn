@@ -12,29 +12,6 @@
 #include "queen_view.h"
 #include "round.h"
 
-/* The computer's spell choice (dqk 5bb8:0306): the prefix that decides whether a computer
- * character casts at all, before the choice of the spell (5bb8:0355: 1b1e, 1a07, 19b0; part 29).
- * It casts nothing when it is fleeing, when var COK_VAR_NO_MAGIC is set, when it may not cast, or
- * when it is a monster (+0x9b below 0x7f) and Magic is off. */
-bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast)
-{
-    const cok_character_layout *L = cok_game_rules(game)->character;
-    const cok_combat_record *cr = c->combat;
-    *cast = false;
-    if (cr == NULL) {
-        cok_adventure_fail(game, COK_ECL_UNDEFINED,
-                           "a combatant has no combat record, read through NULL (5bb8:0306)");
-        return false;
-    }
-    if (cr->fleeing != 0) return true;
-    if (cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) != 0) return true;
-    if (cr->may_cast == 0) return true;
-    if (cok_field_u8(L, c->record, COK_FIELD_NPC) < 0x7f && !game->combat.magic_on) return true;
-    return cok_adventure_not_yet(
-        game, "the computer's spell choice",
-        "dqk 5bb8:0306 (0355 on: the spell choice, 1b1e/1a07/19b0, part 29)");
-}
-
 /* Whether c holds effect id (177e:1734). */
 static bool holds(const cok_character *c, uint8_t id)
 {
@@ -691,6 +668,279 @@ bool queen_fight(cok_adventure *game, cok_character *c, bool *over)
     return true;
 }
 
+/* The spell record and the memorised bytes the computer's choice reads (DS:27e9 + 0x16 * id, and
+ * the character's +0xce to +0x156, 0x89 bytes; part 29). */
+enum {
+    SPELL_LEVEL = 0x02,
+    SPELL_TARGETING = 0x07, /* the low nibble the kind; 0 the caster alone */
+    SPELL_EFFECT = 0x0e,
+    SPELL_CASTABLE = 0x0f,  /* a word: 0 is camp-only */
+    SPELL_PRIORITY = 0x12,  /* the computer's priority: it casts when a d5 is not above it */
+    SPELL_ALLIES = 0x13,    /* a word: 0 for the caster's own side */
+    MEMORIZED_AT = 0xce,
+    MEMORIZED_COUNT = 0x89,
+    MEMORIZED_LAST = MEMORIZED_COUNT - 1,
+};
+
+/* 52db:42cc (t, spell, side): the worth of spell to t, a signed byte (part 29). -40 where t's word
+ * +0x66 is not side (the other side); else 4 where the spell's test for its id holds, 0 where it does
+ * not, and then, if 4: 0 for a spell of level below 5 on a t holding 0x39 (the globe) and below 4 on
+ * one holding 0x3f; the magic resistance (+0xcc) above 0x28 grades it 3 (0x29-0x46), 2 (0x47-0x64),
+ * 1 (0x65-0x82) or 0 (above 0x82), overwriting the earlier 0 (the original's tail, as written). The
+ * selected record is the 2a Prayer's test (vm.character, DS:ad67). The enemies within 1 of t are
+ * listed without a draw. */
+bool queen_target_worth(cok_adventure *game, cok_character *t, uint8_t spell, unsigned side,
+                        int8_t *worth)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    const uint8_t *r = t->record;
+    *worth = 0;
+    if (cok_combat_field_word(rules, r, COK_FIELD_HOSTILE) != side) {
+        *worth = -40;
+        return true;
+    }
+    uint8_t flags = cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 1);    /* +0xc8 */
+    uint8_t flags7 = cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0);   /* +0xc7 */
+    uint8_t hit_max = cok_field_u8(L, r, COK_FIELD_MAX_HIT_POINTS);         /* +0x89 */
+    uint8_t hit = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);                 /* +0x198 */
+    uint8_t highest = cok_field_u8(L, r, COK_FIELD_HIGHEST_LEVEL);          /* +0x91 */
+    bool race_low = (int16_t)cok_combat_field_word(rules, r, COK_FIELD_RACE) < 7; /* +0x58 */
+    bool hit4 = false;
+    switch (spell) {
+    case 0x01: { /* Bless: t not holding 1, and no enemy within 1 of it */
+        if (holds(t, 1)) break;
+        uint8_t n = 0;
+        if (!cok_combat_enemies(game, t, 1, &n)) return false;
+        hit4 = n == 0;
+        break;
+    }
+    case 0x03: case 0x3a: case 0x47: /* the cures: hit points below the maximum */
+        hit4 = hit_max > hit;
+        break;
+    case 0x0a: /* +0x8a is 1 (size) and flags 2 */
+        hit4 = (flags & 2) != 0 && cok_field_u8(L, r, COK_FIELD_SIZE) == 1;
+        break;
+    case 0x0f: case 0x86: /* Magic Missile: not holding 0x11 */
+        hit4 = !holds(t, 0x11);
+        break;
+    case 0x15: /* Sleep: highest level below 5, not holding 0x8d or 0x35 */
+        hit4 = highest < 5 && !holds(t, 0x8d) && !holds(t, 0x35);
+        break;
+    case 0x17: case 0x31: /* race below 7, not holding 0x8e, flags 2, not holding 0x34 */
+        hit4 = race_low && !holds(t, 0x8e) && (flags & 2) != 0 && !holds(t, 0x34);
+        break;
+    case 0x24: /* Heal: hit points below the maximum, or holding 0xb9 */
+        hit4 = hit_max > hit || holds(t, 0xb9);
+        break;
+    case 0x25: /* holding 0x21 */
+        hit4 = holds(t, 0x21);
+        break;
+    case 0x2a: { /* Prayer: the selected record not holding 0x31 */
+        cok_character *sel = member_at(game, game->vm.character);
+        if (sel == NULL)
+            return undefined_fight(game, "the selected record of Prayer's test is read through "
+                                         "NULL (52db:42cc)");
+        hit4 = !holds(sel, 0x31);
+        break;
+    }
+    case 0x2b: /* holding 0x24 */
+        hit4 = holds(t, 0x24);
+        break;
+    case 0x2f: case 0x4a: case 0x73: case 0x85: /* not holding 0x5d */
+        hit4 = !holds(t, 0x5d);
+        break;
+    case 0x33: /* not holding 6 */
+        hit4 = !holds(t, 6);
+        break;
+    case 0x44: /* flags 0x10 clear, not holding 0x8f */
+        hit4 = (flags & 0x10) == 0 && !holds(t, 0x8f);
+        break;
+    case 0x4c: case 0x6e: /* flags 8 clear */
+        hit4 = (flags & 8) == 0;
+        break;
+    case 0x51: case 0x78: /* flags 2 */
+        hit4 = (flags & 2) != 0;
+        break;
+    case 0x52: /* not holding 0x8a */
+        hit4 = !holds(t, 0x8a);
+        break;
+    case 0x54: /* not holding 0x5c */
+        hit4 = !holds(t, 0x5c);
+        break;
+    case 0x5b: /* highest level below 6 */
+        hit4 = highest < 6;
+        break;
+    case 0x5e: /* flags 2, not holding 0x8e */
+        hit4 = (flags & 2) != 0 && !holds(t, 0x8e);
+        break;
+    case 0x60: /* race below 7, or flags7 2 */
+        hit4 = race_low || (flags7 & 2) != 0;
+        break;
+    case 0x82: /* not holding 0x8e */
+        hit4 = !holds(t, 0x8e);
+        break;
+    default: { /* the spell's effect: none, or t not holding it */
+        uint8_t effect = queen_spell_byte(game, spell, SPELL_EFFECT);
+        hit4 = effect == 0 || !holds(t, effect);
+        break;
+    }
+    }
+    int v = hit4 ? 4 : 0;
+    if (v > 0) {
+        uint8_t level = queen_spell_byte(game, spell, SPELL_LEVEL);
+        if (level < 5 && holds(t, 0x39)) v = 0;
+        if (level < 4 && holds(t, 0x3f)) v = 0;
+        uint8_t res = cok_field_u8(L, r, COK_FIELD_MAGIC_RESISTANCE);
+        if (res > 0x28) v = res > 0x82 ? 0 : res > 0x64 ? 1 : res > 0x46 ? 2 : 3;
+    }
+    *worth = (int8_t)v;
+    return true;
+}
+
+/* 52db:4789 (c, spell): the worth of spell cast by c, a signed byte (part 29). The side is c's own
+ * word +0x66 where the spell's allies word (+0x13) is 0, else the other side (51c2:08fd). A spell
+ * of kind 0 (+7 0) is worth queen_target_worth to c alone; else the combatants listed around c
+ * within the spell's range (849a:0f34, cok_combat_list with 0xff and c's size), nearest first, the
+ * first with a worth above 0 (0 for none). */
+bool queen_spell_worth(cok_adventure *game, cok_character *c, uint8_t spell, int8_t *worth)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    cok_combat *combat = &game->combat;
+    unsigned hostile = cok_combat_field_word(rules, c->record, COK_FIELD_HOSTILE);
+    unsigned side = queen_spell_word(game, spell, SPELL_ALLIES) == 0 ? hostile
+                                                                     : (hostile == 0 ? 1 : 0);
+    *worth = 0;
+    if (queen_spell_byte(game, spell, SPELL_TARGETING) == 0)
+        return queen_target_worth(game, c, spell, side, worth);
+    uint8_t range = 0;
+    if (!queen_spell_range(game, spell, &range)) return false;
+    if (!cok_combat_list(combat, rules, cok_combat_x(combat, c->record),
+                         cok_combat_y(combat, c->record), range, 0xff, cok_combat_size(combat, c->record)))
+        return undefined_fight(game, "the list of combatants around the caster (52db:4789, 5837:0b19) "
+                                     "reads past its tables");
+    /* The count is read once (DS:c2dd into a local, 4841): Bless's test (51c2:0980) lists again and
+     * leaves its own count, and the loop walks on through the entries it left. */
+    uint8_t count = combat->listed_count;
+    for (unsigned k = 1; k <= count && *worth <= 0; ++k) {
+        cok_character *e = combat->combatant[combat->listed[k].index].character;
+        if (e == NULL)
+            return undefined_fight(game, "a combatant listed has no record, read through NULL "
+                                         "(52db:4789)");
+        if (!queen_target_worth(game, e, spell, side, worth)) return false;
+    }
+    return true;
+}
+
+/* 5bb8:1a07 (list, c): the spells c has memorised (+0xce, the 0x89 bytes; a byte 0, or 0x80 or more,
+ * is none) into list, sorted by priority (+0x12), highest first: each goes in before the first
+ * entry (0 for the end) whose priority is not above its own, so equal priorities put the later spell
+ * first, and the rest move up. Camp-only spells (word +0x0f 0) are not listed; duplicates are. */
+static void sort_spells(cok_adventure *game, const cok_character *c, uint16_t list[MEMORIZED_COUNT])
+{
+    for (unsigned k = 0; k <= MEMORIZED_LAST; ++k) {
+        uint8_t s = c->record[MEMORIZED_AT + k];
+        if (s == 0 || s >= 0x80) continue;
+        if (queen_spell_word(game, s, SPELL_CASTABLE) == 0) continue;
+        unsigned j = 0;
+        while (list[j] != 0 && queen_spell_byte(game, list[j], SPELL_PRIORITY) >
+                                   queen_spell_byte(game, s, SPELL_PRIORITY))
+            ++j;
+        /* The search stops at the first empty slot or entry not above s: the nonzero entries are a
+         * prefix of the list, and there are at most 0x88 of them before an insert, so j stays in it. */
+        uint16_t carry = s;
+        for (;;) {
+            uint16_t moved = list[j];
+            list[j] = carry;
+            carry = moved;
+            ++j;
+            if (carry == 0 || j > MEMORIZED_LAST) break;
+        }
+    }
+}
+
+/* 5bb8:19b0 (the walk of 1b1e): from *index, the next candidate of the sorted list into *spell: an
+ * empty slot ends the walk with 0; an entry other than *spell is the candidate (the index stays);
+ * one equal to *spell moves the index on. Past the list's last slot the original reads DS:aca5, which
+ * is undefined here. */
+static bool next_candidate(cok_adventure *game, const uint16_t *list, unsigned *index, uint8_t *spell)
+{
+    for (;;) {
+        if (*index > MEMORIZED_LAST)
+            return undefined_fight(game, "the spell walk reads past the spell list (DS:aca5, "
+                                         "5bb8:19b0)");
+        uint16_t entry = list[*index];
+        if (entry == 0) {
+            *spell = 0;
+            return true;
+        }
+        if (entry != *spell) {
+            *spell = (uint8_t)entry;
+            return true;
+        }
+        ++*index;
+    }
+}
+
+/* 5bb8:1b1e (c, *spell): the computer's spell, the first of the sorted list (sort_spells) that
+ * queen_spell_worth gives above 0, walking past each one not worth it (next_candidate); 0 for none.
+ * False where the run stopped. */
+bool queen_best_spell(cok_adventure *game, cok_character *c, uint8_t *spell)
+{
+    uint16_t list[MEMORIZED_COUNT] = {0};
+    unsigned index = 0;
+    uint8_t candidate = 0;
+    sort_spells(game, c, list);
+    *spell = 0;
+    for (;;) {
+        if (!next_candidate(game, list, &index, &candidate)) return false;
+        if (candidate == 0) return true;
+        int8_t worth = 0;
+        if (!queen_spell_worth(game, c, candidate, &worth)) return false;
+        if (worth > 0) {
+            *spell = candidate;
+            return true;
+        }
+    }
+}
+
+/* 5bb8:0306 (queen_spell_choice): the computer's spell choice (part 29). It casts nothing when it is
+ * fleeing, when var COK_VAR_NO_MAGIC is set, when it may not cast, or when it is a monster (+0x9b
+ * below 0x7f) and Magic is off (*cast false, true). Else its spell is queen_best_spell's: none, no
+ * draw. With one, p is the four class levels (2, 3, 4, 1) summed as bytes and shifted two (a byte); a
+ * d100 at or below p casts nothing (one draw), and a d5 above the spell's priority (+0x12) casts
+ * nothing (two draws). Else 52db:2543 (queen_cast_command, redrawn): *cast is its done, which ends the
+ * turn. The caster is the selected record (vm.character, the turn's). False where the run stopped. */
+bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    const cok_combat_record *cr = c->combat;
+    *cast = false;
+    if (cr == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "a combatant has no combat record, read through NULL (5bb8:0306)");
+        return false;
+    }
+    if (cr->fleeing != 0) return true;
+    if (cok_ecl_var(&game->vm, COK_VAR_NO_MAGIC) != 0) return true;
+    if (cr->may_cast == 0) return true;
+    if (cok_field_u8(L, c->record, COK_FIELD_NPC) < 0x7f && !game->combat.magic_on) return true;
+    uint8_t spell = 0;
+    if (!queen_best_spell(game, c, &spell)) return false;
+    if (spell == 0) return true;
+    uint8_t levels = 0;
+    static const unsigned classes[4] = {2, 3, 4, 1}; /* 5bb8:0306's 177e:2234 calls, in order */
+    for (unsigned i = 0; i < 4; ++i)
+        levels = (uint8_t)(levels + cok_field_u8_at(L, c->record, COK_FIELD_CLASS_LEVEL, classes[i]));
+    uint8_t p = (uint8_t)(levels << 2);
+    if (cok_dice(&game->vm.seed, 1, 100) <= p) return true;
+    if (cok_dice(&game->vm.seed, 1, 5) > queen_spell_byte(game, spell, SPELL_PRIORITY)) return true;
+    bool done = false;
+    if (!queen_cast_command(game, c, spell, true, &done)) return false;
+    *cast = done;
+    return true;
+}
+
 /* The computer's turn (dqk 5bb8:0000). ai.c's cok_combat_computer hands a Dark Queen record's turn
  * here (the descriptor's computer_routine). The steps in the original's order, cited by offset:
  * a record with no target picks one first (52db:3d9e with 0xff, 1, 0, 0; its result unused: the
@@ -700,7 +950,8 @@ bool queen_fight(cok_adventure *game, cok_character *c, bool *over)
  * turn, and the way of moving is still drawn (0074 falls through to 008d); morale (1117: the
  * shared cok_ai_morale, unless over); one fleeing and not forced says "flees in panic"; over ends.
  * 5bb8:02f5 (cok_ai_use_item) is never taken: it returns 0 with no draw (DKK's draws its die;
- * the port's use_item must not run here). A pending spell's cast (849a:145b) is the stop; then
+ * the port's use_item must not run here). A pending spell's cast (0170: queen_cast with the computer's
+ * ai, the spell kept until the turn's end) comes first; then
  * turn undead (0268, turn_undead: found, queen_turn_undead turns them and the turn ends), the spell
  * choice (0306, queen_spell_choice; a cast ends the turn), and the weapon's choice (1396,
  * queen_choose_weapon), then the keys again (1050: over ends the turn). Then the loop of step 14
@@ -743,9 +994,18 @@ bool queen_computer(cok_adventure *game, cok_character *c)
         return false;
     if (over) return true;
     if (cr->spell > 0) {
-        cok_combat_end_turn(c); /* 0c11, then the stop */
-        return cok_adventure_not_yet(game, "a pending spell's cast",
-                                     "dqk 849a:145b, the computer's pending cast (part 29)");
+        /* 5bb8:0170: the pending cast with the spell still kept (0c11 clears it after). The caster
+         * is the selected record (DS:ad67): the turn has set it (round.c:941); a Quick turn has not,
+         * so it is set for the cast alone and put back. */
+        uint8_t *selected = game->vm.character;
+        bool done = false;
+        game->vm.character = r;
+        bool ok = queen_cast(game, cr->spell, true, true, &done);
+        game->vm.character = selected;
+        if (!ok) return false;
+        if (game->vm.abort) return true;
+        cok_combat_end_turn(c);
+        return true;
     }
     bool turned = false;
     if (!turn_undead(game, c, &turned)) return false;
@@ -753,8 +1013,13 @@ bool queen_computer(cok_adventure *game, cok_character *c)
         cok_combat_end_turn(c); /* 5bb8:01b8: 0c11, then the turn is over */
         return true;
     }
+    /* The choice's caster is the selected record too (see the pending cast above). */
+    uint8_t *selected = game->vm.character;
     bool cast = false;
-    if (!queen_spell_choice(game, c, &cast)) return false;
+    game->vm.character = r;
+    bool ok = queen_spell_choice(game, c, &cast);
+    game->vm.character = selected;
+    if (!ok) return false;
     if (cast) return true;
     if (!queen_choose_weapon(game, c, cr->target)) return false;
     if (!cok_ai_keys(game, c, &over)) return false; /* 5bb8:1050 again: over ends the turn */

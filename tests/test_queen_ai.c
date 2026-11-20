@@ -227,7 +227,8 @@ static void test_step_sound(void)
 }
 
 /* 5bb8:0af0: with no movement and not fleeing, the computer's spell choice (5bb8:0306) first. With
- * Magic off (or may_cast 0) a monster guards; with Magic on and may_cast 1 the choice is a cited stop. */
+ * Magic off (or may_cast 0) a monster guards; with Magic on and may_cast 1 and nothing memorised the
+ * choice casts nothing (no draw), and the guard follows. */
 static void test_no_move(void)
 {
     battle_clear();
@@ -257,8 +258,7 @@ static void test_no_move(void)
     m->combat->movement = 0;
     m->combat->may_cast = 1;
     game.combat.magic_on = true;
-    CHECK(!cok_ai_step(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "dqk 5bb8:0306") != NULL && m->combat->guarding == 0);
+    CHECK(cok_ai_step(&game, m) && game.vm.status == COK_ECL_OK && m->combat->guarding == 1);
     battle_clear();
 }
 
@@ -572,15 +572,19 @@ static void test_morale_divide(void)
     game.vm.status = COK_ECL_OK;
 }
 
-/* 5bb8:0164: a pending spell (+0) is its cast's stop (849a:145b), after the pattern. */
+/* 5bb8:0170: a pending spell (+0) is cast at once (queen_cast, MM at the computer's aim: the stop
+ * 52db:1d42/48aa), after the pattern; the spell is still kept at the stop. */
 static void test_computer_spell(void)
 {
     cok_character *a;
     cok_character *m = computer_pair(1, &a);
-    m->combat->spell = 3;
+    game.vm.mode = 5;
+    m->combat->spell = 0x0f;
     CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "849a:145b") != NULL);
+          strstr(game.error, "52db:1d42/48aa") != NULL && m->combat->spell == 0x0f);
     game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.mode = 0;
 }
 
 /* 5bb8:0268: a cleric or a paladin above 2 searches for undead (52db:135e, limit 13); a paladin at
@@ -949,7 +953,7 @@ static void test_computer_pick(void)
 }
 
 /* 5bb8:0306's prefix with Magic off: a monster (+0x9b below 0x7f) casts nothing; from 0x7f on it
- * is the spell choice's stop (1b1e, part 29). */
+ * goes on to the choice, which with nothing memorised casts nothing (no stop). */
 static void test_spell_choice(void)
 {
     battle_clear();
@@ -962,9 +966,7 @@ static void test_spell_choice(void)
     bool cast = true;
     CHECK(queen_spell_choice(&game, m, &cast) && !cast);
     cok_field_set8(L, m->record, COK_FIELD_NPC, 0x7f);
-    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "5bb8:0306") != NULL);
-    game.vm.status = COK_ECL_OK;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
     battle_clear();
 }
 
@@ -1623,6 +1625,333 @@ static void test_fight_inactive_target(void)
     battle_clear();
 }
 
+/* The memorised spells of m (+0xce), the given ids in slots 0 up, the rest 0. */
+static void memorize(cok_character *m, const uint8_t *spells, size_t n)
+{
+    memset(m->record + 0xce, 0, 0x89);
+    memcpy(m->record + 0xce, spells, n);
+}
+
+static void clear_memorized(cok_character *m)
+{
+    memset(m->record + 0xce, 0, 0x89);
+}
+
+/* A monster m (hostile 1, magic on, a fighter of level 3, 10 of 12 hit points) and a party member a
+ * beside it (hostile 0, adjacent to the east): the spell choice's caster and its target. */
+static cok_character *caster(cok_character **a_out)
+{
+    const cok_character_layout *L = R->character;
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(m, 10, 10);
+    place(a, 10, 11);
+    m->combat->may_cast = 1;
+    game.combat.magic_on = true;
+    game.undead = 5;
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 10);
+    game.vm.character = m->record; /* the turn's selected record (round.c:941) */
+    *a_out = a;
+    return m;
+}
+
+/* The seed (from 1) whose first d100 and then d5 draws satisfy want. */
+typedef bool (*draws_fn)(uint8_t d100, uint8_t d5);
+static uint32_t seed_where(draws_fn want)
+{
+    for (uint32_t s = 1; s < 1000000; ++s) {
+        uint32_t t = s;
+        uint8_t a = cok_dice(&t, 1, 100);
+        uint8_t b = cok_dice(&t, 1, 5);
+        if (want(a, b)) return s;
+    }
+    CHECK(!"no seed");
+    return 0;
+}
+static bool d100_is_24(uint8_t a, uint8_t b) { (void)b; return a == 24; }
+static bool d100_above_24(uint8_t a, uint8_t b) { (void)b; return a > 24; }
+static bool d100_above_12(uint8_t a, uint8_t b) { (void)b; return a > 12; }
+static bool d5_is_5_after_high(uint8_t a, uint8_t b) { return a > 24 && b == 5; }
+
+/* 5bb8:1b1e's order (queen_best_spell): the memorised bytes by priority (+0x12), the later slot first
+ * among equals (Fireball 0x2f and Hold Person 0x17 both 7, MM 0x0f 5), duplicates walked past, camp-only
+ * (0x0e) and bytes of 0x80 or more and 0 skipped, a spell with nothing worth it passed over. */
+static void test_best_spell_order(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    uint8_t spell = 0xee;
+    CHECK(queen_spell_word(&game, 0x0e, 0x0f) == 0); /* a camp-only spell (+0x0f 0) */
+    CHECK(queen_spell_byte(&game, 0x0f, 0x12) == 5 && queen_spell_byte(&game, 0x2f, 0x12) == 7 &&
+          queen_spell_byte(&game, 0x17, 0x12) == 7);
+    /* Hold Person needs a target with flags 2 (+0xc8); without it, Fireball is the best. */
+    uint8_t all[] = {0x0f, 0x2f, 0x17};
+    memorize(m, all, sizeof all);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x2f);
+    CHECK(game.vm.status == COK_ECL_OK);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x17);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 1, 0);
+    uint8_t two[] = {0x0f, 0x2f};
+    memorize(m, two, sizeof two);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x2f);
+    uint8_t mm[] = {0x0f};
+    memorize(m, mm, sizeof mm);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x0f);
+    /* Camp-only, a byte of 0x80 or more, and a zero slot are skipped. */
+    uint8_t skipped[] = {0x0e, 0x8f, 0x00, 0x0f};
+    memorize(m, skipped, sizeof skipped);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x0f);
+    /* A duplicate of a spell worth nothing is walked past: MM's target holds 0x11 (nothing worth it). */
+    uint8_t dup[] = {0x0f, 0x0f};
+    memorize(m, dup, sizeof dup);
+    cok_character_add_effect(a, 0x11, 0, 0, false);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0);
+    CHECK(game.vm.status == COK_ECL_OK);
+    uint8_t dup_then[] = {0x0f, 0x0f, 0x03};
+    memorize(m, dup_then, sizeof dup_then);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x03); /* walked past both MMs */
+    /* Then Cure Light Wounds, worth to the caster herself, behind MM (priority 5 over 0). */
+    uint8_t fall[] = {0x0f, 0x03};
+    memorize(m, fall, sizeof fall);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x03);
+    clear_memorized(m);
+    battle_clear();
+}
+
+/* The computer's choice's dice (5bb8:0306): p is the four class levels (2, 3, 4, 1) summed as bytes
+ * and shifted two (a byte: 70 levels give 24). A d100 at or below p casts nothing (one draw); above it
+ * a d5 above the priority casts nothing (CLW, priority 0, never); MM (priority 5) passes the d5 and
+ * casts (its aim is the computer's, 52db:1d42, a stop). */
+static void test_spell_choice_dice(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    cok_character *m = caster(&a);
+    game.vm.mode = 5; /* the battle: the cast is a battle's */
+    uint8_t mm[] = {0x0f};
+    memorize(m, mm, sizeof mm);
+    /* Classes 1 to 4 summing 70 (60, 4, 3, 3); class 0 (50) is not one of the four. */
+    static const uint8_t levels[5] = {50, 60, 4, 3, 3};
+    for (unsigned i = 0; i < 5; ++i) cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, i, levels[i]);
+    bool cast = true;
+    uint32_t s = seed_where(d100_is_24);
+    game.vm.seed = s;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    uint32_t t = s;
+    cok_dice(&t, 1, 100);
+    CHECK(game.vm.seed == t); /* exactly one draw */
+    s = seed_where(d100_above_24);
+    game.vm.seed = s;
+    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    /* CLW: priority 0, so the d5 always passes it over: two draws, no cast. */
+    uint8_t clw[] = {0x03};
+    memorize(m, clw, sizeof clw);
+    for (unsigned i = 0; i < 5; ++i) cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, i, 0);
+    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 1, 3);
+    s = seed_where(d100_above_12);
+    game.vm.seed = s;
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
+    t = s;
+    cok_dice(&t, 1, 100);
+    cok_dice(&t, 1, 5);
+    CHECK(game.vm.seed == t);
+    /* MM's d5 of 5 is not above its priority 5: the cast goes on (the stop). */
+    memorize(m, mm, sizeof mm);
+    s = seed_where(d5_is_5_after_high);
+    game.vm.seed = s;
+    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    clear_memorized(m);
+    game.vm.mode = 0;
+    battle_clear();
+}
+
+/* 52db:42cc (queen_target_worth): -40 for the other side; the grades of magic resistance (3, 2, 1,
+ * 0 at 0x29, 0x47, 0x65, 0x83; 4 at 0x28); the table's rows (MM not on a target holding 0x11, the
+ * cures on hit points below the maximum, Bless with no enemy beside its target); the globe (0x39) below
+ * level 5 and 0x3f below 4 (Fireball, level 3, and Heal, level 6, unaffected). Each group on fresh
+ * records. */
+static void test_target_worth(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    int8_t w = 0;
+    cok_character *m = caster(&a);
+    CHECK(queen_target_worth(&game, a, 0x0f, 1, &w) && w == -40);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 4);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x29);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 3);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x47);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 2);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x65);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 1);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x83);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 0);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x28);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 4);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0);
+    cok_character_add_effect(a, 0x11, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 0);
+    /* The cures: hit points below the maximum (a fresh target, not holding 0x11). */
+    m = caster(&a);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 10);
+    CHECK(queen_target_worth(&game, a, 0x03, 0, &w) && w == 0);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    CHECK(queen_target_worth(&game, a, 0x03, 0, &w) && w == 4);
+    /* The globe on a fresh target: MM (level 1) is cut, Heal (level 6) is not. */
+    m = caster(&a);
+    cok_character_add_effect(a, 0x39, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 0);
+    /* The grade overwrites the globe's 0 (the original's tail tests the resistance on its own). */
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0x30);
+    CHECK(queen_target_worth(&game, a, 0x0f, 0, &w) && w == 3);
+    cok_field_set8(L, a->record, COK_FIELD_MAGIC_RESISTANCE, 0);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    CHECK(queen_target_worth(&game, a, 0x24, 0, &w) && w == 4);
+    /* 0x3f: Fireball (level 3) is cut, Heal (level 6) is not. */
+    m = caster(&a);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_character_add_effect(a, 0x3f, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x2f, 0, &w) && w == 0);
+    CHECK(queen_target_worth(&game, a, 0x24, 0, &w) && w == 4);
+    /* Bless (0x01): an enemy within 1 of the target gives nothing; with none, 4. */
+    battle_clear();
+    cok_character *p = record('P', 0, 0);
+    place(p, 10, 10);
+    cok_character *q = record('Q', 1, 0);
+    place(q, 10, 11);
+    CHECK(queen_target_worth(&game, p, 0x01, 0, &w) && w == 0);
+    battle_clear();
+    p = record('P', 0, 0);
+    place(p, 10, 10);
+    CHECK(queen_target_worth(&game, p, 0x01, 0, &w) && w == 4);
+    battle_clear();
+    (void)m;
+}
+
+/* 5bb8:4789 (queen_spell_worth): the other side's allies word (+0x13 1 for MM) finds the foe beside the
+ * caster; the caster's own cure (CLW, +0x13 0) is worth the caster herself. */
+static void test_spell_worth(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    int8_t w = 0;
+    CHECK(queen_spell_worth(&game, m, 0x0f, &w) && w == 4);
+    CHECK(queen_spell_worth(&game, m, 0x03, &w) && w == 4);
+    cok_character_add_effect(a, 0x11, 0, 0, false);
+    CHECK(queen_spell_worth(&game, m, 0x0f, &w) && w == 0);
+    battle_clear();
+}
+
+/* 52db:42cc's edges: the globe (0x39) cuts below level 5 only (0x49, level 5, kept) and 0x3f below 4
+ * only (the cure 0x3a, level 4, kept; cut by the globe); Prayer's test is the selected record's, not
+ * the target's. */
+static void test_target_worth_edges(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    int8_t w = 0;
+    cok_character *m = caster(&a);
+    /* Prayer: the caster (the selected record) holding 0x31 makes it worth nothing to anyone. */
+    CHECK(queen_target_worth(&game, a, 0x2a, 0, &w) && w == 4);
+    cok_character_add_effect(m, 0x31, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x2a, 0, &w) && w == 0);
+    CHECK(queen_spell_byte(&game, 0x49, 2) == 5 && queen_spell_byte(&game, 0x3a, 2) == 4);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_character_add_effect(a, 0x3f, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x3a, 0, &w) && w == 4);
+    cok_character_add_effect(a, 0x39, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x3a, 0, &w) && w == 0);
+    CHECK(queen_target_worth(&game, a, 0x49, 0, &w) && w == 4);
+    battle_clear();
+}
+
+/* 5bb8:1a07's edges: the last memorised slot (+0xce + 0x88) is read, and a byte of 0x80 (a spell's id
+ * in the table, castable) is skipped like any byte from 0x80 on. */
+static void test_best_spell_edges(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    uint8_t spell = 0xee;
+    clear_memorized(m);
+    m->record[0xce + 0x88] = 0x0f;
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x0f);
+    CHECK(queen_spell_word(&game, 0x80, 0x0f) != 0 && queen_spell_byte(&game, 0x80, 7) == 0);
+    uint8_t high[] = {0x80};
+    memorize(m, high, sizeof high);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0);
+    clear_memorized(m);
+    battle_clear();
+}
+
+/* 52db:4789 with a spell of kind 0 (+7 0: 0x1c, its effect 0x17, the caster's own side, a range of 3):
+ * the worth is 42cc's on the caster alone, not on those around her (an ally beside her not holding 0x17). */
+static void test_spell_worth_self(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    cok_character *b = record('B', 1, 0);
+    place(m, 10, 10);
+    place(b, 10, 11);
+    game.vm.character = m->record;
+    CHECK(queen_spell_byte(&game, 0x1c, 7) == 0 && queen_spell_byte(&game, 0x1c, 0x0e) == 0x17 &&
+          queen_spell_byte(&game, 0x1c, 3) == 3);
+    int8_t w = 0;
+    CHECK(queen_spell_worth(&game, m, 0x1c, &w) && w == 4);
+    cok_character_add_effect(m, 0x17, 0, 0, false);
+    CHECK(queen_spell_worth(&game, m, 0x1c, &w) && w == 0);
+    battle_clear();
+}
+
+/* 52db:4789's loop runs to the count it read once (DS:c2dd into a local, 4841): Bless's test (51c2:0980)
+ * lists again around each target and leaves that target's enemies in the list with their count, which
+ * the loop does not read again, so it walks on through the entries left after them: here past the
+ * caster (an enemy beside her) and the enemy to the ally two cells away, worth 4. */
+static void test_spell_worth_bless(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    cok_character *a = record('A', 0, 0);
+    cok_character *b = record('B', 1, 0);
+    place(m, 10, 10);
+    place(a, 10, 11);
+    place(b, 10, 13);
+    game.vm.character = m->record;
+    uint8_t range = 0;
+    CHECK(queen_spell_range(&game, 0x01, &range) && range >= 3);
+    int8_t w = 0;
+    CHECK(queen_spell_worth(&game, m, 0x01, &w) && w == 4);
+    battle_clear();
+}
+
+/* 5bb8:0170 (the pending cast of a monster): MM is cast by the computer: the spell is still kept
+ * while it casts (the stop comes before any change), the caster is the selected record, and the
+ * computer's aim (52db:1d42/48aa) is the stop. */
+static void test_pending_cast(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    game.vm.mode = 5;
+    m->combat->spell = 0x0f;
+    m->combat->target = a->record;
+    game.vm.character = a->record; /* not the caster: the pending cast sets it and puts it back */
+    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
+    CHECK(m->combat->spell == 0x0f && game.vm.character == a->record);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.mode = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -1663,6 +1992,15 @@ int main(void)
     test_turn_undead_count();
     test_computer_pick();
     test_spell_choice();
+    test_best_spell_order();
+    test_spell_choice_dice();
+    test_target_worth();
+    test_spell_worth();
+    test_target_worth_edges();
+    test_best_spell_edges();
+    test_spell_worth_self();
+    test_spell_worth_bless();
+    test_pending_cast();
     test_weapon_needs();
     test_weapon_score();
     test_weapon_choice();

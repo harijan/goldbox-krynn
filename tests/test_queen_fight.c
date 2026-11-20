@@ -401,10 +401,10 @@ static void test_geometry(void)
     battle_clear();
 }
 
-/* The computer's spell choice's prefix (dqk 5bb8:0306, queen_ai.c): it casts nothing when fleeing,
- * when var COK_VAR_NO_MAGIC is set, when it may not cast, or when it is a monster with Magic off;
- * each of those returns with no stop. Anything else is the spell choice (part 29), a cited stop; so
- * is a monster with Magic on, and an NPC (+0x9b 0x80) even with Magic off. */
+/* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): it casts nothing when fleeing, when var
+ * COK_VAR_NO_MAGIC is set, when it may not cast, or when it is a monster with Magic off; and nothing
+ * with no memorised spell (no draw). A monster with Magic on, and an NPC (+0x9b 0x80) even with
+ * Magic off, go on to the choice, which is no stop: with the bytes at +0xce empty it casts nothing. */
 static void test_spell_choice(void)
 {
     battle_clear();
@@ -431,13 +431,10 @@ static void test_spell_choice(void)
     /* Past them: the choice, a cited stop, for a monster with Magic on, and for an NPC with it
      * off. */
     m->combat->may_cast = 1;
-    CHECK(!queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "dqk 5bb8:0306") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.error[0] = '\0';
+    CHECK(queen_spell_choice(&game, m, &cast) && !cast && game.vm.status == COK_ECL_OK);
     game.combat.magic_on = false;
     n->combat->may_cast = 1;
-    CHECK(!queen_spell_choice(&game, n, &cast) && !cast && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(queen_spell_choice(&game, n, &cast) && !cast && game.vm.status == COK_ECL_OK);
     game.vm.status = COK_ECL_OK;
     game.error[0] = '\0';
     game.combat.magic_on = false;

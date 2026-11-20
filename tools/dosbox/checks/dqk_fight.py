@@ -5046,6 +5046,85 @@ def cast_hurt(v, work, opts, wild, hurt):
             "eclplay's tail after the abort: Spell Aborted (its message), CLW forgotten (+0xce 0x83)", "")
 
 
+# Cast's computer turn (step 4, part 29a: dqk 5bb8:0306 and 5bb8:0170, queen_ai.c; the flow cast_auto). Saved game A
+# with BALTHIR (CAST's bytes: CLW then MM memorised, the open ground). Alt-M at her menu (magic on: one draw, the menu
+# again), then Alt-Q (the computer turns her: her dispatch at 5045:0891, then her computer turn's spell choice, which
+# chooses MM: its d100 and d5, then 2543's cast at once, the announce, and the pick of MM's target at 52db:1d42, the
+# computer's aim (part 29b): the port's stop there). The original is trapped at 52db:1d42 with RandSeed settled.
+COMPUTER_AIM = (0x52DB, 0x1D42)         # the computer's aim of a one-target spell (1e78's computer branch: 1d42)
+CAST_AUTO_MAGIC = (1, 0xEB831397)       # Alt-M: the bar message's wait, one draw past the menu, at its end
+CAST_AUTO_DISPATCH = (2, 0xD9491FD4)    # Alt-Q: its own wait, then her computer turn's dispatch (5045:0891)
+CAST_AUTO_AIM = (7, 0x06787DB1)         # the choice's two draws, the announce's and the pick's, at 52db:1d42
+CAST_AUTO_CELL = (29, 14)               # the spell's cell (DS:bd2c, bd49: her own cell, 1f78's start)
+CAST_AUTO_BEGUN = 0                     # her combat block's spell (+0): none, MM was cast at once
+AIM_STOP = "dqk 52db:1d42/48aa"        # eclplay's stop: the computer's aim (queen_cast.c's pick, part 29b)
+
+
+def cast_auto_original(work, patched, data, verbose):
+    """The original at BALTHIR's first menu (CAST's save): Alt-M (the menu again), then Alt-Q: her computer turn's
+    dispatch (5045:0891 spun, then given back), and her turn's pick of MM's target (52db:1d42, trapped once it is
+    loaded, RandSeed settled by wait_seed). Returns the menu, the Alt-M state (DS:b1cb too), the dispatch's state
+    and the stop's (the spell cell DS:bd2c, bd49, DS:c6f4 for the targets)."""
+    with cokbox.Box(workdir=work / "box-cast-auto", game="dark-queen", verbose=verbose, timeout=900,
+                    files={**L.files(patched), "SAVE/SAVGAMA.QSV": data}) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        magic = cast_key(box, work, "cast-auto-magic", "\\@M")
+        magic["magic"] = box.ds_byte(MAGIC)
+        t = arm(box, menu["handle"], COMPUTER)
+        box.keys("\\@Q")
+        wait_spin(box, t, "5045:0891")
+        dispatch = snapshot(box)
+        dispatch.update(tail_state(box), selected=selected(box))
+        L.untrap(box, t)
+        t2 = L.trap(box, *COMPUTER_AIM, seconds=TAIL_SECONDS)
+        wait_seed(box, t2, "52db:1d42")
+        stop = snapshot(box)
+        stop.update(selected=selected(box), cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)),
+                    targets=box.ds_byte(CAST_TARGETS))
+        stop["screen"] = box.screenshot(path=str(work / "cast-auto-stop.png"))
+        L.untrap(box, t2)
+        box.settled(quiet=1.0, tolerance=0)
+    return dict(menu=menu, magic=magic, dispatch=dispatch, stop=stop)
+
+
+def cast_auto(v, work, opts):
+    """Cast's computer turn (part 29a, dqk 5bb8:0306 and 5bb8:0170): Alt-M at BALTHIR's menu (magic on, one draw), then
+    Alt-Q (her computer turn). The original: her dispatch's draws, then the choice's (d100, d5, the cast at once) and
+    the pick of MM's target at 52db:1d42 (7 draws past the menu, RandSeed 06787db1, the spell cell 29,14, no targets
+    yet, +0xcf still MM, no spell begun). eclplay stops at the same place, "dqk 52db:1d42/48aa" (the computer's aim,
+    part 29b), with the records, blocks and RandSeed agreeing there."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = cast_save()
+    o = cast_auto_original(work, wild, save, opts.verbose)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "cast-auto-save", save)
+    p = command_port(work, wild, "cast-auto", "\\@M\\@Q", entry=entry)
+    magic, dispatch, stop = o["magic"], o["dispatch"], o["stop"]
+    v.check(magic["magic"] == 1 and (L.draws(m0, magic["seed"]), magic["seed"]) == CAST_AUTO_MAGIC,
+            f"the original's Alt-M turns the magic on (DS:b1cb 1) with {CAST_AUTO_MAGIC[0]} draw past the menu, at "
+            f"{CAST_AUTO_MAGIC[1]:#x}", f"DS:b1cb {magic['magic']}, {L.draws(m0, magic['seed'])} draws, {magic['seed']:#x}")
+    v.check((L.draws(m0, dispatch["seed"]), dispatch["seed"]) == CAST_AUTO_DISPATCH,
+            f"the original's RandSeed at BALTHIR's computer dispatch (after Alt-Q) is {CAST_AUTO_DISPATCH[0]} draws past "
+            f"the menu, at {CAST_AUTO_DISPATCH[1]:#x}", f"{L.draws(m0, dispatch['seed'])} draws, {dispatch['seed']:#x}")
+    draws = L.draws(m0, stop["seed"])
+    v.check((draws, stop["seed"]) == CAST_AUTO_AIM,
+            f"the original's RandSeed at the pick of MM's target (52db:1d42) is {CAST_AUTO_AIM[0]} draws past the menu, "
+            f"at {CAST_AUTO_AIM[1]:#x}", f"{draws} draws, {stop['seed']:#x}")
+    v.check(stop["cell"] == CAST_AUTO_CELL and stop["targets"] == 0,
+            "at the pick the spell's cell is BALTHIR's (29,14) and DS:c6f4 is 0 (no target yet)",
+            f"cell {stop['cell']}, DS:c6f4 {stop['targets']}")
+    v.check(rec_byte(stop["records"][CAST_BALTHIR], CAST_MEMO + 1) == CAST_MM and
+            rec_byte(stop["blocks"][CAST_BALTHIR], 0) == CAST_AUTO_BEGUN,
+            "at the pick MM is still memorised (+0xcf 0x0f) and no spell is begun (block +0 0)",
+            f"+0xcf {rec_byte(stop['records'][CAST_BALTHIR], CAST_MEMO + 1):#x}, block {rec_byte(stop['blocks'][CAST_BALTHIR], 0)}")
+    v.check(p["last"] is not None and AIM_STOP in p["last"],
+            f"eclplay stops at the computer's aim ({AIM_STOP}) after Alt-M and Alt-Q", p["last"])
+    command_state(v, "BALTHIR's computer turn's pick of MM's target (52db:1d42)", stop, p, m0)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5066,10 +5145,10 @@ def main():
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
                                 "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn,"
-                                "cast",
+                                "cast,cast_auto",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse, move, aim, turn, cast")
+                             "won, drop, timer, walk, mouse, move, aim, turn, cast, cast_auto")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -5130,6 +5209,8 @@ def main():
         turn(v, work, opts)
     if "cast" in flows:
         cast(v, work, opts)
+    if "cast_auto" in flows:
+        cast_auto(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
