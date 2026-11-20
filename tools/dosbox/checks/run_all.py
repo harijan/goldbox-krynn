@@ -9,7 +9,8 @@ the verdict recorded (docs/checks.md, "Checks against the original").
 
 SET: champions (CHECKS, the default), dkk (DKK_CHECKS: Death Knights'
 scripts, the long ones one per flow; make dkk-checks), all (both), or dqk
-(DQK_CHECKS: The Dark Queen of Krynn's; make dqk-checks).
+(DQK_CHECKS: The Dark Queen of Krynn's, dqk_fight, dqk_treasure and dqk_create one per flow;
+make dqk-checks).
 
 Each script runs with --workdir OUT/NAME (default OUT build/dosbox-checks),
 its output in OUT/NAME.log, and ends with a line `VERDICT: AGREES` or
@@ -22,7 +23,8 @@ recorded runs once more, alone, at the end (unless --no-again): the
 verdict alone is the one that counts, its first shown beside it.
 Needs `make build/eclplay build/krynn build/START_FULL.EXE` (make dosbox-checks
 does it; `make dosbox-checks ARGS="--only b_amount"` passes options). Exit 0
-when every script gave its recorded verdict.
+when every script gave its recorded verdict. --only SCRIPT of a split script runs it whole, as one
+row (with --flows F, those flows); --only SCRIPT-FLOW one of its rows.
 
 Telemetry, for speeding the checks up: each script's trace in
 OUT/NAME.trace.jsonl (tools/dosbox/telemetry.py: its boxes, waits,
@@ -167,7 +169,19 @@ DKK_CHECKS = [(f"{script}-{flow}" if flow else script, "DKK", "") for script in 
 # start, its first screen, the title, texts and the 3D view, its menus,
 # input and big picture, its saved game, camp and party to the first
 # fight against eclplay --game dark-queen.
-DQK_SPLIT = {"dqk_create": ["fighter", "cleric", "dwarf", "kender", "multi", "modify", "knights", "casters", "exits"]}
+# The long scripts split by their --flows (dqk_fight's defaults, dqk_treasure's and dqk_create's
+# flows), each flow a row of its own, as DKK_SPLIT.
+DQK_SPLIT = {
+    "dqk_fight": ["setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
+                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
+                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
+                  "cast_auto"],
+    "dqk_treasure": ["won", "fled", "lost", "pool", "bonus", "zero", "negative", "rest", "gentle",
+                     "fledmix", "enemy", "enemyout", "enemyhigh", "take", "share", "gather", "overload",
+                     "takeall", "items", "takeitems", "takeboth", "lost9"],
+    "dqk_create": ["fighter", "cleric", "dwarf", "kender", "multi", "modify", "knights", "casters",
+                   "exits"],
+}
 DQK_SCRIPTS = ["dqk_boot", "dqk_views", "dqk_menus", "dqk_party", "dqk_view_mouse", "dqk_items",
                "dqk_train", "dqk_add", "dqk_modify", "dqk_stats", "dqk_create", "dqk_ecl",
                "dqk_ecl_input", "dqk_ecl_text", "dqk_ecl_flow", "dqk_ecl_misc", "dqk_ecl_party", "dqk_ecl_items",
@@ -198,11 +212,14 @@ LONG = {"a_demo": 5, "f_frames": 4, "f_sound": 3, "c_wander": 2, "e_bolt_bounce"
         "dkk_fight-clouds": 4, "dkk_fight-cast": 3, "dkk_fight-band": 3, "dkk_fight-auto": 3,
         "dkk_fight-mage": 3, "dkk_start": 3, "dkk_mouse": 3, "dkk_items": 3, "dkk_sound": 5,
         "dqk_boot": 1, "dqk_views": 1, "dqk_menus": 1, "dqk_party": 1, "dqk_view_mouse": 1,
-        "dqk_ecl": 1, "dqk_ecl_input": 3, "dqk_ecl_text": 1, "dqk_ecl_flow": 2, "dqk_ecl_misc": 1, "dqk_ecl_party": 1, "dqk_ecl_items": 1, "dqk_fight": 1, "dqk_program0": 1, "dqk_camp": 1, "dqk_shops": 1, "dqk_treasure": 3,
+        "dqk_ecl": 1, "dqk_ecl_input": 3, "dqk_ecl_text": 1, "dqk_ecl_flow": 2, "dqk_ecl_misc": 1, "dqk_ecl_party": 1, "dqk_ecl_items": 1, "dqk_program0": 1, "dqk_camp": 1, "dqk_shops": 1,
         "dqk_items": 2, "dqk_train": 2, "dqk_add": 4, "dqk_modify": 3, "dqk_stats": 1,
         "dqk_create-fighter": 2, "dqk_create-cleric": 2, "dqk_create-dwarf": 2,
         "dqk_create-kender": 3, "dqk_create-multi": 2, "dqk_create-modify": 2, "dqk_create-knights": 4,
-        "dqk_create-casters": 4, "dqk_create-exits": 3}
+        "dqk_create-casters": 4, "dqk_create-exits": 3,
+        "dqk_fight-aim": 5, "dqk_fight-keys": 4, "dqk_fight-cast": 2, "dqk_fight-melee-dying": 2,
+        "dqk_fight-melee-long": 2, "dqk_fight-field": 1, "dqk_fight-move": 1, "dqk_fight-turn": 1,
+        "dqk_fight-walk": 1, "dqk_fight-icons": 1, "dqk_fight-altq_missile": 1}
 VERDICT = re.compile(r"^VERDICT: (AGREES|DIFFERS new.*|ERROR.*)$", re.M)
 
 
@@ -301,6 +318,23 @@ def flows_problem(flows, only):
     return "--flows needs exactly one --only script, not split (e.g. --only dqk_fight --flows walk)"
 
 
+def selected(rows, only):
+    """The rows --only ONLY picks from ROWS (all of them without it), and the names in ONLY
+    that are no row and no script: a split script's own name (dqk_fight) is one row of the
+    whole script (its workdir OUT/dqk_fight; --flows run_all's, else the script's own
+    defaults), as before the split, e.g. --only dqk_fight --flows walk."""
+    names = {c[0] for c in rows}
+    split = {}
+    for name, checks, _ in rows:
+        script, _, flow = name.partition("-")
+        if flow:
+            split.setdefault(script, checks)
+    todo = [c for c in rows if not only or c[0] in only]
+    todo += [(name, split[name], "") for name in dict.fromkeys(only or ())
+             if name not in names and name in split]
+    return todo, set(only or ()) - names - set(split)
+
+
 def self_test():
     """judge_log and recorded_as on made-up logs; no DOSBox-X needed."""
     flow_cases = [
@@ -310,6 +344,38 @@ def self_test():
     ]
     flow_bad = sum((flows_problem(flows, only) is None) != ok for flows, only, ok in flow_cases)
     print(f"run_all --flows self-test: {len(flow_cases) - flow_bad} of {len(flow_cases)} cases right")
+    # --only on the rows: a split script's name picks its whole row, its flows' names their rows
+    selection = [
+        (DQK_CHECKS, None, {c[0] for c in DQK_CHECKS}, set()),
+        (DQK_CHECKS, ["dqk_fight"], {"dqk_fight"}, set()),
+        (DQK_CHECKS, ["dqk_fight-aim"], {"dqk_fight-aim"}, set()),
+        (DQK_CHECKS, ["dqk_fight", "dqk_boot"], {"dqk_fight", "dqk_boot"}, set()),
+        (DQK_CHECKS, ["dqk_treasure"], {"dqk_treasure"}, set()),
+        (DQK_CHECKS, ["dqk_nope", "dqk_fight-nope"], set(), {"dqk_nope", "dqk_fight-nope"}),
+        (DKK_CHECKS, ["dkk_fight"], {"dkk_fight"}, set()),
+    ]
+    sel_bad = 0
+    for rows, only, want, want_unknown in selection:
+        todo, unknown = selected(rows, only)
+        if {c[0] for c in todo} != want or unknown != want_unknown:
+            sel_bad += 1
+            print(f"self-test FAILS: --only {only}: rows {sorted(c[0] for c in todo)}, "
+                  f"unknown {sorted(unknown)}")
+    if selected(DQK_CHECKS, ["dqk_fight"])[0] != [("dqk_fight", "DQK", "")]:
+        sel_bad += 1
+        print("self-test FAILS: --only dqk_fight is not the whole row")
+    print(f"run_all self-test of --only: {len(selection) + 1 - sel_bad} of {len(selection) + 1} "
+          "cases right")
+    # DQK_SPLIT's lists are the flows of dqk_fight and dqk_treasure (imported here: cokbox)
+    import dqk_fight
+    import dqk_treasure
+    split_bad = 0
+    for script, flows in (("dqk_fight", dqk_fight.DEFAULT_FLOWS), ("dqk_treasure", dqk_treasure.FLOWS)):
+        if DQK_SPLIT[script] != list(flows):
+            split_bad += 1
+            diff = sorted(set(DQK_SPLIT[script]) ^ set(flows)) or "the same names, in another order"
+            print(f"self-test FAILS: DQK_SPLIT[{script!r}] is not the script's flows: {diff}")
+    print(f"run_all self-test of DQK_SPLIT: {2 - split_bad} of 2 cases right")
     cases = [
         ("  agrees: x\nVERDICT: AGREES\n", 0, "AGREES", ""),
         ("DIFFERENCE: x\nVERDICT: DIFFERS new (1: x)\n", 1, "DIFFERS new (1: x)", "new"),
@@ -334,7 +400,7 @@ def self_test():
             print(f"self-test FAILS: status {code!r}, log {text!r}: {got!r}/{rec!r}, "
                   f"wanted {want!r}/{recorded!r}")
     print(f"run_all self-test: {len(cases) - bad} of {len(cases)} cases right")
-    bad += self_test_again() + flow_bad
+    bad += self_test_again() + flow_bad + sel_bad + split_bad
     return 1 if bad else 0
 
 
@@ -485,8 +551,7 @@ def main():
     n = displays()
     jobs = opts.jobs or (max(1, n - 2) if n else default_jobs())
     rows = SETS[opts.set]
-    todo = [c for c in rows if not opts.only or c[0] in opts.only]
-    unknown = set(opts.only or ()) - {c[0] for c in rows}
+    todo, unknown = selected(rows, opts.only)
     if unknown:
         parser.error(f"no such check script: {', '.join(sorted(unknown))}")
     problem = flows_problem(opts.flows, opts.only)
