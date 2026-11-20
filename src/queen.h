@@ -265,10 +265,16 @@ bool queen_caster_level(cok_adventure *game, const uint8_t *caster, uint8_t spel
 bool queen_spell_range(cok_adventure *game, uint8_t spell, uint8_t *range);
 /* 849a:101b: the spell's duration in minutes (the dice through cok_dice). */
 bool queen_spell_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes);
-/* 849a:10f9: the spell's apply to the targets (spell_targets, count spell_target_count): damage of
- * amount and type (through queen_cast_damage) and the effect of the spell for its duration with value
- * (0: the caster level, capped) and text. Stops where a saving throw (148f:1886) or a touch (148f:1771)
- * is due, cited. False where the run stopped. */
+/* 148f:1886: the saving throw of t by type (the spell's +0xc word, 0-4) with bonus (0 in the apply),
+ * made true when it saves: a holder of effect 0x76 rolls 1, a roll of 1 fails and 20 saves (both
+ * with no event 0x0c); else the mage's moon, the save bonus and the event 0x0c on t, then the
+ * record's saving throw of that type. False where the run stopped (a magic order past the moons). */
+bool queen_save(cok_adventure *game, cok_character *t, uint8_t type, uint8_t bonus, bool *made);
+/* 849a:10f9: the spell's apply to the targets (spell_targets, count spell_target_count): the saving
+ * throw (queen_save, or saved by status 10 or effect 0x96 with spell 0x37), the touch (the stats,
+ * event 0x0b on the slot, the hit roll 148f:1771: a miss zeroes amount for the rest), the damage
+ * (through queen_cast_damage) and the effect of the spell for its duration with value (0: the caster
+ * level, capped) and text. False where the run stopped. */
 bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool on_remove,
                        uint8_t amount, uint8_t type, const char *text);
 /* 148f:2214: damage of amount (the word DS:ae55) to t, saved by save_kind (1 none, 2 half) when saved;
