@@ -238,4 +238,14 @@ bool queen_sheet(cok_adventure *game, cok_character *character);
 void queen_sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit);
 bool queen_sheet_derived(cok_adventure *game, cok_character *character);
 
+/* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
+ * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the
+ * battle (game's mode 5), with scroll the class 6 level too. */
+bool queen_spell_usable(cok_adventure *game, const cok_character *character, uint8_t spell,
+                        bool scroll);
+/* 849a:2080 for kind 0 in mode 1 (Cast): the list "Choose Spell:" of the memorised spells the
+ * character may cast. The spell's id, 0 for Exit, Escape or no spell listed, -1 where the keys
+ * ran out. Other modes stop (cok_adventure_not_yet). */
+int queen_spell_pick(cok_adventure *game, cok_character *character, int mode);
+
 #endif

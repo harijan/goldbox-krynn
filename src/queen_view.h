@@ -41,6 +41,11 @@ bool queen_item_ready(cok_adventure *game, cok_character *character, size_t inde
 int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
                     size_t bar_count, const char *const *items, size_t count, size_t *at,
                     int x1, int y1, int y2, int x2);
+/* queen_list_menu with headings: heading[i] (when heading is not NULL) marks a row that is no
+ * one's choice (drawn in light red, skipped by the keys and by a click). */
+int queen_list_menu_rows(cok_adventure *game, const char *prompt, const char *const *bar,
+                         size_t bar_count, const char *const *items, const bool *heading,
+                         size_t count, size_t *at, int x1, int y1, int y2, int x2);
 /* 86b8:2586: a number typed after its prompt on the bar, past max it is max; Return gives it,
  * Escape 0. -1 where the keys ran out. */
 long queen_amount_input(cok_adventure *game, const char *prompt, long max);

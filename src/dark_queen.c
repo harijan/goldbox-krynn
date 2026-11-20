@@ -1721,6 +1721,22 @@ static void horizontal(cok_adventure *game, bool ask)
 
 enum { LIST_BAR = 10 }; /* the buttons of a list's bar (Items' are ten) */
 
+/* A row that heading marks (queen_list_menu_rows; none when heading is NULL). */
+static bool is_heading(const bool *heading, size_t i)
+{
+    return heading != NULL && heading[i];
+}
+
+/* The row from at one way (step 1 or -1), wrapping, that is no heading; at when none is. */
+static size_t next_row(const bool *heading, size_t count, size_t at, int step)
+{
+    for (size_t i = 1; i < count; ++i) {
+        size_t j = step > 0 ? (at + i) % count : (at + count - i) % count;
+        if (!is_heading(heading, j)) return j;
+    }
+    return at;
+}
+
 /* The list (1bdb:1f25, 1b05:08b3, 0055, keys 0664) of count items in
  * rows y1 to y2 - 1 from cell 1 to x2 (one less with more items than rows,
  * room for the scroll bar), each row cleared, the current one (*at) in
@@ -1732,16 +1748,19 @@ enum { LIST_BAR = 10 }; /* the buttons of a list's bar (Items' are ten) */
  * giving its index; Return its first; Escape (or '`') 0x1b; a click on a
  * row makes it current, on the current one its first item. Returns that,
  * -1 if the keys ran out. The scroll bar (21e9:082d) is not decoded nor
- * drawn. */
-static int list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
-                     size_t bar_count, const char *const *items, size_t count, size_t *at,
-                     int x1, int y1, int y2, int x2)
+ * drawn. With heading (not NULL) the rows it marks are headings: drawn in
+ * light red (0x8c), no one's choice (the keys skip them, a click is none),
+ * and a start on one moves to the next row (Cast's spell list, 849a:019c). */
+static int list_menu_rows(cok_adventure *game, const char *prompt, const char *const *bar,
+                          size_t bar_count, const char *const *items, const bool *heading,
+                          size_t count, size_t *at, int x1, int y1, int y2, int x2)
 {
     int rows = y2 - y1, cols = x2 - 1;
     if (rows < 1) rows = 1;
     if ((size_t)rows < count) --cols; /* room for the scroll bar */
     size_t top = 0;
     if (*at >= count) *at = 0;
+    if (count > 0 && is_heading(heading, *at)) *at = next_row(heading, count, *at, 1);
     char box[96];
     snprintf(box, sizeof box, "%s", prompt);
     size_t n = strlen(box);
@@ -1768,7 +1787,9 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         for (int i = 0; i < rows; ++i) {
             clear_cells(game, x1, y1 + i, cols, y1 + i);
             size_t item = top + (size_t)i;
-            if (item < count) text(game, 8 * (y1 + i), 8 * x1, items[item], item == *at ? 0x8b : 0x87);
+            if (item < count)
+                text(game, 8 * (y1 + i), 8 * x1, items[item],
+                     item == *at ? 0x8b : is_heading(heading, item) ? 0x8c : 0x87);
         }
         input in;
         int key = read_input(game, &in);
@@ -1786,8 +1807,10 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
             if (!taken && inside(&list, in.x, in.y) && count > 0) {
                 size_t item = top + (size_t)((in.y - 8 * y1) / 8);
                 if (item >= count) item = count - 1;
-                if (item == *at) result = 0;
-                *at = item;
+                if (!is_heading(heading, item)) {
+                    if (item == *at) result = 0;
+                    *at = item;
+                }
             } else if (!taken) {
                 beep(game);
             }
@@ -1796,12 +1819,33 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         size_t page = rows > 1 ? (size_t)rows - 1 : 1, bottom = top + (size_t)rows - 1;
         if (bottom >= count) bottom = count > 0 ? count - 1 : 0;
         switch (in.key) {
-        case KEY_UP: case KEY_HOME: *at = *at > 0 ? *at - 1 : count - 1; break;
-        case KEY_DOWN: case KEY_END: *at = *at + 1 < count ? *at + 1 : 0; break;
-        case KEY_PGUP: *at = *at != top ? top : *at > page ? *at - page : 0; break;
-        case KEY_PGDN:
-            *at = *at != bottom ? bottom : *at + page < count ? *at + page : count - 1;
+        case KEY_UP: case KEY_HOME: *at = next_row(heading, count, *at, -1); break;
+        case KEY_DOWN: case KEY_END: *at = next_row(heading, count, *at, 1); break;
+        case KEY_PGUP: {
+            size_t first = top;
+            while (first < bottom && is_heading(heading, first)) ++first;
+            if (*at != first) {
+                *at = first;
+            } else {
+                size_t t = *at > page ? *at - page : 0;
+                while (t < *at && is_heading(heading, t)) ++t;
+                *at = t;
+            }
             break;
+        }
+        case KEY_PGDN: {
+            if (count == 0) break;
+            size_t last = bottom;
+            while (last > top && is_heading(heading, last)) --last;
+            if (*at != last) {
+                *at = last;
+            } else {
+                size_t t = *at + page < count ? *at + page : count - 1;
+                while (t > *at && is_heading(heading, t)) --t;
+                *at = t;
+            }
+            break;
+        }
         case '\r': case '\n': result = 0; break;
         case 0x1b: case 0x60: result = 0x1b; break;
         case KEY_ALT + 'S': case KEY_ALT + 'T': break; /* the sound's toggles */
@@ -1823,6 +1867,13 @@ static int list_menu(cok_adventure *game, const char *prompt, const char *const 
         button(game, BAR_ROW, cols_at[result], bar[result], (int)strlen(bar[result]),
                BUTTON_PRESSED);
     return result;
+}
+
+static int list_menu(cok_adventure *game, const char *prompt, const char *const *bar,
+                     size_t bar_count, const char *const *items, size_t count, size_t *at,
+                     int x1, int y1, int y2, int x2)
+{
+    return list_menu_rows(game, prompt, bar, bar_count, items, NULL, count, at, x1, y1, y2, x2);
 }
 
 /* VERTICAL MENU (6c70:1e91, 0f4a, 1bdb:1f25): the prompt printed as
@@ -3418,6 +3469,14 @@ int queen_list_menu(cok_adventure *game, const char *prompt, const char *const *
                     int x1, int y1, int y2, int x2)
 {
     return list_menu(game, prompt, bar, bar_count, items, count, at, x1, y1, y2, x2);
+}
+
+int queen_list_menu_rows(cok_adventure *game, const char *prompt, const char *const *bar,
+                         size_t bar_count, const char *const *items, const bool *heading,
+                         size_t count, size_t *at, int x1, int y1, int y2, int x2)
+{
+    return list_menu_rows(game, prompt, bar, bar_count, items, heading, count, at, x1, y1, y2,
+                          x2);
 }
 
 void queen_bar_message(cok_adventure *game, const char *s)
