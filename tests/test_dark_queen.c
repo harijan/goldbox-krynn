@@ -1028,6 +1028,11 @@ static void test_magic_ids(void)
     static struct fill_cell effect_cells[4 * 0xe6 + 2];
     fill_check(exe, header, effect_routines, 2, 0xbee8, 0xe6, effect_cells);
     static const uint8_t retf_only[5] = {0x55, 0x8b, 0xec, 0x5d, 0xcb};
+    /* The effects ported so far and their routines (78e4 each): 0x64, 0xc3, 0x69, and the racial
+     * 0x5c, 0x5e and 0x5f (1334, 1355, 13df). */
+    static const struct { uint8_t id; uint16_t off; } ported_effects[] = {
+        {0x64, 0x14d1}, {0xc3, 0x4949}, {0x69, 0x1aa2},
+        {0x5c, 0x1334}, {0x5e, 0x1355}, {0x5f, 0x13df}};
     for (unsigned id = 0; id < R->effects.count; ++id) {
         const struct fill_cell *off = &effect_cells[4 * id], *seg = &effect_cells[4 * id + 2];
         const cok_rules_effect *h = &R->effects.handlers[id];
@@ -1049,19 +1054,23 @@ static void test_magic_ids(void)
         } else {
             char cite[32];
             snprintf(cite, sizeof cite, "dqk %04x:%04x", sg, so);
-            if (id == 0x64 || id == 0xc3 || id == 0x69) /* ported: 78e4:14d1, 4949 and 1aa2 */
+            size_t k = 0;
+            while (k < sizeof ported_effects / sizeof *ported_effects && ported_effects[k].id != id)
+                ++k;
+            if (k < sizeof ported_effects / sizeof *ported_effects)
                 CHECK(h->handler != COK_FX_MISSING && h->unported == NULL &&
-                      sg == 0x78e4 && so == (id == 0x64 ? 0x14d1 : id == 0xc3 ? 0x4949 : 0x1aa2));
+                      sg == 0x78e4 && so == ported_effects[k].off);
             else
                 CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
-     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, and the
-     * use-up's HAMMER (52db:1b26); every other name is 0 (none). */
+     * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, the
+     * use-up's HAMMER (52db:1b26), the resist-charm's ASLEEP (78e4:13df); every other name is 0. */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c &&
           R->effects.ids[COK_EFFECT_HAMMER] == 0x17);
+    CHECK(R->effects.ids[COK_EFFECT_ASLEEP] == 0x35);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
@@ -1069,7 +1078,7 @@ static void test_magic_ids(void)
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
             n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
-            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER)
+            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
@@ -3216,6 +3225,106 @@ static void test_yell(void)
     menu_close();
 }
 
+/* The seed whose first d100 is value (cok_dice, as the effects roll). */
+static uint32_t seed_rolling(uint8_t value)
+{
+    for (uint32_t seed = 1;; ++seed) {
+        uint32_t trial = seed;
+        if (cok_dice(&trial, 1, 100) == value) return seed;
+    }
+}
+
+/* CINDER's file carries effects (0x5f and 0x5c, saved game A's): the tests add their own, so
+ * these are freed first (cok_character_free's loop). */
+static void forget_effects(cok_character *c)
+{
+    while (c->effects != NULL) {
+        cok_effect *next = c->effects->next;
+        free(c->effects);
+        c->effects = next;
+    }
+}
+
+/* The racial effects (dqk 78e4:13df, 1334, 1355), each on a holder, on the events they are on.
+ * 0x5f on event 9 (an effect being added): a d100 of 90 or less cancels 0x0b and 0x35 ("is
+ * Unaffected": the d100, then the say's pause, as test_yell's), a d100 of 91 adds them, and
+ * another id is added after a d100 of 50. 0x5c on event 9: 0x6f is cancelled with no d100 (only
+ * the say's pause), another id is added. 0x5e on event 0x0c: a save of type 4 or 2 gains 4 at
+ * constitution 15, a save of type 1 nothing, and constitution 21 stops the run (an unset local is
+ * added). Skipped without DQKAssets/. */
+static void test_racial_effects(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the racial effects not checked");
+        return;
+    }
+    menu_open();
+    menu_game.vm.mode = 5;
+    forget_effects(menu_c);
+    CHECK(cok_character_add_effect(menu_c, 0x5f, 0, 0, false) != NULL);
+    char name[17], logged[64];
+    cok_field_name(R->character, menu_c->record, name);
+    snprintf(logged, sizeof logged, "%s;is Unaffected;", name);
+    static const uint8_t charm_sleep[] = {0x0b, 0x35};
+    for (unsigned i = 0; i < 2; ++i) {
+        script.prints[0] = '\0';
+        menu_game.vm.seed = seed_rolling(90);
+        uint32_t said = menu_game.vm.seed; /* the d100, then the "is Unaffected" say's pause */
+        cok_dice(&said, 1, 100);
+        cok_tp_random(&said, 1000);
+        CHECK(cok_cast_add_effect(&menu_game, menu_c, charm_sleep[i], 0, 0, false, 0, false, ""));
+        CHECK(menu_game.vm.seed == said &&
+              cok_character_find_effect(menu_c, charm_sleep[i]) == NULL);
+        CHECK(strcmp(script.prints, logged) == 0);
+        menu_game.vm.seed = seed_rolling(91);
+        uint32_t drawn = menu_game.vm.seed;
+        cok_dice(&drawn, 1, 100);
+        CHECK(cok_cast_add_effect(&menu_game, menu_c, charm_sleep[i], 0, 0, false, 0, false, ""));
+        CHECK(menu_game.vm.seed == drawn &&
+              cok_character_find_effect(menu_c, charm_sleep[i]) != NULL);
+    }
+    menu_game.vm.seed = seed_rolling(50);
+    uint32_t drawn = menu_game.vm.seed;
+    cok_dice(&drawn, 1, 100);
+    CHECK(cok_cast_add_effect(&menu_game, menu_c, 0x05, 0, 0, false, 0, false, ""));
+    CHECK(menu_game.vm.seed == drawn && cok_character_find_effect(menu_c, 0x05) != NULL);
+    menu_close();
+
+    menu_open();
+    menu_game.vm.mode = 5;
+    forget_effects(menu_c);
+    CHECK(cok_character_add_effect(menu_c, 0x5c, 0, 0, false) != NULL);
+    uint32_t said = menu_game.vm.seed; /* no d100: only the "is Unaffected" say's pause */
+    cok_tp_random(&said, 1000);
+    script.prints[0] = '\0';
+    CHECK(cok_cast_add_effect(&menu_game, menu_c, 0x6f, 0, 0, false, 0, false, ""));
+    CHECK(menu_game.vm.seed == said && cok_character_find_effect(menu_c, 0x6f) == NULL);
+    cok_field_name(R->character, menu_c->record, name);
+    snprintf(logged, sizeof logged, "%s;is Unaffected;", name);
+    CHECK(strcmp(script.prints, logged) == 0);
+    CHECK(cok_cast_add_effect(&menu_game, menu_c, 0x05, 0, 0, false, 0, false, ""));
+    CHECK(cok_character_find_effect(menu_c, 0x05) != NULL);
+    menu_close();
+
+    menu_open();
+    forget_effects(menu_c);
+    CHECK(cok_character_add_effect(menu_c, 0x5e, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, menu_c->record, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, 15);
+    cok_rolls *r = &menu_game.effects.rolls;
+    r->save_type = 4;
+    r->save_roll = 10;
+    CHECK(cok_effects_dispatch(&menu_game.effects, menu_c, 0x0c) && r->save_roll == 14);
+    r->save_type = 2;
+    CHECK(cok_effects_dispatch(&menu_game.effects, menu_c, 0x0c) && r->save_roll == 18);
+    r->save_type = 1;
+    CHECK(cok_effects_dispatch(&menu_game.effects, menu_c, 0x0c) && r->save_roll == 18);
+    r->save_type = 4;
+    cok_field_set8_at(R->character, menu_c->record, COK_FIELD_SCORE, COK_SCORE_CONSTITUTION, 21);
+    CHECK(!cok_effects_dispatch(&menu_game.effects, menu_c, 0x0c) &&
+          strstr(menu_game.effects.error, "uninitialized local") != NULL);
+    menu_close();
+}
+
 /* View in a battle (dqk 5045:0af8, 86b8:0b0c, the mode 5 tail 86b8:0d8b-0d97): the sheet's bar is
  * "Items Drop Exit" for a member with items and coins (no Trade in combat); Escape leaves it, then
  * the weapon attacks (52db:0edf), the arena again (51c2:0c94, nothing drawn), the command menu built
@@ -4362,6 +4471,7 @@ int main(void)
     test_bandage();
     test_alt_x();
     test_yell();
+    test_racial_effects();
     test_view_combat();
     test_view_items_combat();
     test_spell_usable();
