@@ -255,7 +255,8 @@ side, on half the cores.
 
 Each runs alone (`python3 tools/dosbox/checks/NAME.py [--workdir DIR]`).
 `make dosbox-checks` (`run_all.py`; `ARGS="--jobs N --only NAME ..."`; `--flows F` goes with one
-`--only` script, its flows: `make dqk-checks ARGS="--only dqk_fight --flows walk"`)
+`--only` script, its flows: `make dqk-checks ARGS="--only dqk_fight --flows walk"`; a split script named whole, as here,
+runs as one row, and `--only dqk_fight-walk` runs its row)
 runs them all side by side, as many at a time as `COKBOX_DISPLAYS` has
 displays less two, else five eighths of the cores (10 of 16: 12 and 14
 are no faster, as the part side by side then lasts about as long as
@@ -330,8 +331,13 @@ took 80 minutes one after another at their cycles (`dkk_fight.py` 40),
 five minutes, `dkk_lib.settled` counting the game's time as `Box.settle`
 does, and `dkk_treasure.py` taking each screen once two shots agree
 (`still_shot`: with turbo a text's delay, which polls the keys, could
-let the settle pass in the block's load after it). The
-checks need the host otherwise idle, its disk as well as its CPU: heavy
+let the settle pass in the block's load after it). `dqk_fight.py` (its
+default flows), `dqk_treasure.py` and `dqk_create.py` are split by their `--flows` into one row per
+flow (`dqk_fight-aim`: its own box, workdir and log), as Death Knights' are: dqk_fight's 28 and
+dqk_treasure's 22 rows took 6.1 minutes 8 side by side, 49 of 50 as recorded at first, where the
+whole run had taken 23.8, with dqk_fight (19.9) ending it alone (2026-11-20). A flow added to
+dqk_fight's DEFAULT_FLOWS goes into run_all's DQK_SPLIT too (`run_all.py --self-test` checks it).
+The checks need the host otherwise idle, its disk as well as its CPU: heavy
 I/O on the same filesystem (seen: a large delete) once made `d_turning`
 miss its text and `d_bolt` take eight times as long. In the run before
 last (15 minutes, 6 of them `a_demo` run again) `a_demo` differed, alone

@@ -165,7 +165,8 @@ About 20 seconds.
 
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
-         altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn]
+         altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn,
+         cast,cast_auto]
         (auto alone)
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
@@ -233,6 +234,12 @@ RETURN = 0x1C0D
 PORT_GAPS = ()
 SQUARE = 0xC9F0                # DS:c9f0-c9f2: x, y, facing (saved game A: 7, 13, 0)
 STATE = ROOT / "build" / "dqk-fight" / "setup.json"
+# The flows run without --flows (main), in main's order; run_all's DQK_SPLIT runs each as its
+# own row (dqk_fight-FLOW) and its self-test checks that the two lists agree. auto runs alone.
+DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
+                 "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
+                 "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
+                 "cast_auto")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5183,13 +5190,8 @@ def commands(v, work, patched, opts):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
-    parser.add_argument("--flows",
-                        default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn,"
-                                "cast,cast_auto",
-                        help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
-                             "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse, move, aim, turn, cast, cast_auto")
+    parser.add_argument("--flows", default=",".join(DEFAULT_FLOWS),
+                        help="which flows: " + ", ".join(DEFAULT_FLOWS) + "; auto alone")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
