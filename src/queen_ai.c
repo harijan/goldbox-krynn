@@ -798,18 +798,24 @@ bool queen_target_worth(cok_adventure *game, cok_character *t, uint8_t spell, un
     return true;
 }
 
-/* 52db:4789 (c, spell): the worth of spell cast by c, a signed byte (part 29). The side is c's own
- * word +0x66 where the spell's allies word (+0x13) is 0, else the other side (51c2:08fd). A spell
- * of kind 0 (+7 0) is worth queen_target_worth to c alone; else the combatants listed around c
- * within the spell's range (849a:0f34, cok_combat_list with 0xff and c's size), nearest first, the
- * first with a worth above 0 (0 for none). */
+/* The side a spell of c's counts for (52db:4789's and 1d42's and 48aa's, 51c2:08fd): c's own word
+ * +0x66 where the spell's allies word (+0x13) is 0, else the other side (1 where c's word +0x66 is
+ * 0, else 0). */
+unsigned queen_spell_side(cok_adventure *game, const cok_character *c, uint8_t spell)
+{
+    unsigned hostile = cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_HOSTILE);
+    return queen_spell_word(game, spell, SPELL_ALLIES) == 0 ? hostile : (hostile == 0 ? 1 : 0);
+}
+
+/* 52db:4789 (c, spell): the worth of spell cast by c, a signed byte (part 29). The side is
+ * queen_spell_side's. A spell of kind 0 (+7 0) is worth queen_target_worth to c alone; else the
+ * combatants listed around c within the spell's range (849a:0f34, cok_combat_list with 0xff and c's
+ * size), nearest first, the first with a worth above 0 (0 for none). */
 bool queen_spell_worth(cok_adventure *game, cok_character *c, uint8_t spell, int8_t *worth)
 {
     const cok_rules *rules = cok_game_rules(game);
     cok_combat *combat = &game->combat;
-    unsigned hostile = cok_combat_field_word(rules, c->record, COK_FIELD_HOSTILE);
-    unsigned side = queen_spell_word(game, spell, SPELL_ALLIES) == 0 ? hostile
-                                                                     : (hostile == 0 ? 1 : 0);
+    unsigned side = queen_spell_side(game, c, spell);
     *worth = 0;
     if (queen_spell_byte(game, spell, SPELL_TARGETING) == 0)
         return queen_target_worth(game, c, spell, side, worth);

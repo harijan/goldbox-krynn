@@ -39,6 +39,7 @@ enum {
     SPELL_SAVE_KIND = 0x0a,    /* a word: 0 none, 1 none on a save, 2 half */
     SPELL_EFFECT = 0x0e,       /* the effect added, 0 none */
     SPELL_HALF_RANGE = 0x7d,   /* its range is a quarter (849a:0f34) */
+    SPELL_ALLIES = 0x13,       /* a word: 0 for the caster's own side (the computer's aim, part 29b) */
     CLW = 0x03,
     MM = 0x0f,
     DEITY_WORD = 0x19b,        /* a word: 4 is the deity whose cleric adds a d8 (7fd8:00f8) */
@@ -454,8 +455,8 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
 
 /* The Cast command and the cast (dqk 52db:2543, 849a:145b, 52db:1f78, 52db:1e78, 849a:21b5). The
  * caster is the selected member (vm.character, DS:ad67); the spell's targets are spell_targets
- * (DS:c5df, count DS:c6f4), its cell spell_x, spell_y (DS:bd2c, bd49). The computer's cast (ai) is
- * part 29's: the aim of its choice stops here. */
+ * (DS:c5df, count DS:c6f4), its cell spell_x, spell_y (DS:bd2c, bd49). The computer's aim (ai) is
+ * pick's computer branch: 52db:1d42 (computer_pick) and 52db:48aa (area_aim). */
 
 /* The bar's and the battle's words of the command and the cast (DS:5c2e, 5c3e, 5c5d, 5c01, 5c17,
  * 8b17, and the abort's question and "Spell Aborted" in DS). */
@@ -497,31 +498,160 @@ static bool listed_in(const cok_adventure *game, unsigned picks, const cok_chara
     return false;
 }
 
-/* 52db:1e78's player branch: Aim with attack 0 for the spell's range (849a:0f34), the creatures
- * unless the spell is 0x53, and empty as the caller gives (the cells with no one). The caster's
- * target (+0x0b) is what Aim gave, always. found is whether Target picked (its cell is then spell_x,
- * spell_y); keys running out leaves found clear with vm.abort set. False where the run stopped. */
+/* 52db:1d42 (c, spell, found, res): the computer's aim of a one-target spell. The pick is 3d9e's
+ * (cok_combat_pick_target_side with no flag, force, and the allies test of the spell's word +0x13 0),
+ * which leaves its target in c's combat record (+0x0b); that target gives res with its cell when its
+ * worth to the spell's side (42cc, queen_spell_side) is above 0. False where the run stopped. */
+static bool computer_pick(cok_adventure *game, cok_character *c, uint8_t spell, bool *found,
+                          cok_combat_aimed *res)
+{
+    uint8_t range;
+    if (!queen_spell_range(game, spell, &range)) return false;
+    bool allies = queen_spell_word(game, spell, SPELL_ALLIES) == 0;
+    bool picked = false;
+    if (!cok_combat_pick_target_side(game, c, range, false, true, allies, &picked)) return false;
+    if (!picked) return true;
+    cok_combat_record *cr = c->combat;
+    if (cr == NULL || cr->target == NULL)
+        return undefined(game, "the computer's aim picked no target (52db:1d42)");
+    cok_character *t = combatant_of(game, cr->target);
+    if (t == NULL) return undefined(game, "the computer's aim's target has no combatant (52db:1d42)");
+    int8_t worth = 0;
+    if (!queen_target_worth(game, t, spell, queen_spell_side(game, c, spell), &worth)) return false;
+    if (worth <= 0) return true;
+    *found = true;
+    res->target = cr->target;
+    res->x = cok_combat_x(&game->combat, cr->target);
+    res->y = cok_combat_y(&game->combat, cr->target);
+    return true;
+}
+
+/* 52db:48aa (c, spell, found, res): the computer's aim of an area spell (kinds 8 to 0x0e that are
+ * not a line; no pick). The radius is the spell's +7 less 8 (3 for 0x57 underwater, 2 for 0x33
+ * underwater, one less for 0x2f and 0x73 with var 0x22 0). The reach is the range plus the radius,
+ * clamped to 0x12 with the caster's target as the centre once above it (else the caster is the
+ * centre); the inner box is the reach less the radius. Every active record of the party's list
+ * (DS:c6e5, the monsters too, not combat->listed: 42cc's Bless lists again) within the outer box
+ * (left and top at the inner box's for 0x22 and 0x65) adds its worth (42cc) to each cell of its
+ * rows within the radius that the row's half width (DS:5a50) reaches, clipped to the inner box, as
+ * words. The cell with the most (a sum above 0; a tie of positive sums is drawn, 25 in 100, before
+ * the bounds test) is taken when it is inside the map (x 0..0x31, y 0..0x17) and seen from the
+ * caster's cell within the range. found when a sum above 0 was taken. False where the run stopped. */
+static bool area_aim(cok_adventure *game, cok_character *c, uint8_t spell, bool *found,
+                     cok_combat_aimed *res)
+{
+    cok_combat *combat = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_combat_record *cr = c->combat;
+    if (cr == NULL) return undefined(game, "the caster has no combat record (52db:48aa)");
+    unsigned side = queen_spell_side(game, c, spell);
+    int radius = queen_spell_byte(game, spell, 7) - 8;
+    if (spell == 0x57 && underwater(game)) radius = 3;
+    else if (spell == 0x33 && underwater(game)) radius = 2;
+    if ((spell == 0x2f || spell == 0x73) && cok_ecl_load_var(&game->vm, 0x22) == 0) --radius;
+    if (radius < 0 || radius > 3)
+        return undefined(game, "the area's half widths (DS:5a50) are read past their rows (52db:48aa)");
+    uint8_t range;
+    if (!queen_spell_range(game, spell, &range)) return false;
+    int reach = range + radius;
+    const uint8_t *centre = c->record;
+    if (reach > 0x12) {
+        reach = 0x12;
+        if (cr->target != NULL) centre = cr->target;
+    }
+    int inner = reach - radius;
+    int cx = cok_combat_x(combat, centre), cy = cok_combat_y(combat, centre);
+    bool asym = spell == 0x22 || spell == 0x65;
+    int left = cx - (asym ? inner : reach), top = cy - (asym ? inner : reach);
+    int right = cx + reach, bottom = cy + reach;
+    int ilt = cx - inner, itop = cy - inner, irt = cx + inner, ibt = cy + inner;
+    /* The sums over the inner box, indexed by the offset from the centre (18 is 0). */
+    int16_t sums[37][37];
+    memset(sums, 0, sizeof sums);
+    for (size_t i = 0; i < game->party.count; ++i) {
+        cok_character *e = game->party.members[i];
+        if (cok_field_u8(L, e->record, COK_FIELD_ACTIVE) == 0) continue;
+        int ex = cok_combat_x(combat, e->record), ey = cok_combat_y(combat, e->record);
+        if (ex < left || ex > right || ey < top || ey > bottom) continue;
+        int8_t good = 0;
+        if (!queen_target_worth(game, e, spell, side, &good)) return false;
+        int lo = asym ? 0 : -radius, hi = radius;
+        if (ey + lo < itop) lo = itop - ey;
+        if (ey + hi > ibt) hi = ibt - ey;
+        for (int dy = lo; dy <= hi; ++dy) {
+            int half = (int16_t)cok_data_get16_(rules->data, 0x5a50 + 6 * dy + 2 * radius);
+            int from = asym ? ex : ex - half, to = ex + half;
+            if (from < ilt) from = ilt;
+            if (to > irt) to = irt;
+            for (int x = from; x <= to; ++x) {
+                int16_t *sum = &sums[x - cx + 18][ey + dy - cy + 18];
+                *sum = (int16_t)(*sum + good);
+            }
+        }
+    }
+    /* The cell: dx outer, dy inner, over the inner box; sight from the caster's cell. */
+    int ox = cok_combat_x(combat, c->record), oy = cok_combat_y(combat, c->record);
+    int best = 0, bdx = 0, bdy = 0;
+    for (int dx = -inner; dx <= inner; ++dx)
+        for (int dy = -inner; dy <= inner; ++dy) {
+            int v = sums[dx + 18][dy + 18];
+            bool take = v > best;
+            if (!take && v == best && v > 0) take = cok_tp_random(&game->vm.seed, 100) < 0x19;
+            if (!take) continue;
+            int x = cx + dx, y = cy + dy;
+            if (x < 0 || x > 0x31 || y < 0 || y > 0x17) continue;
+            int8_t sx = (int8_t)x, sy = (int8_t)y;
+            uint16_t sight = range;
+            bool seen = false;
+            if (!cok_combat_sight(combat, rules, (int8_t)ox, (int8_t)oy, &sx, &sy, &sight, &seen))
+                return undefined(game, "sight (5d71:0328) reads a cell past the terrain table");
+            if (!seen) continue;
+            best = v;
+            bdx = dx;
+            bdy = dy;
+        }
+    if (best > 0) {
+        *found = true;
+        res->target = NULL;
+        res->x = (int8_t)(cx + bdx);
+        res->y = (int8_t)(cy + bdy);
+    }
+    return true;
+}
+
+/* 52db:1e78 (spell, ai, empty, found, res): the aim of a spell's one target or cell. The player's
+ * (not ai) is Aim with attack 0 for the spell's range (849a:0f34), the creatures unless the spell is
+ * 0x53, and empty as the caller gives (the cells with no one); the caster's target (+0x0b) is what
+ * Aim gave, always. The computer's is computer_pick (empty 0, or a line: +7 8) or area_aim. found is
+ * whether a pick was made (its cell is then spell_x, spell_y); keys running out leaves found clear
+ * with vm.abort set. False where the run stopped. */
 static bool pick(cok_adventure *game, cok_character *c, uint8_t spell, bool ai, uint8_t empty,
                  bool *found, cok_combat_aimed *res)
 {
     *found = false;
     *res = (cok_combat_aimed){NULL, 0, 0};
-    if (ai)
-        return cok_adventure_not_yet(game, "the computer's spell aim (52db:1d42, 48aa)",
-                                     "dqk 52db:1d42/48aa, the computer's aim (part 29)");
-    uint8_t range;
-    if (!queen_spell_range(game, spell, &range)) return false;
-    bool done = false;
-    if (!queen_aim(game, c, range, 0, empty, spell != 0x53, &done, res)) return false;
-    c->combat->target = res->target;
-    if (game->vm.abort) return true;
-    if (!done) {
-        *res = (cok_combat_aimed){NULL, 0, 0};
-        return true;
+    if (ai) {
+        bool one = empty == 0 || queen_spell_byte(game, spell, 7) == 8;
+        if (!(one ? computer_pick(game, c, spell, found, res) : area_aim(game, c, spell, found, res)))
+            return false;
+    } else {
+        uint8_t range;
+        if (!queen_spell_range(game, spell, &range)) return false;
+        bool done = false;
+        if (!queen_aim(game, c, range, 0, empty, spell != 0x53, &done, res)) return false;
+        c->combat->target = res->target;
+        if (game->vm.abort) return true;
+        if (!done) {
+            *res = (cok_combat_aimed){NULL, 0, 0};
+            return true;
+        }
+        *found = true;
     }
-    *found = true;
-    game->spell_x = res->x;
-    game->spell_y = res->y;
+    if (*found) {
+        game->spell_x = res->x;
+        game->spell_y = res->y;
+    }
     return true;
 }
 
@@ -694,8 +824,9 @@ bool queen_targets(cok_adventure *game, cok_character *c, uint8_t spell, bool ai
             *done = false;
             return true;
         }
-        if (res.target != NULL) {
-            cok_character *who = combatant_of(game, res.target);
+        /* The caster's target (+0x0b), which the computer's aim leaves in its record too. */
+        if (c->combat->target != NULL) {
+            cok_character *who = combatant_of(game, c->combat->target);
             if (who == NULL) return undefined(game, "a target picked with no record (52db:1e78)");
             game->spell_targets[1] = who;
             game->spell_target_count = 1;

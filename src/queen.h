@@ -191,6 +191,9 @@ bool queen_best_spell(cok_adventure *game, cok_character *c, uint8_t *spell);
 bool queen_spell_worth(cok_adventure *game, cok_character *c, uint8_t spell, int8_t *worth);
 bool queen_target_worth(cok_adventure *game, cok_character *t, uint8_t spell, unsigned side,
                         int8_t *worth);
+/* The side a spell of c's counts for (52db:4789, 1d42, 48aa): c's word +0x66 where the spell's allies
+ * word (+0x13) is 0, else the other side (51c2:08fd). */
+unsigned queen_spell_side(cok_adventure *game, const cok_character *c, uint8_t spell);
 /* The computer's turn (dqk 5bb8:0000, queen_ai.c; ai.c's cok_combat_computer dispatches to it by
  * the descriptor's computer_routine): its steps as far as the port carries them. */
 bool queen_computer(cok_adventure *game, cok_character *c);

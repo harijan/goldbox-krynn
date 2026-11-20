@@ -41,6 +41,13 @@ static int no_key(void *context)
     return -1;
 }
 
+/* A key for the waits of a flight or a say (the Enter of the text's pages): the cast runs on. */
+static int enter_key(void *context)
+{
+    (void)context;
+    return 13;
+}
+
 /* A party record (hostile 0) or a monster (hostile 1) in Dark Queen's layout, named by a letter,
  * a fighter of level 3, with a combat record of its own, one in battle, not an NPC. */
 static cok_character *record(char name, uint8_t hostile, int npc)
@@ -102,6 +109,14 @@ static void battle_clear(void)
     game.error[0] = '\0';
     game.vm.status = COK_ECL_OK;
     game.vm.character = NULL;
+    /* The spell's targets of an earlier cast: records freed by the party's free below. */
+    memset(game.spell_targets, 0, sizeof game.spell_targets);
+    game.spell_target_count = 0;
+    memset(&game.effects.rolls, 0, sizeof game.effects.rolls);
+    memset(k->body, 0, sizeof k->body);
+    k->bodies = 0;
+    memset(k->exploding, 0, sizeof k->exploding);
+    k->exploding_count = 0;
     log_text[0] = '\0';
     cok_party_free(&game.party);
 }
@@ -572,17 +587,21 @@ static void test_morale_divide(void)
     game.vm.status = COK_ECL_OK;
 }
 
-/* 5bb8:0170: a pending spell (+0) is cast at once (queen_cast, MM at the computer's aim: the stop
- * 52db:1d42/48aa), after the pattern; the spell is still kept at the stop. */
+/* 5bb8:0170: a pending spell (+0) is cast at once (queen_cast, MM at the computer's aim, 52db:1d42:
+ * the party member beside it is worth MM), after the pattern; the turn ends and clears the spell. */
 static void test_computer_spell(void)
 {
     cok_character *a;
     cok_character *m = computer_pair(1, &a);
     game.vm.mode = 5;
     m->combat->spell = 0x0f;
-    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED &&
-          strstr(game.error, "52db:1d42/48aa") != NULL && m->combat->spell == 0x0f);
-    game.vm.status = COK_ECL_OK;
+    uint8_t before = cok_field_u8(R->character, a->record, COK_FIELD_HIT_POINTS);
+    game.keys.read = enter_key; /* the flight's waits */
+    game.vm.abort = false;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && !game.vm.abort);
+    CHECK(m->combat->spell == 0);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_HIT_POINTS) < before);
+    game.keys.read = no_key;
     game.error[0] = '\0';
     game.vm.mode = 0;
 }
@@ -1724,7 +1743,7 @@ static void test_best_spell_order(void)
 /* The computer's choice's dice (5bb8:0306): p is the four class levels (2, 3, 4, 1) summed as bytes
  * and shifted two (a byte: 70 levels give 24). A d100 at or below p casts nothing (one draw); above it
  * a d5 above the priority casts nothing (CLW, priority 0, never); MM (priority 5) passes the d5 and
- * casts (its aim is the computer's, 52db:1d42, a stop). */
+ * casts (its aim is the computer's, 52db:1d42: the party member beside it is worth MM). */
 static void test_spell_choice_dice(void)
 {
     const cok_character_layout *L = R->character;
@@ -1745,10 +1764,7 @@ static void test_spell_choice_dice(void)
     CHECK(game.vm.seed == t); /* exactly one draw */
     s = seed_where(d100_above_24);
     game.vm.seed = s;
-    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.error[0] = '\0';
+    CHECK(queen_spell_choice(&game, m, &cast) && cast && game.vm.status == COK_ECL_OK);
     /* CLW: priority 0, so the d5 always passes it over: two draws, no cast. */
     uint8_t clw[] = {0x03};
     memorize(m, clw, sizeof clw);
@@ -1761,14 +1777,11 @@ static void test_spell_choice_dice(void)
     cok_dice(&t, 1, 100);
     cok_dice(&t, 1, 5);
     CHECK(game.vm.seed == t);
-    /* MM's d5 of 5 is not above its priority 5: the cast goes on (the stop). */
+    /* MM's d5 of 5 is not above its priority 5: the cast goes on (its aim is ported: cast). */
     memorize(m, mm, sizeof mm);
     s = seed_where(d5_is_5_after_high);
     game.vm.seed = s;
-    CHECK(!queen_spell_choice(&game, m, &cast) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.error[0] = '\0';
+    CHECK(queen_spell_choice(&game, m, &cast) && cast && game.vm.status == COK_ECL_OK);
     clear_memorized(m);
     game.vm.mode = 0;
     battle_clear();
@@ -1932,9 +1945,9 @@ static void test_spell_worth_bless(void)
     battle_clear();
 }
 
-/* 5bb8:0170 (the pending cast of a monster): MM is cast by the computer: the spell is still kept
- * while it casts (the stop comes before any change), the caster is the selected record, and the
- * computer's aim (52db:1d42/48aa) is the stop. */
+/* 5bb8:0170 (the pending cast of a monster): MM is cast by the computer at a party member beside it
+ * (52db:1d42): the caster is the selected record, put back after, and the spell is cleared by the
+ * turn's end. */
 static void test_pending_cast(void)
 {
     cok_character *a;
@@ -1943,12 +1956,127 @@ static void test_pending_cast(void)
     m->combat->spell = 0x0f;
     m->combat->target = a->record;
     game.vm.character = a->record; /* not the caster: the pending cast sets it and puts it back */
-    CHECK(!queen_computer(&game, m) && game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(game.error, "52db:1d42/48aa") != NULL);
-    CHECK(m->combat->spell == 0x0f && game.vm.character == a->record);
-    game.vm.status = COK_ECL_OK;
+    game.keys.read = enter_key;
+    game.vm.abort = false;
+    CHECK(queen_computer(&game, m) && game.vm.status == COK_ECL_OK && !game.vm.abort);
+    CHECK(m->combat->spell == 0 && game.vm.character == a->record);
+    game.keys.read = no_key;
     game.error[0] = '\0';
     game.vm.mode = 0;
+    battle_clear();
+}
+
+/* 52db:1d42 (through queen_targets, the one-target kinds): CLW is the caster's side's (word +0x13 0),
+ * so the computer picks m or the monster b beside it, never the party member a beside them. A pick
+ * is worth to CLW only when hurt (42cc's cure): hurt, the pick is the target and its cell; with both
+ * unhurt the pick is worth nothing, so nothing is picked and the spell is not done. */
+static void test_computer_aim_allies(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    cok_character *m = caster(&a);
+    cok_character *b = record('B', 1, 0);
+    place(b, 9, 10);
+    cok_field_set8(L, b->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(L, b->record, COK_FIELD_HIT_POINTS, 10);
+    bool done = false;
+    CHECK(queen_targets(&game, m, 3, true, &done) && done && game.vm.status == COK_ECL_OK);
+    cok_character *t = game.spell_targets[1];
+    CHECK((t == m || t == b) && game.spell_target_count == 1);
+    CHECK(game.spell_x == cok_combat_x(&game.combat, t->record) &&
+          game.spell_y == cok_combat_y(&game.combat, t->record));
+    /* Both unhurt: CLW gives them nothing, the pick is refused and the spell is not done. */
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 12);
+    cok_field_set8(L, b->record, COK_FIELD_HIT_POINTS, 12);
+    done = true;
+    CHECK(queen_targets(&game, m, 3, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* The sum of a spell's worth over the boxes round its targets (52db:48aa), with the cell of the most
+ * taken where a tie of positive sums is drawn (25 in 100). The caster m (hostile 1, her own entry is
+ * -40 on the party's side) and a party member a beside her (+4 on two rows): the asymmetric 0x22
+ * (its box from a's cell to one cell past it, and its rows 0 to 1 down) makes (10,12) and (11,12)
+ * the positive cells; the second is a tie, one draw, and the cell is one of the two. */
+static void test_computer_aim_area(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x22, 0, &w) && w == 4);
+    game.vm.seed = 1;
+    uint32_t t = 1;
+    cok_tp_random(&t, 100);
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x22, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK((game.spell_x == 10 || game.spell_x == 11) && game.spell_y == 12);
+    CHECK(game.vm.seed == t);
+    battle_clear();
+}
+
+/* 52db:48aa's sums are words (no byte wrap): the -40 of the monster b in the box (beside a, on the
+ * caster's side of the table) takes every cell that a's +4 reaches to -36, so nothing is positive and
+ * the aim finds nothing (done clear, no draw). A byte sum would read -36 as 220 and pick a cell. */
+static void test_computer_aim_negative(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    cok_character *b = record('B', 1, 0);
+    place(b, 10, 12);
+    game.vm.seed = 7;
+    uint32_t seed = game.vm.seed;
+    bool done = true;
+    CHECK(queen_targets(&game, m, 0x22, true, &done) && !done && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == seed);
+    battle_clear();
+}
+
+/* 52db:48aa's tie draw comes before the bounds test (the cell is drawn for, then refused when off the
+ * map). A 0x57 (radius 2) with a party member a at (0,0) and the caster far at (5,5): the positive
+ * cells run from y -2, so the first on the map is (0,0), and the later ties, on and off the map, are
+ * drawn: ten draws. A draw after the bounds would count eight. The cell is on the map. */
+static void test_computer_aim_edges(void)
+{
+    const cok_character_layout *L = R->character;
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(a, 0, 0);
+    place(m, 5, 5);
+    cok_field_set8(L, m->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(L, m->record, COK_FIELD_HIT_POINTS, 10);
+    game.vm.character = m->record;
+    game.combat.magic_on = true;
+    m->combat->may_cast = 1;
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x57, 0, &w) && w == 4);
+    game.vm.seed = 3;
+    uint32_t t = 3;
+    for (unsigned i = 0; i < 10; ++i) cok_tp_random(&t, 100);
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_x >= 0 && game.spell_y >= 0 && game.spell_x <= 2 && game.spell_y <= 2);
+    CHECK(game.vm.seed == t);
+    battle_clear();
+}
+
+/* 52db:48aa clamps the reach to 0x12 (18): a fighter's 0x57 range (24) still reaches 18 cells, so a
+ * party member 15 cells off, at (20, 5), is inside the box and her cells (x 18 to 22, y 3 to 7) are the
+ * aim's. A clamp to 9 would leave her outside it: nothing found. */
+static void test_computer_aim_reach(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    cok_character *m = record('M', 1, 0);
+    place(a, 20, 5);
+    place(m, 5, 5);
+    cok_field_set8(R->character, m->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_field_set8(R->character, m->record, COK_FIELD_HIT_POINTS, 10);
+    game.vm.character = m->record;
+    game.vm.seed = 5;
+    bool done = false;
+    CHECK(queen_targets(&game, m, 0x57, true, &done) && done && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_x >= 18 && game.spell_x <= 22 && game.spell_y >= 3 && game.spell_y <= 7);
     battle_clear();
 }
 
@@ -2001,6 +2129,11 @@ int main(void)
     test_spell_worth_self();
     test_spell_worth_bless();
     test_pending_cast();
+    test_computer_aim_allies();
+    test_computer_aim_area();
+    test_computer_aim_negative();
+    test_computer_aim_edges();
+    test_computer_aim_reach();
     test_weapon_needs();
     test_weapon_score();
     test_weapon_choice();
