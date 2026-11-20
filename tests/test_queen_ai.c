@@ -1733,7 +1733,9 @@ static void test_spell_choice_dice(void)
     game.vm.mode = 5; /* the battle: the cast is a battle's */
     uint8_t mm[] = {0x0f};
     memorize(m, mm, sizeof mm);
-    cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 1, 70);
+    /* Classes 1 to 4 summing 70 (60, 4, 3, 3); class 0 (50) is not one of the four. */
+    static const uint8_t levels[5] = {50, 60, 4, 3, 3};
+    for (unsigned i = 0; i < 5; ++i) cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, i, levels[i]);
     bool cast = true;
     uint32_t s = seed_where(d100_is_24);
     game.vm.seed = s;
@@ -1750,6 +1752,7 @@ static void test_spell_choice_dice(void)
     /* CLW: priority 0, so the d5 always passes it over: two draws, no cast. */
     uint8_t clw[] = {0x03};
     memorize(m, clw, sizeof clw);
+    for (unsigned i = 0; i < 5; ++i) cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, i, 0);
     cok_field_set8_at(L, m->record, COK_FIELD_CLASS_LEVEL, 1, 3);
     s = seed_where(d100_above_12);
     game.vm.seed = s;
@@ -1848,6 +1851,87 @@ static void test_spell_worth(void)
     battle_clear();
 }
 
+/* 52db:42cc's edges: the globe (0x39) cuts below level 5 only (0x49, level 5, kept) and 0x3f below 4
+ * only (the cure 0x3a, level 4, kept; cut by the globe); Prayer's test is the selected record's, not
+ * the target's. */
+static void test_target_worth_edges(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a;
+    int8_t w = 0;
+    cok_character *m = caster(&a);
+    /* Prayer: the caster (the selected record) holding 0x31 makes it worth nothing to anyone. */
+    CHECK(queen_target_worth(&game, a, 0x2a, 0, &w) && w == 4);
+    cok_character_add_effect(m, 0x31, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x2a, 0, &w) && w == 0);
+    CHECK(queen_spell_byte(&game, 0x49, 2) == 5 && queen_spell_byte(&game, 0x3a, 2) == 4);
+    cok_field_set8(L, a->record, COK_FIELD_MAX_HIT_POINTS, 12);
+    cok_character_add_effect(a, 0x3f, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x3a, 0, &w) && w == 4);
+    cok_character_add_effect(a, 0x39, 0, 0, false);
+    CHECK(queen_target_worth(&game, a, 0x3a, 0, &w) && w == 0);
+    CHECK(queen_target_worth(&game, a, 0x49, 0, &w) && w == 4);
+    battle_clear();
+}
+
+/* 5bb8:1a07's edges: the last memorised slot (+0xce + 0x88) is read, and a byte of 0x80 (a spell's id
+ * in the table, castable) is skipped like any byte from 0x80 on. */
+static void test_best_spell_edges(void)
+{
+    cok_character *a;
+    cok_character *m = caster(&a);
+    uint8_t spell = 0xee;
+    clear_memorized(m);
+    m->record[0xce + 0x88] = 0x0f;
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0x0f);
+    CHECK(queen_spell_word(&game, 0x80, 0x0f) != 0 && queen_spell_byte(&game, 0x80, 7) == 0);
+    uint8_t high[] = {0x80};
+    memorize(m, high, sizeof high);
+    CHECK(queen_best_spell(&game, m, &spell) && spell == 0);
+    clear_memorized(m);
+    battle_clear();
+}
+
+/* 52db:4789 with a spell of kind 0 (+7 0: 0x1c, its effect 0x17, the caster's own side, a range of 3):
+ * the worth is 42cc's on the caster alone, not on those around her (an ally beside her not holding 0x17). */
+static void test_spell_worth_self(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    cok_character *b = record('B', 1, 0);
+    place(m, 10, 10);
+    place(b, 10, 11);
+    game.vm.character = m->record;
+    CHECK(queen_spell_byte(&game, 0x1c, 7) == 0 && queen_spell_byte(&game, 0x1c, 0x0e) == 0x17 &&
+          queen_spell_byte(&game, 0x1c, 3) == 3);
+    int8_t w = 0;
+    CHECK(queen_spell_worth(&game, m, 0x1c, &w) && w == 4);
+    cok_character_add_effect(m, 0x17, 0, 0, false);
+    CHECK(queen_spell_worth(&game, m, 0x1c, &w) && w == 0);
+    battle_clear();
+}
+
+/* 52db:4789's loop runs to the count it read once (DS:c2dd into a local, 4841): Bless's test (51c2:0980)
+ * lists again around each target and leaves that target's enemies in the list with their count, which
+ * the loop does not read again, so it walks on through the entries left after them: here past the
+ * caster (an enemy beside her) and the enemy to the ally two cells away, worth 4. */
+static void test_spell_worth_bless(void)
+{
+    battle_clear();
+    cok_character *m = record('M', 1, 0);
+    cok_character *a = record('A', 0, 0);
+    cok_character *b = record('B', 1, 0);
+    place(m, 10, 10);
+    place(a, 10, 11);
+    place(b, 10, 13);
+    game.vm.character = m->record;
+    uint8_t range = 0;
+    CHECK(queen_spell_range(&game, 0x01, &range) && range >= 3);
+    int8_t w = 0;
+    CHECK(queen_spell_worth(&game, m, 0x01, &w) && w == 4);
+    battle_clear();
+}
+
 /* 5bb8:0170 (the pending cast of a monster): MM is cast by the computer: the spell is still kept
  * while it casts (the stop comes before any change), the caster is the selected record, and the
  * computer's aim (52db:1d42/48aa) is the stop. */
@@ -1912,6 +1996,10 @@ int main(void)
     test_spell_choice_dice();
     test_target_worth();
     test_spell_worth();
+    test_target_worth_edges();
+    test_best_spell_edges();
+    test_spell_worth_self();
+    test_spell_worth_bless();
     test_pending_cast();
     test_weapon_needs();
     test_weapon_score();

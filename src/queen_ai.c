@@ -819,7 +819,10 @@ bool queen_spell_worth(cok_adventure *game, cok_character *c, uint8_t spell, int
                          cok_combat_y(combat, c->record), range, 0xff, cok_combat_size(combat, c->record)))
         return undefined_fight(game, "the list of combatants around the caster (52db:4789, 5837:0b19) "
                                      "reads past its tables");
-    for (unsigned k = 1; k <= combat->listed_count && *worth <= 0; ++k) {
+    /* The count is read once (DS:c2dd into a local, 4841): Bless's test (51c2:0980) lists again and
+     * leaves its own count, and the loop walks on through the entries it left. */
+    uint8_t count = combat->listed_count;
+    for (unsigned k = 1; k <= count && *worth <= 0; ++k) {
         cok_character *e = combat->combatant[combat->listed[k].index].character;
         if (e == NULL)
             return undefined_fight(game, "a combatant listed has no record, read through NULL "
