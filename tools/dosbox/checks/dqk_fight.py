@@ -5046,26 +5046,33 @@ def cast_hurt(v, work, opts, wild, hurt):
             "eclplay's tail after the abort: Spell Aborted (its message), CLW forgotten (+0xce 0x83)", "")
 
 
-# Cast's computer turn (step 4, part 29a: dqk 5bb8:0306 and 5bb8:0170, queen_ai.c; the flow cast_auto). Saved game A
-# with BALTHIR (CAST's bytes: CLW then MM memorised, the open ground). Alt-M at her menu (magic on: one draw, the menu
-# again), then Alt-Q (the computer turns her: her dispatch at 5045:0891, then her computer turn's spell choice, which
-# chooses MM: its d100 and d5, then 2543's cast at once, the announce, and the pick of MM's target at 52db:1d42, the
-# computer's aim (part 29b): the port's stop there). The original is trapped at 52db:1d42 with RandSeed settled.
-COMPUTER_AIM = (0x52DB, 0x1D42)         # the computer's aim of a one-target spell (1e78's computer branch: 1d42)
+# Cast's computer turn (step 4, part 29a: dqk 5bb8:0306 and 5bb8:0170, queen_ai.c; the flow cast_auto; part 29b's
+# computer's aim, queen_cast.c's pick). Saved game A with BALTHIR (CAST's bytes: CLW then MM memorised, the open ground).
+# Alt-M at her menu (magic on: one draw, the menu again), then Alt-Q (the computer turns her: her dispatch at 5045:0891,
+# then her computer turn's spell choice, which chooses MM: its d100 and d5, the cast at once, the announce, the pick of
+# MM's target (52db:1d42, the computer's aim) and the flight), trapped at the turn's tail (5045:066a) with RandSeed
+# settled; then the fight to its end, with no trap (the key wait of the results).
 CAST_AUTO_MAGIC = (1, 0xEB831397)       # Alt-M: the bar message's wait, one draw past the menu, at its end
 CAST_AUTO_DISPATCH = (2, 0xD9491FD4)    # Alt-Q: its own wait, then her computer turn's dispatch (5045:0891)
-CAST_AUTO_AIM = (7, 0x06787DB1)         # the choice's two draws, the announce's and the pick's, at 52db:1d42
-CAST_AUTO_CELL = (29, 14)               # the spell's cell (DS:bd2c, bd49: her own cell, 1f78's start)
-CAST_AUTO_BEGUN = 0                     # her combat block's spell (+0): none, MM was cast at once
-AIM_STOP = "dqk 52db:1d42/48aa"        # eclplay's stop: the computer's aim (queen_cast.c's pick, part 29b)
+CAST_AUTO_TAIL = (0x5045, 0x066A)       # the turn's tail after the cast (5045:066a)
+CAST_AUTO_TAIL_DRAWS = (25, 0x28390BDF) # RandSeed at the tail: 25 draws past the menu, 28390bdf
+CAST_AUTO_CELL = (32, 18)               # the spell's cell (DS:bd2c, bd49: SHARKMAN 2's, the missile's target)
+CAST_AUTO_TARGETS = 1                   # DS:c6f4: one target of MM
+CAST_AUTO_SHARKMAN = 7                  # the record of SHARKMAN 2 (the list's index)
+CAST_AUTO_HP = (0x4E, 0x49)             # SHARKMAN 2's hit points before and after the missile (1d4+1)
+CAST_AUTO_MEMO = 0x8F                   # BALTHIR's +0xcf after the cast (MM forgotten; CLW at +0xce 0x03 stays)
+CAST_AUTO_END = (438, 0xADD80F40)       # RandSeed at the fight's end: 438 draws past the menu, add80f40
+CAST_AUTO_END_STATUS = (6, 7)           # the two SHARKMEN records, both 5 (dead, not yet removed) at the end
+CAST_AUTO_DEAD = 5
+CAST_AUTO_STOP = re.compile(r"error: not yet ported: .* effect 0x2f \(dqk 78e4:09b2\)")  # eclplay's stop (a later part)
 
 
 def cast_auto_original(work, patched, data, verbose):
     """The original at BALTHIR's first menu (CAST's save): Alt-M (the menu again), then Alt-Q: her computer turn's
-    dispatch (5045:0891 spun, then given back), and her turn's pick of MM's target (52db:1d42, trapped once it is
-    loaded, RandSeed settled by wait_seed). Returns the menu, the Alt-M state (DS:b1cb too), the dispatch's state
-    and the stop's (the spell cell DS:bd2c, bd49, DS:c6f4 for the targets)."""
-    with cokbox.Box(workdir=work / "box-cast-auto", game="dark-queen", verbose=verbose, timeout=900,
+    dispatch (5045:0891 spun, then given back), then the turn's tail (5045:066a, trapped once loaded, RandSeed settled
+    by wait_seed: the cast done), then the trap given back and the fight run to its end (key_wait, end_state).
+    Returns the menu, the Alt-M and the dispatch's states, the tail's and the end's."""
+    with cokbox.Box(workdir=work / "box-cast-auto", game="dark-queen", verbose=verbose, timeout=1800,
                     files={**L.files(patched), "SAVE/SAVGAMA.QSV": data}) as box:
         enter(box)
         box.set_seed(SEED)
@@ -5078,51 +5085,85 @@ def cast_auto_original(work, patched, data, verbose):
         dispatch = snapshot(box)
         dispatch.update(tail_state(box), selected=selected(box))
         L.untrap(box, t)
-        t2 = L.trap(box, *COMPUTER_AIM, seconds=TAIL_SECONDS)
-        wait_seed(box, t2, "52db:1d42")
-        stop = snapshot(box)
-        stop.update(selected=selected(box), cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)),
+        t2 = L.trap(box, *CAST_AUTO_TAIL, seconds=TAIL_SECONDS)
+        wait_seed(box, t2, "5045:066a")
+        tail = snapshot(box)
+        tail.update(selected=selected(box), cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)),
                     targets=box.ds_byte(CAST_TARGETS))
-        stop["screen"] = box.screenshot(path=str(work / "cast-auto-stop.png"))
+        tail["screen"] = box.screenshot(path=str(work / "cast-auto-tail.png"))
         L.untrap(box, t2)
+        end_screen = key_wait(box)
+        end = end_state(box)
+        end["screen"] = end_screen
         box.settled(quiet=1.0, tolerance=0)
-    return dict(menu=menu, magic=magic, dispatch=dispatch, stop=stop)
+    return dict(menu=menu, magic=magic, dispatch=dispatch, tail=tail, end=end)
 
 
 def cast_auto(v, work, opts):
-    """Cast's computer turn (part 29a, dqk 5bb8:0306 and 5bb8:0170): Alt-M at BALTHIR's menu (magic on, one draw), then
-    Alt-Q (her computer turn). The original: her dispatch's draws, then the choice's (d100, d5, the cast at once) and
-    the pick of MM's target at 52db:1d42 (7 draws past the menu, RandSeed 06787db1, the spell cell 29,14, no targets
-    yet, +0xcf still MM, no spell begun). eclplay stops at the same place, "dqk 52db:1d42/48aa" (the computer's aim,
-    part 29b), with the records, blocks and RandSeed agreeing there."""
+    """Cast's computer turn (part 29a, dqk 5bb8:0306 and 5bb8:0170; part 29b's aim): Alt-M at BALTHIR's menu (magic on, one
+    draw), then Alt-Q (her computer turn). The original: her dispatch's draws, then at the turn's tail (5045:066a) 25 draws
+    past the menu, RandSeed 28390bdf, MM's target SHARKMAN 2 (hit points 0x4e to 0x49), its cell 32,18, DS:c6f4 1, and
+    BALTHIR's +0xcf 0x8f (MM forgotten); then the fight to its end (438 draws, RandSeed add80f40, both SHARKMEN status 5).
+    eclplay runs the same keys to its own stop (out of keys) and agrees on RandSeed, records and the end's statuses."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
     save = cast_save()
     o = cast_auto_original(work, wild, save, opts.verbose)
     m0 = o["menu"]["seed"]
     entry = saved_entry(work / "cast-auto-save", save)
-    p = command_port(work, wild, "cast-auto", "\\@M\\@Q", entry=entry)
-    magic, dispatch, stop = o["magic"], o["dispatch"], o["stop"]
+    p = turn_port(work, wild, "cast-auto", "\\@M\\@Q", entry=entry)
+    magic, dispatch, tail, end = o["magic"], o["dispatch"], o["tail"], o["end"]
     v.check(magic["magic"] == 1 and (L.draws(m0, magic["seed"]), magic["seed"]) == CAST_AUTO_MAGIC,
             f"the original's Alt-M turns the magic on (DS:b1cb 1) with {CAST_AUTO_MAGIC[0]} draw past the menu, at "
             f"{CAST_AUTO_MAGIC[1]:#x}", f"DS:b1cb {magic['magic']}, {L.draws(m0, magic['seed'])} draws, {magic['seed']:#x}")
     v.check((L.draws(m0, dispatch["seed"]), dispatch["seed"]) == CAST_AUTO_DISPATCH,
             f"the original's RandSeed at BALTHIR's computer dispatch (after Alt-Q) is {CAST_AUTO_DISPATCH[0]} draws past "
             f"the menu, at {CAST_AUTO_DISPATCH[1]:#x}", f"{L.draws(m0, dispatch['seed'])} draws, {dispatch['seed']:#x}")
-    draws = L.draws(m0, stop["seed"])
-    v.check((draws, stop["seed"]) == CAST_AUTO_AIM,
-            f"the original's RandSeed at the pick of MM's target (52db:1d42) is {CAST_AUTO_AIM[0]} draws past the menu, "
-            f"at {CAST_AUTO_AIM[1]:#x}", f"{draws} draws, {stop['seed']:#x}")
-    v.check(stop["cell"] == CAST_AUTO_CELL and stop["targets"] == 0,
-            "at the pick the spell's cell is BALTHIR's (29,14) and DS:c6f4 is 0 (no target yet)",
-            f"cell {stop['cell']}, DS:c6f4 {stop['targets']}")
-    v.check(rec_byte(stop["records"][CAST_BALTHIR], CAST_MEMO + 1) == CAST_MM and
-            rec_byte(stop["blocks"][CAST_BALTHIR], 0) == CAST_AUTO_BEGUN,
-            "at the pick MM is still memorised (+0xcf 0x0f) and no spell is begun (block +0 0)",
-            f"+0xcf {rec_byte(stop['records'][CAST_BALTHIR], CAST_MEMO + 1):#x}, block {rec_byte(stop['blocks'][CAST_BALTHIR], 0)}")
-    v.check(p["last"] is not None and AIM_STOP in p["last"],
-            f"eclplay stops at the computer's aim ({AIM_STOP}) after Alt-M and Alt-Q", p["last"])
-    command_state(v, "BALTHIR's computer turn's pick of MM's target (52db:1d42)", stop, p, m0)
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == CAST_AUTO_TAIL_DRAWS,
+            f"the original's RandSeed at the turn's tail (5045:066a, settled) is {CAST_AUTO_TAIL_DRAWS[0]} draws past the "
+            f"menu, at {CAST_AUTO_TAIL_DRAWS[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == CAST_AUTO_CELL and tail["targets"] == CAST_AUTO_TARGETS,
+            f"at the tail MM's cell is {CAST_AUTO_CELL} and DS:c6f4 is {CAST_AUTO_TARGETS} (one target)",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    hp = (rec_byte(tail["records"][CAST_AUTO_SHARKMAN], HIT_POINTS), rec_byte(dispatch["records"][CAST_AUTO_SHARKMAN], HIT_POINTS))
+    v.check(hp == (CAST_AUTO_HP[1], CAST_AUTO_HP[0]),
+            f"MM hits SHARKMAN 2 (hit points {CAST_AUTO_HP[0]:#x} to {CAST_AUTO_HP[1]:#x}) and BALTHIR's +0xcf is "
+            f"{CAST_AUTO_MEMO:#x} (MM forgotten) at the tail",
+            f"hit points {hp[1]:#x} to {hp[0]:#x}, +0xcf {rec_byte(tail['records'][CAST_BALTHIR], CAST_MEMO + 1):#x}")
+    v.check(rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO + 1) == CAST_AUTO_MEMO,
+            "BALTHIR's +0xcf is 0x8f at the tail", f"{rec_byte(tail['records'][CAST_BALTHIR], CAST_MEMO + 1):#x}")
+    end_draws = L.draws(m0, end["seed"])
+    v.check((end_draws, end["seed"]) == CAST_AUTO_END,
+            f"the original's RandSeed at the fight's end is {CAST_AUTO_END[0]} draws past the menu, at {CAST_AUTO_END[1]:#x}",
+            f"{end_draws} draws, {end['seed']:#x}")
+    v.check(all(rec_byte(end["records"][i], STATUS_AT) == CAST_AUTO_DEAD for i in CAST_AUTO_END_STATUS),
+            "both SHARKMEN are status 5 at the fight's end",
+            " ".join(f"{rec_byte(end['records'][i], STATUS_AT)}" for i in CAST_AUTO_END_STATUS))
+    # eclplay's mark after BALTHIR's computer turn's tail (turn_port's 02: 01 is the turn Alt-Q gives back) against the
+    # original's tail: the computer's aim and the cast compared (RandSeed, records, blocks, turn list).
+    mark = cast_mark(p, "02")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's computer turn's mark (02) after Alt-M and Alt-Q", p["last"])
+    else:
+        command_state(v, "BALTHIR's computer turn's tail (MM at SHARKMAN 2, turn mark 02)", tail, mark, m0)
+        marked = ported_records(mark)
+        v.check(rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS) == CAST_AUTO_HP[1] and
+                rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1) == CAST_AUTO_MEMO,
+                f"eclplay's tail after the computer's MM: SHARKMAN 2 at {CAST_AUTO_HP[1]:#x}, BALTHIR's +0xcf "
+                f"{CAST_AUTO_MEMO:#x}", f"SHARKMAN 2 {rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS):#x}, +0xcf "
+                f"{rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1):#x}")
+    # eclplay runs the same keys past the tail and into SHARKMAN's turn, where effect 0x2f's handler (78e4:09b2, a
+    # later part) is not ported: the fight's end is not reachable here, so the stop is the cited one. Later in the fight
+    # SHARKMAN 2 is hurt again, so only BALTHIR's +0xcf (MM forgotten, not memorised again) is compared with the tail.
+    v.check(p["last"] is not None and CAST_AUTO_STOP.fullmatch(p["last"]) is not None,
+            "eclplay stops at the cited unported effect 0x2f (dqk 78e4:09b2) in SHARKMAN's turn, after the cast",
+            p["last"])
+    ported = ported_records(p)
+    memo = rec_byte(ported[CAST_BALTHIR], CAST_MEMO + 1) if len(ported) > CAST_BALTHIR else None
+    v.check(memo == CAST_AUTO_MEMO,
+            f"eclplay's BALTHIR keeps +0xcf {CAST_AUTO_MEMO:#x} (MM forgotten) at its stop", f"{memo}")
+    print(f"eclplay (cast auto) ends {p['last']!r}", flush=True)
 
 
 def commands(v, work, patched, opts):
