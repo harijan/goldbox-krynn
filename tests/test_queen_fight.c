@@ -1916,6 +1916,13 @@ static void test_queen_save(void)
     game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
     made = false;
     CHECK(queen_save(&game, t, type, 0, &made) && made);
+    /* The roll wraps as a byte and is compared unsigned (1886's jbe): -16 (0xf0) on a 10 is 0xfa,
+     * at or above a saving throw of 10. */
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    cok_field_set8(L, t->record, COK_FIELD_SAVE_BONUS, 0xf0);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = false;
+    CHECK(queen_save(&game, t, type, 0, &made) && made && game.effects.rolls.save_roll == 0xfa);
     /* Order 7 is past the moons' days: stopped, cited. */
     duel(&a, &t);
     set_class(t, 5, 3);
@@ -1939,6 +1946,11 @@ static void test_spell_apply(void)
     CHECK(queen_spell_word(&game, ray, 0x0a) == 1 && queen_spell_byte(&game, ray, 0x0c) == type &&
           queen_spell_byte(&game, ray, 0x0e) == 0x1d);
     game.vm.mode = 5; /* the battle */
+    /* No target (count 0): the damage type it was given is kept (DS:bebd is set before 10f9's
+     * count test). */
+    game.spell_target_count = 0;
+    game.effects.rolls.damage_type = 8;
+    CHECK(queen_spell_apply(&game, 0x0f, 0, false, 3, 2, "") && game.effects.rolls.damage_type == 2);
     /* Saved by a natural 20. */
     duel(&a, &t);
     game.vm.character = a->record;
@@ -2052,6 +2064,87 @@ static void test_spell_touch(void)
           game.vm.seed == before);
     game.vm.status = COK_ECL_OK;
     game.error[0] = '\0';
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* The slot a test's handler of event 0x0b puts in place of the target (none: kept), and the count of
+ * targets it leaves (0: kept). */
+static cok_character *slot_to;
+static uint8_t slot_count;
+
+static bool swap_slot(cok_effects *fx, void *context)
+{
+    cok_adventure *g = context;
+    if (slot_to != NULL) *fx->target = slot_to;
+    if (slot_count != 0) g->spell_target_count = slot_count;
+    return true;
+}
+
+/* The touch reads the slot again after its event 0x0b (dqk 849a:10f9 1247-133e) and the count each
+ * pass (1347). No ported Dark Queen handler swaps a slot (0x47's turning is a cited stop), so a copy of
+ * the rules puts effect 0x22 (in no list) on event 0x0b alone with Champions' 0x4a handler (3f44:26a5:
+ * a d20 of 1 calls fx->dispel), whose hook here swaps the slot or cuts the count. The swap: the hit
+ * roll (against its armour class, not recomputed), the damage and the effect go to the record put in
+ * the slot. The cut to 1 on the first target's
+ * event leaves the second untouched. */
+static void test_spell_touch_slot(void)
+{
+    const uint8_t invis = 0x50, turn = 0x22;
+    const cok_rules_effects *E = &R->effects;
+    static cok_rules rules;
+    static cok_rules_effect handlers[0x100];
+    static const uint8_t *events[0x20];
+    static const uint8_t on_touch[] = {turn, 0};
+    CHECK(turn < E->count && E->count <= 0x100 && 0x0b < E->event_count && E->event_count <= 0x20);
+    rules = *R;
+    memcpy(handlers, E->handlers, E->count * sizeof *handlers);
+    handlers[turn] = (cok_rules_effect){.handler = COK_FX_DISPELLING};
+    for (unsigned e = 0; e < E->event_count; ++e) events[e] = E->events[e];
+    events[0x0b] = on_touch;
+    rules.effects.handlers = handlers;
+    rules.effects.events = events;
+    bool (*dispel)(cok_effects *, void *) = game.effects.dispel;
+    game.rules = game.effects.rules = &rules;
+    game.effects.dispel = swap_slot;
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t, *t2;
+    for (int cut = 0; cut < 2; ++cut) {
+        duel(&a, &t);
+        t2 = record('N', 1, 0);
+        place(t2, 7, 5);
+        cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+        CHECK(cok_character_add_effect(t, turn, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.spell_targets[1] = t;
+        game.spell_targets[2] = cut ? t2 : NULL;
+        game.spell_target_count = cut ? 2 : 1;
+        game.effects.rolls.spell = invis;
+        slot_to = cut ? NULL : t2;
+        slot_count = cut ? 1 : 0;
+        /* The stats (0be2) are recomputed for the target before the event, and the armour class is
+         * read from the slot after it: the swap's t has 60 from its base and t2 keeps its 0 over a
+         * base of 60; the cut's t has 0 from its base over a stale 60. The hit's 10 (with THAC0 10)
+         * meets 0, not 60. */
+        cok_field_set8(R->character, t->record, COK_FIELD_BASE_AC, cut ? 0 : 60);
+        cok_field_set8(R->character, t->record, COK_FIELD_AC, 60);
+        cok_field_set8(R->character, t2->record, COK_FIELD_BASE_AC, 60);
+        /* The handler's d20 of 1, then the hit's 10. */
+        game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 10, 10});
+        CHECK(queen_spell_apply(&game, invis, 0, false, 3, 8, "") && game.vm.status == COK_ECL_OK);
+        cok_character *hit = cut ? t : t2, *left = cut ? t2 : t;
+        CHECK(game.spell_targets[1] == hit && game.spell_target_count == 1);
+        CHECK(cok_field_u8(R->character, hit->record, COK_FIELD_HIT_POINTS) == 7 &&
+              cok_character_find_effect(hit, 0x45) != NULL);
+        CHECK(cok_field_u8(R->character, left->record, COK_FIELD_HIT_POINTS) == 10 &&
+              cok_character_find_effect(left, 0x45) == NULL);
+    }
+    game.rules = game.effects.rules = R;
+    game.effects.dispel = dispel;
+    slot_to = NULL;
+    slot_count = 0;
+    game.spell_targets[2] = NULL;
     game.vm.character = NULL;
     game.spell_target_count = 0;
     battle_clear();
@@ -2220,6 +2313,7 @@ int main(void)
     test_queen_save();
     test_spell_apply();
     test_spell_touch();
+    test_spell_touch_slot();
     test_spell_damage();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
