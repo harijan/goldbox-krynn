@@ -283,5 +283,21 @@ bool queen_spell_usable(cok_adventure *game, const cok_character *character, uin
  * character may cast. The spell's id, 0 for Exit, Escape or no spell listed, -1 where the keys
  * ran out. Other modes stop (cok_adventure_not_yet). */
 int queen_spell_pick(cok_adventure *game, cok_character *character, int mode);
+/* 52db:2543 (the Cast command, queen_cast.c): the picker when spell is 0, the camp-only and underwater
+ * refusals, the arena again unless redrawn, then the cast at once (time 0: queen_cast, the turn ended)
+ * or "Begins Casting" with the caster moved in the turn list. done is set where the turn ends. False
+ * where the run stopped; true, with the turn not ended, where the keys ran out. */
+bool queen_cast_command(cok_adventure *game, cok_character *c, uint8_t spell, bool redrawn,
+                        bool *done);
+/* 849a:145b (queen_cast.c): the cast of spell by the selected member (vm.character) in a battle:
+ * the announce (when announce and not an item), the targets (queen_targets) until one is done, its
+ * flight, the reveal, the forget (unless an item), the handler (queen_spell_handler, or the cited
+ * stop). ai is the computer's (part 29: its aim stops). done is what the targets gave. False where
+ * the run stopped; true, with the turn not ended, where the keys ran out. */
+bool queen_cast(cok_adventure *game, uint8_t spell, bool ai, bool announce, bool *done);
+/* 52db:1f78 (queen_cast.c): the targets of spell for c (the caster) into spell_targets, its count and
+ * the cell (spell_x, spell_y); done is cleared where no target is picked. False where the run
+ * stopped; true with vm.abort set where the keys ran out. */
+bool queen_targets(cok_adventure *game, cok_character *c, uint8_t spell, bool ai, bool *done);
 
 #endif

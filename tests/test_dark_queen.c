@@ -270,10 +270,10 @@ static void test_round_start_queen(void)
 }
 
 /* The first turn's dispatch (dqk 5045:078b) in Dark Queen's game: a party member that can act
- * (+0x18b) stops at the command menu (5045:08cf), one with a spell pending at its cast
- * (849a:145b), a computer's turn at 5bb8:0000, and a member that cannot act is ended at once
- * (08cf's 51c2:0c11: initiative, spell, guard and movement zeroed). --combat's stubs do not pass
- * over those stops. The round's end, the turn's tail and the battle's end are cited stops too. */
+ * (+0x18b) stops at the command menu (5045:08cf), a computer's turn at 5bb8:0000, and a member
+ * that cannot act is ended at once (08cf's 51c2:0c11: initiative, spell, guard and movement
+ * zeroed). --combat's stubs do not pass over those stops. The round's end, the turn's tail and the
+ * battle's end are cited stops too. */
 static void test_turn_dispatch(void)
 {
     if (!have_assets()) {
@@ -308,13 +308,7 @@ static void test_turn_dispatch(void)
      * there, its turn not ended and its initiative kept. */
     CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
     CHECK(c->combat->initiative == 5);
-    /* With a spell pending (the combat block's spell), the stop is the cast (849a:145b). */
-    game.vm.status = COK_ECL_OK;
-    c->combat->spell = 3;
-    CHECK(!cok_combat_act(&game, c, false));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "849a:145b") != NULL);
-    CHECK(strstr(game.error, "5045:08cf") == NULL && c->combat->initiative == 5);
-    c->combat->spell = 0;
+    /* A spell pending is cast first (5045:08e3, no stop): see test_pending_act. */
     /* One that cannot act (+0x18b 0): ended at once, its initiative, spell, guard and movement
      * zero (51c2:0c11), with a spell and movement set beforehand. */
     game.vm.status = COK_ECL_OK;
@@ -1651,6 +1645,7 @@ typedef struct {
     char codes[64];     /* the codes logged ("code: 0x87" lines), each ended with ';' */
     char rows[256];     /* the list's rows logged ("item", "heading"), each ended with ';' */
     char prints[128];   /* the texts said (the "print" lines), each ended with ';' */
+    char sounds[64];    /* the sounds (the "sound" lines), each ended with ';' */
     bool pending;       /* a key waits while keys are left (the computer's keys' test only) */
     bool once;          /* a key read clears pending: the next waits only once the test sets it */
     int flushes;        /* the keyboard's flushes */
@@ -1728,6 +1723,9 @@ static void menu_log(cok_adventure *game, const char *kind, const char *text, vo
     } else if (strcmp(kind, "print") == 0) {
         size_t used = strlen(s->prints);
         snprintf(s->prints + used, sizeof s->prints - used, "%s;", text);
+    } else if (strcmp(kind, "sound") == 0) {
+        size_t used = strlen(s->sounds);
+        snprintf(s->sounds + used, sizeof s->sounds - used, "%s;", text);
     } else if (strcmp(kind, "code") == 0) {
         size_t used = strlen(s->codes);
         snprintf(s->codes + used, sizeof s->codes - used, "%s;", text);
@@ -3905,6 +3903,427 @@ static void test_spell_list_long(void)
     menu_close();
 }
 
+/* Cast (dqk 52db:2543, 849a:145b, 52db:1f78, 52db:1e78, 849a:21b5; queen_cast.c): the command, the
+ * cast at once and by its time, the targets by kind, the abort, the dispatch's stop. Each runs on
+ * CINDER in the battle (aim_open) with the keys set by cast_keys; the caster is the selected member. */
+static void cast_keys(const char *keys)
+{
+    script.keys = keys;
+    script.at = 0;
+    script.menus = 0;
+    script.messages[0] = '\0';
+    script.all[0] = '\0';
+    script.sounds[0] = '\0';
+    menu_game.vm.status = COK_ECL_OK;
+    menu_game.vm.abort = false;
+    menu_game.vm.character = menu_c->record;
+}
+
+static bool cast_said(const char *text)
+{
+    return strstr(script.messages, text) != NULL;
+}
+
+/* A battle for Cast: CINDER with her memorised spells (the list's: MM 0x0f, CLW 0x03, 0x2f, 0x83) and
+ * a readied cast, a foe beside her (6, 5) unless no_foe. */
+static cok_character *cast_open(bool foe)
+{
+    aim_open();
+    spell_list_set();
+    menu_c->combat->may_cast = 1;
+    cok_character *beside = foe ? aim_foe(6, 5, 1) : NULL;
+    cast_keys("");
+    return beside;
+}
+
+/* CLW's Cast (time 1) from the battle with a foe of initiative init at the turn after the caster's
+ * (turn 4): whether the caster moved past it, and the seed after. */
+static uint32_t cast_clw_order(uint8_t init, bool *moved)
+{
+    cok_combat *k = &menu_game.combat;
+    cast_open(false);
+    cok_character *foe = aim_foe(7, 5, 1);
+    foe->combat->initiative = (int8_t)init;
+    k->turn_index = 3;
+    k->turn[3] = menu_c;
+    k->turn[4] = foe;
+    k->turn[5] = NULL;
+    cast_keys("");
+    bool done = false;
+    CHECK(queen_cast_command(&menu_game, menu_c, 3, false, &done) && done);
+    CHECK(menu_c->combat->spell == 3 && menu_c->combat->initiative == 4);
+    *moved = k->turn[3] == foe;
+    return menu_game.vm.seed;
+}
+
+static void test_cast_command(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the Cast command not checked");
+        return;
+    }
+    cok_combat *k = &menu_game.combat;
+    bool done = true;
+    /* C, then Escape at the list: the arena and the command menu again (no draw, the turn kept). */
+    cast_open(false);
+    uint32_t seed = menu_game.vm.seed;
+    CHECK(menu_run("C\x1b") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->initiative == 5 && menu_game.vm.seed == seed && script.menus >= 2);
+    CHECK(strstr(script.all, "Cast") != NULL);
+    /* A camp-only spell (Read Magic 0x12, the word at +0x0f 0): "Camp Only Spell" on the bar, no turn
+     * ended. */
+    cast_open(false);
+    cast_keys("");
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x12, true, &done) && !done);
+    CHECK(cast_said("Camp Only Spell") && menu_c->combat->initiative == 5);
+    /* Underwater (var 0x3c) with 0x2f: "That has no effect underwater!". */
+    cast_keys("");
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x2f, true, &done) && !done);
+    CHECK(cast_said("That has no effect underwater!"));
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    /* CLW (time 5 / 3 = 1): "Begins Casting", the spell kept, the initiative less 1, the caster moved
+     * past a higher initiative (the list's next), the turn ended for the cast, turn_index less one. */
+    cast_open(false);
+    cok_character *foe = aim_foe(7, 5, 1);
+    foe->combat->initiative = 6;
+    k->turn_index = 3;
+    k->turn[3] = menu_c;
+    k->turn[4] = foe;
+    k->turn[5] = NULL;
+    CHECK(queen_cast_command(&menu_game, menu_c, 3, false, &done) && done);
+    CHECK(menu_c->combat->spell == 3 && menu_c->combat->initiative == 4);
+    CHECK(k->turn[3] == foe && k->turn[4] == menu_c && k->turn_index == 2);
+    /* Floor 1: an initiative of 1 stays 1. */
+    menu_c->combat->initiative = 1;
+    k->turn_index = 3;
+    k->turn[3] = menu_c;
+    k->turn[4] = NULL;
+    CHECK(queen_cast_command(&menu_game, menu_c, 3, false, &done) && done);
+    CHECK(menu_c->combat->initiative == 1 && k->turn[3] == menu_c && k->turn_index == 2);
+    /* A tie with the foe's initiative is the 1d2's (60f4:1216): the die is the cast's last draw, so
+     * a foe of 4 (a tie) leaves the seed one die further on than a foe of 6 (no die), and a foe of 3
+     * (below) leaves it where the foe of 6 does; the die decides the order. */
+    bool moved6, moved4, moved3;
+    uint32_t s6 = cast_clw_order(6, &moved6);
+    uint32_t s4 = cast_clw_order(4, &moved4);
+    uint32_t s3 = cast_clw_order(3, &moved3);
+    CHECK(moved6 && !moved3 && s3 == s6);
+    uint32_t die_seed = s6;
+    uint8_t die = cok_dice(&die_seed, 1, 2);
+    CHECK(s4 == die_seed && moved4 == (die == 1));
+    /* MM at once (time 0): the Aim gives the foe (N, then T), the cast runs, the turn ends, the spell is
+     * forgotten (its byte marked 0x80), the foe is hurt. */
+    foe = cast_open(true);
+    cast_keys("NT");
+    uint8_t hp_before = cok_field_u8(R->character, foe->record, COK_FIELD_HIT_POINTS);
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x0f, false, &done) && done);
+    CHECK(menu_c->combat->initiative == 0 && (menu_c->record[0xce] & 0x80) != 0); /* MM is first in the list */
+    CHECK(cok_field_u8(R->character, foe->record, COK_FIELD_HIT_POINTS) < hp_before);
+    menu_close();
+}
+
+/* The targets (52db:1f78) by kind, the abort (52db:2543's Abort Spell) and the dispatch (849a:21b5). */
+static void test_cast_targets(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the cast's targets not checked");
+        return;
+    }
+    cok_combat *k = &menu_game.combat;
+    bool done = false;
+    cok_character *beside = cast_open(true);
+    /* Kind 0 (Shield 0x13: the caster alone, no Aim): entry 1 is herself, one target. */
+    cast_keys("");
+    CHECK(queen_targets(&menu_game, menu_c, 0x13, false, &done) && done);
+    CHECK(menu_game.spell_targets[1] == menu_c && menu_game.spell_target_count == 1);
+    /* Kind 4 (CLW): Target on herself, one pick; Exit with no pick: done clear, the cell unchanged. */
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 3, false, &done) && done);
+    CHECK(menu_game.spell_targets[1] == menu_c && menu_game.spell_target_count == 1);
+    cast_keys("E");
+    CHECK(queen_targets(&menu_game, menu_c, 3, false, &done) && !done);
+    /* The cell is the caster's (set at the start, as 1f78 does; picks 0 leaves it). */
+    CHECK(menu_game.spell_target_count == 0 && menu_game.spell_x == 5 && menu_game.spell_y == 5);
+    /* Entry 0 is cleared, a stale entry past the count is kept. */
+    CHECK(menu_game.spell_targets[0] == NULL);
+    /* Kind 6 (0x17, three picks): herself refused ("Cannot target yourself"), then the foe, then the
+     * foe again ("Already been targeted"), then Exit: one target, the foe, the cell her foe's. */
+    cast_keys("TNTTE");
+    done = true;
+    CHECK(queen_targets(&menu_game, menu_c, 0x17, false, &done) && done);
+    CHECK(cast_said("Cannot target yourself") && cast_said("Already been targeted"));
+    CHECK(menu_game.spell_target_count == 1 && menu_game.spell_targets[1] == beside);
+    CHECK(menu_game.spell_x == 6 && menu_game.spell_y == 5 && menu_game.effects.rolls.images == 0);
+    /* An area (0x2f with var 0x22 0: radius 2) around herself, Target: both sides listed, images 1. */
+    cast_keys("T");
+    done = true;
+    aim_foe(4, 5, 0);
+    CHECK(queen_targets(&menu_game, menu_c, 0x2f, false, &done) && done);
+    CHECK(menu_game.effects.rolls.images == 1 && menu_game.spell_target_count >= 3);
+    bool foe_listed = false, ally_listed = false;
+    for (unsigned i = 1; i <= menu_game.spell_target_count; ++i) {
+        if (menu_game.spell_targets[i] == beside) foe_listed = true;
+        if (menu_game.spell_targets[i] != NULL &&
+            cok_field_u8(R->character, menu_game.spell_targets[i]->record, COK_FIELD_HOSTILE) == 0)
+            ally_listed = true;
+    }
+    CHECK(foe_listed && ally_listed && k->listed_count >= 2);
+    /* Only entry 0 is cleared: a one-target cast after the area keeps the area's stale entry 2. */
+    cok_character *stale = menu_game.spell_targets[2];
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 3, false, &done) && done && menu_game.spell_target_count == 1);
+    CHECK(stale != NULL && menu_game.spell_targets[2] == stale);
+    /* Abort: Exit at the Aim, then Yes: "Spell Aborted", the spell marked, not done, the turn kept. */
+    cast_open(false);
+    cast_keys("EY");
+    done = true;
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done);
+    CHECK(cast_said("Spell Aborted") && menu_c->record[0xce + 1] == 0x83);
+    /* No: the Aim again, then Exit and Yes: the keys all read. */
+    cast_open(false);
+    cast_keys("ENEY");
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
+    CHECK(cast_said("Spell Aborted"));
+    /* The dispatch: an unported spell (0x13 Shield, kind 0, no Aim) runs its flight and forgets it,
+     * then stops at its cited routine (7fd8:056a). The byte is marked (0x93). */
+    cast_open(false);
+    menu_c->record[0xce] = 0x13;
+    cast_keys("");
+    CHECK(!queen_cast(&menu_game, 0x13, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:056a") != NULL);
+    CHECK(menu_c->record[0xce] == 0x93);
+    /* A ported handler runs: CLW on herself (the Aim's T), the spell marked, the cast over. */
+    cast_open(false);
+    cast_keys("T");
+    done = true;
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.effects.rolls.spell == 0 && menu_game.effects.rolls.images == 0);
+    menu_close();
+}
+
+/* The forget's place (dqk 849a:145b): a spell is forgotten after its flight, not before it (a flight that
+ * stops, the Fireball family's picture, leaves the byte), and an item's cast forgets nothing and says no
+ * "Casts a Spell" (the announce is the spell's own, 7fd8:45d7). */
+static void test_cast_forget(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the cast's forget and announce not checked");
+        return;
+    }
+    bool done = false;
+    /* A Fireball (0x2f) whose flight stops at 51c2:0fc8: the stop comes before the forget, so the byte
+     * stays 0x2f (unmarked). */
+    cast_open(true);
+    menu_c->record[0xce] = 0x2f;
+    cast_keys("T");
+    CHECK(!queen_cast(&menu_game, 0x2f, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "51c2:0fc8") != NULL);
+    CHECK(menu_c->record[0xce] == 0x2f);
+    /* A ported spell (CLW 0x03) cast from the list: the announce, then the byte marked. */
+    cast_open(true);
+    menu_c->record[0xce] = 0x03;
+    cast_keys("T");
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.prints, "Casts a Spell") != NULL && menu_c->record[0xce] == 0x83);
+    /* An item's cast (rolls.item set): no announce, the byte kept. */
+    cast_open(true);
+    menu_c->record[0xce] = 0x03;
+    cast_keys("T");
+    menu_game.effects.rolls.item = 1;
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    menu_game.effects.rolls.item = 0;
+    CHECK(strstr(script.prints, "Casts a Spell") == NULL && menu_c->record[0xce] == 0x03);
+    menu_close();
+}
+
+/* queen_commands' pending cast (5045:08e3): a spell pending is cast first (its Aim's T), the spell
+ * cleared, the turn ended, and no menu is built (no "menu" log). Called directly. */
+static void test_pending_cast(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the pending cast not checked");
+        return;
+    }
+    cast_open(false);
+    menu_c->combat->spell = 3;
+    menu_c->combat->may_cast = 1;
+    CHECK(menu_run("T") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->spell == 0 && menu_c->combat->initiative == 0);
+    CHECK(strstr(script.all, "Next Prev Manual") != NULL && strstr(script.all, "Guard") == NULL);
+    menu_close();
+}
+
+/* The battle's dispatch of a pending spell (cok_combat_act, 5045:078b): no stop (the descriptor's
+ * spell_unported is NULL), the cast's Aim reads "T", the spell cleared and the turn ended. */
+static void test_pending_act(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the pending spell's dispatch not checked");
+        return;
+    }
+    cast_open(false);
+    menu_c->combat->spell = 3;
+    cast_keys("T");
+    CHECK(cok_combat_act(&menu_game, menu_c, false) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->spell == 0 && menu_c->combat->initiative == 0);
+    CHECK(strstr(script.all, "Guard") == NULL);
+    menu_close();
+}
+
+/* 1f78's kind 5 (Faerie Fire 0x4f, Charm Monsters 0x51) with two foes (6, 5) and (7, 5) of the
+ * levels (+0x91) or sizes (+0x8a) given: queen_targets with keys, the keys read and the count. */
+static unsigned cast_several(uint8_t spell, uint8_t field_at, uint8_t a, uint8_t b, const char *keys,
+                             size_t *read, bool *done)
+{
+    cast_open(false);
+    cok_character *f1 = aim_foe(6, 5, 1), *f2 = aim_foe(7, 5, 1);
+    f1->record[field_at] = a;
+    f2->record[field_at] = b;
+    cast_keys(keys);
+    *done = false;
+    CHECK(queen_targets(&menu_game, menu_c, spell, false, done) && menu_game.vm.status == COK_ECL_OK);
+    *read = script.at;
+    return menu_game.spell_target_count;
+}
+
+/* The kinds the cast tests above leave out (dqk 52db:1f78, 1e78; 849a:145b's flight sound; 2543's
+ * underwater 0x7c and the time-0 abort; the pending cast's clear before the cast). */
+static void test_cast_kinds(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the cast's kinds not checked");
+        return;
+    }
+    bool done = false;
+    size_t read = 0;
+    /* Charm Monsters (0x51): 2d4 allowance, the weight by the highest level (+0x91). Two foes of level
+     * 4 weigh 8 each: the second pick passes any allowance and ends the picks (the Exit unread). */
+    CHECK(cast_several(0x51, 0x91, 4, 4, "NTNTE", &read, &done) == 2 && done && read == 4);
+    /* Level 1 weighs 1: two picks never pass the 2d4 (at least 2), the Exit ends them. */
+    CHECK(cast_several(0x51, 0x91, 1, 1, "NTNTE", &read, &done) == 2 && done && read == 5);
+    /* One pick never stops by weight (picks > 1): level 4 then the Exit. */
+    CHECK(cast_several(0x51, 0x91, 4, 4, "NTE", &read, &done) == 1 && done && read == 3);
+    /* The same foe again: "Already been targeted", one target. Exit at once: done stays set (1f78's
+     * kind 5 never clears it), no target. */
+    CHECK(cast_several(0x51, 0x91, 1, 1, "NTTE", &read, &done) == 1 && done && read == 4);
+    CHECK(cast_said("Already been targeted"));
+    CHECK(cast_several(0x51, 0x91, 1, 1, "E", &read, &done) == 0 && done && read == 1);
+    /* Faerie Fire (0x4f): the allowance is the caster level (177e:1900 kind 1: ranger 9 - 7 = 2, no
+     * die), the weight by the size less one (+0x8a 3: 2). Two of size 3 weigh 4 > 2: the picks end. */
+    CHECK(cast_several(0x4f, 0x8a, 3, 3, "NTNTE", &read, &done) == 2 && read == 4);
+    /* Size 0 (less one: 0xff) weighs nothing, size 1 weighs 1 (total 1 <= 2): the Exit ends them. */
+    CHECK(cast_several(0x4f, 0x8a, 0, 1, "NTNTE", &read, &done) == 2 && read == 5);
+    /* The areas (kinds 8-0x0e, picked as cells too): 0x57 is radius 3 underwater, else +7 & 7 (2);
+     * a foe 3 east of CINDER is listed only underwater. 0x33 is radius 2 underwater, else 0 (only the
+     * picked cell). */
+    cast_open(false);
+    cok_character *near = aim_foe(6, 5, 1), *far = aim_foe(8, 5, 1);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 1);
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 0x57, false, &done) && done);
+    bool far_listed = false, near_listed = false;
+    for (unsigned i = 1; i <= menu_game.spell_target_count; ++i) {
+        far_listed |= menu_game.spell_targets[i] == far;
+        near_listed |= menu_game.spell_targets[i] == near;
+    }
+    CHECK(far_listed && near_listed && menu_game.effects.rolls.images == 1);
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 0x33, false, &done) && done);
+    near_listed = false;
+    for (unsigned i = 1; i <= menu_game.spell_target_count; ++i)
+        near_listed |= menu_game.spell_targets[i] == near;
+    CHECK(near_listed);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 0x57, false, &done) && done);
+    far_listed = near_listed = false;
+    for (unsigned i = 1; i <= menu_game.spell_target_count; ++i) {
+        far_listed |= menu_game.spell_targets[i] == far;
+        near_listed |= menu_game.spell_targets[i] == near;
+    }
+    CHECK(!far_listed && near_listed);
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 0x33, false, &done) && done);
+    CHECK(menu_game.spell_target_count == 1 && menu_game.spell_targets[1] == menu_c);
+    /* Silence (0x19, kind 0x0f) on a foe: that one alone, no image (1f78's start clears the area's). */
+    cast_keys("NT");
+    CHECK(queen_targets(&menu_game, menu_c, 0x19, false, &done) && done);
+    CHECK(menu_game.spell_target_count == 1 && menu_game.spell_targets[1] == near);
+    CHECK(menu_game.effects.rolls.images == 0);
+    /* An area left with Exit: not done, the count 0 (1f78's start), the caster's target cleared (1e78
+     * writes Aim's, NULL, always). */
+    cast_keys("T");
+    CHECK(queen_targets(&menu_game, menu_c, 0x57, false, &done) && done);
+    menu_c->combat->target = near->record;
+    cast_keys("E");
+    CHECK(queen_targets(&menu_game, menu_c, 0x57, false, &done) && !done);
+    CHECK(menu_game.spell_target_count == 0 && menu_c->combat->target == NULL);
+    /* Herself twice with 0x6c (kind 7, four picks; not 0x17 or 0x31): the second is refused with
+     * "Cannot target yourself" (the text is by the record, whatever the spell). */
+    cast_keys("TTE");
+    CHECK(queen_targets(&menu_game, menu_c, 0x6c, false, &done) && done);
+    CHECK(cast_said("Cannot target yourself") && !cast_said("Already been targeted"));
+    CHECK(menu_game.spell_target_count == 1);
+    /* 0x6c with two foes: the near one, the far one, the near one again (refused: 1e78 set the cell
+     * to its), then Exit: the cell is the last target's again, the far one's. */
+    cast_open(false);
+    near = aim_foe(6, 5, 1);
+    far = aim_foe(8, 5, 1);
+    cast_keys("NTNTNTE");
+    CHECK(queen_targets(&menu_game, menu_c, 0x6c, false, &done) && done);
+    CHECK(menu_game.spell_target_count == 2 && menu_game.spell_targets[1] == near);
+    CHECK(menu_game.spell_targets[2] == far && cast_said("Already been targeted"));
+    CHECK(menu_game.spell_x == 8 && menu_game.spell_y == 5);
+    /* Underwater, 0x7c is refused too (the sixth id). */
+    cast_keys("");
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 1);
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x7c, true, &done) && !done);
+    CHECK(cast_said("That has no effect underwater!"));
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    /* MM at once, aborted (Exit, Yes): the turn still ends (2543 ends it whatever 145b gave), the
+     * spell is marked. */
+    cast_open(true);
+    cast_keys("EY");
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x0f, false, &done) && done);
+    CHECK(cast_said("Spell Aborted") && menu_c->combat->initiative == 0 && menu_c->record[0xce] == 0x8f);
+    /* MM's flight sounds 3 (2023:0006), before the damage's flash (4). */
+    cast_open(true);
+    cast_keys("NT");
+    CHECK(queen_cast_command(&menu_game, menu_c, 0x0f, false, &done) && done);
+    CHECK(strncmp(script.sounds, "3;", 2) == 0);
+    /* CLW on herself: the flight's arc search from facing 0 finds 0 (her own cell), and the pose
+     * (5837:09ab) writes it, whatever she faced. */
+    cast_open(false);
+    menu_c->combat->facing = 2;
+    cast_keys("T");
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_c->combat->facing == 0);
+    /* A pending spell is cleared before its cast: one that stops (Shield's handler, 7fd8:056a) leaves
+     * none pending. */
+    cast_open(false);
+    menu_c->record[0xce] = 0x13;
+    menu_c->combat->spell = 0x13;
+    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:056a") != NULL);
+    CHECK(menu_c->combat->spell == 0);
+    menu_close();
+}
+
+/* Aim's Manual on an empty cell with empty set (C1): Target picks the cell, res is (NULL, cell); the
+ * tail redraws the cell queen_cell_of gives (no record is read). */
+static void test_command_aim_empty(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Aim's Manual on an empty cell not checked");
+        return;
+    }
+    aim_open();
+    bool done = true;
+    cok_combat_aimed res;
+    CHECK(aim_direct("M~MT", 0xfe, 0, 1, 0, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == NULL && res.x == 6 && res.y == 5);
+    menu_close();
+}
+
 int main(void)
 {
     test_wilderness();
@@ -3948,6 +4367,13 @@ int main(void)
     test_spell_usable();
     test_spell_list();
     test_spell_list_long();
+    test_cast_command();
+    test_cast_targets();
+    test_command_aim_empty();
+    test_cast_forget();
+    test_pending_cast();
+    test_pending_act();
+    test_cast_kinds();
     test_pass_draw();
     test_bar_message_place();
     test_text_delay_state();

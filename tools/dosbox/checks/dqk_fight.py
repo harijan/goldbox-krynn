@@ -4621,16 +4621,17 @@ def turn_eclplay():
     return checklib.build("eclplay", transforms=[("eclplay.c", round_log), ("round.c", turn_mark)])
 
 
-def turn_port(work, patched, name, typed):
-    """eclplay's run of TYPED with the turn marks (command_port's, with turn_eclplay): the port dict, with `tails` the
-    directory of the turns' marks (NN.*: the state after each turn's tail, 01 the first)."""
+def turn_port(work, patched, name, typed, entry=None):
+    """eclplay's run of TYPED with the turn marks (command_port's, with turn_eclplay; ENTRY the saved game as
+    command_port's): the port dict, with `tails` the directory of the turns' marks (NN.*: the state after each turn's
+    tail, 01 the first)."""
     tails = work / f"tails-{name}"
     if tails.exists():
         shutil.rmtree(tails)
     tails.mkdir(parents=True)
     os.environ["COK_DQK_ROUNDS"] = str(tails)
     try:
-        p = command_port(work, patched, name, typed, exe=turn_eclplay())
+        p = command_port(work, patched, name, typed, entry=entry, exe=turn_eclplay())
     finally:
         del os.environ["COK_DQK_ROUNDS"]
     p["tails"] = tails
@@ -4762,6 +4763,289 @@ def turn(v, work, opts):
     turn_altq(v, work, wild, opts)
 
 
+# Cast (step 4, part 28c: dqk 52db:2543, 849a:145b, 52db:1f78, 52db:1e78, 849a:21b5; queen_cast.c). The fixture CAST
+# (scope.md 2): the open ground's two SHARKMEN (wild_block(1, 0)) and saved game A with BALTHIR (member 3) memorising
+# CLW (+0xce 0x03) then MM (+0xcf 0x0f), so the list reads CLW, then MM. CAST-HURT is the same with his hit points at
+# 0x32 of 106. Each key is typed alone and waited for (the list, the Aim and a question are key waits); a cast's end is
+# the next combatant's menu (5045:08cf, WALKER KEYS) or the turn's tail (5045:066a), read once the flight's RandSeed
+# settles (a flight polls no key, so the trap reads held before its draws are done: scope.md 1).
+CAST_BALTHIR = 3
+CAST_MEMO = 0xCE                        # +0xce, then +0xcf: BALTHIR's memorised bytes
+CAST_CLW, CAST_MM = 0x03, 0x0F
+CAST_HURT = 0x32                        # CAST-HURT: BALTHIR's hit points (+0x198), of 106
+CAST_SHARKMAN_2 = 7                     # the record of SHARKMAN 2 (the second SHARKMAN; 4aba:113b): hit points 0x4e before
+CAST_TARGETS = 0xC6F4                   # DS:c6f4, the spell's target count
+CAST_FACING_MM = 3                      # BALTHIR's facing after MM at SHARKMAN 2
+CAST_FORGOTTEN = 0x80                   # the memorised byte's mark (cok_combat_forget)
+# The original's draws and RandSeed, counted from BALTHIR's first menu (m0, the seed there) as the scope counts them.
+CAST_LIST_DRAWS = 0                     # C (the picker) then Escape: no draw; the menu again
+CAST_MM_AIM = (1, 0xEB831397)           # C, Down, C: MM's Aim, one draw
+CAST_MM_TAIL = (19, 0xECF5F155)         # N (no draw), T: the tail (18 draws past the Aim)
+CAST_MM_HP = (0x4E, 0x4B)               # SHARKMAN 2 before and after the missile (1d4+1)
+CAST_CLW_NEXT = (2, 0xD9491FD4)         # C, C: Begins Casting; BALTHIR's turn ends at WALKER's menu
+CAST_CLW_AIM = (3, 0x8A1EDDA5)          # E (WALKER's End): BALTHIR's pending cast at its Aim
+CAST_CLW_TAIL = (6, 0x35E90FF0)         # T: the tail (3 draws past the Aim)
+CAST_CLW_HP = (0x32, 0x3D)              # CLW's heal, +11
+CAST_ABORT_TAIL = (4, 0x1AD549DA)       # C, C, E, E, Y: Spell Aborted, the tail (1 draw past the question)
+
+
+def cast_save(hurt=False):
+    """Saved game A with BALTHIR memorising CLW and MM (CAST); CAST-HURT also has his hit points at 0x32."""
+    changes = {CAST_BALTHIR: {CAST_MEMO: CAST_CLW, CAST_MEMO + 1: CAST_MM}}
+    if hurt:
+        changes[CAST_BALTHIR][HIT_POINTS] = CAST_HURT
+    return dqk_modify.modified({}, changes)
+
+
+def wait_seed(box, t, where, seconds=TURN_HOLD):
+    """wait_spin for a trap in a flight or a flash: the spin held over SECONDS, and RandSeed unchanged over 1.5 s more
+    (the flight polls no key, so the polls alone read the trap held before its draws are done)."""
+    end = time.monotonic() + TAIL_SECONDS
+    while time.monotonic() < end:
+        box.settle(0.5)
+        if L.held(box, t, seconds=seconds)[0]:
+            seed = box.ds_dword(L.DS_SEED)
+            box.settle(1.5)
+            if box.ds_dword(L.DS_SEED) == seed and L.held(box, t, seconds=seconds)[0]:
+                return
+    raise cokbox.BoxError(f"the original's trap at {where} is not reached after {TAIL_SECONDS} s")
+
+
+def cast_key(box, work, tag, typed):
+    """TYPED at a key wait (the list, the Aim, a question): the box settled, then the state, DS:ad67 and the screen."""
+    box.keys(typed)
+    box.settled(quiet=1.0, tolerance=0)
+    s = snapshot(box)
+    s.update(selected=selected(box), screen=box.screenshot(path=str(work / f"{tag}.png")))
+    return s
+
+
+def cast_traps(box, handle, traps):
+    """The traps in order, each a (routine, where, typed, shot): TYPED typed once the trap is armed (from the menu's
+    handle), the state read once it is held and RandSeed settled (wait_seed: `targets` is DS:c6f4, the screen SHOT, a
+    path, if given). The next trap is armed before the one before it is given back, as the other flows do, so the game
+    cannot run past the next stop. Returns the states; the box is settled after the last."""
+    states = []
+    held = None
+    for routine, where, typed, shot in traps:
+        t = arm(box, handle, routine)
+        if held is not None:
+            L.untrap(box, held)
+        if typed is not None:
+            box.keys(typed)
+        wait_seed(box, t, where)
+        s = snapshot(box)
+        s.update(tail_state(box), selected=selected(box), targets=box.ds_byte(CAST_TARGETS))
+        if shot is not None:
+            s["screen"] = box.screenshot(path=str(shot))
+        states.append(s)
+        held = t
+    L.untrap(box, held)
+    box.settled(quiet=1.0, tolerance=0)
+    return states
+
+
+def cast_run_list_mm(box, menu, work, tag):
+    """C (the list), Escape (the menu again), C (the list), Down to Magic Missile, C (its Aim), N, then T: the tail;
+    then the next combatant's menu."""
+    out = dict(list=cast_key(box, work, f"{tag}-list", "C"), esc=cast_key(box, work, f"{tag}-esc", "\\e"))
+    cast_key(box, work, f"{tag}-pick", "C")
+    cast_key(box, work, f"{tag}-down", "\\v")
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "C")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"], out["next"] = cast_traps(box, menu["handle"], [
+        (MOVE_TAIL, "5045:066a", "T", None), (MENU, "5045:08cf", None, None)])
+    out["next"]["screen"] = box.screenshot(path=str(work / f"{tag}-next.png"))  # the menu drawn, waiting
+    return out
+
+
+def cast_run_clw(box, menu, work, tag):
+    """C, C (Begins Casting: BALTHIR's turn ends at WALKER's menu), E (WALKER's End: BALTHIR's pending cast at its
+    Aim), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def cast_run_abort(box, menu, work, tag):
+    """C, C (WALKER's menu), E (BALTHIR's pending Aim), E (Exit: Abort Spell?), then Y: Spell Aborted and the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["question"] = cast_key(box, work, f"{tag}-question", "E")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "Y", work / f"{tag}-tail.png")])[0]
+    return out
+
+
+def cast_original(work, patched, data, tag, verbose, run):
+    """The original's run of the fixture DATA (the saved game) from BALTHIR's first menu (to_menu), then RUN's steps."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=900,
+                    files={**L.files(patched), "SAVE/SAVGAMA.QSV": data}) as box:
+        enter(box)
+        box.set_seed(SEED)
+        menu = to_menu(box)
+        out = run(box, menu, work, tag)
+    out["menu"] = menu
+    return out
+
+
+def rec_byte(record, offset):
+    """One byte of a record (its hex, as snapshot and ported_records give it)."""
+    return bytes.fromhex(record)[offset]
+
+
+def ported_blocks(p):
+    """eclplay's --blocks file at the stop as hex, one combat block a line (the list order)."""
+    path = p["base"].with_suffix(".blocks")
+    data = path.read_bytes() if path.exists() else b""
+    return [data[i:i + COMBAT_BLOCK].hex() for i in range(0, len(data), COMBAT_BLOCK)]
+
+
+def cast_screen(v, work, what, o_screen, p, mask):
+    """The original's screen against eclplay's --screen at the stop of P (its base's .bmp), MASK masked."""
+    path = p["base"].with_suffix(".bmp")
+    if not path.exists():
+        v.check(False, f"eclplay writes its screen {what}")
+        return
+    v.screen(what, o_screen, cokbox.RGBScreen.load(path, SLOT_SCREEN), masks=[mask], work=work)
+
+
+def cast_mark(p, number):
+    """The state after turn number NUMBER's tail in eclplay (turn_port's marks), as command_state reads a stop."""
+    return dict(base=p["tails"] / number, last=p["last"])
+
+
+def cast(v, work, opts):
+    """Cast (step 4, part 28c): BALTHIR's Cast on the open ground (CAST) against eclplay's stops. C then Escape: the
+    menu again, no draws, the list's screen after C compared. C, Down, C: MM's Aim (one draw, row 23 "Spell:Magic
+    Missile", the screen compared); N; T: the tail (19 draws past the Aim, SHARKMAN 2 hit by 3, BALTHIR's +0xcf
+    forgotten and his facing 3), then the next menu (WALKER KEYS). CAST-HURT: C, C (Begins Casting: the turn ends at
+    WALKER's menu), E (WALKER's End: BALTHIR's pending cast at its Aim, the screen compared), T: the tail (6 draws, the
+    hit points healed, the byte forgotten). Abort: C, C, E, E (Exit: Abort Spell?), Y: the tail (its draws, the byte
+    forgotten). eclplay's runs give the same stops, and its tails are marks (turn_port: 01 the first turn's tail)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save, hurt = cast_save(), cast_save(hurt=True)
+    mm = cast_original(work, wild, save, "cast-mm", opts.verbose, cast_run_list_mm)
+    m0 = mm["menu"]["seed"]
+    entry = saved_entry(work / "cast-save", save)
+    p_list = command_port(work, wild, "cast-list", "C", entry=entry)
+    cast_screen(v, work, "the list after C on the open ground (BALTHIR NOMOON's Spells in Memory: CLW, then MM)",
+                mm["list"]["screen"], p_list, SHIELD_POINTER)
+    p_esc = command_port(work, wild, "cast-esc", "C\\e", entry=entry)
+    draws = command_state(v, "C and Escape (the menu again)", mm["esc"], p_esc, m0)
+    v.check(draws == CAST_LIST_DRAWS and mm["esc"]["seed"] == m0,
+            "the original's RandSeed after C and Escape is unchanged (no draws: the menu again)", f"{draws} draws")
+    cast_screen(v, work, "the command menu after C and Escape", mm["esc"]["screen"], p_esc, MENU_POINTER)
+    p_aim = command_port(work, wild, "cast-aim", "C\\eC\\vC", entry=entry)
+    draws, seed = L.draws(m0, mm["aim"]["seed"]), mm["aim"]["seed"]
+    v.check((draws, seed) == CAST_MM_AIM, f"the original's RandSeed at MM's Aim (C, Down, C) is {CAST_MM_AIM[0]} draw "
+            f"past the menu, at {CAST_MM_AIM[1]:#x}", f"{draws} draws, {seed:#x}")
+    cast_screen(v, work, "the Aim after C, Down and C (Magic Missile: row 23 Spell:Magic Missile, Target listed)",
+                mm["aim"]["screen"], p_aim, SHIELD_POINTER)
+    command_state(v, "MM's Aim (C, Down, C)", mm["aim"], p_aim, m0)
+    draws = L.draws(seed, mm["n"]["seed"])
+    v.check(draws == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is unchanged",
+            f"{draws} draws")
+    tail = mm["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == CAST_MM_TAIL, f"the original's tail after T (MM) is {CAST_MM_TAIL[0]} draws past "
+            f"the menu (1 at the Aim, 18 for T), at {CAST_MM_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(mm["aim"]["records"][CAST_SHARKMAN_2], HIT_POINTS),
+          rec_byte(tail["records"][CAST_SHARKMAN_2], HIT_POINTS))
+    v.check(hp == CAST_MM_HP, "SHARKMAN 2's hit points (+0x198) go from 0x4e to 0x4b at the tail (MM's 1d4+1)",
+            f"{hp[0]:#x} -> {hp[1]:#x}")
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO + 1) == CAST_MM | CAST_FORGOTTEN and facing == CAST_FACING_MM
+            and tail["targets"] == 1, "at the tail BALTHIR's MM is forgotten (+0xcf 0x8f), he faces 3, and DS:c6f4 is 1",
+            f"+0xcf {rec_byte(tail['records'][CAST_BALTHIR], CAST_MEMO + 1):#x}, facing {facing}, "
+            f"DS:c6f4 {tail['targets']}")
+    p_mm = turn_port(work, wild, "cast-mm", "C\\eC\\vCNT", entry=entry)
+    mark = cast_mark(p_mm, "01")
+    command_state(v, "MM's tail (the turn's tail, 01)", tail, mark, seed)
+    v.check(rec_byte(ported_records(mark)[CAST_SHARKMAN_2], HIT_POINTS) == CAST_MM_HP[1] and
+            rec_byte(ported_records(mark)[CAST_BALTHIR], CAST_MEMO + 1) == CAST_MM | CAST_FORGOTTEN,
+            "eclplay's tail after MM: SHARKMAN 2 at 0x4b, BALTHIR's MM forgotten (+0xcf 0x8f)",
+            f"SHARKMAN 2 {rec_byte(ported_records(mark)[CAST_SHARKMAN_2], HIT_POINTS):#x}, MM "
+            f"{rec_byte(ported_records(mark)[CAST_BALTHIR], CAST_MEMO + 1):#x}")
+    nxt = mm["next"]
+    v.check(nxt["selected"] == MOVE_WILD_NEXT, f"the next combatant at its menu after MM is WALKER KEYS "
+            f"({MOVE_WILD_NEXT})", nxt["selected"])
+    v.check(BATTLE_STOP.fullmatch(p_mm["last"] or "") is not None,
+            "eclplay ends at the next combatant's command menu (out of keys) after MM", p_mm["last"])
+    command_state(v, "the next combatant's menu after MM", nxt, p_mm, m0)
+    command_screen(v, "the command menu after MM", nxt["screen"], p_mm["base"].with_suffix(".bmp"), MENU_POINTER)
+    cast_hurt(v, work, opts, wild, hurt)
+
+
+def cast_hurt(v, work, opts, wild, hurt):
+    """CAST-HURT (BALTHIR at 0x32): C, C (Begins Casting: his turn ends at WALKER's menu), E (WALKER's End: his pending
+    cast at its Aim), then T (the tail: CLW heals him, the byte forgotten). Abort: C, C, E, E (Exit: Abort Spell?), then
+    Y (Spell Aborted, the tail). eclplay's stops are compared, and its tails (turn_port's marks 01 to 03: BALTHIR, WALKER,
+    BALTHIR) with the original's tails."""
+    entry = saved_entry(work / "cast-hurt", hurt)
+    clw = cast_original(work, wild, hurt, "cast-clw", opts.verbose, cast_run_clw)
+    m0 = clw["menu"]["seed"]
+    nxt = clw["next"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C is "
+            f"{CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}", f"{draws} draws, "
+            f"{nxt['seed']:#x}")
+    v.check(nxt["selected"] == MOVE_WILD_NEXT and rec_byte(nxt["blocks"][CAST_BALTHIR], 0) == CAST_CLW,
+            f"after C, C the next combatant is WALKER KEYS ({MOVE_WILD_NEXT}) and BALTHIR's block holds CLW (+0 = 3)",
+            f"{nxt['selected']}, spell {rec_byte(nxt['blocks'][CAST_BALTHIR], 0)}")
+    p_next = command_port(work, wild, "cast-clw-next", "CC", entry=entry)
+    command_state(v, "C, C (BALTHIR's Begins Casting: WALKER's menu)", nxt, p_next, m0)
+    v.check(BATTLE_STOP.fullmatch(p_next["last"] or "") is not None and
+            rec_byte(ported_blocks(p_next)[CAST_BALTHIR], 0) == CAST_CLW,
+            "eclplay ends at WALKER's menu after C, C, with BALTHIR's block holding CLW", p_next["last"])
+    aim = clw["aim"]
+    p_aim = turn_port(work, wild, "cast-clw-aim", "CCE", entry=entry)
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Aim (after WALKER's "
+            f"End) is {CAST_CLW_AIM[0]} draws past BALTHIR's menu, at {CAST_CLW_AIM[1]:#x}", f"{draws} draws, "
+            f"{aim['seed']:#x}")
+    cast_screen(v, work, "BALTHIR's pending Cure Light Wounds at its Aim (row 23 Spell:Cure Light Wounds)",
+                aim["screen"], p_aim, SHIELD_POINTER)
+    command_state(v, "BALTHIR's pending cast at its Aim", aim, p_aim, nxt["seed"])
+    tail = clw["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == CAST_CLW_TAIL, f"the original's tail after T (CLW) is {CAST_CLW_TAIL[0]} draws past "
+            f"BALTHIR's menu, at {CAST_CLW_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(aim["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(hp == CAST_CLW_HP, "BALTHIR's hit points (+0x198) go from 0x32 to 0x3d at the tail (CLW's heal)",
+            f"{hp[0]:#x} -> {hp[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == CAST_CLW | CAST_FORGOTTEN and facing == 0,
+            "at the tail BALTHIR's CLW is forgotten (+0xce 0x83) and he faces 0", f"+0xce {forgotten:#x}, facing {facing}")
+    p_tail = turn_port(work, wild, "cast-clw-tail", "CCET", entry=entry)
+    mark = cast_mark(p_tail, "03")
+    command_state(v, "CLW's tail (the turn's tail, 03)", tail, mark, aim["seed"])
+    v.check(rec_byte(ported_records(mark)[CAST_BALTHIR], HIT_POINTS) == CAST_CLW_HP[1] and
+            rec_byte(ported_records(mark)[CAST_BALTHIR], CAST_MEMO) == CAST_CLW | CAST_FORGOTTEN,
+            "eclplay's tail after CLW: BALTHIR at 0x3d, CLW forgotten (+0xce 0x83)", "")
+    # Abort: the question at Exit, Yes (Spell Aborted), the tail.
+    ab = cast_original(work, wild, hurt, "cast-abort", opts.verbose, cast_run_abort)
+    question, abort_tail = ab["question"], ab["tail"]
+    draws = L.draws(m0, abort_tail["seed"])
+    v.check((draws, abort_tail["seed"]) == CAST_ABORT_TAIL, f"the original's tail after Y (Spell Aborted) is "
+            f"{CAST_ABORT_TAIL[0]} draws past BALTHIR's menu, at {CAST_ABORT_TAIL[1]:#x}",
+            f"{draws} draws, {abort_tail['seed']:#x}")
+    forgotten = rec_byte(abort_tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == CAST_CLW | CAST_FORGOTTEN, "the original's aborted CLW is forgotten (+0xce 0x83)",
+            f"+0xce {forgotten:#x}")
+    p_q = command_port(work, wild, "cast-abort-q", "CCEE", entry=entry)
+    cast_screen(v, work, "the Abort Spell question (Yes, No) at BALTHIR's pending Aim's Exit",
+                question["screen"], p_q, SHIELD_POINTER)
+    p_abort = turn_port(work, wild, "cast-abort", "CCEEY", entry=entry)
+    mark = cast_mark(p_abort, "03")
+    command_state(v, "the abort's tail (Spell Aborted, 03)", abort_tail, mark, question["seed"])
+    v.check(rec_byte(ported_records(mark)[CAST_BALTHIR], CAST_MEMO) == CAST_CLW | CAST_FORGOTTEN and
+            "message: Spell Aborted" in p_abort["text"],
+            "eclplay's tail after the abort: Spell Aborted (its message), CLW forgotten (+0xce 0x83)", "")
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -4781,10 +5065,11 @@ def main():
     parser.add_argument("--workdir")
     parser.add_argument("--flows",
                         default="setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,"
-                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn",
+                                "keys,altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn,"
+                                "cast",
                         help="which flows: setup, load, clear, six, ground, encounter, field, wild, "
                              "slots, icons, dispatch, keys, altq_missile, turns, round, melee, melee-long, melee-dying, "
-                             "won, drop, timer, walk, mouse, move, aim, turn")
+                             "won, drop, timer, walk, mouse, move, aim, turn, cast")
     parser.add_argument("--verbose", "-v", action="store_true")
     opts = parser.parse_args()
     dqk_lib.need_assets()
@@ -4843,6 +5128,8 @@ def main():
         aim(v, work, opts)
     if "turn" in flows:
         turn(v, work, opts)
+    if "cast" in flows:
+        cast(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

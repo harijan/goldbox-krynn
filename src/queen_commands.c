@@ -369,7 +369,7 @@ static bool command(cok_adventure *game, cok_character *c, int item, int code, b
         return queen_aim(game, c, 0xff, 1, 0, 1, done, &res);
     }
     case ITEM_USE: return cok_adventure_not_yet(game, "Use", "dqk 86b8:0f41");
-    case ITEM_CAST: return cok_adventure_not_yet(game, "Cast", "dqk 52db:2543 (part 28)");
+    case ITEM_CAST: return queen_cast_command(game, c, 0, false, done); /* 08cf 09bc: 2543(0, 0, &done) */
     case ITEM_TURN: {
         /* 08cf's 0x9c7: the checks again, else the menu again (c8c); then 1117 (queen_turn_undead),
          * then End (0b29): the turn ended. */
@@ -462,6 +462,18 @@ bool queen_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
     if (c->combat == NULL) {
         cok_adventure_fail(game, COK_ECL_UNDEFINED, "a combatant has no combat record");
         return false;
+    }
+    /* 5045:08e3-091b: a spell pending from an earlier turn is cast first (cr->spell cleared), then the
+     * turn ends (0cc3); the menu is not shown. cok_combat_commands routes Dark Queen here before its
+     * own pending cast. */
+    if (c->combat->spell > 0) {
+        uint8_t spell = c->combat->spell;
+        c->combat->spell = 0;
+        bool unused;
+        if (!queen_cast(game, spell, false, true, &unused)) return false;
+        if (game->vm.abort) return game->vm.status == COK_ECL_OK;
+        cok_combat_end_turn(c);
+        return true;
     }
     bool done = false;
     while (!done) {

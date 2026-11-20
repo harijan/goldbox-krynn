@@ -11,8 +11,8 @@
 
 /* The spell picker of Dark Queen's Cast (849a:2080 for kind 0 in mode 1): the memorised spells
  * the character may cast (849a:0b39 with 05cc, 849a:0031), in a list by level with a heading
- * before each level (849a:0b39's tail), under the menu "Choose Spell:" (849a:019c). Cast itself
- * (52db:2543) is not wired to it here: queen_commands.c's ITEM_CAST still stops. */
+ * before each level (849a:0b39's tail), under the menu "Choose Spell:" (849a:019c). Cast
+ * (52db:2543, queen_cast.c's queen_cast_command) is the picker's one caller in a battle. */
 
 enum {
     SPELL_BYTES = 0x89,       /* +0xce to +0x156: the memorised spell bytes (0b39's k 0-0x88) */

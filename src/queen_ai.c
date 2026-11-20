@@ -744,7 +744,8 @@ bool queen_computer(cok_adventure *game, cok_character *c)
     if (over) return true;
     if (cr->spell > 0) {
         cok_combat_end_turn(c); /* 0c11, then the stop */
-        return cok_adventure_not_yet(game, "a pending spell's cast", rules->combat.spell_unported);
+        return cok_adventure_not_yet(game, "a pending spell's cast",
+                                     "dqk 849a:145b, the computer's pending cast (part 29)");
     }
     bool turned = false;
     if (!turn_undead(game, c, &turned)) return false;

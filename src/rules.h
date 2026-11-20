@@ -1264,8 +1264,9 @@ typedef struct {
      * computer's turn is 5bb8:0000 and a party's is the command menu, 5045:08cf, for a record
      * that can act (+0x18b). A record that cannot act is ended at once (51c2:0c11, its turn
      * ended); one with a spell pending (its combat block's spell) is cast at 849a:145b
-     * (spell_unported) instead of the menu. Reaching a stop returns with its citation (NULL:
-     * none). menu_first: the party's turn is the commands' routine (cok_combat_commands, the
+     * instead of the menu: spell_unported stops there where it is set (Dark Queen's is NULL:
+     * queen_commands casts it, 5045:08e3-091b). Reaching a stop returns with its citation
+     * (NULL: none). menu_first: the party's turn is the commands' routine (cok_combat_commands, the
      * command menu, 5045:08cf) and is dispatched before --combat's stubs, so no stub passes a
      * turn over it. The computer's stop is checked before the stubs too.
      * After each turn (5045:059d's tail, the pending lists and the demonstration's key test;

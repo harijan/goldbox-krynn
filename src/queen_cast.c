@@ -451,3 +451,429 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     default: return NULL;
     }
 }
+
+/* The Cast command and the cast (dqk 52db:2543, 849a:145b, 52db:1f78, 52db:1e78, 849a:21b5). The
+ * caster is the selected member (vm.character, DS:ad67); the spell's targets are spell_targets
+ * (DS:c5df, count DS:c6f4), its cell spell_x, spell_y (DS:bd2c, bd49). The computer's cast (ai) is
+ * part 29's: the aim of its choice stops here. */
+
+/* The bar's and the battle's words of the command and the cast (DS:5c2e, 5c3e, 5c5d, 5c01, 5c17,
+ * 8b17, and the abort's question and "Spell Aborted" in DS). */
+static const char *const cast_camp_only = "Camp Only Spell";
+static const char *const cast_underwater = "That has no effect underwater!";
+static const char *const cast_begins = "Begins Casting";
+static const char *const cast_abort = "Abort Spell";
+static const char *const cast_aborted = "Spell Aborted";
+static const char *const cast_already = "Already been targeted";
+static const char *const cast_self = "Cannot target yourself";
+static const char *const cast_casts = "Casts a Spell";
+
+/* Var 0x3c (COK_VAR_RECORD_EFFECT): underwater. */
+static bool underwater(cok_adventure *game)
+{
+    return cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
+}
+
+/* The selected member (the party's record vm.character), NULL with none. */
+static cok_character *caster_member(cok_adventure *game)
+{
+    if (game->vm.character == NULL) return NULL;
+    size_t i = cok_party_index(&game->party, game->vm.character);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
+/* The character of a combatant's record (NULL for none, or a record not in the combat). */
+static cok_character *combatant_of(cok_adventure *game, const uint8_t *record)
+{
+    uint8_t n = cok_combat_index(&game->combat, record);
+    return n == 0 ? NULL : game->combat.combatant[n].character;
+}
+
+/* Whether who is one of the targets 1 to picks. */
+static bool listed_in(const cok_adventure *game, unsigned picks, const cok_character *who)
+{
+    for (unsigned i = 1; i <= picks; ++i)
+        if (game->spell_targets[i] == who) return true;
+    return false;
+}
+
+/* 52db:1e78's player branch: Aim with attack 0 for the spell's range (849a:0f34), the creatures
+ * unless the spell is 0x53, and empty as the caller gives (the cells with no one). The caster's
+ * target (+0x0b) is what Aim gave, always. found is whether Target picked (its cell is then spell_x,
+ * spell_y); keys running out leaves found clear with vm.abort set. False where the run stopped. */
+static bool pick(cok_adventure *game, cok_character *c, uint8_t spell, bool ai, uint8_t empty,
+                 bool *found, cok_combat_aimed *res)
+{
+    *found = false;
+    *res = (cok_combat_aimed){NULL, 0, 0};
+    if (ai)
+        return cok_adventure_not_yet(game, "the computer's spell aim (52db:1d42, 48aa)",
+                                     "dqk 52db:1d42/48aa, the computer's aim (part 29)");
+    uint8_t range;
+    if (!queen_spell_range(game, spell, &range)) return false;
+    bool done = false;
+    if (!queen_aim(game, c, range, 0, empty, spell != 0x53, &done, res)) return false;
+    c->combat->target = res->target;
+    if (game->vm.abort) return true;
+    if (!done) {
+        *res = (cok_combat_aimed){NULL, 0, 0};
+        return true;
+    }
+    *found = true;
+    game->spell_x = res->x;
+    game->spell_y = res->y;
+    return true;
+}
+
+/* The area of a spell cast at (spell_x, spell_y): the combatants listed around it (5d71:07d7, any
+ * direction, a footprint of 1) become the targets 1 to the count, and the spell takes an image. */
+static bool area(cok_adventure *game, uint16_t radius)
+{
+    cok_combat *combat = &game->combat;
+    if (!cok_combat_list(combat, cok_game_rules(game), game->spell_x, game->spell_y, radius, 0xff, 1))
+        return undefined(game, "the list of combatants around one (5d71:07d7) reads past its tables");
+    uint8_t n = combat->listed_count;
+    for (uint8_t i = 1; i <= n; ++i)
+        game->spell_targets[i] = combat->combatant[combat->listed[i].index].character;
+    game->spell_target_count = n;
+    game->effects.rolls.images = 1;
+    return true;
+}
+
+/* The area's radius of a spell of kind 8 to 0x0e (1f78's): 3 for 0x57 underwater, 2 for 0x33
+ * underwater and for 0x73 or 0x2f with var 0x22 0, else the spell's +7 low nibble. */
+static unsigned area_radius(cok_adventure *game, uint8_t spell)
+{
+    if (spell == 0x57 && underwater(game)) return 3;
+    if ((spell == 0x33 && underwater(game)) ||
+        ((spell == 0x73 || spell == 0x2f) && cok_ecl_load_var(&game->vm, 0x22) == 0))
+        return 2;
+    return queen_spell_byte(game, spell, 7) & 7;
+}
+
+/* The weight of a target against an allowance (1f78's kind 5): by the highest level (+0x91; 0 and 1
+ * weigh 1, 2 weighs 2, 3 weighs 4, more 8), or for Faerie Fire 0x4f by the size (+0x8a) less one (0
+ * weighs 1, 1 and 2 weigh 2, 3 weighs 4, more 0). */
+static unsigned weight(cok_adventure *game, uint8_t spell, const cok_character *who)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    if (spell != 0x4f) {
+        uint8_t level = cok_field_u8(L, who->record, COK_FIELD_HIGHEST_LEVEL);
+        if (level <= 1) return 1;
+        if (level == 2) return 2;
+        return level == 3 ? 4 : 8;
+    }
+    uint8_t size = (uint8_t)(cok_field_u8(L, who->record, COK_FIELD_SIZE) - 1);
+    if (size == 0) return 1;
+    if (size <= 2) return 2;
+    return size == 3 ? 4 : 0;
+}
+
+/* 1f78's kind 5 (Faerie Fire 0x4f and Charm Monsters 0x51): picks until one is refused, the total
+ * weight passes the allowance (after a second pick), or, for the computer, the allowance runs out
+ * (its repeats count down). The allowance is the caster's level for 0x4f, else 2d4. */
+static bool several(cok_adventure *game, cok_character *c, uint8_t spell, bool ai)
+{
+    cok_combat *combat = &game->combat;
+    uint8_t allowance;
+    if (spell == 0x4f) {
+        uint8_t lv;
+        if (!level_of(game, spell, false, &lv)) return false;
+        allowance = lv;
+    } else {
+        allowance = roll(game, 2, 4);
+    }
+    unsigned total = 0, picks = 0;
+    bool stop = false;
+    do {
+        bool found;
+        cok_combat_aimed res;
+        if (!pick(game, c, spell, ai, 0, &found, &res)) return false;
+        if (game->vm.abort) return true;
+        if (!found) {
+            stop = true;
+            continue;
+        }
+        cok_character *who = combatant_of(game, res.target);
+        if (who == NULL) return undefined(game, "a target picked with no record (52db:1e78)");
+        bool already = listed_in(game, picks, who);
+        if (!already) {
+            game->spell_targets[++picks] = who;
+            game->spell_target_count = (uint8_t)picks;
+            game->spell_x = cok_combat_x(combat, who->record);
+            game->spell_y = cok_combat_y(combat, who->record);
+            total += weight(game, spell, who);
+            if (picks > 1 && total > allowance) stop = true;
+        }
+        if (already && ai) --allowance;
+        if (already && !ai) queen_bar_message(game, cast_already);
+        if (!cok_arena_redraw_cell(game, cok_combat_x(combat, who->record),
+                                   cok_combat_y(combat, who->record)))
+            return false;
+    } while (!stop && allowance != 0);
+    return true;
+}
+
+/* 1f78's one-target kinds (1-4, 6, 7): 1 + (+7 & 3) picks, each not yet listed (the caster herself
+ * only for 0x17 and 0x31 is refused: "Cannot target yourself"). Picks 0 leaves done clear and the
+ * cell as it was. */
+static bool single(cok_adventure *game, cok_character *c, uint8_t spell, bool ai, bool *done)
+{
+    cok_combat *combat = &game->combat;
+    unsigned left = (unsigned)(queen_spell_byte(game, spell, 7) & 3) + 1;
+    unsigned picks = 0;
+    while (left != 0) {
+        bool found;
+        cok_combat_aimed res;
+        if (!pick(game, c, spell, ai, 0, &found, &res)) return false;
+        if (game->vm.abort) return true;
+        if (!found) break;
+        cok_character *who = combatant_of(game, res.target);
+        if (who == NULL) return undefined(game, "a target picked with no record (52db:1e78)");
+        bool again = listed_in(game, picks, who) ||
+                     ((spell == 0x17 || spell == 0x31) && who == c);
+        if (!again) {
+            game->spell_targets[++picks] = who;
+            --left;
+            game->spell_x = cok_combat_x(combat, who->record);
+            game->spell_y = cok_combat_y(combat, who->record);
+        }
+        if (again && !ai) queen_bar_message(game, who == c ? cast_self : cast_already);
+        if (again && ai) --left;
+        if (!cok_arena_redraw_cell(game, cok_combat_x(combat, who->record),
+                                   cok_combat_y(combat, who->record)))
+            return false;
+    }
+    game->spell_target_count = (uint8_t)picks;
+    if (picks == 0) {
+        *done = false;
+        return true;
+    }
+    game->spell_x = cok_combat_x(combat, game->spell_targets[picks]->record);
+    game->spell_y = cok_combat_y(combat, game->spell_targets[picks]->record);
+    return true;
+}
+
+/* 52db:1f78 (spell, ai, done): the targets of a battle's spell by its +7 kind: the caster alone (0),
+ * the 5 kind, the area (8 to 0x0e, picked as empty too), Silence (0x0f: one target or the area by
+ * +7 >> 4), and the one-target kinds. done is set (true at the start) and cleared where no target
+ * is picked. Entry 0 alone is cleared; a stale entry past the count is kept (as the original). */
+bool queen_targets(cok_adventure *game, cok_character *c, uint8_t spell, bool ai, bool *done)
+{
+    cok_combat *combat = &game->combat;
+    game->spell_targets[0] = NULL;
+    game->spell_target_count = 0;
+    game->effects.rolls.images = 0;
+    *done = true;
+    game->spell_x = cok_combat_x(combat, c->record);
+    game->spell_y = cok_combat_y(combat, c->record);
+    uint8_t kind = queen_spell_byte(game, spell, 7) & 0x0f;
+    if (kind == 0) {
+        game->spell_targets[1] = c;
+        game->spell_target_count = 1;
+        return true;
+    }
+    if (kind == 5) return several(game, c, spell, ai); /* done stays set: it is never cleared here */
+    if (kind >= 8 && kind != 0x0f) {
+        bool found;
+        cok_combat_aimed res;
+        if (!pick(game, c, spell, ai, 1, &found, &res)) return false;
+        if (game->vm.abort) return true;
+        if (!found) {
+            *done = false;
+            return true;
+        }
+        return area(game, (uint16_t)area_radius(game, spell));
+    }
+    if (kind == 0x0f) {
+        bool found;
+        cok_combat_aimed res;
+        if (!pick(game, c, spell, ai, 0, &found, &res)) return false;
+        if (game->vm.abort) return true;
+        if (!found) {
+            *done = false;
+            return true;
+        }
+        if (res.target != NULL) {
+            cok_character *who = combatant_of(game, res.target);
+            if (who == NULL) return undefined(game, "a target picked with no record (52db:1e78)");
+            game->spell_targets[1] = who;
+            game->spell_target_count = 1;
+            return true;
+        }
+        return area(game, (uint16_t)(queen_spell_byte(game, spell, 7) >> 4));
+    }
+    return single(game, c, spell, ai, done);
+}
+
+/* 849a:21b5 (dispatch): the spell's handler (queen_cast.c's table first, then nothing: the rest
+ * stop, with the descriptor's citation of the original's routine), then the guard after it (849a:000c). */
+static bool handle_spell(cok_adventure *game, uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    if (handler == NULL) {
+        const cok_rules *rules = cok_game_rules(game);
+        cok_adventure_fail(game, COK_ECL_UNPORTED, "not yet ported: %s's spell %u, %s (%s)",
+                           rules->text.name, spell, rules->spells.names[spell - 1],
+                           rules->spells.cast[spell].unported);
+        return false;
+    }
+    if (!handler(game)) return false;
+    return cok_combat_pending_lists(game, "dqk 849a:000c (the guard after a spell's handler)");
+}
+
+/* The flight of a spell (mode 5, not 0x7c): the missile's pictures (slot 0x13, or 0x20 for the
+ * Fireball family), the arc round the caster to the spell's cell (5d71:048f, the first facing whose
+ * quarter holds it), the picture by direction (51c2:0fc8, cited), the pose, the sound, the missile
+ * (4 frames, delay 0x1e; none to its own cell), the burst (51c2:0def, cited), then the caster's
+ * visible pose again (5837:0626). False where the run stopped. */
+static bool flight(cok_adventure *game, cok_character *c, uint8_t spell)
+{
+    cok_combat *combat = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
+    bool fireball = spell == 0x2f || spell == 0x73 || spell == 0x4a || spell == 0x85;
+    if (!cok_arena_missile_frames(game, fireball ? 0x20 : 0x13)) return false;
+    int8_t x = cok_combat_x(combat, c->record), y = cok_combat_y(combat, c->record);
+    uint8_t dir = 0;
+    bool in = false;
+    while (!in) {
+        if (!cok_combat_in_arc(x, y, game->spell_x, game->spell_y, dir, &in))
+            return undefined(game, "the arc of the caster reads past the terrain (5d71:048f)");
+        if (!in && ++dir == 8)
+            return undefined(game, "no facing puts the spell's cell in the caster's quarter (5d71:048f)");
+    }
+    if (fireball)
+        return cok_adventure_not_yet(game, "the Fireball family's picture by direction (51c2:0fc8)",
+                                     "dqk 51c2:0fc8");
+    combat->show_actions = true; /* DS:c3f5 */
+    if (!cok_arena_pose(game, c, dir, 1, false)) return false; /* 5837:09ab(rec, dir, 1, 0) */
+    cok_arena_sound(game, spell == 0x2f ? 0x0c : spell == 0x33 ? 9 : 3); /* 2023:0006 */
+    if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e)) return false;
+    bool burst = spell == 0x22 || spell == 0x5b || spell == 0x2f || spell == 0x73 ||
+                 spell == 0x85 || spell == 0x57 || (spell == 0x33 && underwater(game));
+    if (burst) return cok_adventure_not_yet(game, "a spell's burst (51c2:0def)", "dqk 51c2:0def");
+    bool shown = false;
+    if (!cok_combat_visible(combat, rules, c->record, false, &shown))
+        return undefined(game, "a size past the footprints is read after them (5837:0626)");
+    if (shown) {
+        uint8_t facing = c->combat->facing;
+        if (!cok_arena_pose(game, c, facing, 1, true) || !cok_arena_pose(game, c, facing, 0, false))
+            return false;
+    }
+    return true;
+}
+
+bool queen_cast(cok_adventure *game, uint8_t spell, bool ai, bool announce, bool *done)
+{
+    if (game->vm.mode != 5)
+        return cok_adventure_not_yet(game, "a spell cast outside combat (camp, part 46)",
+                                     "dqk 849a:145b outside combat (camp, part 46)");
+    cok_character *c = caster_member(game);
+    if (c == NULL) return undefined(game, "the caster is read through NULL with no character "
+                                          "selected (DS:ad67)");
+    const cok_rules *rules = cok_game_rules(game);
+    bool item = game->effects.rolls.item != 0;
+    if (announce && !item) {
+        /* 7fd8:45d7 (the battle branch): "Casts a Spell" with its wait, the range line cleared, the
+         * spell's name on row 23 (aim-a's cok_arena_text). */
+        if (!cok_arena_say(game, c, cast_casts, 10, true)) return false;
+        queen_range_line_clear(game);
+        char text[48];
+        snprintf(text, sizeof text, "Spell:%s", rules->spells.names[spell - 1]);
+        if (!cok_arena_text(game, 0, 0x17, text, 7, 0)) return false;
+    }
+    bool go = true;
+    while (go) {
+        if (!queen_targets(game, c, spell, ai, done)) return false;
+        if (game->vm.abort) return true; /* the keys ran out: the turn not ended */
+        if (*done) {
+            go = false;
+            if (spell != 0x7c && !flight(game, c, spell)) return false;
+            if (!cok_combat_reveal(game, c)) return false; /* 148f:1b2a */
+            if (!item && spell > 0) cok_combat_forget(rules, c->record, spell);
+            game->effects.rolls.spell = spell;
+            if (!handle_spell(game, spell)) return false;
+            game->effects.rolls.spell = 0;
+            game->effects.rolls.images = 0;
+        } else {
+            /* Not done: an abort (the computer's, or Yes to "Abort Spell"), else the targets again. */
+            int answer = ai ? 1 : queen_yes_no(game, cast_abort);
+            if (answer < 0) return true; /* the keys ran out: the turn not ended */
+            if (answer == 1) {
+                queen_bar_message(game, cast_aborted);
+                if (!item && spell > 0) cok_combat_forget(rules, c->record, spell);
+                go = false;
+            }
+        }
+    }
+    cok_arena_clear_text(game);
+    queen_range_line_clear(game);
+    return cok_combat_pending_lists(game, "dqk 849a:000c (the guard after a cast)");
+}
+
+bool queen_cast_command(cok_adventure *game, cok_character *c, uint8_t spell, bool redrawn,
+                        bool *done)
+{
+    cok_combat *combat = &game->combat;
+    *done = false;
+    if (spell == 0) {
+        int picked = queen_spell_pick(game, c, 1);
+        if (picked < 0) return game->vm.status == COK_ECL_OK; /* keys out, or another mode's stop */
+        spell = (uint8_t)picked;
+    }
+    if (spell > 0 && queen_spell_word(game, spell, 0x0f) == 0) {
+        queen_bar_message(game, cast_camp_only);
+        spell = 0;
+    }
+    if (spell > 0 && underwater(game) &&
+        (spell == 0x4a || spell == 0x09 || spell == 0x2f || spell == 0x76 || spell == 0x73 ||
+         spell == 0x7c)) {
+        queen_bar_message(game, cast_underwater);
+        spell = 0;
+    }
+    if (!redrawn) {
+        if (!cok_arena_redraw(game)) return false;
+        combat->show_actions = true; /* DS:c3f5 */
+        combat->panel = true;        /* DS:c6b7 */
+        if (!cok_arena_turn(game, c, 3, true) || !cok_arena_panel(game, c)) return false;
+    }
+    if (spell == 0) return true;
+    uint8_t time = (uint8_t)(queen_spell_byte(game, spell, 0x11) / 3);
+    if (time == 0) {
+        /* The spell at once: queen_cast with the caller's redrawn as its ai (145b's second
+         * argument is the same byte), then the turn ends whatever it gave. */
+        if (!queen_cast(game, spell, redrawn, true, done)) return false;
+        if (game->vm.abort) return true;
+        cok_combat_end_turn(c);
+        *done = true;
+        return true;
+    }
+    *done = true;
+    if (!cok_arena_say(game, c, cast_begins, 10, true)) return false;
+    cok_combat_record *cr = c->combat;
+    if (cr == NULL) return undefined(game, "a caster has no combat record (52db:2543)");
+    cr->spell = spell;
+    if (cr->initiative > (int8_t)time)
+        cr->initiative = (int8_t)(cr->initiative - (int8_t)time);
+    else
+        cr->initiative = 1;
+    /* The caster moves up the turn list past those with a lower initiative, and a tie is the 1d2's
+     * (60f4:1216). */
+    unsigned b = combat->turn_index;
+    for (;;) {
+        if (b + 1 > COK_COMBATANTS)
+            return undefined(game, "a full order moves a caster past entry 72, reading DS:72ce as "
+                                   "a record (52db:2543)");
+        cok_character *next = combat->turn[b + 1];
+        if (next == NULL) break;
+        int8_t k = cok_character_combat(next)->initiative;
+        if (!(k > cr->initiative ||
+              (k == cr->initiative && cok_dice(&game->vm.seed, 1, 2) == 1)))
+            break;
+        combat->turn[b] = next;
+        ++b;
+    }
+    combat->turn[b] = c;
+    --combat->turn_index;
+    return true;
+}
