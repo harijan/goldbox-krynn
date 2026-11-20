@@ -178,9 +178,19 @@ bool queen_undead(cok_adventure *game, cok_character *c, cok_character **undead,
  * until the count runs out, "Nothing Happens..." where none is turned, then c's turn is ended and
  * DS:bd2e set (the command Turn and the computer's turn both). False where the run stopped. */
 bool queen_turn_undead(cok_adventure *game, cok_character *c);
-/* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast false where it casts nothing;
- * else its choice is a cited stop. False where the run stopped. */
+/* The computer's spell choice (dqk 5bb8:0306, queen_ai.c): *cast is set where its spell was cast (the
+ * turn ends); none where it casts nothing (fleeing, no Magic, a no-cast draw, no memorised spell).
+ * False where the run stopped. */
 bool queen_spell_choice(cok_adventure *game, cok_character *c, bool *cast);
+/* The computer's spell (dqk 5bb8:1b1e): the first memorised spell, in priority order, worth casting
+ * (queen_spell_worth above 0); 0 for none. False where the run stopped. */
+bool queen_best_spell(cok_adventure *game, cok_character *c, uint8_t *spell);
+/* The worth of spell cast by c (dqk 52db:4789), and of spell to one target t (dqk 52db:42cc, the
+ * table of the spells by id, which dqk-ai-cast-b reads too): a signed byte, -40 for the other side,
+ * 0 for none, 1-4 otherwise. side is the word +0x66 the spell's side has. False where the run stopped. */
+bool queen_spell_worth(cok_adventure *game, cok_character *c, uint8_t spell, int8_t *worth);
+bool queen_target_worth(cok_adventure *game, cok_character *t, uint8_t spell, unsigned side,
+                        int8_t *worth);
 /* The computer's turn (dqk 5bb8:0000, queen_ai.c; ai.c's cok_combat_computer dispatches to it by
  * the descriptor's computer_routine): its steps as far as the port carries them. */
 bool queen_computer(cok_adventure *game, cok_character *c);
