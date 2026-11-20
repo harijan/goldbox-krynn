@@ -464,9 +464,8 @@ bool queen_commands(cok_adventure *game, cok_character *c, uint8_t pressed)
         return false;
     }
     /* 5045:08e3-091b: a spell pending from an earlier turn is cast first (cr->spell cleared), then the
-     * turn ends (0cc3); the menu is not shown. Not reached from a battle yet: round.c's stop
-     * (rules_dark_queen.c's spell_unported) comes first, and command.c's cok_combat_commands casts
-     * a pending spell itself before it calls this (see the part's report). */
+     * turn ends (0cc3); the menu is not shown. cok_combat_commands routes Dark Queen here before its
+     * own pending cast. */
     if (c->combat->spell > 0) {
         uint8_t spell = c->combat->spell;
         c->combat->spell = 0;

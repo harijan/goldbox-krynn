@@ -270,10 +270,10 @@ static void test_round_start_queen(void)
 }
 
 /* The first turn's dispatch (dqk 5045:078b) in Dark Queen's game: a party member that can act
- * (+0x18b) stops at the command menu (5045:08cf), one with a spell pending at its cast
- * (849a:145b), a computer's turn at 5bb8:0000, and a member that cannot act is ended at once
- * (08cf's 51c2:0c11: initiative, spell, guard and movement zeroed). --combat's stubs do not pass
- * over those stops. The round's end, the turn's tail and the battle's end are cited stops too. */
+ * (+0x18b) stops at the command menu (5045:08cf), a computer's turn at 5bb8:0000, and a member
+ * that cannot act is ended at once (08cf's 51c2:0c11: initiative, spell, guard and movement
+ * zeroed). --combat's stubs do not pass over those stops. The round's end, the turn's tail and the
+ * battle's end are cited stops too. */
 static void test_turn_dispatch(void)
 {
     if (!have_assets()) {
@@ -308,13 +308,7 @@ static void test_turn_dispatch(void)
      * there, its turn not ended and its initiative kept. */
     CHECK(cok_combat_act(&game, c, false) && game.vm.status == COK_ECL_OK);
     CHECK(c->combat->initiative == 5);
-    /* With a spell pending (the combat block's spell), the stop is the cast (849a:145b). */
-    game.vm.status = COK_ECL_OK;
-    c->combat->spell = 3;
-    CHECK(!cok_combat_act(&game, c, false));
-    CHECK(game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "849a:145b") != NULL);
-    CHECK(strstr(game.error, "5045:08cf") == NULL && c->combat->initiative == 5);
-    c->combat->spell = 0;
+    /* A spell pending is cast first (5045:08e3, no stop): see test_pending_act. */
     /* One that cannot act (+0x18b 0): ended at once, its initiative, spell, guard and movement
      * zero (51c2:0c11), with a spell and movement set beforehand. */
     game.vm.status = COK_ECL_OK;
@@ -4103,9 +4097,43 @@ static void test_cast_targets(void)
     menu_close();
 }
 
+/* The forget's place (dqk 849a:145b): a spell is forgotten after its flight, not before it (a flight that
+ * stops, the Fireball family's picture, leaves the byte), and an item's cast forgets nothing and says no
+ * "Casts a Spell" (the announce is the spell's own, 7fd8:45d7). */
+static void test_cast_forget(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the cast's forget and announce not checked");
+        return;
+    }
+    bool done = false;
+    /* A Fireball (0x2f) whose flight stops at 51c2:0fc8: the stop comes before the forget, so the byte
+     * stays 0x2f (unmarked). */
+    cast_open(true);
+    menu_c->record[0xce] = 0x2f;
+    cast_keys("T");
+    CHECK(!queen_cast(&menu_game, 0x2f, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "51c2:0fc8") != NULL);
+    CHECK(menu_c->record[0xce] == 0x2f);
+    /* A ported spell (CLW 0x03) cast from the list: the announce, then the byte marked. */
+    cast_open(true);
+    menu_c->record[0xce] = 0x03;
+    cast_keys("T");
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.prints, "Casts a Spell") != NULL && menu_c->record[0xce] == 0x83);
+    /* An item's cast (rolls.item set): no announce, the byte kept. */
+    cast_open(true);
+    menu_c->record[0xce] = 0x03;
+    cast_keys("T");
+    menu_game.effects.rolls.item = 1;
+    CHECK(queen_cast(&menu_game, 3, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    menu_game.effects.rolls.item = 0;
+    CHECK(strstr(script.prints, "Casts a Spell") == NULL && menu_c->record[0xce] == 0x03);
+    menu_close();
+}
+
 /* queen_commands' pending cast (5045:08e3): a spell pending is cast first (its Aim's T), the spell
- * cleared, the turn ended, and no menu is built (no "menu" log). Called directly: the battle's own
- * stop (round.c's spell_unported) comes before it. */
+ * cleared, the turn ended, and no menu is built (no "menu" log). Called directly. */
 static void test_pending_cast(void)
 {
     if (!have_assets()) {
@@ -4118,6 +4146,23 @@ static void test_pending_cast(void)
     CHECK(menu_run("T") && menu_game.vm.status == COK_ECL_OK);
     CHECK(menu_c->combat->spell == 0 && menu_c->combat->initiative == 0);
     CHECK(strstr(script.all, "Next Prev Manual") != NULL && strstr(script.all, "Guard") == NULL);
+    menu_close();
+}
+
+/* The battle's dispatch of a pending spell (cok_combat_act, 5045:078b): no stop (the descriptor's
+ * spell_unported is NULL), the cast's Aim reads "T", the spell cleared and the turn ended. */
+static void test_pending_act(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the pending spell's dispatch not checked");
+        return;
+    }
+    cast_open(false);
+    menu_c->combat->spell = 3;
+    cast_keys("T");
+    CHECK(cok_combat_act(&menu_game, menu_c, false) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_c->combat->spell == 0 && menu_c->combat->initiative == 0);
+    CHECK(strstr(script.all, "Guard") == NULL);
     menu_close();
 }
 
@@ -4183,7 +4228,9 @@ int main(void)
     test_cast_command();
     test_cast_targets();
     test_command_aim_empty();
+    test_cast_forget();
     test_pending_cast();
+    test_pending_act();
     test_pass_draw();
     test_bar_message_place();
     test_text_delay_state();

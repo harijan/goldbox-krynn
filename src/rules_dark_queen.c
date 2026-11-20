@@ -746,10 +746,10 @@ const cok_rules cok_rules_dark_queen = {
             /* After each turn (5045:0726): a side gone or the round limit ends the round, the
              * first time in a battle (ae4c, b45a, the [bp-6] flag), as DKK's ends_in_round. */
             .ends_in_round = true,
-            /* Each turn (5045:078b): the computer's turn stops at 5bb8:0000, the party's at the
-             * command menu (5045:08cf) for a record that can act, or at 849a:145b for one with a
-             * spell pending (cast; not ported). A record that cannot act is ended at 08cf's
-             * 51c2:0c11, which is cok_combat_end_turn. */
+            /* Each turn (5045:078b): the computer's turn is 5bb8:0000, the party's the command
+             * menu (5045:08cf) for a record that can act. A record that cannot act is ended at
+             * 08cf's 51c2:0c11, which is cok_combat_end_turn. A pending spell is cast first
+             * (5045:08e3-091b, queen_commands.c). */
             /* The menu, verified by disassembly (part 22a): 5045:08cf's loop (0925) runs 0cd7,
              * which builds the menu at the combatant's cell (1bdb:0005 per item, the window
              * library's 1595 shows it: not ported) and gives the result (0-12, Move..End of
@@ -765,7 +765,8 @@ const cok_rules cok_rules_dark_queen = {
              * stops at it now, so computer_unported (the stop the part-15 port had) is NULL; a
              * stop inside it cites its own step. Quick's hand-on (queen_commands.c) cites its own. */
             .computer_unported = NULL,
-            .spell_unported = "dqk 849a:145b, a pending spell's cast (not ported)",
+            /* Nothing stops at a pending spell now: queen_commands casts it (849a:145b). */
+            .spell_unported = NULL,
             /* After each turn (5045:059d's tail, round.c): the pending lists (148f:2ab8, 2c4f,
              * 2d9b; DS:bd4c, ad6e, ad6f: the counts stop it, cited), the demonstration's key test
              * (5045:06cf-070e, cited) and the colour cycles (261b:05be, the port's palette). */
