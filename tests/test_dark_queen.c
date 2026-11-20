@@ -2336,7 +2336,7 @@ static void test_command_move(void)
  * wrap; the target she kept (combat record +0x0b) is the one shown first. Each menu shows "Next Prev
  * Manual Target Center Exit" with Target only where the range reaches the one shown (the readied
  * weapon's range, 1 for none) and it is not self; a missile weapon needs ammunition (a thrown one, or
- * none beside her). Target when attacking is the strike (52db:2d46); Manual is a cited stop (part 25);
+ * none beside her). Target when attacking is the strike (52db:2d46); Manual is test_command_aim_manual's;
  * Escape and Exit leave the menu
  * (the command menu again); Center centres and shows the menu again. The range line is drawn on row
  * 23 (1a62:01d0). Skipped without DQKAssets/. */
@@ -2554,14 +2554,6 @@ static void test_command_aim(void)
     aim_foe(20, 5, 1);
     menu_c->combat->target = ally->record;
     CHECK(menu_run("AC") && centred_on(5, 5));
-    /* Manual: its stop by its letter, by a direction key; Escape leaves the menu (the command
-     * menu again) and Center shows it again. */
-    aim_open();
-    CHECK(!menu_run("AM") && menu_game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(menu_game.error, "dqk 52db:2e9c") != NULL);
-    aim_open();
-    CHECK(!menu_run("A~M") && menu_game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(menu_game.error, "dqk 52db:2e9c") != NULL);
     aim_open();
     CHECK(menu_run("A\x1b") && menu_game.vm.status == COK_ECL_OK && script.menus == 3);
     CHECK(menu_c->combat->initiative == 5 && strncmp(script.menu, "Aim ", 4) == 0);
@@ -2612,6 +2604,219 @@ static void test_command_aim(void)
     CHECK(!pixel_in(0, 176, 320, 186, 0xfe));
     aim_open();
     menu_close();
+}
+
+/* Aim's Manual (dqk 52db:2e9c, queen_aim.c's manual; part 25): the cursor from the target's cell, stepped by
+ * the direction keys (keys only: the mouse's map areas are the stop "dqk 52db:40d6"), Center centres it at
+ * margin 0, Target picks (the strike, as Aim's), Exit and Escape leave to Aim. The party's side is picked
+ * here (Aim lists none): Target asks "attack ally? " (queen_attack_ally): No leaves the turn kept, Yes attacks.
+ * Skipped without DQKAssets/. */
+static void test_command_aim_manual(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Aim's Manual not checked");
+        return;
+    }
+    cok_combat *k = &menu_game.combat;
+    /* From self: the menu is "Center Exit" (self is invalid with attack 1). Exit leaves to Aim, Exit again
+     * to the command menu; the cursor is off and no draw is made (the RandSeed holds). */
+    aim_open();
+    uint32_t seed = menu_game.vm.seed;
+    CHECK(menu_run("AMEE") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(script.menus == 5 && strstr(script.all, "Next Prev Manual Center Exit;Center Exit;Next Prev Manual "
+                                                  "Center Exit;") != NULL);
+    CHECK(strncmp(script.menu, "Aim ", 4) == 0 && k->cursor == 0 && menu_game.vm.seed == seed);
+    /* Escape is Exit too: Aim again, then Exit. */
+    aim_open();
+    CHECK(menu_run("AM\x1b" "E") && menu_game.vm.status == COK_ECL_OK && script.menus == 5);
+    CHECK(strncmp(script.menu, "Aim ", 4) == 0);
+    /* Right from Manual's menu: the next pass steps the cursor one cell east (6, 5), its menu again, and a
+     * second Right to (7, 5). Center there, and the cursor stays on: the keys run out at Manual's menu. */
+    aim_open();
+    CHECK(menu_run("AM~M~MC") && menu_game.vm.status == COK_ECL_OK && script.menus == 6);
+    CHECK(centred_on(7, 5) && k->cursor == 1 && k->cursor_size == 1 && strncmp(script.menu, "Center Exit", 11) == 0);
+    /* Each pass centres at margin 3 (5837:0846(x, y, 3, dir)): two Rights scroll the view by four only. */
+    aim_open();
+    CHECK(menu_run("AM~M~M") && k->view_x == 4 && k->view_y == 0);
+    /* The keypad's 5 (0x80) centres there at margin 0 and shows the menu again, the cursor on (3360). */
+    aim_open();
+    CHECK(menu_run("AM~M~M~L") && centred_on(7, 5) && k->cursor == 1 && strcmp(script.menu, "Center Exit") == 0);
+    /* Aim's direction key (Right at the Aim menu): Manual starts with that step (its first pass has none), so
+     * the cursor is on (6, 5) at its menu; Center centres there. */
+    aim_open();
+    CHECK(menu_run("A~MC") && menu_game.vm.status == COK_ECL_OK && script.menus == 4);
+    CHECK(centred_on(6, 5) && k->cursor == 1 && strcmp(script.menu, "Center Exit") == 0);
+    aim_open();
+    CHECK(menu_run("A~MCEE") && menu_game.vm.status == COK_ECL_OK && script.menus == 6);
+    CHECK(strncmp(script.menu, "Aim ", 4) == 0 && k->cursor == 0);
+    /* A foe beside her (range 1, distance 1) is "Target Center Exit" from its cell; Target strikes it as Aim's
+     * does (the turn ended: no command menu after it). Aim's N reaches the foe, then Manual on it. */
+    aim_open();
+    cok_character *beside = aim_foe(6, 5, 1);
+    uint32_t before = menu_game.vm.seed;
+    CHECK(menu_run("ANMT") && menu_game.vm.status == COK_ECL_OK && script.menus == 4);
+    CHECK(strstr(script.all, "Next Prev Manual Target Center Exit;Target Center Exit;") != NULL);
+    CHECK(beside->combat->hits == 1 && menu_game.vm.seed != before && menu_c->combat->initiative == 0);
+    /* A thrown missile weapon (flags 0x14) at one square is pickable from Manual with no ammunition held (2e9c's
+     * thrown test at one square comes before the ammunition's; Aim's Target offer needs the ammunition, so none
+     * is listed there). */
+    aim_open();
+    aim_weapon(3, 0x1d); /* thrown (0x14); its ammunition is the slot 11 item (0x08, 0x01), none held (round.c) */
+    menu_c->slots[11] = 0;
+    aim_foe(6, 5, 1);
+    CHECK(menu_run("ANM") && menu_game.vm.status == COK_ECL_OK && script.menus == 4);
+    CHECK(strstr(script.all, "Target Center Exit;") != NULL && strstr(script.all, "Next Prev Manual Target") == NULL);
+    /* Out of range: a foe three squares off has no Target from Manual either. */
+    aim_open();
+    aim_foe(8, 5, 1);
+    CHECK(menu_run("ANM") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.all, "Next Prev Manual Center Exit;Next Prev Manual Center Exit;Center Exit;") != NULL);
+    CHECK(strstr(script.all, "Target") == NULL);
+    /* A body on a cell (terrain 0x1f, no occupant) is not pickable with attack 1: the cell east of her holds a
+     * body of the foe, its occupant gone. Manual's menu there is "Center Exit". */
+    aim_open();
+    beside = aim_foe(6, 5, 1);
+    k->occupant[5][6] = 0;
+    k->cells[5][6] = COK_COMBAT_BODY;
+    k->body[0] = (cok_combat_body){beside, 6, 5, COK_COMBAT_FLOOR};
+    k->bodies = 1;
+    CHECK(menu_run("AM~M") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strstr(script.all, "Target") == NULL && strstr(script.all, "Center Exit;Center Exit;") != NULL);
+    k->bodies = 0;
+    k->cells[5][6] = COK_COMBAT_FLOOR;
+    /* The mouse on: Manual stops before its first menu (1bdb:1862's map areas: "dqk 52db:40d6"). */
+    aim_open();
+    menu_game.mouse.on = true;
+    CHECK(!menu_run("AM") && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 52db:40d6") != NULL);
+    menu_game.mouse.on = false;
+    /* The carry-over (dqk-aim-b's F3): Manual's pick of an ally, Target, asks "attack ally? ". Manual's
+     * cursor is on (6, 5) at its menu with "Target Center Exit". No: not done, the turn kept, the command
+     * menu again, no attack (the cursor off, the cell centred at margin 0). */
+    aim_open();
+    cok_character *ally = aim_foe(6, 5, 0);
+    CHECK(menu_run("AM~MTN") && menu_game.vm.status == COK_ECL_OK && script.menus == 5);
+    CHECK(strstr(script.all, "Target Center Exit;") != NULL && strncmp(script.menu, "Aim ", 4) == 0);
+    CHECK(ally->combat->hits == 0 && cok_ecl_var(&menu_game.vm, COK_VAR_FLED) == 0);
+    CHECK(k->cursor == 0 && centred_on(6, 5) && menu_c->combat->initiative == 5);
+    /* The same by queen_aim: No clears res (NULL, 0, 0) and done. */
+    aim_open();
+    ally = aim_foe(6, 5, 0);
+    bool done = true;
+    cok_combat_aimed res = {NULL, 3, 3};
+    CHECK(aim_direct("M~MTN", 1, 1, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(!done && res.target == NULL && res.x == 0 && res.y == 0);
+    CHECK(ally->combat->hits == 0);
+    /* Yes: var 0x36 (FLED) set, the book and the attack run on the ally (hits), and the turn ends. The same
+     * by queen_aim: done, res the ally's record and cell. */
+    aim_open();
+    ally = aim_foe(6, 5, 0);
+    CHECK(menu_run("AM~MTY") && menu_game.vm.status == COK_ECL_OK && script.menus == 4);
+    CHECK(cok_ecl_var(&menu_game.vm, COK_VAR_FLED) == 1 && ally->combat->hits == 1);
+    CHECK(menu_c->combat->initiative == 0);
+    aim_open();
+    ally = aim_foe(6, 5, 0);
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("M~MTY", 1, 1, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == ally->record && res.x == 6 && res.y == 5);
+    /* A spell's attack (0, creatures): Manual's Target on the foe east of her picks it with no strike, the
+     * cursor off (2e9c's Target), done set and the record and cell returned. */
+    aim_open();
+    cok_character *foe = aim_foe(6, 5, 1);
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("M~MT", 4, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == foe->record && res.x == 6 && res.y == 5 && k->cursor == 0);
+    /* The map's edges (2e9c 2f41-2f69: 0..0x31, 0..0x18). A spell's Target picks the cursor's cell, so res is
+     * where it stopped: from her own cell at the corner 0x31, 0x18, Right, PgDn and Down stay on it; from 0, 0
+     * Home, Up and Left stay there (empty 0: a cell off hers has no Target, the keys run out, done clear). */
+    aim_open();
+    k->combatant[1].x = 0x31;
+    k->combatant[1].y = 0x18;
+    CHECK(cok_combat_occupy(k, R));
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("M~M~Q~PT", 0xfe, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == menu_c->record && res.x == 0x31 && res.y == 0x18);
+    aim_open();
+    k->combatant[1].x = 0;
+    k->combatant[1].y = 0;
+    CHECK(cok_combat_occupy(k, R));
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("M~G~H~KT", 0xfe, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == menu_c->record && res.x == 0 && res.y == 0);
+    /* Up is 0x88, direction 0 (y - 1); Center leaves no step pending (3360 -> 3444: direction 8): Up, Center, Up
+     * reach the foe two cells north. */
+    aim_open();
+    foe = aim_foe(5, 3, 1);
+    done = false;
+    res = (cok_combat_aimed){NULL, 0, 0};
+    CHECK(aim_direct("M~HC~HT", 0xfe, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(done && res.target == foe->record && res.x == 5 && res.y == 3);
+    /* A cell not seen may not be picked, and its occupant is not looked up (2fe8, 3049: valid only from the
+     * sight): a foe behind a wall (terrain 1: cost 0xff, block 2) has no Target and no panel (the cells cleared:
+     * no "Hitpoints" in grey on row 3); seen, its panel shows. A cell of cost 0xff may not be picked though seen
+     * (3126: terrain 0x37, cost 0xff, block 0), with empty set. */
+    aim_open();
+    k->cells[5][6] = 1;
+    aim_foe(7, 5, 1);
+    CHECK(aim_direct("M~M~M", 0xfe, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.menu, "Center Exit") == 0 && !pixel_in(184, 24, 312, 32, 7));
+    k->cells[5][6] = COK_COMBAT_FLOOR;
+    CHECK(aim_direct("M~M~M", 0xfe, 0, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.menu, "Target Center Exit") == 0 && pixel_in(184, 24, 312, 32, 7));
+    aim_open();
+    k->cells[5][6] = 0x37;
+    CHECK(aim_direct("M~M", 0xfe, 0, 1, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.menu, "Center Exit") == 0);
+    k->cells[5][6] = COK_COMBAT_FLOOR;
+    CHECK(aim_direct("M~M", 0xfe, 0, 1, 1, &done, &res) && strcmp(script.menu, "Target Center Exit") == 0);
+    /* A creature with creatures 0 may not be picked (3169), empty or not. */
+    aim_open();
+    aim_foe(6, 5, 1);
+    CHECK(aim_direct("M~M", 0xfe, 0, 1, 0, &done, &res) && strcmp(script.menu, "Center Exit") == 0);
+    /* A missile weapon not thrown (31c9-3209): with no ammunition no Target; with it (flags 0x0a) Target, unless
+     * an enemy is beside her. */
+    aim_open();
+    aim_weapon(3, 0x09); /* its ammunition is the slot 11 item, none held */
+    menu_c->slots[11] = 0;
+    aim_foe(7, 5, 1);
+    CHECK(menu_run("AM~M~M") && strcmp(script.menu, "Center Exit") == 0);
+    aim_open();
+    aim_weapon(3, 0x0a);
+    aim_foe(7, 5, 1);
+    CHECK(menu_run("AM~M~M") && strcmp(script.menu, "Target Center Exit") == 0);
+    aim_open();
+    aim_weapon(3, 0x0a);
+    aim_foe(7, 5, 1);
+    aim_foe(4, 5, 1);
+    CHECK(menu_run("AM~M~M") && strcmp(script.menu, "Center Exit") == 0);
+    /* A stone body (terrain 0x1e, no occupant) is a body cell as 0x1f is (3073-307d), but only 0x1f's is barred
+     * with attack 1 (3198): Target is listed on it. */
+    aim_open();
+    beside = aim_foe(6, 5, 1);
+    k->occupant[5][6] = 0;
+    k->cells[5][6] = 0x1e;
+    k->body[0] = (cok_combat_body){beside, 6, 5, COK_COMBAT_FLOOR};
+    k->bodies = 1;
+    CHECK(menu_run("AM~M") && strcmp(script.menu, "Target Center Exit") == 0);
+    k->bodies = 0;
+    k->cells[5][6] = COK_COMBAT_FLOOR;
+    /* After a direction key's Manual, its Exit shows no panel of hers (37dd 3c6c), after the menu's it does
+     * (3ad7). Her panel would stop here: inactive, with a status past the panel's table (177e:085f). Aim's
+     * target is the foe she kept (+0x0b), whose panel the Aim menu shows. */
+    aim_open();
+    foe = aim_foe(7, 5, 1);
+    menu_c->combat->target = foe->record;
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_STATUS, 10);
+    CHECK(aim_direct("~ME", 1, 1, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strcmp(script.all, "Next Prev Manual Center Exit;Center Exit;Next Prev Manual Center Exit;") == 0);
+    script.all[0] = '\0';
+    CHECK(!aim_direct("ME", 1, 1, 0, 1, &done, &res) && menu_game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(menu_game.error, "dqk 177e:085f") != NULL);
 }
 
 /* Quick, Alt-Q and Alt-M, Speed (dqk 5045:0a2c, 0c0f, 0bd7, 166c): the state each leaves, the
@@ -3454,6 +3659,7 @@ int main(void)
     test_combat_menu_areas();
     test_command_move();
     test_command_aim();
+    test_command_aim_manual();
     test_command_menu_quick_speed();
     test_command_menu_auto();
     test_arena_say();
