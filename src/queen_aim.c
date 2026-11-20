@@ -58,6 +58,28 @@ static unsigned hostile(cok_adventure *game, const cok_character *c)
     return cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_HOSTILE);
 }
 
+/* The cell of a record for the redraws (dqk 5837:0aea and 0b19, through 5837:0b79): a record's
+ * combatant's cell; for NULL, the first combatant 1 to the count with no record, else combatant 0's
+ * (the search of 0b79 over DS:b2f8 + 4k, not cok_combat_cell_of, which is Death Knights' entry after
+ * the last). */
+static void queen_cell_of(cok_adventure *game, const uint8_t *record, int8_t *x, int8_t *y)
+{
+    const cok_combat *combat = &game->combat;
+    if (record != NULL) {
+        *x = cok_combat_x(combat, record);
+        *y = cok_combat_y(combat, record);
+        return;
+    }
+    unsigned n = 0;
+    for (unsigned k = 1; k <= combat->count && k <= COK_COMBATANTS; ++k)
+        if (combat->combatant[k].character == NULL) {
+            n = k;
+            break;
+        }
+    *x = combat->combatant[n].x;
+    *y = combat->combatant[n].y;
+}
+
 /* DS:a939 moved by step, wrapping (0 is the count, past the count is 1). */
 static void advance(aim_targets *t, uint8_t step)
 {
@@ -304,6 +326,8 @@ static bool take(cok_adventure *game, cok_character *c, cok_character *target, u
 {
     cok_combat *combat = &game->combat;
     *done = true;
+    if (attack == 1 && target == NULL)
+        return undefined(game, "a strike at a cell with no creature (52db:2d46)");
     if (attack == 1 && !strike(game, c, target, done, res)) return false;
     if (game->vm.abort) return true;
     if (!*done) {
@@ -589,14 +613,13 @@ bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t att
         }
         /* 37dd's tail, whatever the key: the shown target's cell redrawn, the next target by 0 (the
          * one shown again, and the cursor's flight to it); after 0, 1 and Target, the cell is the
-         * target's. */
-        if (!cok_arena_redraw_cell(game, cok_combat_x(combat, target->record),
-                                   cok_combat_y(combat, target->record)))
-            return false;
+         * target's. With no target (Manual picked an empty cell) the cell is queen_cell_of's. */
+        int8_t cx, cy;
+        queen_cell_of(game, target != NULL ? target->record : NULL, &cx, &cy);
+        if (!cok_arena_redraw_cell(game, cx, cy)) return false;
         if (!next_target(game, c, &t, 0, &target)) return false;
         if (action == AIM_NEXT || action == AIM_PREV || action == AIM_TARGET) {
-            x = cok_combat_x(combat, target->record);
-            y = cok_combat_y(combat, target->record);
+            queen_cell_of(game, target->record, &x, &y);
         }
     }
     if (attack != 0) queen_range_line_clear(game); /* 1bdb:03a4 */
