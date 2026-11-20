@@ -6,6 +6,7 @@
 #include "command.h"
 #include "party.h"
 #include "round.h"
+#include "step.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -13,9 +14,10 @@
 /* Aim (dqk 52db:37dd, from 08cf's ITEM_AIM and 1e78's spell targeting). The targets listed by
  * 36c6, the next one by 3465, the menu and the cursor's read by 2b60, all as Dark Queen's. */
 
-/* Not modelled: DS:c6e4 (set to 1, 3 and 4 here; its readers are Use's and the spells'), DS:a93f
- * (Manual's first key: a parameter of its stop), DS:a898 (the step passed to 3465: always 0),
- * DS:ae26 (3465's loop counter: a local here) and the list's DS:a899, a93a and a939 (aim_targets). */
+/* Not modelled: DS:c6e4 (set to 1, 3 and 4 here; its readers are Use's and the spells'), DS:a898
+ * (the step passed to 3465: always 0), DS:ae26 (3465's loop counter: a local here), the list's
+ * DS:a899, a93a and a939 (aim_targets), DS:ae48 (Manual's Target: queen_ai.c's note), and Manual's
+ * DS:a943, a945, a951 and a952 (the map click's cell and flags: mouse only, the stop there). */
 
 /* The menu's items in index order (DS:3ef2's "Next Prev Manual Target Center Exit"). */
 enum { AIM_NEXT, AIM_PREV, AIM_MANUAL, AIM_TARGET, AIM_CENTER, AIM_EXIT, AIM_ITEMS };
@@ -294,6 +296,213 @@ static bool strike(cok_adventure *game, cok_character *c, cok_character *target,
     return cok_combat_attack(game, c, target, false, item, done); /* 52db:18d6 */
 }
 
+/* The picked branch of 37dd (Target's, and Manual's pick the same way: 3a2f-3ac0, 3aec-3b7b): done is set,
+ * attacking the strike runs (52db:2d46, which may clear done, or the run stops: vm.abort), and with done
+ * clear the cursor is off and the cell (x, y) centred at margin 0. */
+static bool take(cok_adventure *game, cok_character *c, cok_character *target, uint8_t attack,
+                 bool *done, cok_combat_aimed *res, int8_t x, int8_t y)
+{
+    cok_combat *combat = &game->combat;
+    *done = true;
+    if (attack == 1 && !strike(game, c, target, done, res)) return false;
+    if (game->vm.abort) return true;
+    if (!*done) {
+        combat->cursor = 0;
+        if (!cok_arena_centre(game, x, y, 0, 8)) return false; /* 5837:0846 */
+    }
+    return true;
+}
+
+/* Manual's test of a cell's creature or body with a missile weapon (2e9c 31a1-3209, attack 1): at one
+ * square a thrown one may be picked; else it needs its ammunition (51c2:10c3), and with an enemy beside c
+ * it must be thrown (51c2:0980, 0cfe). The thrown test is read only where the original reads it. Not
+ * 2b60's offer (no ammunition test for a thrown one at one square). False where the run stopped. */
+static bool manual_missile(cok_adventure *game, cok_character *c, uint16_t distance, bool *ok)
+{
+    const char *past = "an item type past ITEMS reads past the table (52db:2e9c)";
+    bool missile;
+    *ok = true;
+    if (!cok_combat_missile_weapon(&game->item_types, c, &missile)) return undefined(game, past);
+    if (!missile) return true;
+    bool thrown = false;
+    if (distance == 1) {
+        if (!cok_combat_thrown(&game->item_types, c, &thrown)) return undefined(game, past);
+        if (thrown) return true;
+    }
+    size_t item;
+    bool has;
+    if (!cok_combat_ammunition(game, c, &item, &has)) return false;
+    if (!has) {
+        *ok = false;
+        return true;
+    }
+    uint8_t enemies;
+    if (!cok_combat_enemies(game, c, 1, &enemies)) return false;
+    if (enemies == 0) return true;
+    if (!cok_combat_thrown(&game->item_types, c, &thrown)) return undefined(game, past);
+    *ok = thrown;
+    return true;
+}
+
+/* 52db:2e9c's results: picked (1), not picked (0: Exit or Escape), the keys ran out (the turn kept), the
+ * run stopped. */
+enum { MANUAL_PICKED = 1, MANUAL_EXIT = 0, MANUAL_KEYS_OUT = -1, MANUAL_STOPPED = -2 };
+
+/* 52db:2e9c (rec, target, range, attack, empty, creatures, valid*, picked*, res, x, y): Manual, the cursor from
+ * the target's cell (its own x, y, not Aim's, which the caller keeps). Each pass: the view centred on the
+ * cursor's cell at margin 3 in dir (8 for none) and the cursor stepped by dir (the shared deltas, clamped to
+ * the map); the cell's occupant and terrain; the sight from c (with see_all as it is): seen makes the cell
+ * pickable at all, and attacking writes the range on row 23 (1a62:0046; not seen: the range line cleared).
+ * The target t is the occupant's record, or with none a body on terrain 0x1e or 0x1f (the last listed);
+ * t's panel shows, else the cells 0x17, 1 to 0x26, 0x15 clear. The range (the distance, halved) and the
+ * cost 0xff make the cell not pickable, as do, for t, the ally rule (1030 with allies 1) and creatures
+ * (missing: no), and attacking, herself, a body on 0x1f with no occupant, and a missile weapon (manual_missile);
+ * with no t, empty must be set. The menu "Target Center Exit" (Center and Exit when the cell may not be
+ * picked) by 1bdb:1e29 keys; Target: picked, res = (t, the cell), the cursor off, the cell redrawn; Center: the
+ * cell centred at margin 0 and the pass again; Exit or Escape: the cell redrawn, res clear, not picked. Escape
+ * is Exit, the keypad's 5 (0x80) centres at margin 0 and the pass again, a direction code (0x81-0x88, 0x88 is
+ * 0) steps the next pass, any other special code the pass again. first is Aim's direction code given as
+ * Manual's first key (37dd's a93f): it stands for the first pass's menu. Mouse on: the map areas of 1bdb:1862
+ * are not ported (their stop, before the first menu that shows them). Keys running out: MANUAL_KEYS_OUT. */
+static int manual(cok_adventure *game, cok_character *c, cok_character *target, uint8_t range,
+                  uint8_t attack, uint8_t empty, uint8_t creatures, int first, bool *valid,
+                  cok_combat_aimed *res, cok_character **picked)
+{
+    cok_combat *combat = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
+    int8_t x = cok_combat_x(combat, target->record), y = cok_combat_y(combat, target->record);
+    combat->cursor = 1;
+    combat->cursor_size = 1;
+    *picked = NULL;
+    int dir = 8;
+    for (;;) {
+        if (!cok_arena_centre(game, x, y, 3, (uint8_t)dir)) return MANUAL_STOPPED; /* 5837:0846 */
+        x = (int8_t)(x + cok_step_x[dir]);
+        y = (int8_t)(y + cok_step_y[dir]);
+        if (x < 0) x = 0;
+        if (y < 0) y = 0;
+        if (x > 0x31) x = 0x31;
+        if (y > 0x18) y = 0x18;
+        uint8_t occupant, terrain;
+        cok_combat_cell(combat, x, y, &occupant, &terrain); /* 5837:0468 */
+        *valid = false;
+        uint16_t distance = 0xff;
+        int8_t sx = x, sy = y;
+        bool seen = false;
+        if (!cok_combat_sight(combat, rules, cok_combat_x(combat, c->record),
+                              cok_combat_y(combat, c->record), &sx, &sy, &distance, &seen)) {
+            undefined(game, "sight (5d71:0328) reads a cell past the terrain table");
+            return MANUAL_STOPPED;
+        }
+        distance = (uint16_t)(distance >> 1);
+        if (seen) {
+            *valid = true;
+            if (attack != 0) {
+                char text[32];
+                snprintf(text, sizeof text, "%s%u ", range_words, (unsigned)distance);
+                if (!cok_arena_text(game, 0, 0x17, text, 7, 0)) return MANUAL_STOPPED; /* 1a62:0046 */
+            }
+        } else if (attack != 0) {
+            queen_range_line_clear(game); /* 1bdb:03a4 */
+        }
+        cok_character *t = NULL;
+        if (*valid) {
+            if (occupant > 0) {
+                t = record_of(game, occupant);
+            } else if (terrain == COK_COMBAT_BODY || terrain == 0x1e) {
+                for (unsigned k = 0; k < combat->bodies && k < COK_COMBAT_BODIES; ++k)
+                    if (combat->body[k].x == x && combat->body[k].y == y)
+                        t = combat->body[k].character;
+            }
+        }
+        if (t != NULL) {
+            combat->panel = true;
+            if (!cok_arena_panel(game, t)) return MANUAL_STOPPED; /* 177e:085f */
+        } else {
+            queen_clear_cells(game, 0x17, 1, 0x26, 0x15); /* 1a62:09a1 */
+        }
+        if (range < distance || cok_combat_terrain(rules, terrain).cost == 0xff) *valid = false;
+        if (t != NULL) {
+            bool can;
+            if (!cok_combat_can_attack_allies(game, c, t->record, true, &can)) return MANUAL_STOPPED;
+            if (!can || creatures == 0) *valid = false;
+            if (attack == 1) {
+                bool ok = true;
+                if (t == c || (occupant == 0 && terrain == COK_COMBAT_BODY))
+                    ok = false;
+                else if (!manual_missile(game, c, distance, &ok))
+                    return MANUAL_STOPPED;
+                if (!ok) *valid = false;
+            }
+        } else if (empty == 0) {
+            *valid = false;
+        }
+        bool special = false;
+        int key = 0;
+        if (first != 0) {
+            key = first; /* a93f: the first pass's key, no menu (no map areas either) */
+            special = true;
+            first = 0;
+        } else {
+            if (game->mouse.on) { /* 1bdb:1862's five map areas (40a7, 40d6): a later part */
+                cok_adventure_not_yet(game, "Manual with the mouse", "dqk 52db:40d6");
+                return MANUAL_STOPPED;
+            }
+            const char *names[3];
+            int codes[3];
+            size_t count = 0;
+            if (*valid) {
+                names[count] = item_words[AIM_TARGET];
+                codes[count++] = 0;
+            }
+            names[count] = item_words[AIM_CENTER];
+            codes[count++] = 1;
+            names[count] = item_words[AIM_EXIT];
+            codes[count++] = 2;
+            char text[32] = "";
+            for (size_t i = 0; i < count; ++i) {
+                if (i > 0) strcat(text, " ");
+                strcat(text, names[i]);
+            }
+            cok_adventure_log(game, "menu", text);
+            int result = queen_bar_menu(game, "", names, count, true); /* 1bdb:1862 (keys only), 1e29 */
+            if (result < 0) return MANUAL_KEYS_OUT;
+            if ((size_t)result < count) {
+                key = codes[result];
+            } else {
+                key = result;
+                special = true;
+            }
+        }
+        if (special) {
+            if (key == 0x1b) { /* Escape: Exit (3377: 025d, res clear, not picked) */
+                if (!cok_arena_redraw_cell(game, x, y)) return MANUAL_STOPPED;
+                *res = (cok_combat_aimed){NULL, 0, 0};
+                return MANUAL_EXIT;
+            }
+            if (key == 0x80) { /* the keypad's 5: centred at margin 0, the pass again (3360) */
+                if (!cok_arena_centre(game, x, y, 0, 8)) return MANUAL_STOPPED;
+            }
+            dir = key == 0x88 ? 0 : (key >= 0x81 && key <= 0x87) ? key - 0x80 : 8;
+        } else if (key == 0) { /* Target (33bd): picked, the cursor off, the cell redrawn */
+            *picked = t;
+            res->target = t != NULL ? t->record : NULL;
+            res->x = x;
+            res->y = y;
+            combat->cursor = 0;
+            if (!cok_arena_redraw_cell(game, x, y)) return MANUAL_STOPPED;
+            return MANUAL_PICKED;
+        } else if (key == 1) { /* Center (3360) */
+            if (!cok_arena_centre(game, x, y, 0, 8)) return MANUAL_STOPPED;
+            dir = 8;
+        } else { /* Exit (3419) */
+            if (!cok_arena_redraw_cell(game, x, y)) return MANUAL_STOPPED;
+            *res = (cok_combat_aimed){NULL, 0, 0};
+            return MANUAL_EXIT;
+        }
+    }
+}
+
 bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t attack, uint8_t empty,
                uint8_t creatures, bool *done, cok_combat_aimed *res)
 {
@@ -318,36 +527,55 @@ bool queen_aim(cok_adventure *game, cok_character *c, uint8_t range, uint8_t att
         if (key == -2) return false;
         if (key < 0) return true; /* the keys ran out: the turn not ended */
         /* The menu's code (2b60's c2f5 test, 37dd 3905-3931): Escape is Exit, the keypad's 5
-         * (0x80) Center, a direction code (0x81-0x88) is Manual with that key, and the other
-         * codes do nothing (the tail below still runs). */
+         * (0x80) Center, a direction code (0x81-0x88) is Manual with that key (37dd's a93f: the
+         * first key of Manual's first pass), and the other codes do nothing (the tail below still
+         * runs). */
         int action = special ? -1 : key;
+        int first = 0;
         if (special && key == 0x1b) action = AIM_EXIT;
         else if (special && key == 0x80) action = AIM_CENTER;
-        else if (special && key >= 0x81 && key <= 0x88)
-            return cok_adventure_not_yet(game, "Aim's Manual", "dqk 52db:2e9c (part 25)");
+        else if (special && key >= 0x81 && key <= 0x88) {
+            action = AIM_MANUAL;
+            first = key;
+        }
         switch (action) {
         case AIM_NEXT:
         case AIM_PREV:
             valid = true;
             if (!next_target(game, c, &t, action == AIM_NEXT ? 1 : 0xff, &target)) return false;
             break;
-        case AIM_MANUAL:
-            return cok_adventure_not_yet(game, "Aim's Manual", "dqk 52db:2e9c (part 25)");
+        case AIM_MANUAL: {
+            /* 37dd 39ba-3ac0: a pick is Target's (done, the strike, the cell, then the tail as Target's).
+             * Not picked, valid is set, and herself's panel shows after a menu's Exit or Escape (3ad7), not
+             * after a direction key's (3c6c: no panel); the tail runs either way. */
+            cok_character *picked = NULL;
+            int r = manual(game, c, target, range, attack, empty, creatures, first, &valid, res,
+                           &picked);
+            if (r == MANUAL_STOPPED) return false;
+            if (r == MANUAL_KEYS_OUT) return true;
+            valid = true;
+            if (r == MANUAL_PICKED) {
+                target = picked;
+                x = res->x;
+                y = res->y;
+                action = AIM_TARGET;
+                if (!take(game, c, target, attack, done, res, x, y)) return false;
+                if (game->vm.abort) return true;
+                leave = true;
+            } else if (first == 0) {
+                combat->panel = true;
+                if (!cok_arena_panel(game, c)) return false; /* 177e:085f (rec) */
+            }
+            break;
+        }
         case AIM_TARGET:
             /* 37dd 3aec: the record and the cell, done; attacking, the strike (52db:2d46) may clear
              * done (the ally refused), then the cursor off and the cell centred (0846, margin 0). */
             res->x = x;
             res->y = y;
             res->target = target->record;
-            *done = true;
-            if (attack == 1) {
-                if (!strike(game, c, target, done, res)) return false;
-                if (game->vm.abort) return true;
-            }
-            if (!*done) {
-                combat->cursor = 0;
-                if (!cok_arena_centre(game, x, y, 0, 8)) return false; /* 5837:0846 */
-            }
+            if (!take(game, c, target, attack, done, res, x, y)) return false;
+            if (game->vm.abort) return true;
             leave = true;
             break;
         case AIM_CENTER:

@@ -147,7 +147,7 @@ bool queen_attack_ally(cok_adventure *game, cok_character *c, cok_character *tar
 /* Aim (dqk 52db:37dd, queen_aim.c): the cursor's pictures, the targets listed around c (36c6), the
  * menu of Next, Prev, Manual, Target, Center and Exit with the range on row 23 when attacking (2b60),
  * and the range line cleared at the end when attacking (1bdb:03a4). range 0xff is the readied
- * weapon's range (0 or 0xff is 1); attack 1 attacks the target (its strike is a cited stop); empty
+ * weapon's range (0 or 0xff is 1); attack 1 attacks the target (the strike, 52db:2d46, queen_aim.c's); empty
  * and creatures are the spell's choice of a target (part 28). res is what Target picked (the
  * record, NULL for none, and the cell); done is set where Target ends the turn. False where the run
  * stopped; true, with the turn not ended, when the keys ran out. */

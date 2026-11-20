@@ -4348,11 +4348,16 @@ def aim_exit_original(work, patched, verbose, tag, typed):
         box.keys(typed)
         wait_trap(box, t, "5045:0cd7")
         stop = snapshot(box)
-        stop.update(selected=selected(box))
+        stop.update(selected=selected(box), view=view_bytes(box))
         L.untrap(box, t)
         box.settled(quiet=1.0, tolerance=0)
         again = dict(screen=box.screenshot(path=str(work / f"{tag}-menu.png")), seed=box.ds_dword(L.DS_SEED))
     return dict(menu=menu, stop=stop, again=again)
+
+
+def view_bytes(box):
+    """The view's record (far DS:bedb): the origin (+2 word x, +4 word y), the cursor (+6) and its size (+7)."""
+    return box.read(box.far(box.ds * 16 + 0xBEDB), 8)
 
 
 # Aim's Target when attacking (part 24b: 52db:2d46, the strike). On the open ground TIMASALIN's Move steps are
@@ -4443,6 +4448,95 @@ def ally_yes_check(v, work, opts):
             "(dqk 78e4:09b2) inside the attack after Yes, the state past it not compared", p["last"])
 
 
+# Aim's Manual (step 4, part 25: dqk 52db:2e9c, queen_aim.c's manual; keys only). The cursor starts on Aim's
+# target, herself on the dungeon (CENTER EXIT: she is no target) and SHARKMAN 2 after N, N, P on the open ground.
+# A direction key steps it (the next pass), Exit or Escape leaves to Aim, Center centres on the cell at margin 0,
+# and Target on a foe in reach is the strike, as Aim's. The dungeon: A, M, then Right (the cell east: CENTER
+# EXIT); then E (Aim), C (her view: origin 0x19, 0x0a) and E (the command menu, no draws). The open ground: A, N,
+# N, P, M (SHARKMAN 2 at range 5 against 1: CENTER EXIT), then Escape (Aim again). Target from Manual: SHARKMAN 2
+# is one step south of BALTHIR, so after Move's three steps, Done, A, M and one Down (the cursor on her, TARGET
+# listed) the T strikes her: the probe's measure (4 draws, RandSeed 1ad549da, the turn's tail), the same as
+# Aim's Target (aim_target_check).
+MANUAL_DUNGEON = "AM"
+MANUAL_RIGHT = "AM\\>"
+MANUAL_EXIT = "AM\\>ECE"
+MANUAL_WILD = "ANNPM"
+MANUAL_WILD_ESC = "ANNPM\\e"
+MANUAL_TARGET_SCREEN = "\\#51\\#51\\#51DAM\\v"    # Move's three steps, Done, Aim, Manual, one Down
+MANUAL_TARGET_KEYS = MANUAL_TARGET_SCREEN + "T"          # then Target: the strike
+MANUAL_VIEW = bytes([0x19, 0, 0x0A, 0])                  # the view after Aim's Center on her: origin 0x19, 0x0a
+
+
+def port_shot(work, patched, name, typed):
+    """eclplay's run of TYPED at the first turn's menu: its last screenshot (None where it wrote none)."""
+    shots = work / f"{name}-shots"
+    if shots.exists():
+        shutil.rmtree(shots)
+    port(work, patched, name=name, typed="\\r\\r" + typed, shots=shots)
+    return cokbox.RGBScreen.load(sorted(shots.glob("*.bmp"))[-1]) if shots.exists() and any(shots.glob("*.bmp")) else None
+
+
+def manual_check(v, work, opts):
+    """Aim's Manual (part 25): the Manual menu on the dungeon and one cell right, Exit, Center and the command menu
+    after Exit (the state, the RandSeed and the screen against eclplay's stop; the view agrees with the original's);
+    on the open ground the menu on SHARKMAN 2 (CENTER EXIT) and Escape back to Aim, against eclplay's shots; and
+    Target from Manual on SHARKMAN 2, the turn's tail and the next combatant's menu against eclplay's run."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    shot = port_shot(work, dungeon, "manual", MANUAL_DUNGEON)
+    a = aim_screen_original(work, dungeon, opts.verbose, "manual-a", MANUAL_DUNGEON)
+    v.screen("the Manual menu after A and M on the dungeon (TIMASALIN's own cell: CENTER EXIT)", a["screen"], shot,
+             masks=[SHIELD_POINTER], work=work)
+    shot = port_shot(work, dungeon, "manual-right", MANUAL_RIGHT)
+    r = aim_screen_original(work, dungeon, opts.verbose, "manual-right", MANUAL_RIGHT)
+    v.screen("the Manual menu after Right on the dungeon (the cell east of her: CENTER EXIT)", r["screen"], shot,
+             masks=[SHIELD_POINTER], work=work)
+    e = aim_exit_original(work, dungeon, opts.verbose, "manual-exit", MANUAL_EXIT)
+    p = command_port(work, dungeon, "manual-exit", MANUAL_EXIT)
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None, "eclplay ends at the command menu (out of keys) "
+            "after A, M, Right, E, C and E on the dungeon", p["last"])
+    draws = command_state(v, "Manual's Exit on the dungeon", e["stop"], p, e["menu"]["seed"])
+    v.check(draws == 0, "the original's RandSeed past the command menu after Manual's Exit and Aim's Center is "
+            "unchanged (no draws)", f"{draws} draws")
+    origin = bytes(e["stop"]["view"][2:6])  # the origin's two words, +2 and +4
+    v.check(origin == MANUAL_VIEW and e["stop"]["view"][6] == 0,
+            "the original's view after Aim's Center on her is origin 0x19, 0x0a with the cursor off", origin.hex())
+    seed, view, header, _, _, _ = parse_field(p["base"].with_suffix(".field"))
+    v.check(list(view) == [0x19, 0x0A] and header[0] == 0, "eclplay's view after the same keys is origin 0x19, "
+            "0x0a with the cursor off", f"{view} {header}")
+    command_screen(v, "the command menu after Manual's Exit on the dungeon", e["again"]["screen"],
+                   p["base"].with_suffix(".bmp"), MENU_POINTER)
+    shot = port_shot(work, wild, "manual-wild", MANUAL_WILD)
+    w = aim_screen_original(work, wild, opts.verbose, "manual-wild", MANUAL_WILD)
+    v.screen("the Manual menu after A, N, N, P and M on the open ground (SHARKMAN 2 under the cursor: CENTER EXIT, "
+             "range 5 against 1)", w["screen"], shot, masks=[SHIELD_POINTER], work=work)
+    shot = port_shot(work, wild, "manual-wild-esc", MANUAL_WILD_ESC)
+    x = aim_screen_original(work, wild, opts.verbose, "manual-wild-esc", MANUAL_WILD_ESC)
+    v.screen("Aim's menu after Escape from Manual on the open ground (AIM: RANGE = 5, the view on her)", x["screen"],
+             shot, masks=[SHIELD_POINTER], work=work)
+    shot = port_shot(work, wild, "manual-target-a", MANUAL_TARGET_SCREEN)
+    ta = aim_screen_original(work, wild, opts.verbose, "manual-target-a", MANUAL_TARGET_SCREEN)
+    v.screen("the Manual menu after Move's three steps, Done, A, M and Down on the open ground (SHARKMAN 2 under "
+             "the cursor: TARGET listed)", ta["screen"], shot, masks=[SHIELD_POINTER], work=work)
+    s = strike_original(work, wild, opts.verbose, "manual-target", MANUAL_TARGET_KEYS)
+    tp = command_port(work, wild, "manual-target", MANUAL_TARGET_KEYS)
+    draws = L.draws(ta["menu"]["seed"], s["tail"]["seed"])
+    v.check(draws == MOVE_WILD_DRAWS and s["tail"]["seed"] == MOVE_WILD_SEED,
+            f"the original's RandSeed at the turn's tail after Manual's Target is {MOVE_WILD_DRAWS} draws past the "
+            f"menu, at {MOVE_WILD_SEED:#x}", f"{draws} draws, {s['tail']['seed']:#x}")
+    v.check(selected_block(s["tail"]).hex() == MOVE_WILD_BLOCK,
+            "BALTHIR's combat block at the turn's tail after Manual's Target is the melee's (initiative 0, movement 0, "
+            "target 8, facing 4)", selected_block(s["tail"]).hex())
+    v.check(s["next"]["selected"] == MOVE_WILD_NEXT,
+            f"the next combatant's record at its menu is {MOVE_WILD_NEXT}", s["next"]["selected"])
+    v.check(BATTLE_STOP.fullmatch(tp["last"] or "") is not None,
+            "eclplay ends at the next combatant's command menu (out of keys) after Manual's Target", tp["last"])
+    command_state(v, "Manual's Target (the next combatant's menu)", s["next"], tp, ta["menu"]["seed"])
+    command_screen(v, "the command menu after Manual's Target on the open ground", s["next"]["screen"],
+                   tp["base"].with_suffix(".bmp"), MENU_POINTER)
+
+
 def aim(v, work, opts):
     """Aim (step 4, part 24a; Target's strike, part 24b: aim_target_check and ally_yes_check): the Aim menu on the dungeon's self-only list and on the open ground's two
     targets, each screen against eclplay's last shot, and the command menu after Exit against eclplay's
@@ -4490,6 +4584,7 @@ def aim(v, work, opts):
                    px["base"].with_suffix(".bmp"), MENU_POINTER)
     aim_target_check(v, work, opts)
     ally_yes_check(v, work, opts)
+    manual_check(v, work, opts)
 
 
 # Turn Undead (step 4, part 26: dqk 52db:1117 and the undead search 52db:135e, queen_turn_undead and queen_undead).
