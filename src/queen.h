@@ -238,6 +238,42 @@ bool queen_sheet(cok_adventure *game, cok_character *character);
 void queen_sheet_score(cok_adventure *game, const uint8_t *c, int k, bool lit);
 bool queen_sheet_derived(cok_adventure *game, cok_character *character);
 
+/* The spell engine (queen_cast.c): the spell record's byte or word at offset off of spell id (DS:27e9
+ * + 0x16 * id). */
+uint8_t queen_spell_byte(cok_adventure *game, unsigned id, unsigned off);
+uint16_t queen_spell_word(cok_adventure *game, unsigned id, unsigned off);
+/* 177e:1900: the caster level of spell for caster (a character's record; 6 for a non-caster, by the kind; the item's 6; capped
+ * to 0x1f when capped). False, ending the run, where the kind above 4 leaves it unset (undefined),
+ * or a magic order past the moons is read. */
+bool queen_caster_level(cok_adventure *game, const uint8_t *caster, uint8_t spell, bool capped,
+                        uint8_t *level);
+/* 849a:0f34: the spell's range for the selected character, as a byte (1 for 0 with a target, and for
+ * 0xff, a touch). */
+bool queen_spell_range(cok_adventure *game, uint8_t spell, uint8_t *range);
+/* 849a:101b: the spell's duration in minutes (the dice through cok_dice). */
+bool queen_spell_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes);
+/* 849a:10f9: the spell's apply to the targets (spell_targets, count spell_target_count): damage of
+ * amount and type (through queen_cast_damage) and the effect of the spell for its duration with value
+ * (0: the caster level, capped) and text. Stops where a saving throw (148f:1886) or a touch (148f:1771)
+ * is due, cited. False where the run stopped. */
+bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool on_remove,
+                       uint8_t amount, uint8_t type, const char *text);
+/* 148f:2214: damage of amount (the word DS:ae55) to t, saved by save_kind (1 none, 2 half) when saved;
+ * its event 6, 0x14 or the save, the text, the panel and flash, the damage in combat, "lost a spell",
+ * "Goes Down" and the death. False where the run stopped. */
+bool queen_cast_damage(cok_adventure *game, cok_character *t, uint16_t amount, uint8_t save_kind,
+                       bool saved);
+/* 177e:187a: "is fully healed" or "is partially healed" said on c's row 10 with its wait (in combat). */
+bool queen_healed(cok_adventure *game, cok_character *c);
+/* 7fd8:00f8, Cure Light Wounds, and 7fd8:050a, Magic Missile, for the selected caster and the targets
+ * (rolls.spell is the spell). False where the run stopped. */
+bool queen_cure_light(cok_adventure *game);
+bool queen_magic_missile(cok_adventure *game);
+/* The handler of a spell id the port carries out (CLW 0x03, MM 0x0f), NULL for any other: the cast
+ * takes its handler from here before rules_dark_queen_magic.c's unported table. */
+typedef bool queen_spell_fn(cok_adventure *game);
+queen_spell_fn *queen_spell_handler(uint8_t id);
+
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the
  * battle (game's mode 5), with scroll the class 6 level too. */

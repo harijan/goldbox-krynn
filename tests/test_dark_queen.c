@@ -971,6 +971,21 @@ static void test_magic_ids(void)
         CHECK(seg == 0x322e && name != NULL);
         CHECK(strcmp(name, (const char *)exe + ds + off) == 0);
     }
+    /* The spell engine's and the fight's words (queen_cast.c), each the C string at its DS offset: the
+     * damage's "takes %d%s" with " points of damage " (the amount as the word), "takes 1 point of
+     * damage " for 1, the source suffixes "%sfrom Fire" (Cold, Electricity, Acid), "%sfrom Magic",
+     * "Goes Down", "%s and is Dying", "is killed", "lost a spell", the heal's two texts and the
+     * flash's "is Unaffected" (dqk 148f:2214, 177e:187a, 51c2:0731). */
+    static const struct { unsigned off; const char *text; } words[] = {
+        {0x0c7, "lost a spell"},   {0x0fc, "is killed"},          {0x120, "takes %d%s"},
+        {0x12b, " points of damage "}, {0x13e, "takes 1 point of damage "},
+        {0x157, "%sfrom Fire"},    {0x163, "%sfrom Cold"},        {0x16f, "%sfrom Electricity"},
+        {0x182, "%sfrom Acid"},    {0x18e, "%sfrom Magic"},       {0x19b, "Goes Down"},
+        {0x1a5, "%s and is Dying"}, {0x1b5, "is Unaffected"},     {0x263, "is fully healed"},
+        {0x273, "is partially healed"},
+    };
+    for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
+        CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
     CHECK(spell_name(0) == NULL && spell_name(0x8d) == NULL);
 
     /* The headings: 41 bytes a level, 'Special' for 0 (DS:8b2e). */
@@ -3093,7 +3108,7 @@ static void test_alt_x(void)
 /* Yell (dqk 5045:0ae9, 148f:0005): CINDER as a kender (race 5, 0x59 0) with her menu's Yell. Each
  * hostile member of the other side (word +0x66 1) with status word 0, intelligence above 3 and not
  * helpless makes a save of kind 4 (its saving throw byte 4, 0x8f: one roll of 1d20, a roll of 1
- * fails); one that fails takes 0x8c (0 minutes, value 0xff) and its flash stops (dqk 51c2:0731).
+ * fails); one that fails takes 0x8c (0 minutes, value 0xff) and its flash runs (dqk 51c2:0731).
  * The yelled record is CINDER, the damage type is cleared and her turn ends. The seed's first roll
  * is not 1 (checked), so a byte of 1 saves. Skipped without DQKAssets/. */
 enum { YELL_SEED = 0x2468ACE1 };
@@ -3163,18 +3178,23 @@ static void test_yell(void)
     CHECK(menu_run("Y") && menu_game.vm.seed == tested);
     menu_close();
 
-    /* A monster that fails (saving throw 0x7f): the add of 0x8c, then the flash, a stop (dqk
-     * 51c2:0731) before any text is said; one roll. */
+    /* A monster that fails (saving throw 0x7f): the add of 0x8c, then the flash (dqk 51c2:0731,
+     * kind 1: four frames for each of var 0x12 + 1 passes, one random draw per frame's wait, and
+     * no pause), and the turn ends. */
     yell_menu();
     menu_game.vm.mode = 5;
+    /* The flash's frames (icon slots 0x17 and 0x19) are COMSPR 8 and 10, loaded at the battle's
+     * start (arena_tiles, 59c7:0e80-0f06), which this fixture skips; the test loads CPIC 64 into each. */
+    CHECK(cok_adventure_drawing(&menu_game)->arena_load_icon(&menu_game, "CPIC.TLB", 64, 0x17));
+    CHECK(cok_adventure_drawing(&menu_game)->arena_load_icon(&menu_game, "CPIC.TLB", 64, 0x19));
     cok_character *failing = yelled_monster(10, 0x7f);
+    place(&menu_game, failing, 2, 2); /* a combatant shown whole: the flash does not centre */
     uint32_t drawn = YELL_SEED;
     cok_dice(&drawn, 1, 20);
-    CHECK(!menu_run("Y"));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED);
-    CHECK(strstr(menu_game.error, "an effect's flash") != NULL &&
-          strstr(menu_game.error, "dqk 51c2:0731") != NULL);
-    CHECK(menu_game.vm.seed == drawn && script.prints[0] == '\0');
+    unsigned passes = cok_ecl_var(&menu_game.vm, COK_VAR_SPEED);
+    for (unsigned k = 0; k < 4 * (passes + 1); ++k) cok_tp_random(&drawn, 1000);
+    CHECK(menu_run("Y") && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.vm.seed == drawn && menu_c->combat->initiative == 0);
     cok_effect *e = cok_character_find_named(failing, R, COK_EFFECT_YELLED_AT);
     CHECK(e != NULL && e->id == 0x8c && e->duration == 0 && e->value == 0xff);
     menu_close();
