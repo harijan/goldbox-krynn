@@ -155,6 +155,23 @@ bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1,
     return true;
 }
 
+/* 7fd8:299c, Cone of Cold (0x5c): one image; a cone of width 2 and length (lv + 1) / 2 (at least 1) from the
+ * caster's cell to the spell's cell, lv the uncapped caster level; then dN(lv, 4) + lv of cold damage (type
+ * 0x0a), "from Cold", half on a save (save kind 2). */
+static bool cone_of_cold(cok_adventure *game)
+{
+    uint8_t spell = game->effects.rolls.spell, lv;
+    if (!queen_spell_level(game, spell, false, &lv)) return false;
+    game->effects.rolls.images = 1;
+    uint8_t w = (uint8_t)((lv + 1) / 2);
+    if (w == 0) w = 1;
+    const uint8_t *caster = game->vm.character;
+    if (!queen_cone(game, cok_combat_x(&game->combat, caster), cok_combat_y(&game->combat, caster),
+                    game->spell_x, game->spell_y, 2, w))
+        return false;
+    uint8_t amount = (uint8_t)(cok_dice_count(&game->vm.seed, lv, 4, &game->effects.rolls.dice) + lv);
+    return queen_spell_apply(game, spell, 0, false, amount, 0x0a, "from Cold");
+}
 
 /* b5: Meteor Swarm 0x7c (7fd8:3b99). */
 
@@ -166,6 +183,7 @@ queen_spell_fn *queen_area_handler(uint8_t id)
     /* b3: Lightning Bolt 0x33 (7fd8:1ac3), Javelin of Lightning 0x81 (1d20) */
 
     /* b4: Cone of Cold 0x5c (7fd8:299c) */
+    case 0x5c: return cone_of_cold;
 
     /* b5: Meteor Swarm 0x7c (7fd8:3b99) */
 

@@ -2088,7 +2088,7 @@ static void test_plain_apply(void)
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3));
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || id == 0x5c)); /* 0x5c: band b4 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2956,6 +2956,61 @@ static void test_cone(void)
     battle_clear();
 }
 
+/* Cone of Cold (dqk 7fd8:299c) for the caster's mage level lv (class 5, no magic order: the level is lv): a cone of
+ * width 2 and length (lv + 1) / 2, at least 1, from the caster at 5, 5 to the spell's cell 6, 5. The target at 6, 5
+ * is on the centre line for every length (so the side is set); the target at 10, 5 is reached only by length 5 (the
+ * walk 2 to 10). Then lv d4 + lv of cold, "from Cold", half on a save. The first saving throw after the dice is the
+ * first target's (queen_save: a roll of 1 fails, a 20 saves, else the throw at most the roll): saving throw 1 saves
+ * on any roll but 1, 21 saves on a 20 only. */
+static void test_cone_of_cold(void)
+{
+    cok_character *a, *t, *u;
+    const unsigned levels[3] = {1, 2, 9};
+    for (unsigned i = 0; i < 3; ++i) {
+        for (unsigned save = 0; save < 2; ++save) {
+            duel_at(&a, &t, 6, 5);
+            u = cone_target('U', 10, 5);
+            cok_field_set8(R->character, u->record, COK_FIELD_ACTIVE, 1);
+            game.vm.mode = 5;
+            set_class(a, 5, (uint8_t)levels[i]);
+            a->record[0x19d] = 0;
+            game.vm.character = a->record;
+            game.spell_x = 6;
+            game.spell_y = 5;
+            game.effects.rolls.spell = 0x5c;
+            cok_character *both[2] = {t, u};
+            for (unsigned j = 0; j < 2; ++j) {
+                cok_field_set8(R->character, both[j]->record, COK_FIELD_HIT_POINTS, 0x4e);
+                cok_field_set8(R->character, both[j]->record, COK_FIELD_MAX_HIT_POINTS, 0x4e);
+                cok_field_set8_at(R->character, both[j]->record, COK_FIELD_SAVING_THROW, 4, save ? 1 : 21);
+            }
+            uint8_t lv = 0;
+            CHECK(queen_spell_level(&game, 0x5c, false, &lv) && lv == levels[i]);
+            uint32_t seed0 = 7, after = seed0;
+            uint8_t amount = (uint8_t)(cok_dice(&after, lv, 4) + lv);
+            uint8_t roll = cok_dice(&after, 1, 20);
+            bool made = save ? roll != 1 : roll == 20;
+            game.vm.seed = seed0;
+            game.vm.status = COK_ECL_OK;
+            game.error[0] = '\0';
+            log_text[0] = '\0';
+            CHECK(queen_spell_handler(0x5c) != NULL && queen_spell_handler(0x5c)(&game) &&
+                  game.vm.status == COK_ECL_OK);
+            CHECK(made == (save != 0)); /* the seed's first save roll: the branch each variant tests */
+            unsigned hit = made ? amount / 2u : amount;
+            CHECK(LOGGED("takes ") && LOGGED("from Cold"));
+            CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 0x4e - hit);
+            /* Only length 5 (lv 9) reaches the target at 10, 5, whose own save is a later roll: full or half. */
+            uint8_t hp_u = cok_field_u8(R->character, u->record, COK_FIELD_HIT_POINTS);
+            if (levels[i] == 9)
+                CHECK(hp_u == 0x4e - amount || hp_u == 0x4e - amount / 2u);
+            else
+                CHECK(hp_u == 0x4e);
+            game.vm.character = NULL;
+            battle_clear();
+        }
+    }
+}
 
 int main(void)
 {
@@ -3024,6 +3079,7 @@ int main(void)
     test_band_a2_heals();
     test_band_a2_cure();
     test_cone();
+    test_cone_of_cold();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
