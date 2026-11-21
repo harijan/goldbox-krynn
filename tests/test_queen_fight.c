@@ -2076,11 +2076,14 @@ static void test_plain_apply(void)
 {
     game.vm.mode = 5; /* the battle */
     uint16_t ds = 0;
+    static const unsigned band_a2[] = {0x04, 0x09, 0x14, 0x25, 0x3a, 0x40, 0x42, 0x47, 0x48, 0x62};
     for (unsigned id = 0; id < 0x100; ++id) {
         bool plain = queen_plain_text((uint8_t)id, &ds) != NULL;
+        bool a2 = false;
+        for (size_t i = 0; i < sizeof band_a2 / sizeof *band_a2; ++i) a2 = a2 || band_a2[i] == id;
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
-        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || id == 0x03 || id == 0x0f || a3));
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3));
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2284,6 +2287,286 @@ static void test_flash_draws(void)
     CHECK(cok_arena_flash(&game, t, 0, "burst") && game.vm.status == COK_ECL_OK);
     CHECK(game.combat.view_x == 27 && game.combat.view_y == 17);
     cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    battle_clear();
+}
+
+/* Band a2's one-target damage and heals (queen_cast.c's, 7fd8's band a2): each handler's draws in the original's
+ * order (the dice before the level; a deity 4 caster's bonus before the target test), the amount, the damage's
+ * text, and the flash that follows a hit (four frames at speed 0). Their saves and touches are the apply's. */
+static bool run_handler(uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    return handler != NULL && handler(&game) && game.vm.status == COK_ECL_OK;
+}
+
+static void set_target(cok_character *a, cok_character *t, uint8_t spell)
+{
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = spell;
+}
+
+static uint8_t hit_points(const cok_character *c)
+{
+    return cok_field_u8(R->character, c->record, COK_FIELD_HIT_POINTS);
+}
+
+static void set_hit_points(cok_character *c, uint8_t hp, uint8_t max)
+{
+    cok_field_set8(R->character, c->record, COK_FIELD_HIT_POINTS, hp);
+    cok_field_set8(R->character, c->record, COK_FIELD_MAX_HIT_POINTS, max);
+}
+
+static void flash_draws(uint32_t *want, unsigned n)
+{
+    for (unsigned k = 0; k < n; ++k) cok_tp_random(want, 1000);
+}
+
+static void test_band_a2_damage(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    /* The apply reads the caster level for every spell (its effect's value, 849a:10f9), and the kind 255 of the
+     * damage spells (Cause Light, Serious and Critical: the computer's only) has none for a caster with class
+     * levels: the non-caster's 6 (class 0, 5 and 4 below 8, 1 below 9) is the level here. */
+    set_class(a, 0, 0);
+    set_class(a, 1, 0);
+    set_class(a, 4, 0);
+    set_class(a, 5, 0);
+    uint8_t lv = 0;
+    /* Cause Light (0x04, a touch): 1d8, then the hit roll (20 hits), the damage from magic; one die counted. */
+    set_target(a, t, 0x04);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = seed_from(2, (const unsigned[]){8, 1, 8, 20, 20, 20});
+    uint32_t want = game.vm.seed;
+    uint8_t amount = cok_dice(&want, 1, 8);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    CHECK(run_handler(0x04) && game.vm.seed == want);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && game.effects.rolls.dice == 1);
+    CHECK(LOGGED("from Magic") && game.effects.rolls.damage_type == 0);
+    /* Cause Serious (0x42, no touch): 2d8 + 1, two dice counted. */
+    set_target(a, t, 0x42);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = 13;
+    want = 13;
+    amount = (uint8_t)(cok_dice(&want, 2, 8) + 1);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x42) && game.vm.seed == want && game.effects.rolls.dice == 2);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && LOGGED("from Magic"));
+    /* Cause Critical (0x48, a touch, save kind 1): 3d8 + 3 after the save (a natural 1 fails it: one roll) and
+     * the hit roll (20). Three dice counted. */
+    set_target(a, t, 0x48);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = seed_from(5, (const unsigned[]){8, 1, 8, 8, 1, 8, 8, 1, 8, 20, 1, 1, 20, 20, 20});
+    want = game.vm.seed;
+    amount = (uint8_t)(cok_dice(&want, 3, 8) + 3);
+    cok_dice(&want, 1, 20);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x48) && game.vm.seed == want && game.effects.rolls.dice == 3);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && LOGGED("from Magic"));
+    /* Shocking Grasp (0x14, a touch, the mage's kind 2): 1d8 + the level, the sum a byte. Class 5 at 250 is the
+     * level 250 (-6 read as a byte, the floor at class 4's 0 less 8); 8 + 250 is 2 as a byte, and the sum as a
+     * word would be 258. Electricity. */
+    set_class(a, 0, 40);
+    set_class(a, 1, 40);
+    set_class(a, 4, 0);
+    set_class(a, 5, 250);
+    CHECK(queen_caster_level(&game, a->record, 0x14, false, &lv) && lv == 250);
+    set_target(a, t, 0x14);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = seed_from(2, (const unsigned[]){8, 8, 8, 20, 20, 20});
+    want = game.vm.seed;
+    cok_dice(&want, 1, 8);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x14) && game.vm.seed == want);
+    CHECK(hit_points(t) == 0xf0 - 2 && LOGGED("takes 2 points of damage from Electricity"));
+    /* Burning Hands (0x09 and 0x40, not a touch): the uncapped level (40, the cap would give 31), no dice, from
+     * fire (type 9) for the mage's kind; the cleric's (0x40) is the same 40. */
+    set_class(a, 0, 40);
+    set_class(a, 1, 40);
+    set_class(a, 5, 40);
+    CHECK(queen_caster_level(&game, a->record, 0x09, false, &lv) && lv == 40);
+    CHECK(queen_caster_level(&game, a->record, 0x09, true, &lv) && lv == 31); /* the cap: 0x1f */
+    CHECK(queen_caster_level(&game, a->record, 0x40, false, &lv) && lv == 40);
+    const uint8_t bh[] = {0x09, 0x40};
+    for (unsigned i = 0; i < 2; ++i) {
+        set_target(a, t, bh[i]);
+        set_hit_points(t, 0xf0, 0xf0);
+        game.vm.seed = 17;
+        want = 17;
+        flash_draws(&want, 4);
+        log_text[0] = '\0';
+        CHECK(run_handler(bh[i]) && game.vm.seed == want);
+        CHECK(hit_points(t) == 0xf0 - 40 && LOGGED("takes 40 points of damage from Fire"));
+    }
+    /* Underwater: the bar says it has no effect (177e:153c's speed wait: one draw at speed 0) and nothing else: no
+     * dice, no damage. */
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    set_target(a, t, 0x09);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = 17;
+    want = 17;
+    cok_tp_random(&want, 1000);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x09) && game.vm.seed == want);
+    CHECK(LOGGED("That has no effect underwater!") && hit_points(t) == 0xf0 && !LOGGED("takes"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    /* Shocking Grasp's touch miss (a natural 1 on the hit roll): the dice drawn, nothing dealt, no flash. */
+    set_class(a, 0, 0);
+    set_class(a, 1, 0);
+    set_class(a, 4, 0);
+    set_class(a, 5, 0);
+    set_target(a, t, 0x14);
+    set_hit_points(t, 0xf0, 0xf0);
+    game.vm.seed = seed_from(2, (const unsigned[]){8, 1, 8, 20, 1, 1});
+    want = game.vm.seed;
+    cok_dice(&want, 1, 8);
+    cok_dice(&want, 1, 20);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x14) && game.vm.seed == want);
+    CHECK(hit_points(t) == 0xf0 && !LOGGED("takes") && game.effects.rolls.damage_type == 0);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* The heals (7fd8's 1c2e, 2073 and 2c32; queen_cast.c's heal_first): Cure Serious takes the deity 4 caster's d8
+ * first when it has a target, then 2d8, the bonus and 1; Cure Critical reads the bonus before the target test,
+ * then 3d8 and the bonus; the druid's Cure Light draws one d8 and ignores the deity. Each heal is "is partially
+ * healed" and waits once (the say, one draw at speed 0). */
+static void test_band_a2_heals(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    uint32_t want;
+    uint8_t amount;
+    /* Cure Serious, deity 4: the bonus first (1d8), then 2d8, the bonus and 1. */
+    a->record[0x19b] = 4;
+    set_hit_points(t, 1, 40);
+    game.effects.rolls.spell = 0x3a;
+    game.vm.seed = 11;
+    want = 11;
+    uint8_t bonus = cok_dice(&want, 1, 8);
+    amount = (uint8_t)(cok_dice(&want, 2, 8) + bonus + 1);
+    cok_tp_random(&want, 1000);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x3a) && game.vm.seed == want);
+    CHECK(hit_points(t) == 1 + amount && LOGGED("is partially healed"));
+    /* Deity 0: no bonus die, 2d8 + 1. */
+    a->record[0x19b] = 0;
+    set_hit_points(t, 1, 40);
+    game.vm.seed = 11;
+    want = 11;
+    amount = (uint8_t)(cok_dice(&want, 2, 8) + 1);
+    cok_tp_random(&want, 1000);
+    CHECK(run_handler(0x3a) && game.vm.seed == want && hit_points(t) == 1 + amount);
+    /* No target: nothing rolled (not even a deity 4 caster's bonus: the test is first, 7fd8:1c34), nothing
+     * healed. */
+    a->record[0x19b] = 4;
+    game.spell_target_count = 0;
+    set_hit_points(t, 1, 40);
+    game.vm.seed = 11;
+    want = 11;
+    CHECK(run_handler(0x3a) && game.vm.seed == want && hit_points(t) == 1);
+    game.spell_target_count = 1;
+    /* Cure Critical, deity 4, no target: its bonus d8 still drawn (before the target test), nothing healed. */
+    a->record[0x19b] = 4;
+    game.spell_target_count = 0;
+    game.vm.seed = 11;
+    want = 11;
+    cok_dice(&want, 1, 8);
+    CHECK(run_handler(0x47) && game.vm.seed == want && hit_points(t) == 1);
+    /* Deity 0, no target: no draw at all. */
+    a->record[0x19b] = 0;
+    game.vm.seed = 11;
+    want = 11;
+    CHECK(run_handler(0x47) && game.vm.seed == want);
+    game.spell_target_count = 1;
+    /* Cure Critical with a target: deity 4 is d8 + 3 (the bonus first), then 3d8 and the bonus; deity 0 is 3. */
+    a->record[0x19b] = 4;
+    set_hit_points(t, 1, 40);
+    game.vm.seed = 11;
+    want = 11;
+    bonus = (uint8_t)(cok_dice(&want, 1, 8) + 3);
+    amount = (uint8_t)(cok_dice(&want, 3, 8) + bonus);
+    cok_tp_random(&want, 1000);
+    CHECK(run_handler(0x47) && game.vm.seed == want && hit_points(t) == 1 + amount);
+    a->record[0x19b] = 0;
+    set_hit_points(t, 1, 40);
+    game.vm.seed = 11;
+    want = 11;
+    amount = (uint8_t)(cok_dice(&want, 3, 8) + 3);
+    cok_tp_random(&want, 1000);
+    CHECK(run_handler(0x47) && game.vm.seed == want && hit_points(t) == 1 + amount);
+    /* The druid's Cure Light (0x62): one d8, deity 4 or not; no target, no draw. */
+    a->record[0x19b] = 4;
+    set_hit_points(t, 1, 40);
+    game.vm.seed = 11;
+    want = 11;
+    amount = cok_dice(&want, 1, 8);
+    cok_tp_random(&want, 1000);
+    CHECK(run_handler(0x62) && game.vm.seed == want && hit_points(t) == 1 + amount);
+    game.spell_target_count = 0;
+    game.vm.seed = 11;
+    CHECK(run_handler(0x62) && game.vm.seed == 11);
+    game.spell_target_count = 1;
+    a->record[0x19b] = 0;
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Cure Blindness (7fd8:0ff6, 148f:1bc6): a holder of the blindness (0x21) is said "is Cured" (waited), loses it,
+ * and the target "can see" is flashed (kind 1: one pass of four frames at speed 0). A target without it: nothing.
+ * The effect's own handler runs at its removal as cok_effects_remove does, after the say: the blindness with
+ * flag 1 stops at its missing handler (78e4:0672) with "is Cured" already said. */
+static void test_band_a2_cure(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = 0x25;
+    CHECK(cok_character_add_effect(t, 0x21, 0, 0, false) != NULL);
+    game.vm.seed = 11;
+    uint32_t want = 11;
+    cok_tp_random(&want, 1000); /* the say's wait */
+    flash_draws(&want, 4);      /* the flash's frames */
+    CHECK(queen_spell_handler(0x25) != NULL && queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want && cok_character_find_effect(t, 0x21) == NULL);
+    CHECK(LOGGED("is Cured") && LOGGED("can see"));
+    /* A target without it: nothing said, no flash, no draw. */
+    log_text[0] = '\0';
+    game.vm.seed = 11;
+    CHECK(queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == 11);
+    CHECK(!LOGGED("is Cured") && !LOGGED("can see"));
+    /* A blindness that asks for its handler at removal: "is Cured" is said first, then the removal stops. */
+    CHECK(cok_character_add_effect(t, 0x21, 0, 0, true) != NULL);
+    log_text[0] = '\0';
+    game.vm.seed = 11;
+    CHECK(!queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_EFFECT_FAILED);
+    CHECK(LOGGED("is Cured") && !LOGGED("can see") && strstr(game.error, "78e4:0672") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
     battle_clear();
 }
 
@@ -2603,6 +2886,9 @@ int main(void)
     test_dispel_evil();
     test_fire_touch();
     test_spell_damage();
+    test_band_a2_damage();
+    test_band_a2_heals();
+    test_band_a2_cure();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

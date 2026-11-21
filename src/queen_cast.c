@@ -43,6 +43,7 @@ enum {
     SPELL_ALLIES = 0x13,       /* a word: 0 for the caster's own side (the computer's aim, part 29b) */
     CLW = 0x03,
     MM = 0x0f,
+    EFFECT_BLIND = 0x21,       /* the effect Cure Blindness takes (7fd8:0ff6, 148f:1bc6) */
     DEITY_WORD = 0x19b,        /* a word: 4 is the deity whose cleric adds a d8 (7fd8:00f8) */
     MAGIC_ORDER = 0x19d,
     EFFECT_96 = 0x96,          /* the effect 849a:10f9 checks on a target (with spell 0x37) */
@@ -65,6 +66,9 @@ typedef struct {
     const char *partly_healed; /* DS:273 "is partially healed" */
     const char *from[4];       /* DS:157 "%sfrom Fire", 163 Cold, 16f Electricity, 182 Acid (the suffix) */
     const char *from_magic;    /* DS:18e "%sfrom Magic" (the suffix) */
+    const char *underwater;    /* DS:87c9 "That has no effect underwater!" (the bar; Burning Hands) */
+    const char *cured;         /* DS:0117 "is Cured" (the say of a cure, 148f:1bc6) */
+    const char *can_see;       /* DS:88ea "can see" (the flash of Cure Blindness, 7fd8:0ff6) */
 } queen_cast_words;
 
 static const queen_cast_words words = {
@@ -78,6 +82,9 @@ static const queen_cast_words words = {
     .partly_healed = "is partially healed",
     .from = {"from Fire", "from Cold", "from Electricity", "from Acid"},
     .from_magic = "from Magic",
+    .underwater = "That has no effect underwater!",
+    .cured = "is Cured",
+    .can_see = "can see",
 };
 
 /* The types the text names, by the DS word the test of each is (1, 2, 4, 0x100: acid, which the byte
@@ -511,21 +518,32 @@ bool queen_healed(cok_adventure *game, cok_character *c)
     return cok_arena_say(game, c, full ? words.fully_healed : words.partly_healed, 10, true);
 }
 
-bool queen_cure_light(cok_adventure *game)
+/* The caster's deity is 4 (the word at +0x19b: 7fd8:00f8, 1c2e, 2073), whose cleric adds a d8 to a heal. */
+static bool deity_four(const uint8_t *caster)
 {
-    if (game->spell_target_count == 0) return true;
-    uint8_t *caster = caster_of(game);
-    if (caster == NULL) return false;
-    /* The bonus first, a d8 for a caster of deity 4 (the word at +0x19b); then the heal's d8. */
-    uint8_t bonus = 0;
-    uint16_t deity = (uint16_t)(caster[DEITY_WORD] | caster[DEITY_WORD + 1] << 8);
-    if (deity == 4) bonus = roll(game, 1, 8);
-    uint8_t amount = (uint8_t)(roll(game, 1, 8) + bonus);
+    return (uint16_t)(caster[DEITY_WORD] | caster[DEITY_WORD + 1] << 8) == 4;
+}
+
+/* The heal of the first target by amount (148f:25f7 with flag 0, 177e:187a's text when healed): the tail of
+ * every heal here. */
+static bool heal_first(cok_adventure *game, uint8_t amount)
+{
     cok_character *t = first_target(game);
     if (t == NULL) return false;
     bool healed = false;
     if (!cok_effects_heal(&game->effects, t, amount, false, &healed)) return effect_failed(game);
     return !healed || queen_healed(game, t);
+}
+
+bool queen_cure_light(cok_adventure *game)
+{
+    if (game->spell_target_count == 0) return true;
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    /* The bonus first, a d8 for a caster of deity 4; then the heal's d8. */
+    uint8_t bonus = 0;
+    if (deity_four(caster)) bonus = roll(game, 1, 8);
+    return heal_first(game, (uint8_t)(roll(game, 1, 8) + bonus));
 }
 
 bool queen_magic_missile(cok_adventure *game)
@@ -537,6 +555,113 @@ bool queen_magic_missile(cok_adventure *game)
     uint8_t n = (uint8_t)(lv / 2);
     uint8_t amount = (uint8_t)(cok_dice_count(&game->vm.seed, n, 4, &game->effects.rolls.dice) + n);
     return queen_spell_apply(game, spell, 0, false, amount, 8, "");
+}
+
+/* Var 0x3c (COK_VAR_RECORD_EFFECT): underwater. */
+static bool underwater(cok_adventure *game)
+{
+    return cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
+}
+
+/* 148f:199e (count, sides): the sum of the dice as cok_dice gives it, the count stored in rolls.dice (DS:b7f4). */
+static uint8_t dice_count(cok_adventure *game, uint8_t count, uint8_t sides)
+{
+    return cok_dice_count(&game->vm.seed, count, sides, &game->effects.rolls.dice);
+}
+
+/* 7fd8:0162 (Cause Light, 0x04, a touch): 1d8 of damage from magic (type 8). */
+static bool queen_cause_light(cok_adventure *game)
+{
+    uint8_t amount = dice_count(game, 1, 8);
+    return queen_spell_apply(game, game->effects.rolls.spell, 0, false, amount, 8, "");
+}
+
+/* 7fd8:01e6 (Burning Hands, 0x09 and 0x40): underwater the bar says it has no effect and nothing else happens;
+ * else the uncapped caster level of damage from fire (type 9). */
+static bool queen_burning_hands(cok_adventure *game)
+{
+    if (underwater(game)) {
+        queen_bar_message(game, words.underwater);
+        return true;
+    }
+    uint8_t spell = game->effects.rolls.spell, lv;
+    if (!level_of(game, spell, false, &lv)) return false;
+    return queen_spell_apply(game, spell, 0, false, lv, 9, "");
+}
+
+/* 7fd8:0588 (Shocking Grasp, 0x14, a touch): 1d8, then the uncapped caster level added (a byte), damage of
+ * electricity (type 0x0c). */
+static bool queen_shocking_grasp(cok_adventure *game)
+{
+    uint8_t spell = game->effects.rolls.spell, lv;
+    uint8_t roll_sum = dice_count(game, 1, 8);
+    if (!level_of(game, spell, false, &lv)) return false;
+    return queen_spell_apply(game, spell, 0, false, (uint8_t)(roll_sum + lv), 0x0c, "");
+}
+
+/* 7fd8:1e31 (Cause Serious, 0x42): 2d8 + 1 of damage from magic. */
+static bool queen_cause_serious(cok_adventure *game)
+{
+    uint8_t amount = (uint8_t)(dice_count(game, 2, 8) + 1);
+    return queen_spell_apply(game, game->effects.rolls.spell, 0, false, amount, 8, "");
+}
+
+/* 7fd8:20df (Cause Critical, 0x48, a touch, save kind 1): 3d8 + 3 of damage from magic. */
+static bool queen_cause_critical(cok_adventure *game)
+{
+    uint8_t amount = (uint8_t)(dice_count(game, 3, 8) + 3);
+    return queen_spell_apply(game, game->effects.rolls.spell, 0, false, amount, 8, "");
+}
+
+/* 7fd8:1c2e (Cure Serious, 0x3a): with no target nothing is rolled. Else a deity 4 caster's d8 first, then
+ * 2d8, the bonus and 1 for the heal. */
+static bool queen_cure_serious(cok_adventure *game)
+{
+    if (game->spell_target_count == 0) return true;
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    uint8_t bonus = deity_four(caster) ? roll(game, 1, 8) : 0;
+    return heal_first(game, (uint8_t)(roll(game, 2, 8) + bonus + 1));
+}
+
+/* 7fd8:2073 (Cure Critical, 0x47): the caster's bonus is read before the target test: a deity 4 caster's d8 + 3,
+ * else 3. Then, with a target, 3d8 and the bonus. */
+static bool queen_cure_critical(cok_adventure *game)
+{
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    uint8_t bonus = deity_four(caster) ? (uint8_t)(roll(game, 1, 8) + 3) : 3;
+    if (game->spell_target_count == 0) return true;
+    return heal_first(game, (uint8_t)(roll(game, 3, 8) + bonus));
+}
+
+/* 7fd8:2c32 (Cure Light Wounds, the druid's, 0x62): with a target, 1d8; the deity is not read. */
+static bool queen_cure_druid(cok_adventure *game)
+{
+    if (game->spell_target_count == 0) return true;
+    return heal_first(game, roll(game, 1, 8));
+}
+
+/* 148f:1bc6 (c, id, &cured): the first effect id on c (177e:1734) is said "is Cured" (row 10, waited) and removed
+ * as cok_effects_remove does (its handler if the effect asks for one); cured is whether it was found. */
+static bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured)
+{
+    cok_effect *effect = cok_character_find_effect(c, id);
+    *cured = effect != NULL;
+    if (effect == NULL) return true;
+    if (!cok_arena_say(game, c, words.cured, 10, true)) return false;
+    return cok_effects_remove(&game->effects, c, effect, id) || effect_failed(game);
+}
+
+/* 7fd8:0ff6 (Cure Blindness, 0x25): no target test; the first target's blindness cured, then "can see" flashed
+ * (kind 1) if it was. */
+static bool queen_cure_blindness(cok_adventure *game)
+{
+    cok_character *t = first_target(game);
+    if (t == NULL) return false;
+    bool cured = false;
+    if (!queen_cure(game, t, EFFECT_BLIND, &cured)) return false;
+    return !cured || cok_arena_flash(game, t, 1, words.can_see);
 }
 
 /* The plain applies: 7fd8's 21 routines, 38 ids (plain.txt). Each is 849a:10f9(spell, 0, 0, 0, 0, text):
@@ -618,15 +743,6 @@ static bool queen_plain_apply(cok_adventure *game)
     if (p == NULL) return undefined(game, "a spell with no plain apply reaches its routine (7fd8)");
     return queen_spell_apply(game, p->id, 0, false, 0, 0, p->text);
 }
-
-/* Var 0x3c (COK_VAR_RECORD_EFFECT): underwater. */
-static bool underwater(cok_adventure *game)
-{
-    return cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
-}
-
-/* The words of the underwater refusal (DS:87c9, shown on the bar: 177e:153c). */
-static const char *const cast_underwater = "That has no effect underwater!";
 
 /* The caster's side: its word +0x66 (148f's hostile flag; a word in Dark Queen's records, as
  * cok_combat_field_word reads it). False where the run stopped. */
@@ -722,7 +838,7 @@ static bool dispel_evil(cok_adventure *game)
 static bool fire_touch(cok_adventure *game)
 {
     if (underwater(game)) {
-        queen_bar_message(game, cast_underwater);
+        queen_bar_message(game, words.underwater);
         return true;
     }
     return queen_spell_apply(game, 0x76, 0, false, 0, 0, "is covered in flame");
@@ -733,6 +849,17 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     switch (id) {
     case CLW: return queen_cure_light;
     case MM: return queen_magic_missile;
+    /* The one-target damage and the heals (7fd8's band a2; part 30b). */
+    case 0x04: return queen_cause_light;
+    case 0x09:
+    case 0x40: return queen_burning_hands;
+    case 0x14: return queen_shocking_grasp;
+    case 0x25: return queen_cure_blindness;
+    case 0x3a: return queen_cure_serious;
+    case 0x42: return queen_cause_serious;
+    case 0x47: return queen_cure_critical;
+    case 0x48: return queen_cause_critical;
+    case 0x62: return queen_cure_druid;
     /* Bless (0x3e, Bless's power, the same routine), Curse, Prayer, Mirror Image, Dispel Evil, Fire Touch. */
     case 0x01:
     case 0x3e: return bless_spell;
@@ -1238,7 +1365,7 @@ bool queen_cast_command(cok_adventure *game, cok_character *c, uint8_t spell, bo
     if (spell > 0 && underwater(game) &&
         (spell == 0x4a || spell == 0x09 || spell == 0x2f || spell == 0x76 || spell == 0x73 ||
          spell == 0x7c)) {
-        queen_bar_message(game, cast_underwater);
+        queen_bar_message(game, words.underwater);
         spell = 0;
     }
     if (!redrawn) {
