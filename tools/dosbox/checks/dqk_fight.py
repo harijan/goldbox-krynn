@@ -5166,11 +5166,22 @@ def cast_auto(v, work, opts):
                 f"{CAST_AUTO_MEMO:#x}", f"SHARKMAN 2 {rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS):#x}, +0xcf "
                 f"{rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1):#x}")
     # eclplay runs the same keys past the tail and on through SHARKMAN's turn (effect 0x2f, ROARK's, is ported: 78e4:09b2) to
-    # the next command menu, out of keys: the fight's end needs keys eclplay is not given, so it is not reached here. Later
-    # in the fight SHARKMAN 2 is hurt again, so only BALTHIR's +0xcf (MM forgotten, not memorised again) is compared with the tail.
+    # the fight's end (Alt-Q leaves the rest of the fight to the computer, as in the original), then out of keys in block 1
+    # after it: its RandSeed there and both SHARKMEN's statuses are the original's end. BALTHIR's +0xcf (MM forgotten, not
+    # memorised again) is compared too.
     v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
-            "eclplay ends at a command menu (out of keys) after the cast and SHARKMAN's turn", p["last"])
+            "eclplay ends out of keys in block 1 after the fight", p["last"])
+    ends = [line for line in p["text"] if line.startswith("combat: seed ")]
+    field = p["base"].with_suffix(".field")
+    seed = parse_field(field)[0] if field.exists() else None
+    v.check(ends == [f"combat: seed {CAST_AUTO_END[1]}"] and seed == CAST_AUTO_END[1],
+            f"eclplay's fight ends at the original's RandSeed ({CAST_AUTO_END[1]:#x}), and its stop after it too",
+            f"ends {ends}, stop {seed:#x}" if seed is not None else f"ends {ends}, no field")
     ported = ported_records(p)
+    v.check(len(ported) > max(CAST_AUTO_END_STATUS) and
+            all(rec_byte(ported[i], STATUS_AT) == CAST_AUTO_DEAD for i in CAST_AUTO_END_STATUS),
+            "eclplay's SHARKMEN are both status 5 at the fight's end",
+            " ".join(str(rec_byte(ported[i], STATUS_AT)) for i in CAST_AUTO_END_STATUS if i < len(ported)))
     memo = rec_byte(ported[CAST_BALTHIR], CAST_MEMO + 1) if len(ported) > CAST_BALTHIR else None
     v.check(memo == CAST_AUTO_MEMO,
             f"eclplay's BALTHIR keeps +0xcf {CAST_AUTO_MEMO:#x} (MM forgotten) at its stop", f"{memo}")
