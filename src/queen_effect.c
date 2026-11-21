@@ -116,8 +116,8 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
         return true;
     case COK_FX_QUEEN_RESISTANT: {
         /* 78e4:0a22 (0x32, value 2: the damage of cold is saved; fire, the other, doubled when not
-         * saved) and 0a7e (0x36, value 1: the mirror). A saved type takes 2 from the save, and its
-         * damage is zeroed when the save was made, else halved. */
+         * saved) and 0a7e (0x36, value 1: the mirror). A saved type adds 2 to the save roll (a higher
+         * roll saves), and its damage is zeroed when the save was made, else halved. */
         unsigned other = 3 - (unsigned)h->value;
         if ((r->damage_type & h->value) != 0) {
             r->save_roll = (uint8_t)(r->save_roll + 2);

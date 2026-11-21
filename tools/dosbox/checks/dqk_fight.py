@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "effects_1")
+                 "band_b3", "band_b4", "band_b5", "effects_1", "effects_2")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6063,6 +6063,67 @@ def effects_1(v, work, opts):
         effects_1_case(v, work, wild, opts, name, effect, want, hp)
 
 
+# Effects-2 (step 4, part 34b): Burning Hands on himself (level 2, fire, no save) with BALTHIR's node 1 rewritten to Resist Fire
+# (0x14: the fire halved, 2 to 1), to Globe of Invulnerability (0x39: the magic type cancelled, no damage) and kept (0x69, the
+# base: 2). C, C (the Aim at once, one draw), then T (himself): the tail. The tail is 6 draws past the menu with 0x14 and with 0x69
+# (RandSeed 35e90ff0), and 1 with 0x39 (the Aim's draw, eb831397). BALTHIR's hit points 0x6a at the tail with 0x39, 0x69 with 0x14,
+# 0x68 with 0x69. The spell is forgotten (+0xce 0x89) in each. eclplay's turn mark 01 agrees with the original's tail.
+EFFECTS_2_SPELL = 0x09                  # Burning Hands (+0xce)
+EFFECTS_2_HP = 0x6A                     # BALTHIR's hit points before the spell
+EFFECTS_2_AIM = (1, 0xEB831397)         # C, C: the Aim at once, one draw past the menu
+EFFECTS_2_CASES = {
+    "resist_fire": (0x14, (6, 0x35E90FF0), 0x69),
+    "globe": (0x39, (1, 0xEB831397), EFFECTS_2_HP),
+    "kept": (0x69, (6, 0x35E90FF0), 0x68),
+}
+
+
+def effects_2_run(box, menu, work, tag):
+    """C, C (the Aim at once: Burning Hands' Aim, one draw), then T (himself): the tail."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def effects_2_case(v, work, wild, opts, name, effect, want, hp):
+    """One effect on BALTHIR's node 1: the original's draws and RandSeed at the Aim and at the tail, the hit points and the
+    forgotten spell, and eclplay's turn mark 01 (RandSeed, records, blocks, effect chains) against the tail."""
+    save = dqk_modify.modified({CAST_BALTHIR: {1: (effect, 0, 0xFF, 0)}}, {CAST_BALTHIR: {CAST_MEMO: EFFECTS_2_SPELL}})
+    o = cast_original(work, wild, save, f"effects-2-{name}", opts.verbose, effects_2_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / f"effects-2-{name}-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == EFFECTS_2_AIM, f"the original's RandSeed at Burning Hands' Aim (C, C) is "
+            f"{EFFECTS_2_AIM[0]} draw past BALTHIR's menu, at {EFFECTS_2_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == want, f"the original's tail after T (Burning Hands on himself, node 1 {effect:#x}) is "
+            f"{want[0]} draws past BALTHIR's menu, at {want[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    got = (rec_byte(aim["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(got == (EFFECTS_2_HP, hp), f"BALTHIR's hit points (+0x198) at the tail are {hp:#x} (node 1 {effect:#x})",
+            f"{got[0]:#x} -> {got[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == EFFECTS_2_SPELL | CAST_FORGOTTEN, f"at the tail BALTHIR's Burning Hands is forgotten (+0xce "
+            f"{EFFECTS_2_SPELL | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, f"effects-2-{name}", "CCT", entry=entry)
+    mark = cast_mark(p, "01")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark (01) after C, C and T ({name})", p["last"])
+        return
+    command_state(v, f"Burning Hands' tail ({name}: turn mark 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Burning Hands' tail, {name}, turn mark 01)")
+    print(f"eclplay (effects 2, {name}) ends {p['last']!r}", flush=True)
+
+
+def effects_2(v, work, opts):
+    """Effects-2 (step 4, part 34b), the flow effects_2: Burning Hands on himself with his node 1 rewritten to Resist Fire (0x14),
+    to Globe of Invulnerability (0x39) and kept (0x69, the base), each against eclplay's turn mark 01."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    for name, (effect, want, hp) in EFFECTS_2_CASES.items():
+        effects_2_case(v, work, wild, opts, name, effect, want, hp)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
@@ -6150,6 +6211,8 @@ def main():
         band_b5(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
+    if "effects_2" in flows:
+        effects_2(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
