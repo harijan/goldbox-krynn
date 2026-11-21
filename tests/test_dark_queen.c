@@ -983,6 +983,10 @@ static void test_magic_ids(void)
         {0x885d, "is silenced"},   {0x8869, "is invisible"},      {0x8876, "Knock-Knock"},
         {0x8890, "is weakened"},   {0x88f2, "is blind"},          {0x8929, "has been cursed!"},
         {0x893a, "is blinking"},   {0x8964, "is paralyzed"},      {0x8a2b, "is toughened"},
+        /* Band a3's texts (7fd8:0001's "is %s" with "Blessed" and "Cursed", 13b7, 0957, 36d6). */
+        {0x8798, "is %s"},         {0x693f, "Blessed"},           {0x6947, "Cursed"},
+        {0x88fb, "is praying"},    {0x8882, "is duplicated"},     {0x8ab3, "is covered in flame"},
+        {0x87c9, "That has no effect underwater!"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
