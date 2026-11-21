@@ -217,8 +217,8 @@ static void test_aging(void)
 }
 
 /* A record as a combatant at x, y on the battle's map (test_dark_queen's place), with a combat
- * record of its own. */
-static void place(cok_character *c, int8_t x, int8_t y)
+ * record of its own, its footprint of size cells (place: 1). */
+static void place_sized(cok_character *c, int8_t x, int8_t y, uint8_t size)
 {
     cok_combat *k = &game.combat;
     c->combat = calloc(1, sizeof *c->combat);
@@ -226,12 +226,16 @@ static void place(cok_character *c, int8_t x, int8_t y)
     cok_combatant *e = &k->combatant[k->count];
     e->x = x;
     e->y = y;
-    e->size = 1;
+    e->size = size;
     e->character = c;
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
     CHECK(cok_combat_occupy(k, R));
+}
+static void place(cok_character *c, int8_t x, int8_t y)
+{
+    place_sized(c, x, y, 1);
 }
 
 /* An empty battle: the floor everywhere, no combatant but the one that count 1 leaves (combatant 0
@@ -2084,7 +2088,8 @@ static void test_plain_apply(void)
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
-        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2));
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || id == 0x5c)); /* 0x5c: band b4 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -3068,6 +3073,258 @@ static void test_band_b2_ice(void)
     battle_clear();
 }
 
+/* The cone (dqk 849a:19ff, queen_cone) on the made-up map: the caster's cell is 10, 10 unless the test places it.
+ * Its walk: a straight step adds 2 to the walk, a diagonal one 3; the aim goes on along its own steps until the walk
+ * is 2 * len. Each test checks the targets the cone lists (spell_targets 1 to the count). */
+static cok_character *cone_target(char name, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    return t;
+}
+
+/* The nth cell (1 on) of the line from x0, y0 to x1, y1 (cok_combat_line). */
+static void line_cell(int8_t x0, int8_t y0, int8_t x1, int8_t y1, unsigned nth, int8_t *x, int8_t *y)
+{
+    cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1};
+    cok_combat_line_start(&line);
+    for (unsigned i = 0; i < nth; ++i) CHECK(cok_combat_line_step(&line, R));
+    *x = (int8_t)line.x;
+    *y = (int8_t)line.y;
+}
+
+static void test_cone(void)
+{
+    cok_combat *k = &game.combat;
+    cok_character *c, *t, *u, *v, *x, *y, *z, *w, *p;
+    /* The walk from 10, 10 at 11, 10 with len 4: 2, 4, 6, 8 (three steps on), the end 14, 10; 15, 10 is past it. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 14, 10);
+    u = cone_target('U', 15, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* A diagonal step adds 3: from 10, 10 at 11, 11 with len 4, 3, 6, 9: the end 13, 13; 14, 14 is past it. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 13, 13);
+    u = cone_target('U', 14, 14);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 11, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* The map's edge: from 46, 10 at 47, 10 the walk stops at 49, 10 (the edge, x1 0x31); the target there is taken. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 46, 10);
+    t = cone_target('T', 49, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 46, 10, 47, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    /* The sight: a wall at 12, 10 (value 1, block 2) stops it at its own cell, so 13, 10 is not reached. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    k->cells[10][12] = 1;
+    t = cone_target('T', 11, 10);
+    v = cone_target('V', 13, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && v != NULL);
+    k->cells[10][12] = 0;
+    /* The sight's range is the doubled len: an aim 10 cells east (20, 10) with len 2 walks no further (its line is
+     * 20 long, past the walk's 4), and the sight, of range 4 (limit 2 * 4 + 1 = 9 of length), stops at 15, 10 (length
+     * 10). A range of len (limit 5) would stop at 13, 10 and leave 14, 10 out. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 14, 10);
+    u = cone_target('U', 16, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 20, 10, 1, 2) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* The centre line's quirk: a creature X of two cells (a footprint of 1 by 2: 12, 9 and 12, 10) on the line
+     * from 12, 8 south meets it twice, so no later occupant on the line is added: Y at 12, 11 is not. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 12, 8);
+    x = record('X', 1, 0);
+    place_sized(x, 12, 9, 2);
+    uint8_t xi = (uint8_t)(k->count - 1), occ, terrain;
+    cok_combat_cell(k, 12, 9, &occ, &terrain);
+    CHECK(occ == xi);
+    cok_combat_cell(k, 12, 10, &occ, &terrain);
+    CHECK(occ == xi);
+    y = cone_target('Y', 12, 11);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 12, 8, 12, 9, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == x && y != NULL);
+    /* Width 2: the centre's end 14, 10 (P) and then the right side from 14, 11 (Z, the end's neighbour by east, 2);
+     * width 3 adds the left at 14, 9 (W). Width 1 is the centre line alone. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    p = cone_target('P', 14, 10);
+    z = cone_target('Z', 14, 11);
+    w = cone_target('W', 14, 9);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 2, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == p && game.spell_targets[2] == z);
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 3, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 3 && game.spell_targets[1] == p && game.spell_targets[2] == z &&
+          game.spell_targets[3] == w);
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.spell_target_count == 1);
+    /* The walk takes the first line's steps in turn, from its first again after its last: from 10, 10 at 12, 11 (a
+     * diagonal step, then a straight one: the walk 5) with len 6, the steps 3, 2, 3 (8, 10, 13): the end 15, 13.
+     * Its first step alone would end at 15, 14, its last alone at 16, 11. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 15, 13);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 12, 11, 1, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    /* The side is the direction of the step that met the last occupant, not the line's last step: from 10, 10 at
+     * 13, 9 with len 4 the end is 14, 9 and the line's cells 11, 10 (east), 12, 9 (north-east), 13, 9, 14, 9 (east).
+     * O at 12, 9: the side 1, the right end 15, 9 (Q); east's right end 14, 10 (S) is not reached. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    p = cone_target('O', 12, 9);
+    z = cone_target('Q', 15, 9);
+    w = cone_target('S', 14, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 13, 9, 2, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == p && game.spell_targets[2] == z && w != NULL);
+    /* The caster is never a target: she stands on the centre line at 12, 10 and is listed, then left out. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 12, 10);
+    p = cone_target('P', 14, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == p);
+    /* No one on the centre line (from 10, 10 at 11, 10 with len 4: the end 14, 10): the side 0xff (849a:1c4a reads a
+     * local the line never wrote: the high byte of the caller's BP), the sides at DS:8dc7 on: the right end 14 + 0x53,
+     * 10 + 0x43 clamped to 49, 24, the left 14 + 0x63, 10 clamped to 49, 10. R on the right line's third cell, L at
+     * 20, 10 on the left line; D at 14, 9 (east's left side) on neither. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    int8_t rx, ry;
+    line_cell(10, 10, 49, 24, 3, &rx, &ry);
+    CHECK(ry != 10);
+    t = cone_target('R', rx, ry);
+    u = cone_target('L', 20, 10);
+    v = cone_target('D', 14, 9);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 2, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 3, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == t && game.spell_targets[2] == u && v != NULL);
+    /* From x 45 on the right end's x wraps (45 + 0x53 is -128 as a byte) and is clamped to 0: from 44, 10 at 45, 10
+     * with len 1 (no walk on) the right end is 0, 24. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 44, 10);
+    line_cell(44, 10, 0, 24, 3, &rx, &ry);
+    t = cone_target('R', rx, ry);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 44, 10, 45, 10, 2, 1) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    /* The stop: aimed at the caster's own cell (the walk reads the directions of a line with no steps: 849a:1a9d). */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!queen_cone(&game, 10, 10, 10, 10, 1, 4) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "849a:1a9d") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Cone of Cold (dqk 7fd8:299c) for the caster's mage level lv (class 5, no magic order: the level is lv): a cone of
+ * width 2 and length (lv + 1) / 2, at least 1, from the caster at 5, 5 to the spell's cell 6, 5. The target at 6, 5
+ * is on the centre line for every length (so the side is set); the targets at 7, 5 and 10, 5 are reached only by
+ * length 5 (the walk 2 to 10; length 2 reaches 7, 5), the one at 11, 5 by none. Then lv d4 + lv of cold, "from Cold", half on a save. The first saving throw after the dice is the
+ * first target's (queen_save: a roll of 1 fails, a 20 saves, else the throw at most the roll): saving throw 1 saves
+ * on any roll but 1, 21 saves on a 20 only. */
+static void test_cone_of_cold(void)
+{
+    cok_character *a, *t, *u, *n, *f;
+    const unsigned levels[3] = {1, 2, 9};
+    for (unsigned i = 0; i < 3; ++i) {
+        for (unsigned save = 0; save < 2; ++save) {
+            duel_at(&a, &t, 6, 5);
+            u = cone_target('U', 10, 5);
+            n = cone_target('N', 7, 5);
+            f = cone_target('F', 11, 5);
+            cok_field_set8(R->character, u->record, COK_FIELD_ACTIVE, 1);
+            cok_field_set8(R->character, n->record, COK_FIELD_ACTIVE, 1);
+            cok_field_set8(R->character, f->record, COK_FIELD_ACTIVE, 1);
+            game.vm.mode = 5;
+            set_class(a, 5, (uint8_t)levels[i]);
+            a->record[0x19d] = 0;
+            game.vm.character = a->record;
+            game.spell_x = 6;
+            game.spell_y = 5;
+            game.effects.rolls.spell = 0x5c;
+            cok_character *both[4] = {t, u, n, f};
+            for (unsigned j = 0; j < 4; ++j) {
+                cok_field_set8(R->character, both[j]->record, COK_FIELD_HIT_POINTS, 0x4e);
+                cok_field_set8(R->character, both[j]->record, COK_FIELD_MAX_HIT_POINTS, 0x4e);
+                cok_field_set8_at(R->character, both[j]->record, COK_FIELD_SAVING_THROW, 4, save ? 1 : 21);
+            }
+            uint8_t lv = 0;
+            CHECK(queen_spell_level(&game, 0x5c, false, &lv) && lv == levels[i]);
+            uint32_t seed0 = 7, after = seed0;
+            uint8_t amount = (uint8_t)(cok_dice(&after, lv, 4) + lv);
+            uint8_t roll = cok_dice(&after, 1, 20);
+            bool made = save ? roll != 1 : roll == 20;
+            game.vm.seed = seed0;
+            game.vm.status = COK_ECL_OK;
+            game.error[0] = '\0';
+            log_text[0] = '\0';
+            CHECK(queen_spell_handler(0x5c) != NULL && queen_spell_handler(0x5c)(&game) &&
+                  game.vm.status == COK_ECL_OK);
+            CHECK(made == (save != 0)); /* the seed's first save roll: the branch each variant tests */
+            unsigned hit = made ? amount / 2u : amount;
+            CHECK(LOGGED("takes ") && LOGGED("from Cold"));
+            CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 0x4e - hit);
+            /* Only length 5 (lv 9) reaches the targets at 7, 5 and 10, 5, whose own saves are later rolls: full or
+             * half; none reaches 11, 5. */
+            cok_character *reached[2] = {n, u};
+            for (unsigned j = 0; j < 2; ++j) {
+                uint8_t hp = cok_field_u8(R->character, reached[j]->record, COK_FIELD_HIT_POINTS);
+                if (levels[i] == 9)
+                    CHECK(hp == 0x4e - amount || hp == 0x4e - amount / 2u);
+                else
+                    CHECK(hp == 0x4e);
+            }
+            CHECK(cok_field_u8(R->character, f->record, COK_FIELD_HIT_POINTS) == 0x4e);
+            game.vm.character = NULL;
+            battle_clear();
+        }
+    }
+}
+
 int main(void)
 {
     struct stat st;
@@ -3137,6 +3394,8 @@ int main(void)
     test_band_b2_fireball();
     test_band_b2_flame();
     test_band_b2_ice();
+    test_cone();
+    test_cone_of_cold();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

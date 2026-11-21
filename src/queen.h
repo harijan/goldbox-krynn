@@ -311,6 +311,12 @@ queen_spell_fn *queen_area_handler(uint8_t id);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);
+/* 849a:19ff, the cone from x0, y0 aimed at x1, y1 (queen_area.c; Cone of Cold, and for band b5 and c Meteor and Fear):
+ * its targets are spell_targets 1 to spell_target_count, the selected member left out. width 1 is the centre line
+ * alone, 2 adds the right side, 3 the left, 0xff the combatants within 3 of the end. len is in cells: the aim goes on
+ * along its steps until its walk (2 a straight step, 3 a diagonal one) is 2 * len. Where the centre line meets no one
+ * the sides are those of side 0xff (the caller's BP's high byte: 7fd8:299c's and 257a's). False where the run stopped. */
+bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1, uint8_t width, uint8_t len);
 
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the
