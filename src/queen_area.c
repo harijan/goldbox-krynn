@@ -126,8 +126,8 @@ static bool hit(cok_adventure *game, int8_t x, int8_t y, uint8_t amount)
  * its last cell's combatant once; where the bolt bounces (var 0x22 1 and a cell costing more than 1, not off the map) it
  * turns back along the line to the caster, doubled once (flag, the line of 8 or fewer) and charged again from the
  * wall. The first charge after a bounce wraps as a byte (charged is not reset). On the open ground (var 0x22 0) a wall
- * never bounces: the bolt walks on through it. A bolt aimed at its caster's own cell has a zero-length line: the missile
- * to that cell, then the stop 7fd8:192f reads an occupant its line never set. */
+ * never bounces: the bolt walks on through it. A line of zero length (the caster's own cell aimed at, or a bounce off the
+ * caster's cell) walks nothing: its segments keep the occupant last read (bp-0x3e, kept across segments and lines). */
 bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag)
 {
     cok_combat *combat = &game->combat;
@@ -144,6 +144,12 @@ bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag)
     game->effects.rolls.images = 1;
     uint8_t charged = 0;
     int8_t sign = 1;
+    /* The occupant at the segment's end (bp-0x3e): only the walk writes it, and it is kept across segments and lines. An
+     * aim at the caster's own cell reads it unwritten at 192f: 0, measured in DOSBox-X (traps at 7fd8:192f: BALTHIR at
+     * levels 2 and 9 and TIMASALIN, 0 each time). 849a:145b's poses of the caster just before the handler (5837:09ab at
+     * 849a:17ee and 180e, drawn while the caster is on the view, as an own-cell aim's cursor keeps it) leave that byte: 8
+     * before them, 0x74 between, 0 after. So the own-cell bolt hits the caster a second time, then walks nothing. */
+    uint8_t occ = 0;
     while (rem > 0) {
         cok_combat_line line = {0};
         line.x0 = x0;
@@ -158,7 +164,7 @@ bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag)
             bool out = false, zero = line.x0 == line.x1 && line.y0 == line.y1;
             int8_t bx = (int8_t)line.x, by = (int8_t)line.y;
             int16_t px = line.x, py = line.y;
-            uint8_t occ = 0, cost = 0;
+            uint8_t cost = 0;
             if (!zero) {
                 do {
                     px = line.x;
@@ -177,8 +183,6 @@ bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag)
                 line.y = py;
             }
             if (!cok_arena_missile(game, bx, by, line.x, line.y, 4, 0x32)) return false;
-            if (zero) return undefined(game, "a bolt aimed at its caster's own cell compares an occupant its line never read "
-                                             "(7fd8:192f)");
             if (last != occ && !hit(game, (int8_t)line.x, (int8_t)line.y, amount)) return false;
             last = occ;
             if (!terrain_cost(game, terr, &cost)) return false;

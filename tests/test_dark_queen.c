@@ -4552,7 +4552,7 @@ static void test_flight_bursts(void)
         {0x85, 0, 1, 7, 0x19, "3;12;", NULL, false}, /* underwater: the handler's bar (one draw), the burst's frames kept */
         {0x57, 0, 0, 7, 0x1a, "3;12;", NULL, false},
         {0x57, 0, 1, 10, 0x1a, "3;12;", NULL, false},
-        {0x33, 0, 0, 0, 0, "9;", NULL, true}, /* band b3: Lightning at a foe (the own cell's bolt stops at 7fd8:192f, below) */
+        {0x33, 0, 0, 0, 0, "9;", NULL, true}, /* band b3: Lightning at a foe (the own cell's, below) */
         {0x33, 0, 1, 7, 0x14, "9;9;", NULL, false}, /* underwater: queen_fireball's area, the spell kept */
         {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4", false},
         {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4", false},
@@ -4611,17 +4611,21 @@ static void test_flight_bursts(void)
                                    : strncmp(script.sounds, runs[k].sounds, strlen(runs[k].sounds)) == 0);
         menu_close();
     }
-    /* Lightning at the caster's own cell (band b3): the bolt hits the caster, then the stop 7fd8:192f (the zero-length
-     * line compares an occupant it never read), with the flight's and the hit's draws kept. */
+    /* Lightning at the caster's own cell (band b3), dry: no burst, so the handler's draws start at the own-cell flight's
+     * base: the level's d6, the bolt's hit on the caster, its zero-length line's second hit (no missile draws), no stop.
+     * Hit points high enough that the cast's and handler_draws' hits leave the caster up (the draws stay the same). */
     cast_open(false);
     menu_c->record[0xce] = 0x33;
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_HIT_POINTS, 0xf0);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_MAX_HIT_POINTS, 0xf0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x33, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNDEFINED && strstr(menu_game.error, "7fd8:192f") != NULL);
+    CHECK(queen_cast(&menu_game, 0x33, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strncmp(script.sounds, "9;", 2) == 0);
+    CHECK(menu_game.vm.seed == handler_draws(0x33, base));
     menu_close();
 }
 

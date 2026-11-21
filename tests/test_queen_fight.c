@@ -3111,6 +3111,24 @@ static cok_character *bolt_foe(int8_t x, int8_t y, uint8_t throw_value)
 /* The start seeds tried by a test (the first whose outcome is the test's). */
 enum { BOLT_SEEDS = 4096 };
 
+/* The hits of amount logged since log_text was cleared ("takes N points of damage", once a hit). */
+static unsigned bolt_logged(unsigned amount)
+{
+    char text[40];
+    snprintf(text, sizeof text, "takes %u points of damage", amount);
+    unsigned n = 0;
+    for (const char *p = strstr(log_text, text); p != NULL; p = strstr(p + 1, text)) ++n;
+    return n;
+}
+
+/* queen_bolt(len, 20, flag) from a cleared log, true where it ran with hits hits of 20 and no saved one (10): a search's
+ * seed then has every throw failed, so the hit points count the hits (an extra hit cannot pass as two saved halves). */
+static bool bolt_run(uint8_t len, bool flag, unsigned hits)
+{
+    log_text[0] = '\0';
+    return queen_bolt(&game, len, 20, flag) && bolt_logged(20) == hits && bolt_logged(10) == 0;
+}
+
 /* Four hits on a straight line east: the spell's cell 7, 10 and the foes at 9, 11, 13 (the charges 4, 4, 2, 2 walk the 14
  * half-cells to 13 and past). Each foe once, all 20 (throw 30); the caster at 5, 10 behind the spell is not in line. */
 static void test_band_b3_straight(void)
@@ -3127,7 +3145,7 @@ static void test_band_b3_straight(void)
         game.spell_y = 10;
         game.vm.seed = start;
         log_text[0] = '\0';
-        if (queen_bolt(&game, 7, 20, false) && hit_points(f[0]) == 0xf0 - 20 && hit_points(f[1]) == 0xf0 - 20 &&
+        if (bolt_run(7, false, 4) && hit_points(f[0]) == 0xf0 - 20 && hit_points(f[1]) == 0xf0 - 20 &&
             hit_points(f[2]) == 0xf0 - 20 && hit_points(f[3]) == 0xf0 - 20 && hit_points(c) == 0xf0)
             break;
     }
@@ -3151,7 +3169,7 @@ static void test_band_b3_lengths(void)
         game.spell_x = 6;
         game.spell_y = 9;
         game.vm.seed = start;
-        if (queen_bolt(&game, 3, 20, false) && hit_points(d1) == 0xf0 - 20 && hit_points(d2) == 0xf0 - 20 &&
+        if (bolt_run(3, false, 2) && hit_points(d1) == 0xf0 - 20 && hit_points(d2) == 0xf0 - 20 &&
             hit_points(d3) == 0xf0 && hit_points(c) == 0xf0)
             break;
     }
@@ -3168,7 +3186,7 @@ static void test_band_b3_lengths(void)
         game.spell_x = 6;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 3, 20, false) && hit_points(s[0]) == 0xf0 - 20 && hit_points(s[1]) == 0xf0 - 20 &&
+        if (bolt_run(3, false, 3) && hit_points(s[0]) == 0xf0 - 20 && hit_points(s[1]) == 0xf0 - 20 &&
             hit_points(s[2]) == 0xf0 - 20 && hit_points(s[3]) == 0xf0 && hit_points(c) == 0xf0)
             break;
     }
@@ -3181,7 +3199,7 @@ static void test_band_b3_lengths(void)
         game.spell_x = 6;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 1, 20, false) && hit_points(one) == 0xf0 - 20 && hit_points(two) == 0xf0 &&
+        if (bolt_run(1, false, 1) && hit_points(one) == 0xf0 - 20 && hit_points(two) == 0xf0 &&
             hit_points(c) == 0xf0)
             break;
     }
@@ -3212,40 +3230,91 @@ static void test_band_b3_save(void)
  * caster. The walk from 7 (charge 4) bounces at the wall, back toward the caster along the line (8 half-cells long: no
  * doubling without flag). The new line from 9 hits the spell's foe again (charge 0, so 2; the rest 8), then the caster at 5
  * (charge 4), and the walk ends at 3, short of G. With flag the walk back is doubled once (line 8, charge 8): the second hit
- * on the spell's foe comes with its first charge wrapped (4 - 8), which ends the bolt, so the caster is not hit. */
+ * on the spell's foe comes with its first charge wrapped (4 - 8), which ends the bolt, so the caster is not hit. Any cell
+ * costing more than 1 ends a segment and bounces (1772's DS:6197 > 1): the same with terrain 44 (cost 2) for the wall. */
 static void test_band_b3_bounce(void)
 {
     cok_character *c = NULL, *f = NULL, *g = NULL;
     uint32_t start;
     cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
     CHECK(cok_ecl_load_var(&game.vm, 0x22) == 1);
+    static const uint8_t walls[] = {1, 44};
+    for (size_t w = 0; w < sizeof walls; ++w) {
+        CHECK(cok_combat_terrain(R, walls[w]).cost > 1);
+        for (start = 1; start < BOLT_SEEDS; ++start) {
+            c = bolt_caster(5, 10);
+            f = bolt_foe(7, 10, 30);
+            g = bolt_foe(2, 10, 30);
+            game.combat.cells[10][9] = walls[w];
+            game.spell_x = 7;
+            game.spell_y = 10;
+            game.vm.seed = start;
+            if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 20 && hit_points(g) == 0xf0)
+                break;
+        }
+        CHECK(start < BOLT_SEEDS);
+        battle_clear();
+        for (start = 1; start < BOLT_SEEDS; ++start) {
+            c = bolt_caster(5, 10);
+            f = bolt_foe(7, 10, 30);
+            g = bolt_foe(2, 10, 30);
+            game.combat.cells[10][9] = walls[w];
+            game.spell_x = 7;
+            game.spell_y = 10;
+            game.vm.seed = start;
+            if (bolt_run(7, true, 2) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 && hit_points(g) == 0xf0) break;
+        }
+        CHECK(start < BOLT_SEEDS);
+        battle_clear();
+    }
+}
+
+/* flag is spent at the first bounce, doubled or not: len 13 (26 half-cells), the caster at 5, 10, the spell's foe F at 6, 10,
+ * walls at 10, 10 and 3, 10. The walk 6 -> 10 (charge 8, the rest 18) bounces with the line back 10 long (no doubling) and
+ * clears flag; the new line hits F at 6 (charge 2), the caster at 5 (2) and bounces at 3 (charge 4, the rest 10; the line back
+ * 4 long, but flag is clear); the next line hits the caster at 5 again and its first charge wraps (4 - 14): the end. F and
+ * the caster each twice. (flag kept to the second bounce would double its line to 28: charge 18, the rest 0, the caster
+ * hit once.) */
+static void test_band_b3_second_bounce(void)
+{
+    cok_character *c = NULL, *f = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
     for (start = 1; start < BOLT_SEEDS; ++start) {
         c = bolt_caster(5, 10);
-        f = bolt_foe(7, 10, 30);
-        g = bolt_foe(2, 10, 30);
-        game.combat.cells[10][9] = 1;
-        game.spell_x = 7;
+        f = bolt_foe(6, 10, 30);
+        game.combat.cells[10][10] = 1;
+        game.combat.cells[10][3] = 1;
+        game.spell_x = 6;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 7, 20, false) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 20 &&
-            hit_points(g) == 0xf0)
-            break;
+        if (bolt_run(13, true, 4) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 40) break;
     }
     CHECK(start < BOLT_SEEDS);
     battle_clear();
+}
+
+/* A bounce off the caster's own cell (terrain 44, cost 2, under the caster at 5, 10; var 0x22 1): the spell's foe F at 7,
+ * 10, a wall at 9, 10. The walk bounces at 9 (charge 4, the rest 10), the new line hits F (2) and the caster (charge 4, the
+ * rest 4), whose cell bounces it again: the next line is from the caster's cell to itself, zero long. Its segment walks
+ * nothing and keeps the occupant last read (the caster's, 1772's bp-0x3e), so no hit, and its charge wraps (0 - 8): the end.
+ * F twice, the caster once. */
+static void test_band_b3_caster_bounce(void)
+{
+    cok_character *c = NULL, *f = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
     for (start = 1; start < BOLT_SEEDS; ++start) {
         c = bolt_caster(5, 10);
         f = bolt_foe(7, 10, 30);
-        g = bolt_foe(2, 10, 30);
+        game.combat.cells[10][5] = 44;
         game.combat.cells[10][9] = 1;
         game.spell_x = 7;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 7, 20, true) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 &&
-            hit_points(g) == 0xf0)
-            break;
+        if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 20) break;
     }
-    CHECK(start < BOLT_SEEDS);
+    CHECK(start < BOLT_SEEDS && game.vm.status == COK_ECL_OK);
     battle_clear();
 }
 
@@ -3267,7 +3336,7 @@ static void test_band_b3_wrap(void)
         game.spell_x = 7;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 7, 20, false) && hit_points(f) == 0xf0 - 20 && hit_points(m) == 0xf0 - 40 &&
+        if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 20 && hit_points(m) == 0xf0 - 40 &&
             hit_points(c) == 0xf0)
             break;
     }
@@ -3291,7 +3360,7 @@ static void test_band_b3_open(void)
         game.spell_x = 7;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 7, 20, false) && hit_points(f) == 0xf0 - 20 && hit_points(g) == 0xf0 - 20 &&
+        if (bolt_run(7, false, 2) && hit_points(f) == 0xf0 - 20 && hit_points(g) == 0xf0 - 20 &&
             hit_points(c) == 0xf0)
             break;
     }
@@ -3313,28 +3382,51 @@ static void test_band_b3_offmap(void)
         game.spell_x = 48;
         game.spell_y = 10;
         game.vm.seed = start;
-        if (queen_bolt(&game, 3, 20, false) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0) break;
+        if (bolt_run(3, false, 2) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0) break;
     }
     CHECK(start < BOLT_SEEDS);
     battle_clear();
-}
-
-/* The own-cell aim: the spell's cell is the caster's (5, 10). The hit on the caster (type 4, throw 30), then the zero length
- * line's missile, then the stop 7fd8:192f, which compares an occupant its line never read. */
-static void test_band_b3_own_cell(void)
-{
-    cok_character *c = bolt_caster(5, 10);
-    game.spell_x = 5;
-    game.spell_y = 10;
-    game.vm.seed = 1;
-    log_text[0] = '\0';
-    CHECK(!queen_bolt(&game, 3, 20, false) && game.vm.status == COK_ECL_UNDEFINED);
-    CHECK(strstr(game.error, "7fd8:192f") != NULL && hit_points(c) == 0xf0 - 20);
+    /* Off the bottom edge on a diagonal step the walk ends there (terrain 0: rem 0), though the line's next step would come
+     * back on the map: from the spell's (empty) cell 10, 23 away from the caster at 8, 22 the walk is 11, 24, 12, 24, then
+     * 13, 25 off the map (stepped back to 12, 24); G at 13, 24, the step after it, is not hit. */
+    cok_character *g = NULL;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(8, 22);
+        g = bolt_foe(13, 24, 30);
+        game.spell_x = 10;
+        game.spell_y = 23;
+        game.vm.seed = start;
+        if (bolt_run(7, false, 0) && hit_points(g) == 0xf0 && hit_points(c) == 0xf0) break;
+    }
+    CHECK(start == 1 && game.vm.status == COK_ECL_OK);
     battle_clear();
 }
 
-/* Lightning Bolt (0x33) dry: the caster level's d6 first (the sum is the damage, rolls.dice its count), then the bolt's one
- * hit (electricity, type 0x0c) on the foe at the spell's cell. The search needs the foe's save to roll no 20 after the dice. */
+/* The own-cell aim: the spell's cell is the caster's (5, 10). The hit on the caster (type 4, throw 30), then the zero-length
+ * line: its segments walk nothing (len 3: three, each charged 2), and the first compares the caster with the occupant
+ * never read, 0 (measured: the poses before the handler leave it), so the caster is hit again; after that last is 0 too,
+ * so no more hits. The caster twice, no stop. */
+static void test_band_b3_own_cell(void)
+{
+    cok_character *c = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        game.spell_x = 5;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(3, false, 2) && hit_points(c) == 0xf0 - 40) break;
+    }
+    CHECK(start < BOLT_SEEDS && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* Lightning Bolt (0x33) dry: the caster level's d6 first (the sum is the damage, rolls.dice its count), then the bolt (its
+ * own damage type 0x0c: the caster's battle leaves it 0). On the open ground the walk of len 7 from the foe F at the spell's
+ * cell 7, 10 reaches 14, 10 (14 half-cells: G hit) and not 15, 10 (H). With var 0x22 1 and a wall at 9, 10 (the caster at
+ * 5, 10) flag doubles the walk back: F is hit again and the bolt ends (test_band_b3_bounce's), the caster untouched. The
+ * search needs the saves to roll no 20 after the dice. */
 static void test_band_b3_lightning(void)
 {
     cok_character *c = bolt_caster(5, 10);
@@ -3342,9 +3434,11 @@ static void test_band_b3_lightning(void)
     CHECK(queen_spell_level(&game, 0x33, false, &lv) && lv > 0);
     battle_clear();
     uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
     for (start = 1; start < BOLT_SEEDS; ++start) {
         c = bolt_caster(5, 10);
-        cok_character *f = bolt_foe(7, 10, 30);
+        cok_character *f = bolt_foe(7, 10, 30), *g = bolt_foe(14, 10, 30), *h = bolt_foe(15, 10, 30);
+        game.effects.rolls.damage_type = 0;
         game.spell_x = 7;
         game.spell_y = 10;
         game.effects.rolls.spell = 0x33;
@@ -3352,13 +3446,33 @@ static void test_band_b3_lightning(void)
         uint8_t sum = cok_dice(&w, lv, 6);
         game.vm.seed = start;
         log_text[0] = '\0';
-        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - sum)) {
+        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - sum) && hit_points(g) == (uint8_t)(0xf0 - sum)) {
             CHECK(game.effects.rolls.dice == lv && game.effects.rolls.damage_type == 0x0c);
-            CHECK(LOGGED("from Electricity") && hit_points(c) == 0xf0);
+            CHECK(LOGGED("from Electricity") && hit_points(c) == 0xf0 && hit_points(h) == 0xf0);
             break;
         }
     }
     CHECK(start < BOLT_SEEDS);
+    battle_clear();
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        cok_character *f = bolt_foe(7, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.effects.rolls.spell = 0x33;
+        uint32_t w = start;
+        uint8_t sum = cok_dice(&w, lv, 6);
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - 2 * sum)) {
+            CHECK(hit_points(c) == 0xf0);
+            break;
+        }
+    }
+    CHECK(start < BOLT_SEEDS);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
     battle_clear();
 }
 
@@ -3393,22 +3507,47 @@ static void test_band_b3_lightning_wet(void)
     battle_clear();
 }
 
-/* Javelin of Lightning (0x81): no dice, one hit of 20 on the foe at the spell's cell, electricity (type 0x0c). */
+/* Javelin of Lightning (0x81): no dice, 20 points of electricity (its own type 0x0c: the battle leaves it 0), a bolt of 3
+ * with no flag. On the open ground the walk from the foe F at the spell's cell 7, 10 reaches 10, 10 (6 half-cells: G hit)
+ * and not 11, 10 (H). With var 0x22 1, a foe M at 8, 10 and a wall at 9, 10 (test_band_b3_wrap's): M (charge 2), the wall
+ * (2, the rest 2) bounces undoubled, and the new line's first segment hits M again (its charge wraps: the end). (flag
+ * would double the line back to 8: charge 6, the end at the wall, M hit once.) */
 static void test_band_b3_javelin(void)
 {
-    cok_character *c = NULL, *f = NULL;
+    cok_character *c = NULL, *f = NULL, *g = NULL, *h = NULL, *m = NULL;
     uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
     for (start = 1; start < BOLT_SEEDS; ++start) {
         c = bolt_caster(5, 10);
         f = bolt_foe(7, 10, 30);
+        g = bolt_foe(10, 10, 30);
+        h = bolt_foe(11, 10, 30);
+        game.effects.rolls.damage_type = 0;
         game.spell_x = 7;
         game.spell_y = 10;
         game.vm.seed = start;
         log_text[0] = '\0';
-        if (run_handler(0x81) && hit_points(f) == 0xf0 - 20) break;
+        if (run_handler(0x81) && bolt_logged(20) == 2 && hit_points(f) == 0xf0 - 20 && hit_points(g) == 0xf0 - 20) break;
     }
     CHECK(start < BOLT_SEEDS && game.effects.rolls.damage_type == 0x0c && LOGGED("from Electricity"));
-    CHECK(hit_points(c) == 0xf0);
+    CHECK(hit_points(c) == 0xf0 && hit_points(h) == 0xf0);
+    battle_clear();
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        m = bolt_foe(8, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x81) && bolt_logged(20) == 3 && hit_points(f) == 0xf0 - 20 && hit_points(m) == 0xf0 - 40 &&
+            hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
     battle_clear();
 }
 
@@ -3485,6 +3624,8 @@ int main(void)
     test_band_b3_lengths();
     test_band_b3_save();
     test_band_b3_bounce();
+    test_band_b3_second_bounce();
+    test_band_b3_caster_bounce();
     test_band_b3_wrap();
     test_band_b3_open();
     test_band_b3_offmap();
