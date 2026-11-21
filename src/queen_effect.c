@@ -1,0 +1,89 @@
+#include "dark_queen.h"
+
+#include "queen.h"
+
+/* The Dark Queen of Krynn's own effect routines (dqk 78e4 and 7e76), the handlers the descriptor's
+ * table maps to the kinds of spells.h's COK_FX_QUEEN_*: effect.c has no handler for them, so it runs
+ * them through the game's own hook (effect.h's own), which is cok_dark_queen_effect here. Each case is
+ * one routine, cited by its address in the descriptor's row (rules_dark_queen_magic.c), with the
+ * original's behaviour read from its disassembly. The damage is the word rolls.amount16 (DS:ae55), with
+ * its byte rolls.amount kept as the handlers read it (set_damage). */
+
+/* 78e4:00a1 (id): the cancel. Id 0, or the pending effect is id: the damage (the word and its byte) and
+ * the pending effect are cleared. */
+static void cancel(cok_adventure *game, uint8_t id)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (id == 0 || r->pending == id) {
+        r->amount16 = 0;
+        r->amount = 0;
+        r->pending = 0;
+    }
+}
+
+/* The damage word and its byte together (the writes of DS:ae55 and of the byte the handlers read). */
+static void __attribute__((unused)) set_damage(cok_adventure *game, int16_t v)
+{
+    game->effects.rolls.amount16 = v;
+    game->effects.rolls.amount = (uint8_t)v;
+}
+
+/* The level of the spell being cast (DS:27e9 + 0x16 * spell + 2). */
+static uint8_t __attribute__((unused)) spell_level(cok_adventure *game)
+{
+    return queen_spell_byte(game, game->effects.rolls.spell, 2);
+}
+
+/* 148f:19c2 (c, id, minutes, value, flag): the effect added. An id of 0 adds nothing. Out of memory
+ * fails. The effects' pool (effect.c's add, its full stop) is not checked here: the callers that need
+ * it come with their own parts. */
+static bool __attribute__((unused)) add_raw(cok_adventure *game, cok_character *c, uint8_t id,
+                                            uint16_t minutes, uint8_t value, bool on_remove)
+{
+    if (id == 0) return true;
+    if (cok_character_add_effect(c, id, minutes, value, on_remove) != NULL) return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory adding effect 0x%02x", id);
+    return false;
+}
+
+/* 78e4:00bf (c, id, value, minutes), "again": while the curing flag (DS:b184) is set, nothing is added
+ * (*added false); otherwise the effect is added with flag 1 (add_raw). */
+static bool __attribute__((unused)) again(cok_adventure *game, cok_character *c, uint8_t id,
+                                          uint8_t value, uint16_t minutes, bool *added)
+{
+    *added = false;
+    if (game->effects.rolls.curing != 0) return true;
+    if (!add_raw(game, c, id, minutes, value, true)) return false;
+    *added = true;
+    return true;
+}
+
+/* c's combat record: NULL outside a battle, where the 7e76 routines return at once (c->combat NULL).
+ * Unused until effects-4. */
+static __attribute__((unused)) cok_combat_record *block(cok_character *c)
+{
+    return c->combat;
+}
+
+bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
+                           cok_character *c)
+{
+    cok_effects *fx = &game->effects;
+    const cok_rules_effect *h = &cok_game_rules(game)->effects.handlers[fx->running];
+    cok_rolls *r = &fx->rolls;
+    (void)removing, (void)effect, (void)c;
+    switch (kind) {
+    /* effects-2: damage and rolls */
+    case COK_FX_QUEEN_TYPE_CANCEL:
+        /* 78e4:0184 -> 00f7(4): the damage of the entry's type (DS:bebd & the value) cancelled. */
+        if ((r->damage_type & h->value) != 0) cancel(game, 0);
+        return true;
+    /* effects-3: images, haste, slow, prayer, missiles, 0x38 */
+    /* effects-4: the 7e76 four */
+    /* effects-5: timers */
+    default:
+        cok_adventure_fail(game, COK_ECL_UNDEFINED,
+                           "effect kind %u (dqk %04x) has no Dark Queen routine", kind, h->address);
+        return false;
+    }
+}

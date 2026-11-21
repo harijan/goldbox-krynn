@@ -367,6 +367,28 @@ typedef enum {
     COK_FX_PRESENCE,        /* 0x64: the low levels on the other side terrified (the entry's effect) */
     COK_FX_KIN,             /* 0xc3: the entry's effect added while one holds the id */
     COK_FX_QUEEN_RANGER,    /* 0x69: a ranger's damage on a target within a square (flag 0 bit 3) */
+    COK_FX_QUEEN_TYPE_CANCEL,       /* 0x06 (78e4:0184): the damage of the entry's type cancelled (00f7) */
+    COK_FX_QUEEN_RESIST,            /* 0x0a, 0x14 (01f4, 0313): the type's damage halved, save 3 better */
+    COK_FX_QUEEN_BARKSKIN,          /* 0x0d (021d): the save and the attack roll */
+    COK_FX_QUEEN_SHIELD,            /* 0x11 (02b9): AC to 0x39, the save, Magic Missile cancelled */
+    COK_FX_QUEEN_QUARTER_LESS,      /* 0x1d (0654): the damage a quarter less */
+    COK_FX_QUEEN_GLOBE,             /* 0x28 (073b): the spells of level below 8 cancelled */
+    COK_FX_QUEEN_GLOBE_MAGIC,       /* 0x39 (0b11): level 4 or below, magic type, cancelled */
+    COK_FX_QUEEN_RESISTANT,         /* 0x32, 0x36 (0a22, 0a7e): the type's damage halved, or doubled */
+    COK_FX_QUEEN_IMAGES,            /* 0x1c (0580): Mirror Image's images, one lost a hit */
+    COK_FX_QUEEN_HASTE,             /* 0x27 (06e8): the movement and the rate doubled, aging */
+    COK_FX_QUEEN_SLOW,              /* 0x2a (0877): the movement and the rate halved */
+    COK_FX_QUEEN_PRAYER,            /* 0x31 (09d3): the attack and save by the side of the caster */
+    COK_FX_QUEEN_MISSILES,          /* 0x29 (0832): Protection from Normal Missiles */
+    COK_FX_QUEEN_ADD_INVISIBLE,     /* 0x38 (0acf): Invisibility added on removal, or on adding */
+    COK_FX_QUEEN_CHARM,             /* 0x0b (7e76:007a): charm in battle */
+    COK_FX_QUEEN_SILENCE,           /* 0x15 (7e76:012c): silence in battle, its block's spell forgotten */
+    COK_FX_QUEEN_CONFUSED,          /* 0x23 (7e76:033f): confusion in battle: runs, berserk, enraged */
+    COK_FX_QUEEN_TERROR,            /* 0x6f (7e76:0b3c): terror in battle, its block cleared on removal */
+    COK_FX_QUEEN_POISON,            /* 0x0f (78e4:023d): poison's damage and its +1-to-hit timer */
+    COK_FX_QUEEN_DISEASE,           /* 0x22 (78e4:0696): cause disease, the strength and wasting effects */
+    COK_FX_QUEEN_DRAIN,             /* 0x2b (78e4:08ba): the strength drained */
+    COK_FX_QUEEN_WASTING,           /* 0x2c (78e4:0920): wasting, the damage and the drain */
     COK_FX_HANDLERS
 } cok_effect_handler;
 

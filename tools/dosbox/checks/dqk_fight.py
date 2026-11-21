@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5")
+                 "band_b3", "band_b4", "band_b5", "effects_1")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -4380,7 +4380,6 @@ AIM_TARGET_SCREEN = "\\#51\\#51\\#51DAN"        # Move's three steps, Done, then
 AIM_TARGET_KEYS = AIM_TARGET_SCREEN + "T"            # then Target: the strike
 ALLY_YES_KEYS = MOVE_ALLY_KEYS + "Y"                 # Move into ROARK, the question answered Yes
 FLED_VAR = 0x36                                      # var 0x36 (FLED): 52db:2aef's Yes sets it
-ALLY_YES_STOP = "not yet ported: The Dark Queen of Krynn's effect 0x2f (dqk 78e4:09b2)"  # the attack's effect 0x2f
 
 
 def strike_original(work, patched, verbose, tag, keys):
@@ -4442,10 +4441,9 @@ def aim_target_check(v, work, opts):
 
 def ally_yes_check(v, work, opts):
     """Move's "attack ally?" answered Yes (queen_attack_ally's Yes path, the carry-over, see above) on the dungeon.
-    The original's var 0x36 (FLED) is 1 at the turn's tail. eclplay's run stops in the attack at the cited
-    unported effect 0x2f (78e4:09b2, COK_FX_MISSING), before the turn's tail, so the state after it (RandSeed,
-    records, blocks, the screen) has no comparable stop: the Yes path is compared up to that stop, where var 0x36
-    is set in both (the question's Yes sets it before the attack)."""
+    The original's var 0x36 (FLED) is 1 at the turn's tail. eclplay's run (ROARK's effect 0x2f, 78e4:09b2, ported in
+    part 34a) runs on to the next combatant's command menu (out of keys), where the state (RandSeed,
+    records, blocks, turn list) is compared with the original's next."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     dungeon = hlib.replace(glb, JUMP, dqkecl.assemble(fight_block()))
     y = strike_original(work, dungeon, opts.verbose, "ally-yes", ALLY_YES_KEYS)
@@ -4454,8 +4452,9 @@ def ally_yes_check(v, work, opts):
             "tail", str(y["tail"]["variables"][FLED_VAR - 1]))
     v.check(p["vars"] and p["vars"][FLED_VAR - 1] == 1, "eclplay's var 0x36 (FLED) after Yes is 1 at its stop",
             str(p["vars"][FLED_VAR - 1] if p["vars"] else None))
-    v.check(p["last"] is not None and ALLY_YES_STOP in p["last"], "eclplay stops at the cited unported effect 0x2f "
-            "(dqk 78e4:09b2) inside the attack after Yes, the state past it not compared", p["last"])
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends at the next combatant's command menu (out of keys) after Yes", p["last"])
+    command_state(v, "Move's Yes (the next combatant's menu)", y["next"], p, y["menu"]["seed"])
 
 
 # Aim's Manual (step 4, part 25: dqk 52db:2e9c, queen_aim.c's manual; keys only). The cursor starts on Aim's
@@ -5075,7 +5074,6 @@ CAST_AUTO_MEMO = 0x8F                   # BALTHIR's +0xcf after the cast (MM for
 CAST_AUTO_END = (438, 0xADD80F40)       # RandSeed at the fight's end: 438 draws past the menu, add80f40
 CAST_AUTO_END_STATUS = (6, 7)           # the two SHARKMEN records, both 5 (dead, not yet removed) at the end
 CAST_AUTO_DEAD = 5
-CAST_AUTO_STOP = re.compile(r"error: not yet ported: .* effect 0x2f \(dqk 78e4:09b2\)")  # eclplay's stop (a later part)
 
 
 def cast_auto_original(work, patched, data, verbose, tag="cast-auto", to_end=True):
@@ -5167,13 +5165,23 @@ def cast_auto(v, work, opts):
                 f"eclplay's tail after the computer's MM: SHARKMAN 2 at {CAST_AUTO_HP[1]:#x}, BALTHIR's +0xcf "
                 f"{CAST_AUTO_MEMO:#x}", f"SHARKMAN 2 {rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS):#x}, +0xcf "
                 f"{rec_byte(marked[CAST_BALTHIR], CAST_MEMO + 1):#x}")
-    # eclplay runs the same keys past the tail and into SHARKMAN's turn, where effect 0x2f's handler (78e4:09b2, a
-    # later part) is not ported: the fight's end is not reachable here, so the stop is the cited one. Later in the fight
-    # SHARKMAN 2 is hurt again, so only BALTHIR's +0xcf (MM forgotten, not memorised again) is compared with the tail.
-    v.check(p["last"] is not None and CAST_AUTO_STOP.fullmatch(p["last"]) is not None,
-            "eclplay stops at the cited unported effect 0x2f (dqk 78e4:09b2) in SHARKMAN's turn, after the cast",
-            p["last"])
+    # eclplay runs the same keys past the tail and on through SHARKMAN's turn (effect 0x2f, ROARK's, is ported: 78e4:09b2) to
+    # the fight's end (Alt-Q leaves the rest of the fight to the computer, as in the original), then out of keys in block 1
+    # after it: its RandSeed there and both SHARKMEN's statuses are the original's end. BALTHIR's +0xcf (MM forgotten, not
+    # memorised again) is compared too.
+    v.check(BATTLE_STOP.fullmatch(p["last"] or "") is not None,
+            "eclplay ends out of keys in block 1 after the fight", p["last"])
+    ends = [line for line in p["text"] if line.startswith("combat: seed ")]
+    field = p["base"].with_suffix(".field")
+    seed = parse_field(field)[0] if field.exists() else None
+    v.check(ends == [f"combat: seed {CAST_AUTO_END[1]}"] and seed == CAST_AUTO_END[1],
+            f"eclplay's fight ends at the original's RandSeed ({CAST_AUTO_END[1]:#x}), and its stop after it too",
+            f"ends {ends}, stop {seed:#x}" if seed is not None else f"ends {ends}, no field")
     ported = ported_records(p)
+    v.check(len(ported) > max(CAST_AUTO_END_STATUS) and
+            all(rec_byte(ported[i], STATUS_AT) == CAST_AUTO_DEAD for i in CAST_AUTO_END_STATUS),
+            "eclplay's SHARKMEN are both status 5 at the fight's end",
+            " ".join(str(rec_byte(ported[i], STATUS_AT)) for i in CAST_AUTO_END_STATUS if i < len(ported)))
     memo = rec_byte(ported[CAST_BALTHIR], CAST_MEMO + 1) if len(ported) > CAST_BALTHIR else None
     v.check(memo == CAST_AUTO_MEMO,
             f"eclplay's BALTHIR keeps +0xcf {CAST_AUTO_MEMO:#x} (MM forgotten) at its stop", f"{memo}")
@@ -5994,6 +6002,67 @@ def commands(v, work, patched, opts):
     view_check(v, work, patched, opts)
 
 
+# Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
+# effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
+# (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
+# 949f681b, and SHARKMAN 2 hits BALTHIR 106 -> 101. Invisibility (0x19, events 1 and 0x10) makes SHARKMAN 2 unable to target
+# BALTHIR: he hits WALKER (69 -> 59) instead, 17 draws, RandSeed f79afec7. Cause Blindness (0x21, events 0x0a to 0x0c) makes
+# BALTHIR 4 worse in AC: one more hit (106 -> 97), 15 draws, RandSeed e3a9db89. eclplay's turn mark is the one with the
+# original's RandSeed at TIMASALIN's menu (its records, blocks and effect chains agree there).
+EFFECTS_1_NEXT = (0, 0xCE7F005E)        # WALKER's menu after BALTHIR's E: no draw
+EFFECTS_1_NAMES = "EE"                  # the keys of the flow (eclplay)
+EFFECTS_1_CASES = {
+    "invisible": (0x19, (17, 0xF79AFEC7), {CAST_BALTHIR: (0x6A, 0x6A), CAST_WALKER: (0x45, 0x3B)}),
+    "blind": (0x21, (15, 0xE3A9DB89), {CAST_BALTHIR: (0x6A, 0x61)}),
+}
+
+
+def effects_1_run(box, menu, work, tag):
+    """E at BALTHIR's menu (WALKER's menu: its trap held, no draws), then E at WALKER's (SHARKMAN 2's turn, then TIMASALIN's
+    menu). One MENU trap at a time (cast_traps arms the next after the first is given back)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    return out
+
+
+def effects_1_case(v, work, wild, opts, name, effect, want, hp):
+    """One effect on BALTHIR's node 1: the original's draws and RandSeed at TIMASALIN's menu, the hit points listed, and
+    eclplay's turn mark at the same RandSeed (command_state, chains_agree)."""
+    save = dqk_modify.modified({CAST_BALTHIR: {1: (effect, 0, 0xFF, 0)}}, {})
+    o = cast_original(work, wild, save, f"effects-1-{name}", opts.verbose, effects_1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / f"effects-1-{name}-save", save)
+    nxt, second = o["next"], o["second"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == EFFECTS_1_NEXT, f"the original's RandSeed at WALKER's menu after E (BALTHIR's turn) is "
+            f"{EFFECTS_1_NEXT[0]} draws past the menu, at {EFFECTS_1_NEXT[1]:#x}", f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, second["seed"])
+    v.check((draws, second["seed"]) == want, f"the original's RandSeed at TIMASALIN's menu after E (SHARKMAN 2's melee, {name}) "
+            f"is {want[0]} draws past the menu, at {want[1]:#x}", f"{draws} draws, {second['seed']:#x}")
+    got = {k: (rec_byte(o["menu"]["records"][k], HIT_POINTS), rec_byte(second["records"][k], HIT_POINTS)) for k in hp}
+    v.check(all(got[k] == hp[k] for k in hp), "the listed hit points after the melee ("
+            + ", ".join(f"record {k}: {a:#x} -> {b:#x}" for k, (a, b) in hp.items()) + ")",
+            " ".join(f"{k}: {a:#x} -> {b:#x}" for k, (a, b) in got.items()))
+    p = turn_port(work, wild, f"effects-1-{name}", EFFECTS_1_NAMES, entry=entry)
+    mark = mark_of_seed(p, second["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at TIMASALIN's menu ({want[1]:#x}) after "
+                f"{EFFECTS_1_NAMES}", p["last"])
+        return
+    command_state(v, f"the melee ({name}: TIMASALIN's menu, turn mark {mark['number']})", second, mark, m0)
+    chains_agree(v, second["chains"], mark["base"].with_suffix(".effects"), f" ({name}, turn mark {mark['number']})")
+    print(f"eclplay (effects 1, {name}) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+def effects_1(v, work, opts):
+    """Band a's effects-1 (part 34a), the flow effects_1: the melee at BALTHIR with his node 1 rewritten to Invisibility (0x19)
+    and to Cause Blindness (0x21), each against eclplay's turn mark (RandSeed, records, blocks, effect chains)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    for name, (effect, want, hp) in EFFECTS_1_CASES.items():
+        effects_1_case(v, work, wild, opts, name, effect, want, hp)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
@@ -6079,6 +6148,8 @@ def main():
         band_b4(v, work, opts)
     if "band_b5" in flows:
         band_b5(v, work, opts)
+    if "effects_1" in flows:
+        effects_1(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

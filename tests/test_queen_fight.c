@@ -2052,20 +2052,27 @@ static void test_spell_touch(void)
     game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 20, 20});
     CHECK(queen_spell_apply(&game, blind, 0, false, 0, 0, "is blind") && game.vm.status == COK_ECL_OK);
     CHECK(cok_character_find_effect(t, 0x21) != NULL && LOGGED("is blind"));
-    /* The touch's event 0x0b runs on the target before the hit roll: a holder of 0x04 (its handler a
-     * cited stop, 78e4:0168) stops there, with no draw. */
+    /* The touch's event 0x0b runs on the target with no stop: a holder of 0x04 (Dispel Evil's; 78e4:0168,
+     * now ported as the row's COK_FX_EVIL_AVOID) makes an attacker of creature flag 1 7 worse. The touch's
+     * hit roll (148f:1771) rolls its d20 after that event and overwrites the roll, so the touch hits as it
+     * does without 0x04 (the d20 of 4 hits either way: thac0 0, AC 0). The -7 itself is checked at event
+     * 0x0b (cok_effects_dispatch), with the attacker's flag 1 and without it. */
     duel(&a, &t);
     game.vm.character = a->record;
     game.spell_targets[1] = t;
     game.spell_target_count = 1;
     game.effects.rolls.spell = invis;
+    cok_field_set8(R->character, a->record, COK_FIELD_THAC0, 0);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 0, 1);
     CHECK(cok_character_add_effect(t, 0x04, 0, 0, false) != NULL);
-    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
-    uint32_t before = game.vm.seed;
-    /* The stop is the effect's own (COK_ECL_EFFECT_FAILED, with the handler's text). */
-    CHECK(!queen_spell_apply(&game, invis, 0, false, 3, 8, "") &&
-          game.vm.status == COK_ECL_EFFECT_FAILED && strstr(game.error, "78e4:0168") != NULL &&
-          game.vm.seed == before);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 4, 4});
+    CHECK(queen_spell_apply(&game, invis, 0, false, 3, 8, "") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 7 && game.effects.rolls.attack_roll == 4);
+    game.effects.rolls.attack_roll = 9;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.effects.rolls.attack_roll == 2);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 0, 0);
+    game.effects.rolls.attack_roll = 9;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.effects.rolls.attack_roll == 9);
     game.vm.status = COK_ECL_OK;
     game.error[0] = '\0';
     game.vm.character = NULL;
@@ -2539,8 +2546,8 @@ static void test_band_a2_heals(void)
 
 /* Cure Blindness (7fd8:0ff6, 148f:1bc6): a holder of the blindness (0x21) is said "is Cured" (waited), loses it,
  * and the target "can see" is flashed (kind 1: one pass of four frames at speed 0). A target without it: nothing.
- * The effect's own handler runs at its removal as cok_effects_remove does, after the say: the blindness with
- * flag 1 stops at its missing handler (78e4:0672) with "is Cured" already said. */
+ * The blindness's own handler (78e4:0672, applied_only) does nothing at its removal, flag 1: the cure says both
+ * and the target's armour class stays as it was. */
 static void test_band_a2_cure(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -2564,16 +2571,151 @@ static void test_band_a2_cure(void)
     game.vm.seed = 11;
     CHECK(queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == 11);
     CHECK(!LOGGED("is Cured") && !LOGGED("can see"));
-    /* A blindness that asks for its handler at removal: "is Cured" is said first, then the removal stops. */
+    /* A blindness that asks for its handler at removal (flag 1): applied_only, so the removal runs nothing; the
+     * cure says "is Cured" and "can see", the node is gone, and the target's AC (+0x18e) is unchanged. */
     CHECK(cok_character_add_effect(t, 0x21, 0, 0, true) != NULL);
+    uint8_t ac = cok_field_u8(R->character, t->record, COK_FIELD_AC);
     log_text[0] = '\0';
     game.vm.seed = 11;
-    CHECK(!queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_EFFECT_FAILED);
-    CHECK(LOGGED("is Cured") && !LOGGED("can see") && strstr(game.error, "78e4:0672") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.error[0] = '\0';
+    want = 11;
+    cok_tp_random(&want, 1000);
+    flash_draws(&want, 4);
+    CHECK(queen_spell_handler(0x25)(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == want);
+    CHECK(LOGGED("is Cured") && LOGGED("can see") && cok_character_find_effect(t, 0x21) == NULL);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == ac);
     game.vm.character = NULL;
     game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* applied_only (rules.h): a flag-1 node of Bless (0x01, 78e4:0132) removed runs nothing, so the morale and the
+ * attack roll stay; the same node held at event 0x0a adds 5 to the morale and 1 to the roll. */
+static void test_applied_only(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_effect *e = cok_character_add_effect(t, 0x01, 0, 0, true);
+    CHECK(e != NULL);
+    game.effects.rolls.morale = 50;
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x01) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.morale == 50 && game.effects.rolls.attack_roll == 10 &&
+          cok_character_find_effect(t, 0x01) == NULL);
+    CHECK(cok_character_add_effect(t, 0x01, 0, 0, false) != NULL);
+    game.effects.rolls.morale = 50;
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0a) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.morale == 55 && game.effects.rolls.attack_roll == 11);
+    battle_clear();
+}
+
+/* The seeing check (dqk 78e4:054a, 0x19, events 1 and 0x10): the selected character a without 0x18 cannot attack
+ * the holder t (untargetable 1, the roll 4 worse at each of the two events); with 0x18 neither. */
+static void test_invisible_sees(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x19, 0, 0, false) != NULL);
+    game.vm.character = a->record;
+    game.effects.rolls.untargetable = 0;
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 1) && game.effects.rolls.untargetable == 1 &&
+          game.effects.rolls.attack_roll == 6);
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x10) && game.effects.rolls.attack_roll == 6);
+    CHECK(cok_character_add_effect(a, 0x18, 0, 0, false) != NULL);
+    game.effects.rolls.untargetable = 0;
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 1) && game.effects.rolls.untargetable == 0 &&
+          game.effects.rolls.attack_roll == 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x10) && game.effects.rolls.attack_roll == 10);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 78e4:010d (0x1b, 0x1f, 0x33, 0x34, 0x35, HELD): at event 7 the holder's turn ends (its initiative, spell,
+ * guarding and movement are 0), with either flag: the effect removed ends it too. */
+static void test_held_ends_turn(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.effects.in_battle = true;
+    static const uint8_t held[] = {0x1b, 0x1f, 0x33, 0x34, 0x35};
+    for (size_t i = 0; i < sizeof held / sizeof *held; ++i)
+        for (int removing = 0; removing < 2; ++removing) {
+            cok_combat_record *cr = t->combat;
+            cok_effect *e = cok_character_add_effect(t, held[i], 0, 0, removing != 0);
+            CHECK(e != NULL);
+            cr->initiative = 3;
+            cr->spell = 2;
+            cr->guarding = 7;
+            cr->movement = 8;
+            if (removing) CHECK(cok_effects_remove(&game.effects, t, e, held[i]));
+            else CHECK(cok_effects_dispatch(&game.effects, t, 7));
+            CHECK(game.vm.status == COK_ECL_OK && cr->initiative == 0 && cr->spell == 0 &&
+                  cr->guarding == 0 && cr->movement == 0);
+            if (!removing) CHECK(cok_effects_remove(&game.effects, t, e, held[i]));
+        }
+    game.effects.in_battle = false;
+    battle_clear();
+}
+
+/* The cancel's word (dqk 78e4:00a1): a damage whose type the record is immune to (the 2a6d block: +0xc8 bit
+ * 0x10 against 0x80) takes nothing, and the word is zeroed (amount16, not only its byte); a holder of 0x06
+ * (78e4:0184, the cancel of type 4) hit by type 0x0c loses the damage and the pending effect; type 1 is not
+ * cancelled. The racial cancel 0x5c (value 0x6f) zeroes the word at event 9. */
+static void test_cancel_word(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.effects.in_battle = true;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 0x10);
+    game.effects.rolls.damage_type = 0x80;
+    CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 0);
+    CHECK(cok_character_add_effect(t, 0x06, 0, 0, false) != NULL);
+    game.effects.rolls.damage_type = 0x0c;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 10 && game.effects.rolls.pending == 0);
+    game.effects.rolls.damage_type = 1;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(queen_cast_damage(&game, t, 5, 0, false) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 5 && game.effects.rolls.pending == 0x6f);
+    /* The racial 0x5c (cancel 0x6f) at event 9: the pending 0x6f cancelled, its word zeroed. */
+    cok_character *u = record('U', 0, 0);
+    CHECK(cok_character_add_effect(u, 0x5c, 0, 0, false) != NULL);
+    game.effects.rolls.amount16 = 5;
+    game.effects.rolls.amount = 5;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, u, 9) && game.effects.rolls.amount16 == 0 &&
+          game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    game.effects.rolls.damage_type = 0;
+    game.effects.in_battle = false;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* A game with no hook for its own routines (effect.h's own, NULL) fails the run's call with the routine's
+ * address (dqk 78e4:0184, 0x06), rather than calling NULL. */
+static void test_own_hook_missing(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x06, 0, 0, false) != NULL);
+    __typeof__(game.effects.own) hook = game.effects.own;
+    game.effects.own = NULL;
+    CHECK(!cok_effects_run(&game.effects, t, 0x06, NULL) && strstr(game.effects.error, "0184") != NULL &&
+          strstr(game.effects.error, "with no hook") != NULL);
+    game.effects.own = hook;
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
     battle_clear();
 }
 
@@ -4206,6 +4348,11 @@ int main(void)
     test_band_a2_damage();
     test_band_a2_heals();
     test_band_a2_cure();
+    test_applied_only();
+    test_invisible_sees();
+    test_held_ends_turn();
+    test_cancel_word();
+    test_own_hook_missing();
     test_band_b2_fireball();
     test_band_b2_flame();
     test_band_b2_ice();
