@@ -2089,7 +2089,7 @@ static void test_plain_apply(void)
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || id == 0x5c)); /* 0x5c: band b4 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || id == 0x5c || id == 0x7c)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -3325,6 +3325,259 @@ static void test_cone_of_cold(void)
     }
 }
 
+/* The length of the line from x0, y0 to x1, y1 (every step of cok_combat_line). */
+static unsigned line_length(int8_t x0, int8_t y0, int8_t x1, int8_t y1)
+{
+    cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1};
+    cok_combat_line_start(&line);
+    while (cok_combat_line_step(&line, R)) {
+    }
+    return line.length;
+}
+
+/* Meteor Swarm's tries (dqk 7fd8:3a73, queen_meteor_try) on the made-up map: the caster at 10, 10 aims at 20, 12. The
+ * steps of meteor m are {-1, 1, -1, 1} and {-1, -1, 1, 1} (DS:8788, DS:8790). Try 1 is the diagonal neighbour, try 2 the
+ * aimed x with my kept, try 3 the neighbour's x with the aimed y, try 4 the aimed x with my kept. */
+static void test_meteor_try(void)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    cok_character *c;
+    int8_t mx = 0, my = 0;
+    uint16_t range = 0;
+    bool seen = false;
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    game.vm.character = c->record;
+    for (unsigned m = 1; m <= 4; ++m) {
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 1, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 + dx[m - 1] && my == 12 + dy[m - 1] && seen);
+        CHECK(range == line_length(10, 10, mx, my) / 2);
+        int8_t first_y = my;
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 2, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 && my == first_y && seen && range == line_length(10, 10, 20, first_y) / 2);
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 3, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 + dx[m - 1] && my == 12 && seen);
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 4, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 && my == 12 && seen);
+    }
+    /* Try 2 keeps the y it is given (a mutant's my = ty would give 12). */
+    my = 7;
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 2, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 20 && my == 7 && seen);
+    /* A cell off the map stops the try: no sight, the range 0xff halved to 0x7f, the cell kept (x -1 from 0; y -1). */
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 5, 1, 1, &mx, &my, &range, &seen));
+    CHECK(mx == -1 && my == 4 && !seen && range == 0x7f);
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 0, 1, 2, &mx, &my, &range, &seen));
+    CHECK(mx == 1 && my == -1 && !seen && range == 0x7f);
+    /* A wall at 11, 10 stops the sight at its own cell: try 2 at 13, 10 with my 10 is pulled to 11, 10 (length 2, halved). */
+    k->cells[10][11] = 1;
+    my = 10;
+    CHECK(queen_meteor_try(&game, 10, 10, 13, 12, 2, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 11 && my == 10 && !seen && range == 1);
+    k->cells[10][11] = 0;
+    /* The own cell at length 0: the sight gives range 0 there, so the cone's walk never runs (849a:1a9d is not reached). */
+    CHECK(queen_cone(&game, 10, 10, 10, 10, 1, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 0);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Meteor Swarm's fixture: the caster C at x, y (hit points 0xff, its record active), the spell's cell 20, 12 (the four
+ * meteors land at 19, 11; 21, 11; 19, 13; 21, 13: each try 1 is seen across the open floor). */
+static cok_character *meteor_field(int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, x, y);
+    set_hit_points(c, 0xff, 0xff);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, c->record, COK_FIELD_ICON, ICON_SLOT);
+    game.vm.mode = 5;
+    game.vm.character = c->record;
+    game.spell_x = 20;
+    game.spell_y = 12;
+    game.effects.rolls.spell = 0x7c;
+    game.effects.rolls.images = 0;
+    return c;
+}
+
+/* A hostile target at x, y: hit points 0xff, active or not, saving throw 4 of 21 (saved on a 20 only: the cone's test). */
+static cok_character *meteor_target(char name, int8_t x, int8_t y, bool active)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    set_hit_points(t, 0xff, 0xff);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, active ? 1 : 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    return t;
+}
+
+/* The handler from seed: the final seed (the status and the bar's text checked by the caller). */
+static uint32_t meteor_run(uint32_t seed)
+{
+    game.vm.seed = seed;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7c));
+    return game.vm.seed;
+}
+
+/* The draws of one hit: a saving throw's d20 first when in the area (the save before the dice), then 10d4 and the flash's
+ * four draws. */
+static void meteor_hit(uint32_t *s, bool area)
+{
+    if (area) cok_dice(s, 1, 20);
+    cok_dice(s, 10, 4);
+    flash_draws(s, 4);
+}
+
+/* Whether a and b are within one cell of each other. */
+static bool within_one(int a, int b)
+{
+    return a - b <= 1 && b - a <= 1;
+}
+
+/* The hits of the four meteors on the fixture's map, counted as the handler lists them: each active target on a meteor's
+ * line (the caster out, once each) takes a hit with no save, and each active combatant within 1 of the meteor's cell (the
+ * caster in) takes a hit with a save. The draws are one stream, so the hits' draws advance the seed in any order. Returns
+ * the number of hits in *hits. */
+static void meteor_model(cok_character *c, uint32_t *s, unsigned *hits)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    int8_t cx = cok_combat_x(k, c->record), cy = cok_combat_y(k, c->record);
+    *hits = 0;
+    for (unsigned m = 1; m <= 4; ++m) {
+        int8_t mx = (int8_t)(20 + dx[m - 1]), my = (int8_t)(12 + dy[m - 1]);
+        cok_character *on_line[30];
+        unsigned n = 0;
+        cok_combat_line line = {.x0 = cx, .y0 = cy, .x1 = mx, .y1 = my};
+        cok_combat_line_start(&line);
+        while (cok_combat_line_step(&line, R)) {
+            uint8_t occ, terrain;
+            cok_combat_cell(k, (int8_t)line.x, (int8_t)line.y, &occ, &terrain);
+            if (occ == 0 || k->combatant[occ].character == c) continue;
+            cok_character *t = k->combatant[occ].character;
+            bool again = false;
+            for (unsigned j = 0; j < n; ++j) again |= on_line[j] == t;
+            if (!again) on_line[n++] = t;
+        }
+        for (unsigned j = 0; j < n; ++j)
+            if (cok_field_u8(R->character, on_line[j]->record, COK_FIELD_ACTIVE) != 0) {
+                meteor_hit(s, false);
+                ++*hits;
+            }
+        for (unsigned i = 1; i <= k->count; ++i) {
+            cok_character *t = k->combatant[i].character;
+            if (t == NULL || !within_one(cok_combat_x(k, t->record), mx) ||
+                !within_one(cok_combat_y(k, t->record), my))
+                continue;
+            if (cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) != 0) {
+                meteor_hit(s, true);
+                ++*hits;
+            }
+        }
+    }
+}
+
+/* The seed after the meteors' arena alone: the caster at x, y, inactive (no one is hit), and no target. The view's first run
+ * differs from the later ones (the centring), so the run is made twice, and the second is the baseline. */
+static uint32_t meteor_base(uint32_t seed, int8_t x, int8_t y)
+{
+    for (unsigned k = 0; k < 2; ++k) {
+        cok_character *c = meteor_field(x, y);
+        cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+        meteor_run(seed);
+        battle_clear();
+    }
+    cok_character *c = meteor_field(x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+    uint32_t base = meteor_run(seed);
+    battle_clear();
+    return base;
+}
+
+static void test_meteor_swarm(void)
+{
+    const uint32_t seed = 1234;
+    uint32_t base, want, ran;
+    unsigned hits = 0;
+    cok_character *c, *t4, *l, *a, *inactive;
+    /* Underwater the bar says so, its one draw (the bar's wait, as the Fireball's underwater test) and no meteor: no image,
+     * the damage type left as it was. */
+    c = meteor_field(10, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    game.vm.seed = seed;
+    game.effects.rolls.damage_type = 0;
+    uint32_t bar = seed;
+    cok_tp_random(&bar, 1000);
+    CHECK(run_handler(0x7c) && game.vm.seed == bar && game.effects.rolls.images == 0);
+    CHECK(game.effects.rolls.damage_type == 0 && LOGGED("That has no effect underwater!"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    battle_clear();
+
+    /* The caster alone at 10, 10: the four meteors' arena (the poses, the missiles, the bursts), and the image and type. */
+    base = meteor_base(seed, 10, 10);
+    c = meteor_field(10, 10);
+    ran = meteor_run(seed);
+    CHECK(ran == base && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 9);
+    battle_clear();
+
+    /* One target at 22, 14: within 1 of the fourth meteor's cell (21, 13) and of no other, nor on any line. Its hit comes
+     * after the fourth meteor's arena: a d20 (the save, first), then 10d4 (half on a save), then the flash's draws. */
+    /* Several seeds: a seed whose 10d4 is the same one draw later would not tell the orders apart. */
+    for (uint32_t k = 0; k < 4; ++k) {
+        uint32_t s0 = seed + 7 * k;
+        base = meteor_base(s0, 10, 10);
+        c = meteor_field(10, 10);
+        t4 = meteor_target('T', 22, 14, true);
+        ran = meteor_run(s0);
+        uint32_t p = base;
+        bool saved = cok_dice(&p, 1, 20) == 20;
+        uint8_t dealt = cok_dice(&p, 10, 4);
+        flash_draws(&p, 4);
+        CHECK(ran == p);
+        CHECK(hit_points(t4) == (uint8_t)(0xff - (saved ? dealt / 2 : dealt)));
+        battle_clear();
+    }
+
+    /* Line and area: the target on meteor 1's line next to its cell is hit twice (the line, then the area); the one at 18,
+     * 10 in its area only; the inactive one at 19, 10 is skipped. The seed is the model's, its hits in any order. */
+    base = meteor_base(seed, 10, 10);
+    c = meteor_field(10, 10);
+    cok_combat_line line = {.x0 = 10, .y0 = 10, .x1 = 19, .y1 = 11};
+    cok_combat_line_start(&line);
+    unsigned steps = 0;
+    while (cok_combat_line_step(&line, R)) ++steps;
+    int8_t lx = 0, ly = 0;
+    line_cell(10, 10, 19, 11, steps - 1, &lx, &ly);
+    l = meteor_target('L', lx, ly, true);
+    a = meteor_target('A', 18, 10, true);
+    inactive = meteor_target('I', 19, 10, false);
+    ran = meteor_run(seed);
+    want = base;
+    meteor_model(c, &want, &hits);
+    CHECK(ran == want && hits >= 3);
+    CHECK(hit_points(l) < 0xff && hit_points(a) < 0xff && hit_points(inactive) == 0xff);
+    battle_clear();
+
+    /* The caster in the area: adjacent to meteor 1's cell (19, 11), so hit with a save; the line leaves her out. */
+    base = meteor_base(seed, 18, 10);
+    c = meteor_field(18, 10);
+    inactive = meteor_target('I', 19, 10, false);
+    ran = meteor_run(seed);
+    want = base;
+    meteor_model(c, &want, &hits);
+    CHECK(ran == want && hits == 1);
+    CHECK(hit_points(c) < 0xff && hit_points(inactive) == 0xff);
+    battle_clear();
+    game.vm.character = NULL;
+}
+
 int main(void)
 {
     struct stat st;
@@ -3396,6 +3649,8 @@ int main(void)
     test_band_b2_ice();
     test_cone();
     test_cone_of_cold();
+    test_meteor_try();
+    test_meteor_swarm();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
