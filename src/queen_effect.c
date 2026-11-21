@@ -1,6 +1,14 @@
 #include "dark_queen.h"
 
 #include "queen.h"
+#include "arena.h"
+#include "attack.h"
+#include "cast.h"
+#include "combat.h"
+#include "effect.h"
+#include "field.h"
+#include "party.h"
+#include "round.h"
 
 /* The Dark Queen of Krynn's own effect routines (dqk 78e4 and 7e76), the handlers the descriptor's
  * table maps to the kinds of spells.h's COK_FX_QUEEN_*: effect.c has no handler for them, so it runs
@@ -58,11 +66,126 @@ static bool __attribute__((unused)) again(cok_adventure *game, cok_character *c,
     return true;
 }
 
-/* c's combat record: NULL outside a battle, where the 7e76 routines return at once (c->combat NULL).
- * Unused until effects-4. */
-static __attribute__((unused)) cok_combat_record *block(cok_character *c)
+/* c's combat record: NULL outside a battle, where the 7e76 routines return at once (c->combat NULL). */
+static cok_combat_record *block(cok_character *c)
 {
     return c->combat;
+}
+
+/* effects-4: the 7e76 four */
+
+/* 51c2:0920 (cok_combat_count_sides): a record on another side fails the run (dqk queen_ai.c's stop). */
+static bool count_sides(cok_adventure *game)
+{
+    if (cok_combat_count_sides(&game->combat, &game->party, cok_game_rules(game), game->ambush))
+        return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "a record on a side other than 0 or 1 (+0x18a) counts "
+                                                "past DS:6b2d (dqk 51c2:0920)");
+    return false;
+}
+
+/* 7e76:007a (0x0b, charm; ev 0x0f, 0x11, 0x13, not applied_only). Removing puts c back on the side in
+ * bit 6 of the value (the side word +0x66), and an NPC the charm made (+0x9b 0xb3) back to a player
+ * (computer 0). Not removing, the first time (bit 5 of the value clear) takes hold: the value gains
+ * c's side in bit 6 and 0x20 (a byte sum), the side becomes the value's bit 7, c is computer
+ * controlled, an NPC (+0x9b bit 0x80 clear) becomes 0xb3, its block's target is NULL and the sides
+ * are counted. Either way but removing, the morale is 100. With no block, nothing. */
+static bool charm(cok_adventure *game, bool removing, cok_effect *effect, cok_character *c)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_combat_record *cr = block(c);
+    if (cr == NULL) return true;
+    if (removing) {
+        cok_combat_set_field_word(rules, c->record, COK_FIELD_HOSTILE, (unsigned)(effect->value & 0x40) >> 6);
+        if (cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3) {
+            cok_field_set8(L, c->record, COK_FIELD_NPC, 0);
+            cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 0);
+        }
+        return true;
+    }
+    if ((effect->value & 0x20) == 0) {
+        effect->value = (uint8_t)(effect->value +
+                                  (uint8_t)(cok_field_u8(L, c->record, COK_FIELD_HOSTILE) << 6) + 0x20);
+        cok_combat_set_field_word(rules, c->record, COK_FIELD_HOSTILE, effect->value >> 7);
+        cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 1);
+        if ((cok_field_u8(L, c->record, COK_FIELD_NPC) & 0x80) == 0)
+            cok_field_set8(L, c->record, COK_FIELD_NPC, 0xb3);
+        cr->target = NULL;
+        if (!count_sides(game)) return false;
+    }
+    game->effects.rolls.morale = 100;
+    return true;
+}
+
+/* 7e76:012c (0x15, silence; ev 0x0f, applied_only; shared with the party within 1 by the holder's node).
+ * A block that may use items is said "is Silenced" (row 10, waited, "is %s" DS:8674 with DS:6a42);
+ * a pending spell is forgotten (cok_combat_forget, 177e:1346); the spell, may_use and may_cast are 0.
+ * No turn ends and no spell is "lost". */
+static bool silence(cok_adventure *game, cok_character *c)
+{
+    cok_combat_record *cr = block(c);
+    if (cr == NULL) return true;
+    if (cr->may_use != 0 && !cok_arena_say(game, c, "is Silenced", 10, true)) return false;
+    if (cr->spell > 0) cok_combat_forget(cok_game_rules(game), c->record, cr->spell);
+    cr->spell = 0;
+    cr->may_use = 0;
+    cr->may_cast = 0;
+    return true;
+}
+
+/* 7e76:033f (0x23, confusion; ev 0x15, applied_only). One d100 by 7e76:0385's table: 1-10 runs away (the
+ * effect 0x23 removed, the block forced and computer controlled, its target NULL, and 0x6f added for
+ * ten minutes, "runs away"); 11-60 "is confused" and the turn ends; 61-80 berserk: 0x4d added, "goes
+ * berserk", and 0x4d run (7e76:081f, its cited stop here); 81-100 "is enraged". Then the save (type 4,
+ * bonus -2) made removes the 0x23. */
+static bool confused(cok_adventure *game, cok_character *c)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_combat_record *cr = block(c);
+    if (cr == NULL) return true;
+    uint8_t d = cok_dice(&game->vm.seed, 1, 100);
+    if (d <= 10) {
+        if (!cok_effects_remove(&game->effects, c, NULL, 0x23)) return cok_adventure_effect_failed(game);
+        cr->forced = 1;
+        cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 1);
+        if ((cok_field_u8(L, c->record, COK_FIELD_NPC) & 0x80) == 0)
+            cok_field_set8(L, c->record, COK_FIELD_NPC, 0xb3);
+        cr->target = NULL;
+        if (!cok_cast_add_effect(game, c, 0x6f, 10, 0, true, 1, false, "runs away")) return false;
+    } else if (d <= 60) {
+        if (!cok_arena_flash(game, c, 1, "is confused")) return false;
+        cok_arena_clear_text(game);
+        cok_combat_end_turn(c);
+    } else if (d <= 80) {
+        if (!cok_cast_add_effect(game, c, 0x4d, 1, cok_field_u8(L, c->record, COK_FIELD_HOSTILE), true,
+                                 1, false, "goes berserk"))
+            return false;
+        if (!cok_effects_run(&game->effects, c, 0x4d, NULL)) return cok_adventure_effect_failed(game);
+    } else {
+        if (!cok_arena_flash(game, c, 1, "is enraged")) return false;
+        cok_arena_clear_text(game);
+    }
+    bool made;
+    if (!queen_save(game, c, 4, 0xfe, &made)) return false;
+    if (!made) return true;
+    return cok_effects_remove(&game->effects, c, NULL, 0x23) || cok_adventure_effect_failed(game);
+}
+
+/* 7e76:0b3c (0x6f, terror; no event, applied_only is not its): only removing does anything: an NPC
+ * the charm made (+0x9b 0xb3) goes back to a player (computer 0), and the block's forced is 0. With no
+ * block, nothing (h_terror fails there). */
+static bool terror(cok_adventure *game, cok_character *c, bool removing)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_combat_record *cr = block(c);
+    if (cr == NULL || !removing) return true;
+    if (cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3) {
+        cok_field_set8(L, c->record, COK_FIELD_NPC, 0);
+        cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 0);
+    }
+    cr->forced = 0;
+    return true;
 }
 
 bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
@@ -130,6 +253,14 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
     }
     /* effects-3: images, haste, slow, prayer, missiles, 0x38 */
     /* effects-4: the 7e76 four */
+    case COK_FX_QUEEN_CHARM:
+        return charm(game, removing, effect, c);
+    case COK_FX_QUEEN_SILENCE:
+        return silence(game, c);
+    case COK_FX_QUEEN_CONFUSED:
+        return confused(game, c);
+    case COK_FX_QUEEN_TERROR:
+        return terror(game, c, removing);
     /* effects-5: timers */
     default:
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
