@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1",
-                 "band_b2")
+                 "band_b2", "band_b3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5655,6 +5655,78 @@ def band_b2(v, work, opts):
     band_b2_flame(v, work, wild, opts)
 
 
+# Band b3 (step 4, part 31d, queen_area.c): Lightning Bolt (0x33, time 1) at SHARKMAN 2 on the open ground: the bolt's first hit
+# on the spell's cell, its walk on from there, the caster behind BALTHIR out of line. Keys C, C (WALKER's menu: Begins Casting),
+# E (WALKER's End: BALTHIR's pending Aim), N (SHARKMAN 2 under the cursor), then T: the tail (5045:066a). The draws at the
+# menu and the Aim are CLW's (the picks draw nothing: the same keys). eclplay's turn mark 03 is the tail's.
+BAND_B3_LIGHTNING = 0x33
+BAND_B3_TAIL = (38, 0xA31F31D0)         # the tail after T: 38 draws past the menu
+BAND_B3_HP = (0x4E, 0x42)               # SHARKMAN 2 before and at the tail: 2d6 = 12, not saved
+BAND_B3_FACING = 3                      # BALTHIR's facing at the tail (at SHARKMAN 2)
+BAND_B3_MARK = "03"                     # eclplay's turn mark of the tail (band b2's Ice Storm, with the same keys, is 03)
+
+
+def lightning_save():
+    """Saved game A with BALTHIR memorising Lightning Bolt (+0xce 0x33) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B3_LIGHTNING}})
+
+
+def cast_run_lightning(box, menu, work, tag):
+    """C, C (Begins Casting: BALTHIR's turn ends at WALKER's menu), E (WALKER's End: BALTHIR's pending Aim), N (SHARKMAN 2 under
+    the cursor), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_b3(v, work, opts):
+    """Band b3 (part 31d), the flow band_b3: Lightning Bolt at SHARKMAN 2 (queen_bolt's walk and hits, the Lightning's
+    dice): the original's RandSeed at the tail (38 draws past the menu, a31f31d0), SHARKMAN 2 from 0x4e to 0x42 (2d6, not
+    saved), BALTHIR's byte forgotten and facing 3; eclplay's turn mark 03 agrees with the original's tail on RandSeed,
+    records, blocks and effect chains."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = lightning_save()
+    o = cast_original(work, wild, save, "band-b3", opts.verbose, cast_run_lightning)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b3-save", save)
+    nxt, aim, n, tail = o["next"], o["aim"], o["n"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C is {CAST_CLW_NEXT[0]} "
+            f"draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}", f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Lightning Bolt at its Aim "
+            f"(after WALKER's End) is {CAST_CLW_AIM[0]} draws past the menu, at {CAST_CLW_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(aim["seed"], n["seed"])
+    v.check(draws == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is unchanged", f"{draws} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_B3_TAIL, f"the original's tail after T (Lightning Bolt) is {BAND_B3_TAIL[0]} draws past "
+            f"the menu, at {BAND_B3_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(o["menu"]["records"][CAST_SHARKMAN_2], HIT_POINTS), rec_byte(tail["records"][CAST_SHARKMAN_2], HIT_POINTS))
+    v.check(hp == BAND_B3_HP, f"SHARKMAN 2's hit points go from {BAND_B3_HP[0]:#x} to {BAND_B3_HP[1]:#x} at the tail (2d6, "
+            "not saved)", f"{hp[0]:#x} -> {hp[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_B3_LIGHTNING | CAST_FORGOTTEN and facing == BAND_B3_FACING,
+            f"at the tail BALTHIR's Lightning Bolt is forgotten (+0xce 0xb3) and he faces {BAND_B3_FACING}",
+            f"+0xce {forgotten:#x}, facing {facing}")
+    p = turn_port(work, wild, "band-b3", "CCENT", entry=entry)
+    mark = cast_mark(p, BAND_B3_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_B3_MARK}) after C, C, E, N and T", p["last"])
+        return
+    command_state(v, f"Lightning Bolt's tail (the turn's tail, {BAND_B3_MARK})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Lightning Bolt's tail, turn mark {BAND_B3_MARK})")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_SHARKMAN_2], HIT_POINTS) == BAND_B3_HP[1] and
+            rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_B3_LIGHTNING | CAST_FORGOTTEN,
+            f"eclplay's tail after Lightning Bolt: SHARKMAN 2 at {BAND_B3_HP[1]:#x}, +0xce {BAND_B3_LIGHTNING | CAST_FORGOTTEN:#x}",
+            f"{rec_byte(marked[CAST_SHARKMAN_2], HIT_POINTS):#x}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band b3) ends {p['last']!r} at turn mark {BAND_B3_MARK}", flush=True)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5746,6 +5818,8 @@ def main():
         band_b1(v, work, opts)
     if "band_b2" in flows:
         band_b2(v, work, opts)
+    if "band_b3" in flows:
+        band_b3(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
