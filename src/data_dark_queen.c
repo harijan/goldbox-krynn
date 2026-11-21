@@ -902,6 +902,21 @@ static const uint8_t ways[42] = {
     0x00, 0x08, 0x01, 0x02, 0x03, 0x04,
 };
 
+/* DS:8cc8: the cone's side steps, 32 signed bytes: left x, left y, right x, right y, 8 each by a step's direction
+ * (dqk 849a:19ff's C[part][side]; queen_cone reads them by offset, queen_area.c). */
+static const uint8_t cone_sides[32] = {
+    0xff, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0x00, 0xff, 0xff, 0x00, 0x00, 0x01, 0x01, 0x00,
+    0x01, 0x01, 0x00, 0x00, 0xff, 0xff, 0x00, 0x00, 0x00, 0x00, 0x01, 0x01, 0x00, 0x00, 0xff, 0xff,
+};
+
+/* DS:8dc7 to 8ddf (strings: "...ce:", "STR ", "INT ", "WIS ", "DEX ", "C..."): the cone's side steps for side 0xff
+ * (dqk 849a:1c4a reads DS:8cc8 + 8 * part + side: 8dc7 left x, 8dcf left y, 8dd7 right x, 8ddf right y), the side of a
+ * cone whose centre line met no one (queen_area.c's queen_cone). */
+static const uint8_t cone_sides_unset[25] = {
+    0x63, 0x65, 0x3a, 0x00, 0x53, 0x54, 0x52, 0x20, 0x00, 0x49, 0x4e, 0x54, 0x20,
+    0x00, 0x57, 0x49, 0x53, 0x20, 0x00, 0x44, 0x45, 0x58, 0x20, 0x00, 0x43,
+};
+
 static const cok_ds_table tables[] = {
     {0x00a2, sizeof battle_only, 1, battle_only},
     {0x028c, 44, 1, increments},
@@ -935,6 +950,8 @@ static const cok_ds_table tables[] = {
     {0x6359, 511, 1, classes},
     {0x68bc, 8, 1, bits},
     {0x7d98, 24, 1, knight_scores},
+    {0x8cc8, sizeof cone_sides, 1, cone_sides},
+    {0x8dc7, sizeof cone_sides_unset, 1, cone_sides_unset},
 };
 
 #define LIST(b, w, f, n)                                                                           \
@@ -951,8 +968,8 @@ static const cok_ds_table tables[] = {
 /* The combat tables the port reads (the descriptor's data; the readers are
  * the battlefield, the placement, the computer's and the arena's, and the
  * combat's effects), each at the DS offset of its code's arithmetic (see its
- * note above). The cone sides (DS:8cc8, casting) and the area's templates
- * (DS:03b5) have no reader here. */
+ * note above). The area's templates (DS:03b5) have no reader here; the cone sides (DS:8cc8,
+ * and DS:8dc7 for side 0xff, tables[]) are read by offset (queen_area.c's queen_cone). */
 const cok_data_segment cok_dark_queen_data = {
     tables,
     sizeof tables / sizeof *tables,

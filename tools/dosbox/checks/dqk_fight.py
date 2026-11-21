@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1",
-                 "band_b2", "band_b3")
+                 "band_b2", "band_b3", "band_b4")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5727,6 +5727,78 @@ def band_b3(v, work, opts):
     print(f"eclplay (band b3) ends {p['last']!r} at turn mark {BAND_B3_MARK}", flush=True)
 
 
+# Band b4's cone (step 4, part 31c: queen_area.c's queen_cone and Cone of Cold, 7fd8:299c). Saved game A with BALTHIR
+# memorising Cone of Cold (+0xce 0x5c, time 0) and his class 5 level at 9 (+0xaa 9: the mage's level, a cone of length
+# 5; the poke changes no draw before the Aim): C, C (Begins Casting: WALKER's menu, 2 draws), E (WALKER's End: his pending
+# Cone of Cold at its Aim, 3 draws), N (SHARKMAN 2 under the cursor, no draw), then T: the tail.
+BAND_B4_COLD = 0x5C
+BAND_B4_LEVEL = 0xAA                    # BALTHIR's class 5 level (the mage's: 0xa5 + 5)
+BAND_B4_MAGE = 9                        # the level poked: a cone of length 5 (the walk to 2 * 5 = 10)
+BAND_B4_TAIL = (30, 0x6EACBBD8)         # the tail after T: 30 draws past the menu (the Aim's 3 first)
+BAND_B4_CELL = (32, 18)                 # the spell's cell (DS:bd2c, bd49: SHARKMAN 2's)
+BAND_B4_FACING = 3                      # BALTHIR's facing after the cone (at SHARKMAN 2, as MM's)
+BAND_B4_HP = 0x3D                       # SHARKMAN 2's hit points at the tail (0x4e, 9d4 + 9 halved: 17 off)
+
+
+def cone_save():
+    """Saved game A with BALTHIR memorising Cone of Cold (+0xce 0x5c) at mage level 9 (+0xaa 9) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B4_COLD, BAND_B4_LEVEL: BAND_B4_MAGE}})
+
+
+def band_b4(v, work, opts):
+    """Band b4's cone (part 31c), the flow band_b4: Cone of Cold at SHARKMAN 2 (32, 18) by BALTHIR at mage level 9, on the
+    original's tail after T (the cone's dice, the save, the say's wait) and eclplay's turn mark 03. The original: RandSeed
+    at WALKER's menu after C, C (CAST_CLW_NEXT), at the pending Cone of Cold's Aim after E (CAST_CLW_AIM), and at the tail
+    30 draws past the menu, RandSeed 6eacbbd8; DS:c6f4 1, the cell 32, 18, SHARKMAN 2 (record 7) from 0x4e to 0x3d (a
+    half on its save), BALTHIR's +0xce 0xdc and facing 3. eclplay runs the same keys: the Aim's screen (row 23 "Spell:
+    Cone of Cold") compared, and its turn mark 03 (the tail) agrees on RandSeed, records, blocks, effect chains."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = cone_save()
+    o = cast_original(work, wild, save, "band-b4", opts.verbose, band_a1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b4-save", save)
+    nxt, aim, tail = o["next"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Cone of Cold: "
+            f"Begins Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Cone of Cold at its Aim "
+            f"(after WALKER's End) is {CAST_CLW_AIM[0]} draws past BALTHIR's menu, at {CAST_CLW_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_B4_TAIL, f"the original's tail after T (Cone of Cold) is {BAND_B4_TAIL[0]} draws "
+            f"past BALTHIR's menu, at {BAND_B4_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is "
+            "unchanged", f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    v.check(tail["cell"] == BAND_B4_CELL and tail["targets"] == 1, f"at the tail the cone's cell is {BAND_B4_CELL} and "
+            f"DS:c6f4 is 1", f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    hp = rec_byte(tail["records"][CAST_AUTO_SHARKMAN], HIT_POINTS)
+    v.check(hp == BAND_B4_HP, f"at the tail SHARKMAN 2 (record 7) is at {BAND_B4_HP:#x} (halved on its save)", f"{hp:#x}")
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_B4_COLD | CAST_FORGOTTEN and facing == BAND_B4_FACING,
+            "at the tail BALTHIR's Cone of Cold is forgotten (+0xce 0xdc) and he faces 3", f"+0xce {forgotten:#x}, facing {facing}")
+    p_aim = turn_port(work, wild, "band-b4-aim", "CCE", entry=entry)
+    cast_screen(v, work, "BALTHIR's pending Cone of Cold at its Aim (row 23 Spell:Cone of Cold)", aim["screen"], p_aim,
+                SHIELD_POINTER)
+    command_state(v, "BALTHIR's pending Cone of Cold at its Aim", aim, p_aim, nxt["seed"])
+    p = turn_port(work, wild, "band-b4", "CCENT", entry=entry)
+    mark = cast_mark(p, "03")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (03) after C, C, E, N and T", p["last"])
+        return
+    command_state(v, "Cone of Cold's tail (the turn's tail, 03)", tail, mark, aim["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Cone of Cold's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_B4_COLD | CAST_FORGOTTEN and
+            rec_byte(marked[CAST_AUTO_SHARKMAN], HIT_POINTS) == BAND_B4_HP,
+            "eclplay's tail after Cone of Cold: BALTHIR's Cone of Cold forgotten (+0xce 0xdc), SHARKMAN 2 at 0x3d",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band b4) turn mark 03 after {p['last']!r}", flush=True)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5820,6 +5892,8 @@ def main():
         band_b2(v, work, opts)
     if "band_b3" in flows:
         band_b3(v, work, opts)
+    if "band_b4" in flows:
+        band_b4(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
