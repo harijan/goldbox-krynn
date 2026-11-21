@@ -239,7 +239,7 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto", "band_a1")
+                 "cast_auto", "band_a1", "band_a2")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5254,6 +5254,132 @@ def band_a1(v, work, opts):
             f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
 
 
+# Band a2's one-target damage and heals (step 4, part 30b: queen_cast.c's 0162, 01e6, 0588, 1e31, 20df, 1c2e, 2073, 2c32,
+# 0ff6). Shocking Grasp (0x14, a touch, the mage's kind 2) is memorised alone: C, C (the Aim at once, one draw), then T
+# (herself). The touch's hit roll misses (AC 65 against THAC0 53
+# and the d20): no text, no damage, +0xce 0x94, the tail 3 draws past the menu. The druid's Cure Light Wounds (0x62, a
+# touch, time 4: CLW's order) at CAST-HURT's 0x32 hit points: C, C (Begins Casting: WALKER's menu), E (WALKER's End: the
+# pending Aim), then T: the tail, the heal of 1d8 and "is partially healed".
+BAND_A2_SHOCK = 0x14
+BAND_A2_CLW = 0x62
+BAND_A2_SHOCK_AIM = (1, 0xEB831397)     # C, C: the Aim at once, one draw past the menu
+BAND_A2_SHOCK_TAIL = (3, 0x8A1EDDA5)    # the tail after T: the Aim's draw, the handler's 1d8, the touch's d20
+BAND_A2_SHOCK_HP = 0x6A                 # BALTHIR's hit points before and at the tail (the touch missed)
+BAND_A2_CLW_NEXT = CAST_CLW_NEXT        # the same keys and time as CLW (1): the same draws expected
+BAND_A2_CLW_AIM = CAST_CLW_AIM
+BAND_A2_CLW_TAIL = (5, 0xB1457E83)      # the tail after T: 5 draws past the menu (the Aim's 3, the heal's d8, the say's wait)
+BAND_A2_CLW_HP = 0x36                   # 0x32 plus the heal's d8: 4 (the next draw after RandSeed 8a1edda5, the Aim's)
+
+
+def shock_save():
+    """Saved game A with BALTHIR memorising Shocking Grasp (+0xce 0x14) and nothing else (the WILD block's fixture)."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_A2_SHOCK}})
+
+
+def clw_hurt_save():
+    """Saved game A with BALTHIR memorising the druid's Cure Light Wounds (+0xce 0x62) at CAST-HURT's 0x32 hit points."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_A2_CLW, HIT_POINTS: CAST_HURT}})
+
+
+def shock_run(box, menu, work, tag):
+    """C, C (the Aim at once: Shocking Grasp's Aim, one draw), then T (herself): the tail."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_a2_shock(v, work, wild, opts):
+    """Shocking Grasp on herself (the touch misses): the Aim at once, the tail (RandSeed, hit points, the byte forgotten,
+    facing 0), and eclplay's tail (turn mark 01) and its Aim agree with the original's."""
+    save = shock_save()
+    o = cast_original(work, wild, save, "band-a2-shock", opts.verbose, shock_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-a2-shock-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_A2_SHOCK_AIM, f"the original's RandSeed at Shocking Grasp's Aim (C, C: the Aim at "
+            f"once) is {BAND_A2_SHOCK_AIM[0]} draw past BALTHIR's menu, at {BAND_A2_SHOCK_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_A2_SHOCK_TAIL, f"the original's tail after T (Shocking Grasp on herself) is "
+            f"{BAND_A2_SHOCK_TAIL[0]} draws past BALTHIR's menu, at {BAND_A2_SHOCK_TAIL[1]:#x}",
+            f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(aim["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(hp == (BAND_A2_SHOCK_HP, BAND_A2_SHOCK_HP), f"BALTHIR's hit points (+0x198) stay {BAND_A2_SHOCK_HP:#x} at the "
+            "tail (the touch missed: no damage, no text)", f"{hp[0]:#x} -> {hp[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_A2_SHOCK | CAST_FORGOTTEN and facing == 0,
+            "at the tail BALTHIR's Shocking Grasp is forgotten (+0xce 0x94) and he faces 0",
+            f"+0xce {forgotten:#x}, facing {facing}")
+    p_aim = command_port(work, wild, "band-a2-shock-aim", "CC", entry=entry)
+    command_state(v, "Shocking Grasp's Aim (C, C)", aim, p_aim, m0)
+    p = turn_port(work, wild, "band-a2-shock", "CCT", entry=entry)
+    mark = cast_mark(p, "01")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (01) after C, C and T", p["last"])
+        return
+    command_state(v, "Shocking Grasp's tail (the turn's tail, 01)", tail, mark, aim["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Shocking Grasp's tail, turn mark 01)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], HIT_POINTS) == BAND_A2_SHOCK_HP and
+            rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_A2_SHOCK | CAST_FORGOTTEN,
+            f"eclplay's tail after Shocking Grasp: BALTHIR at {BAND_A2_SHOCK_HP:#x}, +0xce {BAND_A2_SHOCK | CAST_FORGOTTEN:#x}",
+            f"{rec_byte(marked[CAST_BALTHIR], HIT_POINTS):#x}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_a2_clw(v, work, wild, opts):
+    """The druid's Cure Light Wounds at CAST-HURT's 0x32 (time 4, CLW's order: C, C, E, then T): the draws at WALKER's menu,
+    at the Aim and at the tail, the heal, the byte forgotten, and eclplay's tail (turn mark 03) agreeing with the original's."""
+    save = clw_hurt_save()
+    o = cast_original(work, wild, save, "band-a2-clw", opts.verbose, cast_run_clw)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-a2-clw-save", save)
+    nxt, aim, tail = o["next"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == BAND_A2_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (the druid's "
+            f"CLW: Begins Casting) is {BAND_A2_CLW_NEXT[0]} draws past BALTHIR's menu, at {BAND_A2_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_A2_CLW_AIM, f"the original's RandSeed at BALTHIR's pending druid's CLW at its Aim "
+            f"(after WALKER's End) is {BAND_A2_CLW_AIM[0]} draws past BALTHIR's menu, at {BAND_A2_CLW_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_A2_CLW_TAIL, "the original's tail after T (the druid's CLW)",
+            f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(aim["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(hp == (CAST_HURT, BAND_A2_CLW_HP), f"BALTHIR's hit points (+0x198) go from {CAST_HURT:#x} to "
+            f"{BAND_A2_CLW_HP:#x} at the tail (one d8)", f"{hp[0]:#x} -> {hp[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_A2_CLW | CAST_FORGOTTEN and facing == 0,
+            "at the tail BALTHIR's druid's CLW is forgotten (+0xce 0xe2) and he faces 0", f"+0xce {forgotten:#x}, facing {facing}")
+    p_aim = turn_port(work, wild, "band-a2-clw-aim", "CCE", entry=entry)
+    command_state(v, "the druid's CLW at its Aim", aim, p_aim, nxt["seed"])
+    p = turn_port(work, wild, "band-a2-clw", "CCET", entry=entry)
+    mark = cast_mark(p, "03")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (03) after C, C, E and T", p["last"])
+        return
+    command_state(v, "the druid's CLW's tail (the turn's tail, 03)", tail, mark, aim["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (the druid's CLW's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], HIT_POINTS) == BAND_A2_CLW_HP and
+            rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_A2_CLW | CAST_FORGOTTEN,
+            f"eclplay's tail after the druid's CLW: BALTHIR at {BAND_A2_CLW_HP:#x}, +0xce {BAND_A2_CLW | CAST_FORGOTTEN:#x}",
+            f"{rec_byte(marked[CAST_BALTHIR], HIT_POINTS):#x}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_a2(v, work, opts):
+    """Band a2's one-target damage and heals (part 30b), the flow band_a2: Shocking Grasp on herself (the touch misses)
+    and the druid's Cure Light Wounds at 0x32 (the heal), each against eclplay's stops (its Aim and turn marks: RandSeed,
+    records, combat blocks, effect chains, turn list) on the open ground (the WILD block)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_a2_shock(v, work, wild, opts)
+    band_a2_clw(v, work, wild, opts)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5337,6 +5463,8 @@ def main():
         cast_auto(v, work, opts)
     if "band_a1" in flows:
         band_a1(v, work, opts)
+    if "band_a2" in flows:
+        band_a2(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
