@@ -744,6 +744,106 @@ static bool queen_plain_apply(cok_adventure *game)
     return queen_spell_apply(game, p->id, 0, false, 0, 0, p->text);
 }
 
+/* The caster's side: its word +0x66 (148f's hostile flag; a word in Dark Queen's records, as
+ * cok_combat_field_word reads it). False where the run stopped. */
+static bool caster_side(cok_adventure *game, unsigned *side)
+{
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    *side = cok_combat_field_word(cok_game_rules(game), caster, COK_FIELD_HOSTILE);
+    return true;
+}
+
+/* 7fd8:0001 (side, text): Bless and Curse. Each target whose word +0x66 is not side is cleared (NULL);
+ * a Bless (spell 1 only, not 0x3e) in a battle clears one of the side with an enemy within 1 (51c2:0980,
+ * cok_combat_enemies). The images flag is set first (no mirror image), before the clears; then the
+ * apply of the spell with text.
+ * The original reads a NULL target's +0x66 through NULL: undefined here. */
+static bool bless(cok_adventure *game, unsigned side, const char *text)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_rolls *r = &game->effects.rolls;
+    r->images = 1;
+    for (uint8_t i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL)
+            return undefined(game, "Bless or Curse reads a target's side through NULL (DS:c5df)");
+        if (cok_combat_field_word(R, t->record, COK_FIELD_HOSTILE) != side) {
+            game->spell_targets[i] = NULL;
+            continue;
+        }
+        if (r->spell == 1 && game->vm.mode == 5) {
+            uint8_t n = 0;
+            if (!cok_combat_enemies(game, t, 1, &n)) return false;
+            if (n != 0) game->spell_targets[i] = NULL;
+        }
+    }
+    return queen_spell_apply(game, r->spell, 0, false, 0, 0, text);
+}
+
+/* 7fd8:00a2 (Bless, 0x01 and 0x3e): the caster's side, "is Blessed". */
+static bool bless_spell(cok_adventure *game)
+{
+    unsigned side;
+    return caster_side(game, &side) && bless(game, side, "is Blessed");
+}
+
+/* 7fd8:00c9 (Curse, 0x02): the other side (51c2:08fd: 1 where the caster's word is 0, else 0), "is
+ * Cursed". */
+static bool curse_spell(cok_adventure *game)
+{
+    unsigned side;
+    if (!caster_side(game, &side)) return false;
+    return bless(game, side == 0 ? 1 : 0, "is Cursed");
+}
+
+/* 7fd8:13b7 (Prayer, 0x2a): the caster level (capped) plus 0x80 where the bit 0 of the caster's byte
+ * +0x66 is set (shifted to bit 7), "is praying". */
+static bool prayer(cok_adventure *game)
+{
+    uint8_t *caster = caster_of(game);
+    uint8_t lv;
+    if (caster == NULL || !level_of(game, 0x2a, true, &lv)) return false;
+    uint8_t hostile = cok_field_u8(cok_game_rules(game)->character, caster, COK_FIELD_HOSTILE);
+    uint8_t value = (uint8_t)(lv + ((hostile & 1) << 7));
+    return queen_spell_apply(game, 0x2a, value, false, 0, 0, "is praying");
+}
+
+/* 7fd8:0957 (Mirror Image, 0x20): a d4, drawn before the level, then the value d << 5 | the caster level
+ * (capped), "is duplicated". */
+static bool mirror_image(cok_adventure *game)
+{
+    uint8_t d = roll(game, 1, 4);
+    uint8_t lv;
+    if (!level_of(game, 0x20, true, &lv)) return false;
+    return queen_spell_apply(game, 0x20, (uint8_t)((d << 5) | lv), false, 0, 0, "is duplicated");
+}
+
+/* 7fd8:210b (Dispel Evil, 0x49): effect 4 on the caster for the spell's duration with value 0 and no text
+ * (148f:252c, cok_cast_add_effect), then the spell's apply: its effect with "is affected". */
+static bool dispel_evil(cok_adventure *game)
+{
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    cok_character *c = combatant_of(game, caster);
+    if (c == NULL) return undefined(game, "Dispel Evil's caster has no combatant (DS:ad67, 148f:252c)");
+    uint16_t minutes;
+    if (!queen_spell_duration(game, 0x49, &minutes)) return false;
+    if (!cok_cast_add_effect(game, c, 4, minutes, 0, false, 0, false, "")) return false;
+    return queen_spell_apply(game, 0x49, 0, false, 0, 0, "is affected");
+}
+
+/* 7fd8:36d6 (Fire Touch, 0x76): underwater (var 0x3c) the bar's refusal only; else the apply, "is covered
+ * in flame". */
+static bool fire_touch(cok_adventure *game)
+{
+    if (underwater(game)) {
+        queen_bar_message(game, words.underwater);
+        return true;
+    }
+    return queen_spell_apply(game, 0x76, 0, false, 0, 0, "is covered in flame");
+}
+
 queen_spell_fn *queen_spell_handler(uint8_t id)
 {
     switch (id) {
@@ -760,6 +860,14 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     case 0x47: return queen_cure_critical;
     case 0x48: return queen_cause_critical;
     case 0x62: return queen_cure_druid;
+    /* Bless (0x3e, Bless's power, the same routine), Curse, Prayer, Mirror Image, Dispel Evil, Fire Touch. */
+    case 0x01:
+    case 0x3e: return bless_spell;
+    case 0x02: return curse_spell;
+    case 0x2a: return prayer;
+    case 0x20: return mirror_image;
+    case 0x49: return dispel_evil;
+    case 0x76: return fire_touch;
     default: return plain_of(id) != NULL ? queen_plain_apply : NULL;
     }
 }

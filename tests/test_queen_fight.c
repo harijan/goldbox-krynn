@@ -2081,7 +2081,9 @@ static void test_plain_apply(void)
         bool plain = queen_plain_text((uint8_t)id, &ds) != NULL;
         bool a2 = false;
         for (size_t i = 0; i < sizeof band_a2 / sizeof *band_a2; ++i) a2 = a2 || band_a2[i] == id;
-        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f));
+        bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
+                  id == 0x76;
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3));
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2568,6 +2570,259 @@ static void test_band_a2_cure(void)
     battle_clear();
 }
 
+/* Bless (dqk 7fd8:0001, 00a2) and Curse (00c9): a target whose word +0x66 is not the side is cleared (the
+ * whole word: a 0x0100 there is the other side). A Bless of spell 1 (not 0x3e) in a battle also clears one
+ * of the side with an enemy within 1 (51c2:0980). The rest take the effect (1, 2) with "is Blessed" or
+ * "is Cursed", and Bless sets the images flag. The caster is a (side 0), the enemy t (side 1) at 6, 5. */
+static void test_bless_curse(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t, *near, *far, *wide;
+    duel(&a, &t);
+    near = record('N', 0, 0);
+    place(near, 7, 5); /* beside t: an enemy within 1 */
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    wide = record('W', 0, 0);
+    place(wide, 1, 3);
+    cok_combat_set_field_word(R, wide->record, COK_FIELD_HOSTILE, 0x0100); /* not side 0 */
+    game.vm.character = a->record;
+    uint8_t bless = 0x01, bless_power = 0x3e, curse = 0x02;
+    CHECK(queen_spell_byte(&game, bless, 0x0e) == 1 && queen_spell_byte(&game, bless_power, 0x0e) == 1);
+    CHECK(queen_spell_byte(&game, curse, 0x0e) == 2);
+    /* Bless (0x01): near is cleared (beside the enemy), far kept, t and wide (the other side) cleared. */
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = far;
+    game.spell_targets[3] = t;
+    game.spell_targets[4] = wide;
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = bless;
+    game.effects.rolls.images = 0;
+    CHECK(queen_spell_handler(bless)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == far && game.spell_targets[3] == NULL &&
+          game.spell_targets[4] == NULL);
+    CHECK(game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(far, 1) != NULL && cok_character_find_effect(near, 1) == NULL &&
+          cok_character_find_effect(t, 1) == NULL && cok_character_find_effect(wide, 1) == NULL);
+    CHECK(LOGGED("is Blessed"));
+    /* Bless's power (0x3e): no melee test, so near is kept and takes the effect. */
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = far;
+    game.spell_targets[3] = t;
+    game.spell_targets[4] = wide;
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = bless_power;
+    CHECK(queen_spell_handler(bless_power)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == near && game.spell_targets[2] == far && game.spell_targets[3] == NULL);
+    CHECK(cok_character_find_effect(near, 1) != NULL);
+    /* Outside a battle (mode 4) the melee test does not run: one beside the enemy (not yet blessed) is kept
+     * for Bless too and takes the effect. */
+    cok_character *beside = record('B', 0, 0);
+    place(beside, 6, 6); /* beside t */
+    game.vm.mode = 4;
+    game.spell_targets[1] = beside;
+    game.spell_targets[2] = NULL;
+    game.spell_targets[3] = NULL;
+    game.spell_targets[4] = NULL;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = bless;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_spell_handler(bless)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == beside && cok_character_find_effect(beside, 1) != NULL);
+    game.vm.mode = 5;
+    /* The caster's side is its whole word too: a caster of word 0x0100 blesses that side only (wide, not far)
+     * and curses the side 0 (51c2:08fd: the word is not 0), so far is kept and t cleared. */
+    duel(&a, &t);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 0x0100);
+    game.vm.character = a->record;
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    wide = record('W', 0, 0);
+    place(wide, 1, 3);
+    cok_combat_set_field_word(R, wide->record, COK_FIELD_HOSTILE, 0x0100);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = wide;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = bless;
+    CHECK(queen_spell_handler(bless)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == wide);
+    CHECK(cok_character_find_effect(wide, 1) != NULL && cok_character_find_effect(far, 1) == NULL);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = t;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = curse;
+    CHECK(queen_spell_handler(curse)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == far && game.spell_targets[2] == NULL);
+    CHECK(cok_character_find_effect(far, 2) != NULL && cok_character_find_effect(t, 2) == NULL);
+    /* Curse (0x02) of a side-0 caster: the other side (1) is kept; far and near are cleared. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = t;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = curse;
+    CHECK(queen_spell_handler(curse)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == t);
+    CHECK(cok_character_find_effect(t, 2) != NULL && cok_character_find_effect(far, 2) == NULL);
+    CHECK(LOGGED("is Cursed"));
+    /* A hostile caster (word 1) curses the side 0. */
+    duel(&a, &t);
+    cok_field_set8(R->character, a->record, COK_FIELD_HOSTILE, 1);
+    game.vm.character = a->record;
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = t;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = curse;
+    CHECK(queen_spell_handler(curse)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == far && game.spell_targets[2] == NULL);
+    CHECK(cok_character_find_effect(far, 2) != NULL);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Prayer (dqk 7fd8:13b7): the caster's level (capped at 0x1f; class 0 here) plus 0x80 where bit 0 of the caster's
+ * byte +0x66 is set, the effect (0x31) with "is praying". Bit 1 and bit 7 of that byte do nothing. */
+static void test_prayer(void)
+{
+    game.vm.mode = 5; /* the battle */
+    const uint8_t prayer = 0x2a;
+    CHECK(queen_spell_byte(&game, prayer, 0x0e) == 0x31 && queen_spell_word(&game, prayer, 0x0a) == 0);
+    static const struct { uint8_t hostile, level, value; } cases[] = {
+        {0, 5, 5}, {1, 5, 0x85}, {2, 5, 5}, {0x80, 5, 5}, {0x81, 5, 0x85},
+        {0, 40, 0x1f}, {1, 40, 0x9f}, /* the level capped at 0x1f (uncapped: 0x28, 0xa8) */
+    };
+    for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k) {
+        cok_character *a, *t;
+        duel(&a, &t);
+        set_class(a, 0, cases[k].level);
+        cok_field_set8(R->character, a->record, COK_FIELD_HOSTILE, cases[k].hostile);
+        game.vm.character = a->record;
+        game.spell_targets[1] = t;
+        game.spell_target_count = 1;
+        game.effects.rolls.spell = prayer;
+        CHECK(queen_spell_handler(prayer)(&game) && game.vm.status == COK_ECL_OK);
+        cok_effect *e = cok_character_find_effect(t, 0x31);
+        CHECK(e != NULL && e->value == cases[k].value);
+        CHECK(LOGGED("is praying"));
+    }
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Mirror Image (dqk 7fd8:0957): a d4 first, then the value d << 5 | the caster level (kind 2: BALTHIR's mage
+ * level 2 from class 4 10: max(class 5 0, 10 - 8)), the effect 0x1c with "is duplicated". The level is capped
+ * at 0x1f (class 5 40). A moon past the three (order 4) stops after the draw. */
+static void test_mirror_image(void)
+{
+    game.vm.mode = 5; /* the battle */
+    const uint8_t mirror = 0x20;
+    CHECK(queen_spell_word(&game, mirror, 0x00) == 2 && queen_spell_byte(&game, mirror, 0x0e) == 0x1c);
+    cok_character *a, *t;
+    /* The level 2: d4 = the first draw, then 2. */
+    duel(&a, &t);
+    set_class(a, 4, 10);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = mirror;
+    game.vm.seed = 77;
+    uint32_t want = 77;
+    uint8_t d = cok_dice(&want, 1, 4);
+    CHECK(queen_spell_handler(mirror)(&game) && game.vm.status == COK_ECL_OK);
+    cok_effect *e = cok_character_find_effect(t, 0x1c);
+    CHECK(e != NULL && e->value == (uint8_t)((d << 5) | 2) && LOGGED("is duplicated"));
+    /* The cap: class 5 40 (order 0) is level 0x1f. */
+    duel(&a, &t);
+    set_class(a, 4, 10);
+    set_class(a, 5, 40);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.vm.seed = 77;
+    CHECK(queen_spell_handler(mirror)(&game) && game.vm.status == COK_ECL_OK);
+    e = cok_character_find_effect(t, 0x1c);
+    CHECK(e != NULL && e->value == (uint8_t)((d << 5) | 0x1f));
+    /* A magic order past the moons stops in the level, after the draw: one draw is made. */
+    duel(&a, &t);
+    set_class(a, 4, 10);
+    set_class(a, 5, 2);
+    cok_field_set8(R->character, a->record, COK_FIELD_MAGIC_ORDER, 4);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.vm.seed = 77;
+    CHECK(!queen_spell_handler(mirror)(&game) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(game.vm.seed == after_draws(77, 1, 4));
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Dispel Evil (dqk 7fd8:210b): effect 4 on the caster for the spell's duration with value 0 (148f:252c,
+ * no text), then the spell's effect (0x20) on the target with the level as its value and "is affected". */
+static void test_dispel_evil(void)
+{
+    game.vm.mode = 5; /* the battle */
+    const uint8_t dispel = 0x49;
+    CHECK(queen_spell_byte(&game, dispel, 0x0e) == 0x20 && queen_spell_word(&game, dispel, 0x0a) == 0);
+    cok_character *a, *t;
+    duel(&a, &t);
+    set_class(a, 0, 6);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = dispel;
+    uint8_t lv = 0;
+    uint16_t minutes = 0;
+    CHECK(queen_caster_level(&game, a->record, dispel, true, &lv) &&
+          queen_spell_duration(&game, dispel, &minutes));
+    CHECK(queen_spell_handler(dispel)(&game) && game.vm.status == COK_ECL_OK);
+    cok_effect *self = cok_character_find_effect(a, 4), *target = cok_character_find_effect(t, 0x20);
+    CHECK(self != NULL && self->duration == minutes && self->value == 0 && !self->on_remove);
+    CHECK(target != NULL && target->duration == minutes && target->value == lv);
+    CHECK(self->made < target->made); /* the caster's first */
+    CHECK(LOGGED("is affected"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Fire Touch (dqk 7fd8:36d6): underwater (var 0x3c) the bar's refusal only (its speed's wait, one draw), no
+ * effect; else the effect (0x79) with "is covered in flame". */
+static void test_fire_touch(void)
+{
+    game.vm.mode = 5; /* the battle */
+    const uint8_t fire = 0x76;
+    CHECK(queen_spell_byte(&game, fire, 0x0e) == 0x79 && queen_spell_byte(&game, fire, 0x03) != 0xff);
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = fire;
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    game.vm.seed = 5;
+    uint32_t want = 5;
+    cok_tp_random(&want, 1000); /* the bar's speed wait (177e:153c: one draw at speed 0) */
+    CHECK(queen_spell_handler(fire)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.vm.seed == want && cok_character_find_effect(t, 0x79) == NULL && !LOGGED("is covered"));
+    CHECK(LOGGED("That has no effect underwater!"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    CHECK(queen_spell_handler(fire)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x79) != NULL && LOGGED("is covered in flame"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -2625,6 +2880,11 @@ int main(void)
     test_spell_touch();
     test_spell_touch_slot();
     test_plain_apply();
+    test_bless_curse();
+    test_prayer();
+    test_mirror_image();
+    test_dispel_evil();
+    test_fire_touch();
     test_spell_damage();
     test_band_a2_damage();
     test_band_a2_heals();

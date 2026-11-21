@@ -239,7 +239,7 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto", "band_a1", "band_a2")
+                 "cast_auto", "band_a1", "band_a2", "band_a3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5380,6 +5380,66 @@ def band_a2(v, work, opts):
     band_a2_clw(v, work, wild, opts)
 
 
+# Band a3's flow (step 4, part 30c: Detect Magic, a plain apply, and Mirror Image, the d4 apply): BALTHIR memorises one
+# spell (+0xce) and casts it at once on his own turn (kind 0, time 0: C, C, the list's first spell, then the tail; no
+# Aim). Detect Magic (0x05: effect 5 with value 10, his level, for 10 minutes) puts effect 5 on him with the flash, and
+# his racial 0x5f runs at event 9 (d100, a0). Mirror Image (0x20, kind 2: BALTHIR's mage level is 2, max(class 5
+# 0, class 4 10 - 8)) puts effect 0x1c on him with the value d4 << 5 | 2, the d4 drawn first. eclplay's turn mark 01 (the
+# tail) agrees with the original's on RandSeed, records, blocks and effect chains. A stop past the tail (0x1c's handler at
+# its next event) is not compared.
+BAND_A3_DETECT = 0x05
+BAND_A3_MIRROR = 0x20
+BAND_A3_DETECT_EFFECT, BAND_A3_MIRROR_EFFECT = 5, 0x1C
+BAND_A3_DETECT_TAIL = (22, 0xA1C0CEE0)  # RandSeed at the tail after C, C (Detect Magic): (draws past the menu, seed)
+BAND_A3_MIRROR_TAIL = (23, 0x78F34661)  # the same for Mirror Image (its d4: one draw more)
+BAND_A3_DETECT_MINUTES = 10     # the new effect 5's minutes at the tail (its level 10)
+BAND_A3_MIRROR_MINUTES = 4      # the new effect 0x1c's minutes at the tail (level 2)
+
+
+def band_a3_run(box, menu, work, tag):
+    """C, C (the list's first spell, cast at once), then the turn's tail (5045:066a)."""
+    return dict(tail=cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "CC", None)])[0])
+
+
+def band_a3_spell(v, work, wild, opts, spell, name, effect, tail_want, minutes, value_ok):
+    """One spell of band a3: the original's tail (draws, RandSeed, the new node, the memorised byte forgotten), then
+    eclplay's turn mark 01 against it (RandSeed, records, blocks, effect chains)."""
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: spell}})
+    o = cast_original(work, wild, save, f"band-a3-{name}", opts.verbose, band_a3_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / f"band-a3-{name}-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == tail_want, f"the original's tail after C, C ({name}: {spell:#x}) is {tail_want} "
+            f"(draws past the menu, RandSeed)", f"{draws} draws, {tail['seed']:#x}")
+    node = [n for n in tail["chains"][CAST_BALTHIR] if n[0] == effect]
+    v.check(len(node) == 1 and node[0][1] == minutes and value_ok(node[0][2]) and node[0][3] == 0,
+            f"BALTHIR's new effect {effect:#x} at the tail: {minutes} minutes, flag 0, its value as the spell gives",
+            f"{tail['chains'][CAST_BALTHIR]}")
+    v.check(rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO) == spell | CAST_FORGOTTEN,
+            f"at the tail BALTHIR's {spell:#x} is forgotten (+0xce {spell | CAST_FORGOTTEN:#x})",
+            f"+0xce {rec_byte(tail['records'][CAST_BALTHIR], CAST_MEMO):#x}")
+    p = turn_port(work, wild, f"band-a3-{name}", "CC", entry=entry)
+    mark = cast_mark(p, "01")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark (01) after C, C ({name})", p["last"])
+        return
+    command_state(v, f"{name}'s tail (the turn's tail, 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" ({name}'s tail, turn mark 01)")
+    print(f"eclplay ({name}) ends {p['last']!r}", flush=True)
+
+
+def band_a3(v, work, opts):
+    """Band a3's spells on BALTHIR's own turn (step 4, part 30c), the flow band_a3: Detect Magic (effect 5, 10 for its
+    minutes, with his 0x5f at event 9) and Mirror Image (effect 0x1c, d4 << 5 | 2), each against eclplay's turn mark 01."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_a3_spell(v, work, wild, opts, BAND_A3_DETECT, "detect", BAND_A3_DETECT_EFFECT, BAND_A3_DETECT_TAIL,
+                  BAND_A3_DETECT_MINUTES, lambda value: value == 10)
+    band_a3_spell(v, work, wild, opts, BAND_A3_MIRROR, "mirror", BAND_A3_MIRROR_EFFECT, BAND_A3_MIRROR_TAIL,
+                  BAND_A3_MIRROR_MINUTES, lambda value: (value & 0x1F) == 2 and 1 <= value >> 5 <= 4)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5465,6 +5525,8 @@ def main():
         band_a1(v, work, opts)
     if "band_a2" in flows:
         band_a2(v, work, opts)
+    if "band_a3" in flows:
+        band_a3(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

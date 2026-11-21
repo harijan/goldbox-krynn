@@ -288,7 +288,8 @@ bool queen_healed(cok_adventure *game, cok_character *c);
  * (rolls.spell is the spell). False where the run stopped. */
 bool queen_cure_light(cok_adventure *game);
 bool queen_magic_missile(cok_adventure *game);
-/* The handler of a spell id the port carries out (CLW 0x03, MM 0x0f, the plain applies), NULL for any
+/* The handler of a spell id the port carries out (CLW 0x03, MM 0x0f, the plain applies, Bless 0x01 and 0x3e,
+ * Curse 0x02, Mirror Image 0x20, Prayer 0x2a, Dispel Evil 0x49, Fire Touch 0x76), NULL for any
  * other: the cast takes its handler from here before rules_dark_queen_magic.c's unported table. */
 typedef bool queen_spell_fn(cok_adventure *game);
 queen_spell_fn *queen_spell_handler(uint8_t id);
