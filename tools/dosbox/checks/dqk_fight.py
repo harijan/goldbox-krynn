@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "effects_1")
+                 "band_b3", "band_b4", "band_b5", "effects_1", "effects_4")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6063,6 +6063,69 @@ def effects_1(v, work, opts):
         effects_1_case(v, work, wild, opts, name, effect, want, hp)
 
 
+# Effects band a's 7e76 four (step 4, part 34d, effects-4): Silence on himself. Saved game A with BALTHIR memorising Silence
+# (+0xce 0x19, as band a1's): C, C (WALKER's menu, 2 draws), E (WALKER's End: his pending Silence at its Aim, 3 draws), T
+# (his own cell: no N), then TIMASALIN's menu, 43 draws past the menu, RandSeed d3e6c85d. BALTHIR gains effect 0x15 (silence,
+# 20 minutes, value 10, flag 0, the save failed); SHARKMAN 2 hits ROARK 0x62 -> 0x5b (effects-1's 0x2f); TIMASALIN's combat
+# block (+1 may cast, +2 may use) is 0, 0: silenced at his turn start by BALTHIR's node (shared within 1).
+EFFECTS_4_SILENCE = 0x19
+EFFECTS_4_NEXT = (2, 0xD9491FD4)        # C, C: WALKER's menu, 2 draws past BALTHIR's
+EFFECTS_4_AIM = (3, 0x8A1EDDA5)         # E: BALTHIR's pending Silence at its Aim, 3 draws
+EFFECTS_4_MENU = (43, 0xD3E6C85D)       # T: TIMASALIN's menu, 43 draws past BALTHIR's
+EFFECTS_4_NODE = [0x15, 20, 10, 0]      # BALTHIR's new node: effect, minutes, value, flag
+EFFECTS_4_ROARK = 4                     # ROARK's record (0-based): hit points 0x62 -> 0x5b
+EFFECTS_4_TIMASALIN = 1                 # TIMASALIN's record (0-based): silenced, +1 and +2 0
+
+
+def effects_4_run(box, menu, work, tag):
+    """C, C (Begins Casting: WALKER's menu), E (WALKER's End: BALTHIR's pending Silence at its Aim), T (his own cell), then
+    the next menu (TIMASALIN's), one trap at a time."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "T", None)])[0]
+    return out
+
+
+def effects_4(v, work, opts):
+    """Band a's 7e76 four (part 34d), the flow effects_4: Silence on himself (BALTHIR's node 2 is his Silence, 0x19, memorised),
+    the original's draws and RandSeed at each menu, the new node, the hit points and TIMASALIN's silenced block, then
+    eclplay's turn mark at TIMASALIN's menu (RandSeed, records, blocks, effect chains)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: EFFECTS_4_SILENCE}})
+    o = cast_original(work, wild, save, "effects-4", opts.verbose, effects_4_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "effects-4-save", save)
+    nxt, aim, second = o["next"], o["aim"], o["second"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == EFFECTS_4_NEXT, f"the original's RandSeed at WALKER's menu after C, C is "
+            f"{EFFECTS_4_NEXT[0]} draws past BALTHIR's menu, at {EFFECTS_4_NEXT[1]:#x}", f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == EFFECTS_4_AIM, f"the original's RandSeed at BALTHIR's pending Silence at its Aim is "
+            f"{EFFECTS_4_AIM[0]} draws past BALTHIR's menu, at {EFFECTS_4_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, second["seed"])
+    v.check((draws, second["seed"]) == EFFECTS_4_MENU, f"the original's RandSeed at TIMASALIN's menu after T (Silence on "
+            f"himself) is {EFFECTS_4_MENU[0]} draws past BALTHIR's menu, at {EFFECTS_4_MENU[1]:#x}",
+            f"{draws} draws, {second['seed']:#x}")
+    nodes = [n for n in second["chains"][CAST_BALTHIR] if n[0] == EFFECTS_4_NODE[0]]
+    v.check(nodes == [EFFECTS_4_NODE], f"BALTHIR's new effect at TIMASALIN's menu is 0x15, 20 minutes, value 10, flag 0",
+            f"{second['chains'][CAST_BALTHIR]}")
+    hp = (rec_byte(o["menu"]["records"][EFFECTS_4_ROARK], HIT_POINTS), rec_byte(second["records"][EFFECTS_4_ROARK], HIT_POINTS))
+    v.check(hp == (0x62, 0x5B), "ROARK's hit points after SHARKMAN 2's hit (0x62 -> 0x5b)", f"{hp[0]:#x} -> {hp[1]:#x}")
+    block = bytes.fromhex(second["blocks"][EFFECTS_4_TIMASALIN])
+    v.check(block[1] == 0 and block[2] == 0, "TIMASALIN's block at his menu: may cast 0, may use 0 (silenced)",
+            f"may cast {block[1]}, may use {block[2]}")
+    p = turn_port(work, wild, "effects-4", "CCET", entry=entry)
+    mark = mark_of_seed(p, second["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at TIMASALIN's menu ({EFFECTS_4_MENU[1]:#x}) "
+                "after CCET", p["last"])
+        return
+    command_state(v, f"Silence on himself (TIMASALIN's menu, turn mark {mark['number']})", second, mark, m0)
+    chains_agree(v, second["chains"], mark["base"].with_suffix(".effects"), f" (silence, turn mark {mark['number']})")
+    print(f"eclplay (effects 4) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--workdir")
@@ -6150,6 +6213,8 @@ def main():
         band_b5(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
+    if "effects_4" in flows:
+        effects_4(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
