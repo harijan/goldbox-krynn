@@ -217,8 +217,8 @@ static void test_aging(void)
 }
 
 /* A record as a combatant at x, y on the battle's map (test_dark_queen's place), with a combat
- * record of its own. */
-static void place(cok_character *c, int8_t x, int8_t y)
+ * record of its own, its footprint of size cells (place: 1). */
+static void place_sized(cok_character *c, int8_t x, int8_t y, uint8_t size)
 {
     cok_combat *k = &game.combat;
     c->combat = calloc(1, sizeof *c->combat);
@@ -226,12 +226,16 @@ static void place(cok_character *c, int8_t x, int8_t y)
     cok_combatant *e = &k->combatant[k->count];
     e->x = x;
     e->y = y;
-    e->size = 1;
+    e->size = size;
     e->character = c;
     ++k->count;
     k->combatant[k->count].size = 0;
     k->combatant[k->count].character = NULL;
     CHECK(cok_combat_occupy(k, R));
+}
+static void place(cok_character *c, int8_t x, int8_t y)
+{
+    place_sized(c, x, y, 1);
 }
 
 /* An empty battle: the floor everywhere, no combatant but the one that count 1 leaves (combatant 0
@@ -2083,7 +2087,8 @@ static void test_plain_apply(void)
         for (size_t i = 0; i < sizeof band_a2 / sizeof *band_a2; ++i) a2 = a2 || band_a2[i] == id;
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
-        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3));
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
+              (plain || a2 || id == 0x03 || id == 0x0f || a3));
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2823,6 +2828,135 @@ static void test_fire_touch(void)
     battle_clear();
 }
 
+/* The cone (dqk 849a:19ff, queen_cone) on the made-up map: the caster's cell is 10, 10 unless the test places it.
+ * Its walk: a straight step adds 2 to the walk, a diagonal one 3; the aim goes on along its own steps until the walk
+ * is 2 * len. Each test checks the targets the cone lists (spell_targets 1 to the count). */
+static cok_character *cone_target(char name, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    return t;
+}
+
+static void test_cone(void)
+{
+    cok_combat *k = &game.combat;
+    cok_character *c, *t, *u, *v, *x, *y, *z, *w, *p;
+    /* The walk from 10, 10 at 11, 10 with len 4: 2, 4, 6, 8 (three steps on), the end 14, 10; 15, 10 is past it. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 14, 10);
+    u = cone_target('U', 15, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* A diagonal step adds 3: from 10, 10 at 11, 11 with len 4, 3, 6, 9: the end 13, 13; 14, 14 is past it. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 13, 13);
+    u = cone_target('U', 14, 14);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 11, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* The map's edge: from 46, 10 at 47, 10 the walk stops at 49, 10 (the edge, x1 0x31); the target there is taken. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 46, 10);
+    t = cone_target('T', 49, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 46, 10, 47, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    /* The sight: a wall at 12, 10 (value 1, block 2) stops it at its own cell, so 13, 10 is not reached. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    k->cells[10][12] = 1;
+    t = cone_target('T', 11, 10);
+    v = cone_target('V', 13, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && v != NULL);
+    k->cells[10][12] = 0;
+    /* The sight's range is the doubled len: an aim 10 cells east (20, 10) with len 2 walks no further (its line is
+     * 20 long, past the walk's 4), and the sight, of range 4 (limit 2 * 4 + 1 = 9 of length), stops at 15, 10 (length
+     * 10). A range of len (limit 5) would stop at 13, 10 and leave 14, 10 out. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    t = cone_target('T', 14, 10);
+    u = cone_target('U', 16, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 20, 10, 1, 2) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t && u != NULL);
+    /* The centre line's quirk: a creature X of two cells (a footprint of 1 by 2: 12, 9 and 12, 10) on the line
+     * from 12, 8 south meets it twice, so no later occupant on the line is added: Y at 12, 11 is not. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 12, 8);
+    x = record('X', 1, 0);
+    place_sized(x, 12, 9, 2);
+    uint8_t xi = (uint8_t)(k->count - 1), occ, terrain;
+    cok_combat_cell(k, 12, 9, &occ, &terrain);
+    CHECK(occ == xi);
+    cok_combat_cell(k, 12, 10, &occ, &terrain);
+    CHECK(occ == xi);
+    y = cone_target('Y', 12, 11);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 12, 8, 12, 9, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == x && y != NULL);
+    /* Width 2: the centre's end 14, 10 (P) and then the right side from 14, 11 (Z, the end's neighbour by east, 2);
+     * width 3 adds the left at 14, 9 (W). Width 1 is the centre line alone. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    p = cone_target('P', 14, 10);
+    z = cone_target('Z', 14, 11);
+    w = cone_target('W', 14, 9);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 2, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == p && game.spell_targets[2] == z);
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 3, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 3 && game.spell_targets[1] == p && game.spell_targets[2] == z &&
+          game.spell_targets[3] == w);
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.spell_target_count == 1);
+    /* The caster is never a target: she stands on the centre line at 12, 10 and is listed, then left out. */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 12, 10);
+    p = cone_target('P', 14, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    CHECK(queen_cone(&game, 10, 10, 11, 10, 1, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == p);
+    /* The stops: aimed at the caster's own cell (the walk reads the directions of a line with no steps: 849a:1a9d);
+     * width 2 with no one on the centre line (the side it reads was never set: 849a:1c4a). */
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    game.vm.character = c->record;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!queen_cone(&game, 10, 10, 10, 10, 1, 4) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "849a:1a9d") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!queen_cone(&game, 10, 10, 11, 10, 2, 4) && game.vm.status == COK_ECL_UNDEFINED &&
+          strstr(game.error, "849a:1c4a") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+
 int main(void)
 {
     struct stat st;
@@ -2889,6 +3023,7 @@ int main(void)
     test_band_a2_damage();
     test_band_a2_heals();
     test_band_a2_cure();
+    test_cone();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
