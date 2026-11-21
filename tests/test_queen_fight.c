@@ -2721,9 +2721,10 @@ static void test_own_hook_missing(void)
 
 /* effects-4: the 7e76 four (queen_effect.c's charm, silence, confusion and terror). Each returns at once with no
  * combat record (the original's rec+0x40 NULL), before its flag test. */
-static uint8_t side_of(const cok_character *c)
+/* The whole side word (+0x66): the routines write its high byte 0. */
+static unsigned side_of(const cok_character *c)
 {
-    return (uint8_t)cok_combat_field_word(R, c->record, COK_FIELD_HOSTILE);
+    return cok_combat_field_word(R, c->record, COK_FIELD_HOSTILE);
 }
 
 static uint8_t npc_of(const cok_character *c)
@@ -2752,7 +2753,7 @@ static void test_effects_four_charm(void)
     game.vm.mode = 5; /* the battle */
     cok_character *a, *t;
     duel(&a, &t);
-    set_side(t, 0);
+    set_side(t, 0x0100); /* the low byte read (0), the whole word written */
     set_npc(t, 0, 0);
     t->combat->target = a->record;
     cok_effect *e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
@@ -2783,7 +2784,7 @@ static void test_effects_four_charm(void)
     CHECK(cok_character_find_effect(t, 0x0b) == NULL);
     /* Removing one with NPC 0xb3 (value 0x05: side 0): side 0, NPC 0 and computer 0. */
     e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
-    set_side(t, 1);
+    set_side(t, 0x0101);
     set_npc(t, 0xb3, 1);
     CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
     CHECK(side_of(t) == 0 && npc_of(t) == 0 && computer(t) == 0);
@@ -2870,9 +2871,9 @@ static void test_effects_four_confusion(void)
     cr->forced = 0;
     cr->target = a->record;
     CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
-    /* 1-10: runs away. */
+    /* 1-10: runs away (the save failed: the 0x23 is gone by the run's own removal). */
     CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
-    game.vm.seed = confusion_seed(1, 10, 20);
+    game.vm.seed = confusion_seed(1, 10, 1);
     log_text[0] = '\0';
     CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
     CHECK(cok_character_find_effect(t, 0x23) == NULL && cr->forced == 1 && computer(t) == 1 && npc_of(t) == 0xb3);
