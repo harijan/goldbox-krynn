@@ -1065,11 +1065,19 @@ static void test_magic_ids(void)
     static struct fill_cell effect_cells[4 * 0xe6 + 2];
     fill_check(exe, header, effect_routines, 2, 0xbee8, 0xe6, effect_cells);
     static const uint8_t retf_only[5] = {0x55, 0x8b, 0xec, 0x5d, 0xcb};
-    /* The effects ported so far and their routines (78e4 each): 0x64, 0xc3, 0x69, and the racial
-     * 0x5c, 0x5e and 0x5f (1334, 1355, 13df). */
-    static const struct { uint8_t id; uint16_t off; } ported_effects[] = {
-        {0x64, 0x14d1}, {0xc3, 0x4949}, {0x69, 0x1aa2},
-        {0x5c, 0x1334}, {0x5e, 0x1355}, {0x5f, 0x13df}};
+    /* The effects ported so far and their routines: 0x64, 0xc3, 0x69, the racial 0x5c, 0x5e and 0x5f
+     * (1334, 1355, 13df), and effects band a's rows (part 34a, effects-1; 0x06 is the own hook's first
+     * kind, queen_effect.c), each with the routine it runs (7e76 for 0x1a). */
+    static const struct { uint8_t id; uint16_t seg, off; } ported_effects[] = {
+        {0x64, 0x78e4, 0x14d1}, {0xc3, 0x78e4, 0x4949}, {0x69, 0x78e4, 0x1aa2},
+        {0x5c, 0x78e4, 0x1334}, {0x5e, 0x78e4, 0x1355}, {0x5f, 0x78e4, 0x13df},
+        {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x04, 0x78e4, 0x0168},
+        {0x06, 0x78e4, 0x0184}, {0x08, 0x78e4, 0x0198}, {0x09, 0x78e4, 0x01c6},
+        {0x12, 0x78e4, 0x02e6}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
+        {0x1b, 0x78e4, 0x010d}, {0x1f, 0x78e4, 0x010d}, {0x21, 0x78e4, 0x0672},
+        {0x24, 0x78e4, 0x06d3}, {0x2d, 0x78e4, 0x0198}, {0x2e, 0x78e4, 0x01c6},
+        {0x2f, 0x78e4, 0x09b2}, {0x33, 0x78e4, 0x010d}, {0x34, 0x78e4, 0x010d},
+        {0x35, 0x78e4, 0x010d}};
     for (unsigned id = 0; id < R->effects.count; ++id) {
         const struct fill_cell *off = &effect_cells[4 * id], *seg = &effect_cells[4 * id + 2];
         const cok_rules_effect *h = &R->effects.handlers[id];
@@ -1096,25 +1104,26 @@ static void test_magic_ids(void)
                 ++k;
             if (k < sizeof ported_effects / sizeof *ported_effects)
                 CHECK(h->handler != COK_FX_MISSING && h->unported == NULL &&
-                      sg == 0x78e4 && so == ported_effects[k].off);
+                      sg == ported_effects[k].seg && so == ported_effects[k].off);
             else
                 CHECK(h->handler == COK_FX_MISSING && h->unported != NULL && strcmp(h->unported, cite) == 0);
         }
     }
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
      * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, the
-     * use-up's HAMMER (52db:1b26), the resist-charm's ASLEEP (78e4:13df); every other name is 0. */
+     * use-up's HAMMER (52db:1b26), the resist-charm's ASLEEP (78e4:13df), and 054a's test its
+     * SEES_INVISIBLE; every other name is 0. */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c &&
           R->effects.ids[COK_EFFECT_HAMMER] == 0x17);
     CHECK(R->effects.ids[COK_EFFECT_ASLEEP] == 0x35);
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
-    CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19);
+    CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19 && R->effects.ids[COK_EFFECT_SEES_INVISIBLE] == 0x18);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
     CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
-            n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
+            n != COK_EFFECT_SEES_INVISIBLE && n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
             n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP)
             CHECK(R->effects.ids[n] == 0);
 

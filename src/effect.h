@@ -230,6 +230,11 @@ struct cok_effects {
      * handler calls it. NULL shows nothing. */
     void (*trace)(cok_effects *fx, const char *text, uint8_t a, uint8_t b, uint8_t c,
                   void *context);
+    /* A game's own handler of kind (spells.h's COK_FX_QUEEN_*: Dark Queen's queen_effect.c), for an
+     * effect whose handler table entry is that kind (run with flag removing as call_handler does).
+     * Returns false with fx->error set. NULL fails. */
+    bool (*own)(cok_effects *fx, uint8_t kind, bool removing, cok_effect *effect, cok_character *c,
+                void *context);
     void *context;
     /* How deep the public calls are nested, a hook calling back in. */
     unsigned depth;

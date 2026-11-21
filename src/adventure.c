@@ -2732,6 +2732,13 @@ static bool effect_lose_spell(cok_effects *fx, cok_character *c, void *context)
     return cok_cast_lose_spell(game, c) || effect_hook_failed(fx, game);
 }
 
+static bool effect_own(cok_effects *fx, uint8_t kind, bool removing, cok_effect *effect,
+                       cok_character *c, void *context)
+{
+    cok_adventure *game = context;
+    return cok_dark_queen_effect(game, kind, removing, effect, c) || effect_hook_failed(fx, game);
+}
+
 static void effect_pause(cok_effects *fx, void *context)
 {
     (void)fx;
@@ -2850,6 +2857,7 @@ bool cok_adventure_open_display(cok_adventure *game, const cok_rules *rules, con
     game->effects.lose_spell = effect_lose_spell;
     game->effects.pause = effect_pause;
     game->effects.trace = effect_trace;
+    game->effects.own = effect_own;
     game->effects.context = game;
     game->vm.file = 1;
     memset(game->item_table, 0xff, sizeof game->item_table); /* dkk 4f9a:0006 */

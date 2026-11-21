@@ -15,7 +15,8 @@
  * tests/test_dark_queen.c checks all of it against the bytes. An entry's
  * address is the stored offset, and its cite the routine's seg:off: 0x75's
  * 10a3 is the stub at 2d99:10a3, which jumps to 52db:4fd1. Ghidra's numbering
- * throughout. */
+ * throughout. A row the port carries out names its kind (spells.h's, not
+ * COK_FX_MISSING), and its routine is cited in a comment beside it. */
 
 /* The spells' names by id from 1 (names[id - 1]): far pointers at DS:25c7 +
  * 4 * id, read by the 7fd8 routines that push a name (8438:0009 and kin).
@@ -363,15 +364,15 @@ const uint8_t cok_dark_queen_spell_ids[COK_SPELL_NAMES] = {
 /* The effects' handlers by id, DS:bee8 + 4 * id (cok_rules_effect). */
 const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x00] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x01] = {0x0132, COK_FX_MISSING, "dqk 78e4:0132"},
-    [0x02] = {0x0146, COK_FX_MISSING, "dqk 78e4:0146"},
+    [0x01] = {0x0132, COK_FX_BLESS, .applied_only = true}, /* 78e4:0132: morale and attack roll */
+    [0x02] = {0x0146, COK_FX_CURSE, .applied_only = true}, /* 78e4:0146: morale and attack roll */
     [0x03] = {0x0009, COK_FX_MISSING, "dqk 7e76:0009"},
-    [0x04] = {0x0168, COK_FX_MISSING, "dqk 78e4:0168"},
+    [0x04] = {0x0168, COK_FX_EVIL_AVOID, .applied_only = true}, /* 78e4:0168: attacker of flag 1, -7 */
     [0x05] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x06] = {0x0184, COK_FX_MISSING, "dqk 78e4:0184"},
+    [0x06] = {0x0184, COK_FX_QUEEN_TYPE_CANCEL, .value = 4, .applied_only = true}, /* 78e4:0184: 00f7(4) */
     [0x07] = {0x0075, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x08] = {0x0198, COK_FX_MISSING, "dqk 78e4:0198"},
-    [0x09] = {0x01c6, COK_FX_MISSING, "dqk 78e4:01c6"},
+    [0x08] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198: alignment 2, 5, 8 */
+    [0x09] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6: alignment 0, 3, 6 */
     [0x0a] = {0x01f4, COK_FX_MISSING, "dqk 78e4:01f4"},
     [0x0b] = {0x007a, COK_FX_MISSING, "dqk 7e76:007a"},
     [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
@@ -380,25 +381,25 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x0f] = {0x023d, COK_FX_MISSING, "dqk 78e4:023d"},
     [0x10] = {0x02b4, COK_FX_NOTHING}, /* does nothing: retf */
     [0x11] = {0x02b9, COK_FX_MISSING, "dqk 78e4:02b9"},
-    [0x12] = {0x02e6, COK_FX_MISSING, "dqk 78e4:02e6"},
+    [0x12] = {0x02e6, COK_FX_RESIST_CHARM_30, .applied_only = true}, /* 78e4:02e6: d100 30 or less */
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x14] = {0x0313, COK_FX_MISSING, "dqk 78e4:0313"},
     [0x15] = {0x012c, COK_FX_MISSING, "dqk 7e76:012c"},
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
     [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x19] = {0x054a, COK_FX_MISSING, "dqk 78e4:054a"},
-    [0x1a] = {0x01c7, COK_FX_MISSING, "dqk 7e76:01c7"},
-    [0x1b] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
+    [0x19] = {0x054a, COK_FX_INVISIBLE}, /* 78e4:054a: tests the removing flag itself */
+    [0x1a] = {0x01c7, COK_FX_TARGET_BONUS, .battle = true, .applied_only = true}, /* 7e76:01c7 */
+    [0x1b] = {0x010d, COK_FX_HELD}, /* 78e4:010d: ends the holder's turn in battle */
     [0x1c] = {0x0580, COK_FX_MISSING, "dqk 78e4:0580"},
     [0x1d] = {0x0654, COK_FX_MISSING, "dqk 78e4:0654"},
     [0x1e] = {0x01fb, COK_FX_MISSING, "dqk 7e76:01fb"},
-    [0x1f] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
+    [0x1f] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x20] = {0x028c, COK_FX_MISSING, "dqk 7e76:028c"},
-    [0x21] = {0x0672, COK_FX_MISSING, "dqk 78e4:0672"},
+    [0x21] = {0x0672, COK_FX_BLIND, .applied_only = true}, /* 78e4:0672: attack, save and AC */
     [0x22] = {0x0696, COK_FX_MISSING, "dqk 78e4:0696"},
     [0x23] = {0x033f, COK_FX_MISSING, "dqk 7e76:033f"},
-    [0x24] = {0x06d3, COK_FX_MISSING, "dqk 78e4:06d3"},
+    [0x24] = {0x06d3, COK_FX_MINUS_FOUR, .applied_only = true}, /* 78e4:06d3: attack and save */
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
     [0x26] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x27] = {0x06e8, COK_FX_MISSING, "dqk 78e4:06e8"},
@@ -407,15 +408,15 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x2a] = {0x0877, COK_FX_MISSING, "dqk 78e4:0877"},
     [0x2b] = {0x08ba, COK_FX_MISSING, "dqk 78e4:08ba"},
     [0x2c] = {0x0920, COK_FX_MISSING, "dqk 78e4:0920"},
-    [0x2d] = {0x0198, COK_FX_MISSING, "dqk 78e4:0198"},
-    [0x2e] = {0x01c6, COK_FX_MISSING, "dqk 78e4:01c6"},
-    [0x2f] = {0x09b2, COK_FX_MISSING, "dqk 78e4:09b2"},
+    [0x2d] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198 */
+    [0x2e] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6 */
+    [0x2f] = {0x09b2, COK_FX_AGAINST_FLAG4, .applied_only = true}, /* 78e4:09b2: flag 4 -4 */
     [0x30] = {0x09ce, COK_FX_NOTHING}, /* does nothing: retf */
     [0x31] = {0x09d3, COK_FX_MISSING, "dqk 78e4:09d3"},
     [0x32] = {0x0a22, COK_FX_MISSING, "dqk 78e4:0a22"},
-    [0x33] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
-    [0x34] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
-    [0x35] = {0x010d, COK_FX_MISSING, "dqk 78e4:010d"},
+    [0x33] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
+    [0x34] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
+    [0x35] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x36] = {0x0a7e, COK_FX_MISSING, "dqk 78e4:0a7e"},
     [0x37] = {0x0aca, COK_FX_NOTHING}, /* does nothing: retf */
     [0x38] = {0x0acf, COK_FX_MISSING, "dqk 78e4:0acf"},
@@ -456,14 +457,13 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x5b] = {0x10ab, COK_FX_MISSING, "dqk 7e76:10ab"},
     /* The racial effects 0x5c, 0x5e and 0x5f (cancel, constitution save, resist charm 90;
      * Death Knights' 504d:2162, 21bd and 223d, with the same constants). DQK's three test the
-     * removing flag first and do nothing when it is set; the shared routines do not. The racial
-     * nodes are made with the flag 0 (queen_create.c 148f:19c2), so they never run removing. The
-     * cancel zeroes rolls.amount (a byte) where 78e4:00a1 zeroes the word: no difference at
-     * event 9 or 0x0c. */
-    [0x5c] = {0x1334, COK_FX_CANCEL, NULL, 0x6f}, /* 78e4:1334 cancels 0x6f (00a1) */
+     * removing flag first (applied_only). The racial nodes are made with the flag 0 (queen_create.c
+     * 148f:19c2), so they never run removing. The cancel zeroes the damage word and its byte, as
+     * 78e4:00a1 does. */
+    [0x5c] = {0x1334, COK_FX_CANCEL, NULL, 0x6f, .applied_only = true}, /* 78e4:1334 cancels 0x6f (00a1) */
     [0x5d] = {0x1347, COK_FX_MISSING, "dqk 78e4:1347"},
-    [0x5e] = {0x1355, COK_FX_CONSTITUTION_SAVE}, /* 78e4:1355: saves of types 0, 2, 4 */
-    [0x5f] = {0x13df, COK_FX_RESIST_CHARM_90}, /* 78e4:13df: a d100 of 90 or less, 0x0b, 0x35 */
+    [0x5e] = {0x1355, COK_FX_CONSTITUTION_SAVE, .applied_only = true}, /* 78e4:1355: saves of types 0, 2, 4 */
+    [0x5f] = {0x13df, COK_FX_RESIST_CHARM_90, .applied_only = true}, /* 78e4:13df: a d100 of 90 or less, 0x0b, 0x35 */
     [0x60] = {0x12a1, COK_FX_MISSING, "dqk 7e76:12a1"},
     [0x61] = {0x140c, COK_FX_MISSING, "dqk 78e4:140c"},
     [0x62] = {0x148c, COK_FX_MISSING, "dqk 78e4:148c"},
@@ -609,6 +609,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
  * must be ported with its id first (dqk-effects-a..e). */
 const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_CHARMED] = 0x0b,   /* 5045:0001's charm test */
+    [COK_EFFECT_SEES_INVISIBLE] = 0x18, /* 78e4:054a's test: the selected character without it cannot see an invisible one */
     [COK_EFFECT_INVISIBLE] = 0x19, /* 148f:1b2a removes every 0x19; the attack's invisible */
     [COK_EFFECT_BERSERK] = 0x4d,   /* 1b66's test (75cc, the battle's end) */
     [COK_EFFECT_ENLARGED] = 0x0c,  /* 017d's 1dfc(rec, 0) for Enlarge's */

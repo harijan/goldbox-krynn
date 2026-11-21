@@ -661,6 +661,9 @@ typedef struct {
      * DS:8c4e 5: 0x1a, 0x23, 0x25, 0x69, 0x72, 0x73); Champions' run in any
      * mode. */
     bool battle;
+    /* Whether the game's routine does nothing when its effect is removed (flag 1): most of Dark
+     * Queen's test it first (cmpb $0,[bp+0xe]); the shared handlers run with either flag. */
+    bool applied_only;
 } cok_rules_effect;
 
 /* A breath that dkk 5dc5:51cc carries out (COK_FX_DRAGON_BREATH), by

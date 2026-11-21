@@ -298,6 +298,8 @@ static void test_champions(void)
           r->casting.flame_type == NULL &&
           r->casting.cone_side_unknown == NULL);
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
+        /* Dark Queen's own kinds (queen_effect.c) are used as their rows are ported (test_dark_queen.c). */
+        if (k >= COK_FX_QUEEN_TYPE_CANCEL) continue;
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
         for (unsigned id = 1; id < d->effects.count; ++id)

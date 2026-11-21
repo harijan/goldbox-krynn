@@ -71,4 +71,10 @@ bool cok_dark_queen_burst_spark(cok_adventure *game, uint8_t frame, int x, int y
 unsigned cok_dark_queen_picture_frame(const cok_adventure *game);
 bool cok_dark_queen_picture_animating(const cok_adventure *game);
 
+/* Dark Queen's own effect routines (queen_effect.c, dqk 78e4 and 7e76): the handler of kind (spells.h's
+ * COK_FX_QUEEN_*) for c, with the effect and flag removing, run through effect.h's own hook. The row of
+ * effects.running is the descriptor's. False, with game->error, where the run stops. */
+bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
+                           cok_character *c);
+
 #endif

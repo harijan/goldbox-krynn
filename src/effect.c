@@ -265,11 +265,12 @@ static bool add_with_text(cok_effects *fx, cok_character *c, uint8_t id, uint16_
 typedef bool handler_fn(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c);
 
 /* 3f44:009b: cancel the damage and the effect a spell is adding, if that
- * is id or id is 0. */
+ * is id or id is 0. Dark Queen's damage word (amount16, 78e4:00a1) goes too. */
 static void cancel(cok_effects *fx, uint8_t id)
 {
     if (id == 0 || fx->rolls.pending == id) {
         fx->rolls.amount = 0;
+        fx->rolls.amount16 = 0;
         fx->rolls.pending = 0;
     }
 }
@@ -2841,6 +2842,14 @@ static bool call_handler(cok_effects *fx, uint8_t id, bool removing, cok_effect 
         return fail(fx, "effect 0x%02x has no handler; the original calls 0000:0000", id);
     fx->running = id;
     if (h->battle && fx->vm->mode != 5) return true; /* dkk DS:8c4e */
+    if (h->applied_only && removing) return true;
+    if (handlers[h->handler] == NULL) {
+        /* Dark Queen's own routine of the kind (queen_effect.c, through the hook). */
+        if (fx->own == NULL)
+            return fail(fx, "effect 0x%02x's handler (dqk %04x) is the game's own, with no hook", id,
+                        h->address);
+        return fx->own(fx, h->handler, removing, effect, c, fx->context);
+    }
     return handlers[h->handler](fx, removing, effect, c);
 }
 
@@ -3340,6 +3349,7 @@ static bool dispatch_event(cok_effects *fx, cok_character **target, uint8_t even
         if (((r->damage_type & 0x80) && (flags & 0x10)) ||
             ((r->damage_type & 0x40) && (flags & 8))) {
             r->amount = 0;
+            r->amount16 = 0;
             r->pending = 0;
         }
     }
