@@ -2069,6 +2069,33 @@ static void test_spell_touch(void)
     battle_clear();
 }
 
+/* The plain applies (queen_cast.c's table, 7fd8's routines): queen_spell_handler takes the plain ids
+ * (their texts are checked against the routines in test_dark_queen.c) and CLW and MM, and no other id.
+ * Shield (0x13: save kind 0, the caster alone) adds its effect to the caster with "is shielded" said. */
+static void test_plain_apply(void)
+{
+    game.vm.mode = 5; /* the battle */
+    uint16_t ds = 0;
+    for (unsigned id = 0; id < 0x100; ++id) {
+        bool plain = queen_plain_text((uint8_t)id, &ds) != NULL;
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || id == 0x03 || id == 0x0f));
+    }
+    CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = a;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = 0x13;
+    uint8_t effect = queen_spell_byte(&game, 0x13, 0x0e);
+    CHECK(effect != 0 && queen_spell_word(&game, 0x13, 0x0a) == 0);
+    CHECK(queen_spell_handler(0x13) != NULL && queen_spell_handler(0x13)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(a, effect) != NULL && LOGGED("is shielded"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
 /* The slot a test's handler of event 0x0b puts in place of the target (none: kept), and the count of
  * targets it leaves (0: kept). */
 static cok_character *slot_to;
@@ -2314,6 +2341,7 @@ int main(void)
     test_spell_apply();
     test_spell_touch();
     test_spell_touch_slot();
+    test_plain_apply();
     test_spell_damage();
     cok_party_free(&game.party);
     puts("queen fight tests passed");

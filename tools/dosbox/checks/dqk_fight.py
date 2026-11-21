@@ -239,7 +239,7 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto")
+                 "cast_auto", "band_a1")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -2603,6 +2603,8 @@ AUTO_LOG_CODE = r"""    /* tools/dosbox/checks/dqk_fight.py's auto flow: at each
         save_field(pp->game, path);
         snprintf(path, sizeof path, "%s.turns", base);
         save_turns(pp->game, path);
+        snprintf(path, sizeof path, "%s.effects", base);
+        save_effects(pp->game, path);
         return;
     }
 """
@@ -4842,7 +4844,8 @@ def cast_traps(box, handle, traps):
             box.keys(typed)
         wait_seed(box, t, where)
         s = snapshot(box)
-        s.update(tail_state(box), selected=selected(box), targets=box.ds_byte(CAST_TARGETS))
+        s.update(tail_state(box), selected=selected(box), targets=box.ds_byte(CAST_TARGETS),
+                 cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)))  # the spell's cell (cast_auto_original's)
         if shot is not None:
             s["screen"] = box.screenshot(path=str(shot))
         states.append(s)
@@ -5173,6 +5176,84 @@ def cast_auto(v, work, opts):
     print(f"eclplay (cast auto) ends {p['last']!r}", flush=True)
 
 
+# Band a1's plain apply (step 4, part 30a-2: queen_cast.c's plain table, Silence 0x19, 075a: "is silenced"). Saved game A
+# with BALTHIR's memorised byte +0xce 0x19 (Silence, 15 minutes; CAST's CLW and MM are not memorised): C, C (Begins
+# Casting: BALTHIR's turn ends at WALKER's menu, 2 draws), E (WALKER's End: his pending Silence at its Aim, 3 draws), N
+# (SHARKMAN 2 under the cursor, no draw), then T: the tail. The flight (12 draws, as MM's), SHARKMAN 2's saving throw (its
+# d20 and the save, saved: no chain, "is Unaffected") and the say's wait. The Aim's draws are CLW's (the same keys).
+BAND_A1_SILENCE = 0x19
+BAND_A1_TAIL = (17, 0xF79AFEC7)         # the tail after T: 17 draws past the menu (3 at the Aim, 12 flight, d20, the say's 1)
+BAND_A1_CELL = (32, 18)                 # the spell's cell (DS:bd2c, bd49: SHARKMAN 2's)
+BAND_A1_FACING = 3                      # BALTHIR's facing after the Silence (at SHARKMAN 2, as MM's)
+
+
+def silence_save():
+    """Saved game A with BALTHIR memorising Silence (+0xce 0x19) and nothing else (the WILD block's fixture)."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_A1_SILENCE}})
+
+
+def band_a1_run(box, menu, work, tag):
+    """C, C (Begins Casting: WALKER's menu), E (WALKER's End: BALTHIR's pending Silence at its Aim), N (SHARKMAN 2 under
+    the cursor), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_a1(v, work, opts):
+    """Band a1's plain apply (part 30a-2), the flow band_a1: BALTHIR's Silence at SHARKMAN 2 (save kind 1, type 4), the
+    original against eclplay's stops. The original: RandSeed at WALKER's menu after C, C (CAST_CLW_NEXT), at the pending
+    Silence's Aim after E (CAST_CLW_AIM), and at the tail after T 17 draws past the menu, RandSeed f79afec7; DS:c6f4 1, the
+    cell 32,18, SHARKMAN 2 (record 7) with no effect chain (it saved: "is Unaffected"), BALTHIR's +0xce 0x99 and facing 3.
+    eclplay runs the same keys: the Aim's screen (row 23 "Spell:Silence") compared, and its turn mark 03 (the tail) agrees
+    on RandSeed, records, blocks, effect chains and the turn list."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = silence_save()
+    o = cast_original(work, wild, save, "band-a1", opts.verbose, band_a1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-a1-save", save)
+    nxt, aim, tail = o["next"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Silence: "
+            f"Begins Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Silence at its Aim "
+            f"(after WALKER's End) is {CAST_CLW_AIM[0]} draws past BALTHIR's menu, at {CAST_CLW_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_A1_TAIL, f"the original's tail after T (Silence) is {BAND_A1_TAIL[0]} draws past "
+            f"BALTHIR's menu, at {BAND_A1_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is "
+            "unchanged", f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    v.check(tail["cell"] == BAND_A1_CELL and tail["targets"] == 1, f"at the tail Silence's cell is {BAND_A1_CELL} and "
+            f"DS:c6f4 is 1", f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    v.check(tail["chains"][CAST_AUTO_SHARKMAN] == [], "SHARKMAN 2 (record 7) has no effect at the tail: it saved "
+            "(\"is Unaffected\")", f"{tail['chains'][CAST_AUTO_SHARKMAN]}")
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_A1_SILENCE | CAST_FORGOTTEN and facing == BAND_A1_FACING,
+            "at the tail BALTHIR's Silence is forgotten (+0xce 0x99) and he faces 3", f"+0xce {forgotten:#x}, facing {facing}")
+    p_aim = turn_port(work, wild, "band-a1-aim", "CCE", entry=entry)
+    cast_screen(v, work, "BALTHIR's pending Silence at its Aim (row 23 Spell:Silence)", aim["screen"], p_aim, SHIELD_POINTER)
+    command_state(v, "BALTHIR's pending Silence at its Aim", aim, p_aim, nxt["seed"])
+    p = turn_port(work, wild, "band-a1", "CCENT", entry=entry)
+    mark = cast_mark(p, "03")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (03) after C, C, E, N and T", p["last"])
+        return
+    command_state(v, "Silence's tail (the turn's tail, 03)", tail, mark, aim["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Silence's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_A1_SILENCE | CAST_FORGOTTEN and
+            rec_byte(marked[CAST_AUTO_SHARKMAN], STATUS_AT) == rec_byte(tail["records"][CAST_AUTO_SHARKMAN], STATUS_AT),
+            "eclplay's tail after Silence: BALTHIR's Silence forgotten (+0xce 0x99), SHARKMAN 2 unchanged",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5254,6 +5335,8 @@ def main():
         cast(v, work, opts)
     if "cast_auto" in flows:
         cast_auto(v, work, opts)
+    if "band_a1" in flows:
+        band_a1(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
