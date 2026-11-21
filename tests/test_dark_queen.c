@@ -4438,11 +4438,21 @@ static uint32_t burst_model(uint32_t seed, unsigned radius, int sx, int sy)
  * flight's 12 draws) counted in probe_flight0. */
 static unsigned probe_delays, probe_frame0, probe_flight0;
 static uint8_t probe_screen[64000];
+/* At the first delay (the flight's): whether missile frame 0 is then the picture of probe_slot (image, mirror). */
+static uint8_t probe_slot, probe_image;
+static bool probe_mirror, probe_picture;
 
 static void frame0_probe(void)
 {
     size_t n = screen_bytes();
     memcpy(probe_screen, menu_game.screen.pixels, n);
+    if (probe_delays == 0) {
+        static uint8_t got[64000], want[64000];
+        spark_over(probe_screen, 0, got);
+        CHECK(cok_arena_missile_frame(&menu_game, probe_slot, probe_image, 0, probe_mirror));
+        spark_over(probe_screen, 0, want);
+        probe_picture = memcmp(got, want, n) == 0;
+    }
     bool found = false;
     for (int y = -3; y <= 21 && !found; ++y)
         for (int x = -3; x <= 21 && !found; ++x) {
@@ -4455,8 +4465,8 @@ static void frame0_probe(void)
     probe_frame0 += found;
 }
 
-/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), stopping
- * at its handler; whether missile frame 0 is then slot's (image, mirror). */
+/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), on to its
+ * handler's end or stop; whether missile frame 0 is slot's (image, mirror) at the flight's first delay. */
 static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uint8_t slot, uint8_t image,
                       bool mirror)
 {
@@ -4465,6 +4475,10 @@ static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uin
     menu_c->record[0xce] = spell;
     cast_keys("NT");
     probe_delays = probe_frame0 = probe_flight0 = 0;
+    probe_slot = slot;
+    probe_image = image;
+    probe_mirror = mirror;
+    probe_picture = false;
     delay_probe = frame0_probe;
     bool done = false;
     bool ran = queen_cast(&menu_game, spell, false, false, &done);
@@ -4472,17 +4486,8 @@ static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uin
     CHECK(menu_game.spell_x == fx && menu_game.spell_y == fy);
     CHECK(stop == NULL ? ran && menu_game.vm.status == COK_ECL_OK
                        : !ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, stop) != NULL);
-    bool same = true;
-    if (stop != NULL) { /* a ported spell's handler changes the screen after the flight: its frames are the probe's */
-        static uint8_t got[64000], want[64000];
-        memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
-        spark_over(picture_base, 0, got);
-        CHECK(cok_arena_missile_frame(&menu_game, slot, image, 0, mirror));
-        spark_over(picture_base, 0, want);
-        same = memcmp(got, want, screen_bytes()) == 0;
-    }
     menu_close();
-    return same;
+    return probe_picture;
 }
 
 /* The flight's frames (849a:1656): the Fireball family flies one frame, its picture by the facing (51c2:0fc8), so
@@ -4523,6 +4528,7 @@ static void test_flight_bursts(void)
         {0x73, 1, 0, 10, 0x19, "3;12;", NULL},
         {0x2f, 1, 0, 10, 0x19, "12;12;", NULL},
         {0x85, 1, 0, 7, 0x19, "3;12;", NULL},
+        {0x85, 0, 1, 7, 0x19, "3;12;", NULL}, /* underwater: the handler's bar (one draw), the burst's frames kept */
         {0x57, 0, 0, 7, 0x1a, "3;12;", NULL},
         {0x57, 0, 1, 10, 0x1a, "3;12;", NULL},
         {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
@@ -4556,6 +4562,16 @@ static void test_flight_bursts(void)
         } else {
             CHECK(ran && menu_game.vm.status == COK_ECL_OK);
             CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            if (runs[k].wet && runs[k].spell == 0x85) { /* the bar only: no flash reloaded the frames */
+                uint32_t bar = burst;
+                cok_tp_random(&bar, 1000);
+                CHECK(menu_game.vm.seed == bar);
+                memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+                spark_over(picture_base, 0, got);
+                CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
+                spark_over(picture_base, 0, want);
+                CHECK(memcmp(got, want, screen_bytes()) == 0);
+            }
         }
         /* The flight's and the burst's sounds first; a ported handler's (its damage's) come after them. */
         CHECK(runs[k].stop != NULL ? strcmp(script.sounds, runs[k].sounds) == 0

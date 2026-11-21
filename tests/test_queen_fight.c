@@ -2917,6 +2917,29 @@ static void test_band_b2_fireball(void)
     log_text[0] = '\0';
     CHECK(run_handler(0x85) && game.vm.seed == want && game.effects.rolls.dice == n);
     CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    /* A mage of level 60 (class 5): the level is uncapped (not 31), and the Delayed Blast's 60d6 + 60 is a byte (the
+     * seed's sum is past 255, so it wraps: 148f:199e's byte and 1625's byte add). */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 60);
+    CHECK(queen_spell_level(&game, 0x73, false, &lv) && lv == 60);
+    CHECK(queen_spell_level(&game, 0x73, true, &lv) && lv == 0x1f);
+    b2_target(t, 30);
+    set_target(a, t, 0x73);
+    for (seed = 1;; ++seed) {
+        uint32_t w = seed;
+        unsigned whole = 60;
+        for (unsigned i = 0; i < 60; ++i) whole += cok_tp_random(&w, 6) + 1u;
+        uint8_t r = cok_dice(&w, 1, 20);
+        if (whole > 0xff && (uint8_t)whole < 0xf0 && r >= 2 && r <= 19) break;
+    }
+    game.vm.seed = seed;
+    want = seed;
+    sum = (uint8_t)(cok_dice(&want, 60, 6) + 60);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x73) && game.vm.seed == want && game.effects.rolls.dice == 60);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 0);
     /* Underwater (var 0x3c), the Fireball is refused: the bar (one draw at speed 0), no damage. */
     cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
     b2_target(t, 30);
@@ -2948,6 +2971,25 @@ static void test_band_b2_fireball(void)
     CHECK(queen_fireball(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == want);
     CHECK(game.spell_target_count == 2 && game.effects.rolls.images == 1);
     CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && hit_points(a) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    /* The radius is 2: round (8, 5) the target (6, 5) is listed, the caster (5, 5) is not, and he takes nothing. */
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    b2_target(t, 30);
+    b2_target(a, 30);
+    game.spell_x = 8;
+    game.spell_y = 5;
+    set_target(a, a, 0x33);
+    seed = mid_seed(6, 6, 1);
+    game.vm.seed = seed;
+    want = seed;
+    sum = cok_dice(&want, 6, 6);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(queen_fireball(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == want);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && hit_points(a) == 0xf0);
     cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
     game.vm.character = NULL;
     game.spell_target_count = 0;
