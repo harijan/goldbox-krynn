@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "effects_1", "effects_2", "effects_4")
+                 "band_b3", "band_b4", "band_b5", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6124,6 +6124,91 @@ def effects_2(v, work, opts):
         effects_2_case(v, work, wild, opts, name, effect, want, hp)
 
 
+# Effects-3 (step 4, part 34c): BALTHIR's node 1 rewritten to Mirror Image (0x1c, value 0x62: three images, level 2). Burning
+# Hands on himself: the tail is 3 draws past the menu (the Aim's, the d4 of 3 and the say's wait), RandSeed 8a1edda5; one image
+# is lost (his node's value 0x42) and BALTHIR's hit points stay 0x6a. The melee (E, E, no memorised change): 19 draws past the
+# menu, RandSeed ecf5f155; both blows are taken by images (value 0x22, hit points 0x6a). eclplay's turn mark agrees.
+EFFECTS_3_NODE = (0x1C, 0, 0x62, 0)     # BALTHIR's node 1: Mirror Image, minutes 0, value 0x62, flag 0
+EFFECTS_3_TAIL = (3, 0x8A1EDDA5)        # Burning Hands' tail on himself, past his menu
+EFFECTS_3_MELEE = (19, 0xECF5F155)      # the melee, TIMASALIN's menu past BALTHIR's
+
+
+def effects_3_bh(v, work, wild, opts):
+    """Burning Hands on himself with his node 1 at Mirror Image: the Aim's draw, the tail's draws and RandSeed, BALTHIR's
+    hit points, his node 0x1c (value 0x42), the spell forgotten, and eclplay's turn mark 01 against the tail."""
+    save = dqk_modify.modified({CAST_BALTHIR: {1: EFFECTS_3_NODE}}, {CAST_BALTHIR: {CAST_MEMO: EFFECTS_2_SPELL}})
+    o = cast_original(work, wild, save, "effects-3-bh", opts.verbose, effects_2_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "effects-3-bh-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == EFFECTS_2_AIM, f"the original's RandSeed at Burning Hands' Aim (C, C) is "
+            f"{EFFECTS_2_AIM[0]} draw past BALTHIR's menu, at {EFFECTS_2_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == EFFECTS_3_TAIL, f"the original's tail after T (Burning Hands on himself, node 1 "
+            f"Mirror Image) is {EFFECTS_3_TAIL[0]} draws past BALTHIR's menu, at {EFFECTS_3_TAIL[1]:#x}",
+            f"{draws} draws, {tail['seed']:#x}")
+    got = (rec_byte(aim["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(got == (EFFECTS_2_HP, EFFECTS_2_HP), "BALTHIR's hit points at the tail stay 0x6a (both images, one lost)",
+            f"{got[0]:#x} -> {got[1]:#x}")
+    nodes = [n for n in tail["chains"][CAST_BALTHIR] if n[0] == EFFECTS_3_NODE[0]]
+    v.check(nodes == [[0x1C, 0, 0x42, 0]], "BALTHIR's Mirror Image at the tail is value 0x42 (one image lost)",
+            f"{nodes}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == EFFECTS_2_SPELL | CAST_FORGOTTEN, f"at the tail BALTHIR's Burning Hands is forgotten (+0xce "
+            f"{EFFECTS_2_SPELL | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "effects-3-bh", "CCT", entry=entry)
+    mark = cast_mark(p, "01")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (01) after C, C and T (Mirror Image)", p["last"])
+        return
+    command_state(v, "Burning Hands' tail (Mirror Image: turn mark 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Burning Hands' tail, Mirror Image, turn mark 01)")
+    print(f"eclplay (effects 3, Burning Hands) ends {p['last']!r}", flush=True)
+
+
+def effects_3_melee(v, work, wild, opts):
+    """The melee at BALTHIR with his node 1 at Mirror Image, nothing memorised: E at BALTHIR's menu, E (SHARKMAN 2's turn, its two
+    blows taken by images), then TIMASALIN's menu: the draws and RandSeed, BALTHIR's hit points, his node 0x1c (value 0x22), and
+    eclplay's turn mark at TIMASALIN's menu (RandSeed, records, blocks, effect chains)."""
+    save = dqk_modify.modified({CAST_BALTHIR: {1: EFFECTS_3_NODE}}, {})
+    o = cast_original(work, wild, save, "effects-3-melee", opts.verbose, effects_1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "effects-3-melee-save", save)
+    nxt, second = o["next"], o["second"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == EFFECTS_1_NEXT, f"the original's RandSeed at WALKER's menu after E (BALTHIR's turn) is "
+            f"{EFFECTS_1_NEXT[0]} draws past the menu, at {EFFECTS_1_NEXT[1]:#x}", f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, second["seed"])
+    v.check((draws, second["seed"]) == EFFECTS_3_MELEE, f"the original's RandSeed at TIMASALIN's menu after the melee "
+            f"(Mirror Image) is {EFFECTS_3_MELEE[0]} draws past the menu, at {EFFECTS_3_MELEE[1]:#x}",
+            f"{draws} draws, {second['seed']:#x}")
+    got = (rec_byte(o["menu"]["records"][CAST_BALTHIR], HIT_POINTS), rec_byte(second["records"][CAST_BALTHIR], HIT_POINTS))
+    v.check(got == (EFFECTS_2_HP, EFFECTS_2_HP), "BALTHIR's hit points after the melee stay 0x6a (both blows taken by images)",
+            f"{got[0]:#x} -> {got[1]:#x}")
+    nodes = [n for n in second["chains"][CAST_BALTHIR] if n[0] == EFFECTS_3_NODE[0]]
+    v.check(nodes == [[0x1C, 0, 0x22, 0]], "BALTHIR's Mirror Image at TIMASALIN's menu is value 0x22 (two images lost)",
+            f"{nodes}")
+    p = turn_port(work, wild, "effects-3-melee", EFFECTS_1_NAMES, entry=entry)
+    mark = mark_of_seed(p, second["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at TIMASALIN's menu ({EFFECTS_3_MELEE[1]:#x}) "
+                f"after {EFFECTS_1_NAMES}", p["last"])
+        return
+    command_state(v, f"the melee (Mirror Image: TIMASALIN's menu, turn mark {mark['number']})", second, mark, m0)
+    chains_agree(v, second["chains"], mark["base"].with_suffix(".effects"), f" (Mirror Image melee, turn mark {mark['number']})")
+    print(f"eclplay (effects 3, melee) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+def effects_3(v, work, opts):
+    """Band a's effects-3 (part 34c), the flow effects_3: BALTHIR's node 1 at Mirror Image (0x62), Burning Hands on himself and
+    the melee against eclplay's turn marks (RandSeed, records, blocks, effect chains)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    effects_3_bh(v, work, wild, opts)
+    effects_3_melee(v, work, wild, opts)
+
+
 # Effects band a's 7e76 four (step 4, part 34d, effects-4): Silence on himself. Saved game A with BALTHIR memorising Silence
 # (+0xce 0x19, as band a1's): C, C (WALKER's menu, 2 draws), E (WALKER's End: his pending Silence at its Aim, 3 draws), T
 # (his own cell: no N), then TIMASALIN's menu, 43 draws past the menu, RandSeed d3e6c85d. BALTHIR gains effect 0x15 (silence,
@@ -6278,6 +6363,8 @@ def main():
         effects_2(v, work, opts)
     if "effects_4" in flows:
         effects_4(v, work, opts)
+    if "effects_3" in flows:
+        effects_3(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
