@@ -563,7 +563,7 @@ static bool underwater(cok_adventure *game)
     return cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0;
 }
 
-/* 148f:199e (count, sides): the sum of the dice as cok_dice gives it, the count stored in rolls.dice (DS:6b34). */
+/* 148f:199e (count, sides): the sum of the dice as cok_dice gives it, the count stored in rolls.dice (DS:b7f4). */
 static uint8_t dice_count(cok_adventure *game, uint8_t count, uint8_t sides)
 {
     return cok_dice_count(&game->vm.seed, count, sides, &game->effects.rolls.dice);

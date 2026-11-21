@@ -2472,7 +2472,9 @@ static void test_band_a2_heals(void)
     amount = (uint8_t)(cok_dice(&want, 2, 8) + 1);
     cok_tp_random(&want, 1000);
     CHECK(run_handler(0x3a) && game.vm.seed == want && hit_points(t) == 1 + amount);
-    /* No target: nothing rolled, nothing healed. */
+    /* No target: nothing rolled (not even a deity 4 caster's bonus: the test is first, 7fd8:1c34), nothing
+     * healed. */
+    a->record[0x19b] = 4;
     game.spell_target_count = 0;
     set_hit_points(t, 1, 40);
     game.vm.seed = 11;

@@ -5256,7 +5256,7 @@ def band_a1(v, work, opts):
 
 # Band a2's one-target damage and heals (step 4, part 30b: queen_cast.c's 0162, 01e6, 0588, 1e31, 20df, 1c2e, 2073, 2c32,
 # 0ff6). Shocking Grasp (0x14, a touch, the mage's kind 2) is memorised alone: C, C (the Aim at once, one draw), then T
-# (herself). The touch's hit roll misses (AC 65 against THAC0 53
+# (himself). The touch's hit roll misses (AC 65 against THAC0 53
 # and the d20): no text, no damage, +0xce 0x94, the tail 3 draws past the menu. The druid's Cure Light Wounds (0x62, a
 # touch, time 4: CLW's order) at CAST-HURT's 0x32 hit points: C, C (Begins Casting: WALKER's menu), E (WALKER's End: the
 # pending Aim), then T: the tail, the heal of 1d8 and "is partially healed".
@@ -5282,14 +5282,14 @@ def clw_hurt_save():
 
 
 def shock_run(box, menu, work, tag):
-    """C, C (the Aim at once: Shocking Grasp's Aim, one draw), then T (herself): the tail."""
+    """C, C (the Aim at once: Shocking Grasp's Aim, one draw), then T (himself): the tail."""
     out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
     out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
     return out
 
 
 def band_a2_shock(v, work, wild, opts):
-    """Shocking Grasp on herself (the touch misses): the Aim at once, the tail (RandSeed, hit points, the byte forgotten,
+    """Shocking Grasp on himself (the touch misses): the Aim at once, the tail (RandSeed, hit points, the byte forgotten,
     facing 0), and eclplay's tail (turn mark 01) and its Aim agree with the original's."""
     save = shock_save()
     o = cast_original(work, wild, save, "band-a2-shock", opts.verbose, shock_run)
@@ -5371,7 +5371,7 @@ def band_a2_clw(v, work, wild, opts):
 
 
 def band_a2(v, work, opts):
-    """Band a2's one-target damage and heals (part 30b), the flow band_a2: Shocking Grasp on herself (the touch misses)
+    """Band a2's one-target damage and heals (part 30b), the flow band_a2: Shocking Grasp on himself (the touch misses)
     and the druid's Cure Light Wounds at 0x32 (the heal), each against eclplay's stops (its Aim and turn marks: RandSeed,
     records, combat blocks, effect chains, turn list) on the open ground (the WILD block)."""
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
