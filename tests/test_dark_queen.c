@@ -1745,9 +1745,13 @@ static void menu_flush(cok_adventure *game, void *context)
     ((menu_script *)context)->flushes++;
 }
 
+/* A test's look at the screen at each delay (NULL: none). */
+static void (*delay_probe)(void);
+
 static void menu_delay(cok_adventure *game, unsigned ms, void *context)
 {
     menu_script *s = context;
+    if (delay_probe != NULL) delay_probe();
     if (s->delays++ == 0) {
         s->delay_ms = ms;
         s->delay_seed = game->vm.seed;
@@ -4376,6 +4380,142 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
     return seed;
 }
 
+/* A burst's draws from seed (radius, at sx, sy): the offset of 3 cells off an edge of the view ((s - 3) * 3 below
+ * 3, (s - 0x2e) * 3 or (s - 0x15) * 3 above), then rings_model's rings with it. */
+static uint32_t burst_model(uint32_t seed, unsigned radius, int sx, int sy)
+{
+    int ox = sx < 3 ? (sx - 3) * 3 : sx > 0x2e ? (sx - 0x2e) * 3 : 0;
+    int oy = sy < 3 ? (sy - 3) * 3 : sy > 0x15 ? (sy - 0x15) * 3 : 0;
+    for (int i = 1; i <= (int)(3 * radius + 1); ++i)
+        for (int j = 0; j < 2 * i - 1; ++j) {
+            unsigned a = cok_tp_random(&seed, 180);
+            int tx = (int8_t)cok_data_held(R->data, 0x5976 + (a + 45) % 180);
+            int ty = (int8_t)cok_data_held(R->data, 0x5976 + a);
+            int px = (tx * i + 50) / 100 + ox, py = (ty * i + 50) / 100 + oy;
+            if (px >= -9 && px <= 9 && py >= -9 && py <= 9) cok_tp_random(&seed, 4);
+        }
+    return seed;
+}
+
+/* Whether missile frame 0, drawn again at some sub-cell place of the view, leaves the screen as it is (the
+ * frame on the screen there now is frame 0): at each delay while delay_probe is set, the first 12 delays' (the
+ * flight's 12 draws) counted in probe_flight0. */
+static unsigned probe_delays, probe_frame0, probe_flight0;
+static uint8_t probe_screen[64000];
+
+static void frame0_probe(void)
+{
+    size_t n = screen_bytes();
+    memcpy(probe_screen, menu_game.screen.pixels, n);
+    bool found = false;
+    for (int y = -3; y <= 21 && !found; ++y)
+        for (int x = -3; x <= 21 && !found; ++x) {
+            memcpy(menu_game.screen.pixels, probe_screen, n);
+            found = cok_dark_queen_burst_spark(&menu_game, 0, x, y) &&
+                    memcmp(menu_game.screen.pixels, probe_screen, n) == 0;
+        }
+    memcpy(menu_game.screen.pixels, probe_screen, n);
+    if (probe_delays++ < 12) probe_flight0 += found;
+    probe_frame0 += found;
+}
+
+/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), stopping
+ * at its handler; whether missile frame 0 is then slot's (image, mirror). */
+static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uint8_t slot, uint8_t image,
+                      bool mirror)
+{
+    cast_open(false);
+    aim_foe(fx, fy, 1);
+    menu_c->record[0xce] = spell;
+    cast_keys("NT");
+    probe_delays = probe_frame0 = probe_flight0 = 0;
+    delay_probe = frame0_probe;
+    bool done = false;
+    bool ran = queen_cast(&menu_game, spell, false, false, &done);
+    delay_probe = NULL;
+    CHECK(menu_game.spell_x == fx && menu_game.spell_y == fy);
+    CHECK(stop == NULL ? ran && menu_game.vm.status == COK_ECL_OK
+                       : !ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, stop) != NULL);
+    static uint8_t got[64000], want[64000];
+    memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+    spark_over(picture_base, 0, got);
+    CHECK(cok_arena_missile_frame(&menu_game, slot, image, 0, mirror));
+    spark_over(picture_base, 0, want);
+    bool same = memcmp(got, want, screen_bytes()) == 0;
+    menu_close();
+    return same;
+}
+
+/* The flight's frames (849a:1656): the Fireball family flies one frame, its picture by the facing (51c2:0fc8), so
+ * at every delay of Flame Strike's flight (0x4a: no burst after it) the missile shown is frame 0, and frame 0 is the
+ * facing's picture: east (2) slot 0x22 image 0, south-east (3) slot 0x21 image 1 (0053's frame 0 is slot 0x20 image
+ * 0). Magic Missile flies 4 frames (0053's of slot 0x13): frames 1-3 are shown too. */
+static void test_flight_frames(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the flight's frames not checked");
+        return;
+    }
+    CHECK(flight_at(0x4a, 9, 5, "7fd8:2157", 0x22, 0, false));
+    CHECK(probe_delays == 12 && probe_frame0 == 12);
+    CHECK(flight_at(0x4a, 9, 9, "7fd8:2157", 0x21, 1, false));
+    CHECK(probe_delays == 12 && probe_frame0 == 12);
+    flight_at(0x0f, 9, 5, NULL, 0x13, 0, false);
+    CHECK(probe_delays >= 12 && probe_flight0 == 3); /* frame 0 at the 1st, 5th and 9th draws */
+}
+
+/* The bursts by spell (849a:16f9's table), each cast at CINDER's own cell (no missile, the offset 0) from the same
+ * seed and stopping at its handler: the draws past Flame Strike's (no burst) are rings_model's rings 1 to 3r + 1, the
+ * sounds the flight's then the burst's, and missile frame 0 is the burst's slot's (image 0). */
+static void test_flight_bursts(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the bursts by spell not checked");
+        return;
+    }
+    static const struct {
+        uint8_t spell, var3d, wet, rings, slot;
+        const char *sounds, *stop;
+    } runs[] = {
+        {0x4a, 0, 0, 0, 0, "3;", "7fd8:2157"},
+        {0x73, 0, 0, 7, 0x19, "3;12;", "7fd8:1519"},
+        {0x73, 1, 0, 10, 0x19, "3;12;", "7fd8:1519"},
+        {0x2f, 1, 0, 10, 0x19, "12;12;", "7fd8:1519"},
+        {0x85, 1, 0, 7, 0x19, "3;12;", "7fd8:1519"},
+        {0x57, 0, 0, 7, 0x1a, "3;12;", "7fd8:28fb"},
+        {0x57, 0, 1, 10, 0x1a, "3;12;", "7fd8:28fb"},
+        {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
+        {0x33, 0, 1, 7, 0x14, "9;9;", "7fd8:1ac3"},
+        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4"},
+        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4"},
+    };
+    const uint32_t start = 0x2468ace1u;
+    uint32_t base = 0;
+    static uint8_t got[64000], want[64000];
+    for (size_t k = 0; k < sizeof runs / sizeof runs[0]; ++k) {
+        cast_open(false);
+        menu_c->record[0xce] = runs[k].spell;
+        cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, runs[k].var3d);
+        cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, runs[k].wet);
+        cast_keys("T");
+        menu_game.vm.seed = start;
+        bool done = false;
+        CHECK(!queen_cast(&menu_game, runs[k].spell, false, true, &done));
+        CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
+        CHECK(strcmp(script.sounds, runs[k].sounds) == 0);
+        if (k == 0) base = menu_game.vm.seed;
+        CHECK(menu_game.vm.seed == (runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings)));
+        if (runs[k].rings != 0) {
+            memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+            spark_over(picture_base, 0, got);
+            CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
+            spark_over(picture_base, 0, want);
+            CHECK(memcmp(got, want, screen_bytes()) == 0);
+        }
+        menu_close();
+    }
+}
+
 static void test_flight_burst(void)
 {
     if (!have_assets()) {
@@ -4409,6 +4549,22 @@ static void test_burst(void)
     }
     CHECK(queen_burst(&menu_game, 2, 0x19, 0x0c) && menu_game.vm.status == COK_ECL_OK);
     CHECK(menu_game.vm.seed == want);
+    /* The final centre (5837:0846 again) redrew the view over the sparks: centring once more changes nothing. */
+    static uint8_t after_burst[64000];
+    memcpy(after_burst, menu_game.screen.pixels, screen_bytes());
+    CHECK(cok_arena_centre(&menu_game, 32, 18, 0xff, 8));
+    CHECK(memcmp(after_burst, menu_game.screen.pixels, screen_bytes()) == 0);
+    /* Radius 3 near each edge (the offsets of 3 cells: below 3 and above 0x2e across, above 0x15 down), from a
+     * pinned seed: the draws are burst_model's. */
+    static const int8_t edges[][2] = {{2, 2}, {1, 22}, {46, 21}, {47, 22}, {49, 24}, {48, 1}};
+    for (size_t k = 0; k < sizeof edges / sizeof edges[0]; ++k) {
+        menu_game.spell_x = edges[k][0];
+        menu_game.spell_y = edges[k][1];
+        menu_game.vm.seed = 0x13579bdfu + (uint32_t)k;
+        want = burst_model(menu_game.vm.seed, 3, edges[k][0], edges[k][1]);
+        CHECK(queen_burst(&menu_game, 3, 0x19, 0x0c) && menu_game.vm.status == COK_ECL_OK);
+        CHECK(menu_game.vm.seed == want);
+    }
     /* Radius 1 at (0, 0): the offset (sx - 3) * 3 = -9 on both axes; 16 sparks, and those past the view's edge
      * (-9 to 9) draw no frame. */
     menu_game.spell_x = 0;
@@ -4681,6 +4837,8 @@ int main(void)
     test_direction_picture();
     test_burst();
     test_flight_burst();
+    test_flight_frames();
+    test_flight_bursts();
     test_pending_cast();
     test_pending_act();
     test_cast_kinds();
