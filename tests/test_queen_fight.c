@@ -4737,6 +4737,267 @@ static void test_effects2_applied_only(void)
     battle_clear();
 }
 
+/* effects-3 (queen_effect.c's images, haste, slow, prayer, missiles and add_invisible, dqk 78e4:0580, 06e8, 0877,
+ * 09d3, 0832, 0acf): the first seed whose first draw of d(sides) is want (the handler's die). */
+static uint32_t seed_showing(uint8_t sides, uint8_t want)
+{
+    for (uint32_t s = 1;; ++s) {
+        uint32_t t = s;
+        if (cok_dice(&t, 1, sides) == want) return s;
+    }
+}
+
+/* 78e4:0580 (0x1c, Mirror Image; ev 5, 6, 9; applied_only): in mode 5 a d(value >> 5 + 1) above 1 takes an image: the
+ * damage word and pending effect cancelled, "lost an image", the high nibble counts down (the first 0x1c goes at 0).
+ * A d of 1 keeps all, one draw either way. With the images flag set, a spell of ALLIES 0 (Bless, 0x01) loses the image,
+ * a spell of ALLIES 1 (Magic Missile, 0x0f) keeps it, and no spell keeps it; with the flag clear the spell is not tested. */
+static void test_effects3_images(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    uint32_t big = seed_showing(4, 3), small = seed_showing(4, 1);
+    CHECK(queen_spell_word(&game, 0x01, 0x13) == 0 && queen_spell_word(&game, 0x0f, 0x13) != 0);
+    game.effects.rolls.images = 0; /* an earlier test's cone leaves the flag set */
+    game.effects.rolls.spell = 0;
+    /* A d4 of 3 at event 6: the damage cancelled, the pending effect too, the value 0x62 -> 0x42. */
+    duel(&a, &t);
+    cok_effect *e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    CHECK(e != NULL);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.amount = 44;
+    game.effects.rolls.pending = 0x6f;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    /* The d4, then the say's wait (one random(1000), 1df9:052a). */
+    uint32_t want = big;
+    (void)cok_dice(&want, 1, 4);
+    cok_tp_random(&want, 1000);
+    CHECK(e->value == 0x42 && LOGGED("lost an image") && game.vm.seed == want);
+    /* The strike (event 5): the word zeroed, the image lost. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.amount = 44;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && e->value == 0x42);
+    /* A d4 of 1: nothing but the draw. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.pending = 0x6f;
+    game.vm.seed = small;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 300 && game.effects.rolls.pending == 0x6f && e->value == 0x62);
+    CHECK(!LOGGED("lost an image") && game.vm.seed == after_draws(small, 1, 4));
+    /* The last image: value 0x22 (one image) at a d2 of 2 goes, the node with it. */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x1c, 0, 0x22, false) != NULL);
+    game.vm.seed = seed_showing(2, 2);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1c) == NULL && LOGGED("lost an image"));
+    /* The images flag and the spell: (flag, spell, lost). */
+    static const struct { uint8_t images, spell; bool lost; } flagged[] = {
+        {1, 0x01, true}, {1, 0x0f, false}, {1, 0, false}, {0, 0x0f, true},
+    };
+    for (size_t k = 0; k < sizeof flagged / sizeof *flagged; ++k) {
+        duel(&a, &t);
+        e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+        game.effects.rolls.images = flagged[k].images;
+        game.effects.rolls.spell = flagged[k].spell;
+        game.effects.rolls.amount16 = 300;
+        game.vm.seed = big;
+        CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+        if (flagged[k].lost) CHECK(e->value == 0x42 && game.effects.rolls.amount16 == 0);
+        else CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300);
+        game.effects.rolls.images = 0;
+        game.effects.rolls.spell = 0;
+    }
+    /* Outside battle (mode 4): nothing, no draw. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.vm.mode = 4;
+    game.effects.rolls.amount16 = 300;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300 && game.vm.seed == big);
+    game.vm.mode = 5;
+    /* No node: the port stops, cited. */
+    CHECK(!cok_effects_run(&game.effects, t, 0x1c, NULL) && strstr(game.effects.error, "no effect") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 78e4:06e8 (0x27, haste; ev 0x12; applied_only): the first run (bit 5 clear) gives 0x20, "ages", the age up a year and the
+ * aging asked for; every run doubles the movement and the rate. A removal does nothing. */
+static void test_effects3_haste(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    const cok_character_layout *L = R->character;
+    cok_field_set16(L, t->record, COK_FIELD_AGE, 40);
+    cok_effect *e = cok_character_add_effect(t, 0x27, 0, 0, false);
+    CHECK(e != NULL);
+    game.effects.aging = false;
+    game.effects.rolls.rate = 3;
+    game.effects.rolls.movement = 5;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x20 && LOGGED("ages") && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41 && game.effects.aging);
+    CHECK(game.effects.rolls.rate == 6 && game.effects.rolls.movement == 10);
+    /* Again: the value's bit 5 is set: no text, no year, the rates doubled once more. */
+    log_text[0] = '\0';
+    game.effects.aging = false;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x20 && !LOGGED("ages") && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41 && !game.effects.aging);
+    CHECK(game.effects.rolls.rate == 12 && game.effects.rolls.movement == 20);
+    /* Removed (flag 1): applied_only, nothing. */
+    e = cok_character_add_effect(t, 0x27, 0, 0x20, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x27) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 12 && game.effects.rolls.movement == 20 && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41);
+    battle_clear();
+}
+
+/* 78e4:0877 (0x2a, slow; ev 0x12; applied_only): the movement and the rate halved, unless the holder holds effect 0x96
+ * (177e:1734): then nothing. A removal does nothing. */
+static void test_effects3_slow(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x2a, 0, 0, false) != NULL);
+    game.effects.rolls.rate = 6;
+    game.effects.rolls.movement = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    cok_effect *e = cok_character_add_effect(t, 0x2a, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x2a) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    battle_clear();
+}
+
+/* 78e4:09d3 (0x31, prayer; ev 0x0a and 0x0c; applied_only): the side in bit 7 of the value against the holder's side word:
+ * equal, the attack roll and the save 1 better; else both 1 worse. Bit 4 is not the side (value 0x85 is side 1). */
+static void test_effects3_prayer(void)
+{
+    game.vm.mode = 5; /* the battle */
+    static const struct { unsigned side; uint8_t value; int change; } cases[] = {
+        {1, 0x85, 1}, {0, 0x85, -1}, {0, 0x05, 1}, {1, 0x05, -1},
+    };
+    static const uint8_t events[] = {0x0a, 0x0c};
+    for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k)
+        for (size_t v = 0; v < sizeof events / sizeof *events; ++v) {
+            cok_character *a, *t;
+            duel(&a, &t);
+            set_side(t, cases[k].side);
+            CHECK(cok_character_add_effect(t, 0x31, 0, cases[k].value, false) != NULL);
+            game.effects.rolls.attack_roll = 10;
+            game.effects.rolls.save_roll = 10;
+            CHECK(cok_effects_dispatch(&game.effects, t, events[v]) && game.vm.status == COK_ECL_OK);
+            CHECK(game.effects.rolls.attack_roll == 10 + cases[k].change && game.effects.rolls.save_roll == 10 + cases[k].change);
+        }
+    battle_clear();
+}
+
+/* 78e4:0832 (0x29, Protection from Normal Missiles; ev 5; applied_only): the selected member's missile item (07d4) with no
+ * bonus (+0x30 byte 0) avoids a blow from more than a square off: "Avoids it", the damage 0, the attack roll 0xff, one hit
+ * less, one d100 drawn. A bonus of 1, an adjacent attacker, or no readied weapon: nothing, no draw. */
+static void test_effects3_missiles(void)
+{
+    game.vm.mode = 5; /* the battle */
+    game.effects.in_battle = true;
+    static const struct { int8_t tx; uint8_t bonus, weapon; bool avoided; } cases[] = {
+        {7, 0, 1, true}, {7, 1, 1, false}, {6, 0, 1, false}, {7, 0, 0, false},
+    };
+    for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k) {
+        cok_character *a, *t;
+        duel_at(&a, &t, cases[k].tx, 5);
+        uint8_t axe[COK_ITEM_SIZE] = {0};
+        axe[0x28] = 3; /* a thrown axe: its ammunition is the weapon itself */
+        axe[0x30] = cases[k].bonus;
+        CHECK(cok_character_insert_item(a, 0, axe));
+        a->slots[0] = cases[k].weapon;
+        CHECK(cok_character_add_effect(t, 0x29, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.effects.rolls.amount16 = 9;
+        game.effects.rolls.amount = 9;
+        game.effects.rolls.attack_roll = 10;
+        game.effects.rolls.hits[0] = 2;
+        game.vm.seed = 1234;
+        CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+        if (cases[k].avoided) {
+            CHECK(LOGGED("Avoids it") && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+            CHECK(game.effects.rolls.attack_roll == 0xff && game.effects.rolls.hits[0] == 1);
+            uint32_t want = 1234; /* the d100, then the say's wait (one random(1000)) */
+            (void)cok_dice(&want, 1, 100);
+            cok_tp_random(&want, 1000);
+            CHECK(game.vm.seed == want);
+        } else {
+            CHECK(!LOGGED("Avoids it") && game.effects.rolls.amount16 == 9 && game.effects.rolls.attack_roll == 10);
+            CHECK(game.effects.rolls.hits[0] == 2 && game.vm.seed == 1234);
+        }
+        game.vm.character = NULL;
+    }
+    game.effects.in_battle = false;
+    battle_clear();
+}
+
+/* 78e4:0acf (0x38, add invisibility; ev 8; not applied_only): event 8 adds 0x19 for a minute, value 0x0c, flag 0. Removed
+ * in battle (mode 5) it takes the first 0x19; removed outside battle nothing goes. */
+static void test_effects3_add_invisible(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 0, false) != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 8) && game.vm.status == COK_ECL_OK);
+    cok_effect *inv = cok_character_find_effect(t, 0x19);
+    CHECK(inv != NULL && inv->duration == 1 && inv->value == 0x0c && !inv->on_remove);
+    /* A second 0x19 after it: the removal takes the first, the later stays. */
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0x55, false) != NULL);
+    cok_effect *gone = cok_character_add_effect(t, 0x38, 0, 0, true);
+    CHECK(gone != NULL && cok_effects_remove(&game.effects, t, gone, 0x38) && game.vm.status == COK_ECL_OK);
+    cok_effect *left = cok_character_find_effect(t, 0x19);
+    CHECK(left != NULL && left->value == 0x55 && left != inv);
+    /* Outside battle, nothing is removed. */
+    game.vm.mode = 4;
+    gone = cok_character_add_effect(t, 0x38, 0, 0, true);
+    CHECK(gone != NULL && cok_effects_remove(&game.effects, t, gone, 0x38) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x19) == left);
+    game.vm.mode = 5;
+    battle_clear();
+}
+
+/* effects-3's add_raw stop (the effects' pool, effect.c's add): with the pool full, 0x19 is not added: the port stops,
+ * cited as effect.c's (dqk 19c2). */
+static void test_effects3_pool(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    unsigned n = 0;
+    for (size_t i = 0; i < game.party.count; ++i)
+        for (const cok_effect *e = game.party.members[i]->effects; e != NULL; e = e->next) ++n;
+    for (; n < R->effects.pool_size; ++n) CHECK(cok_character_add_effect(t, 0x01, 0, 0, false) != NULL);
+    CHECK(!cok_effects_run(&game.effects, a, 0x38, NULL));
+    CHECK(strstr(game.effects.error, "effect 0x19") != NULL && strstr(game.effects.error, "pool is full") != NULL &&
+          strstr(game.effects.error, "19c2") != NULL);
+    CHECK(cok_character_find_effect(a, 0x19) == NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -4838,6 +5099,13 @@ int main(void)
     test_effects2_globes();
     test_effects2_resistant();
     test_effects2_applied_only();
+    test_effects3_images();
+    test_effects3_haste();
+    test_effects3_slow();
+    test_effects3_prayer();
+    test_effects3_missiles();
+    test_effects3_add_invisible();
+    test_effects3_pool();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

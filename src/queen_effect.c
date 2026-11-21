@@ -42,13 +42,27 @@ static uint8_t spell_level(cok_adventure *game)
     return queen_spell_byte(game, game->effects.rolls.spell, 2);
 }
 
-/* 148f:19c2 (c, id, minutes, value, flag): the effect added. An id of 0 adds nothing. Out of memory
- * fails. The effects' pool (effect.c's add, its full stop) is not checked here: the callers that need
- * it come with their own parts. */
-static bool __attribute__((unused)) add_raw(cok_adventure *game, cok_character *c, uint8_t id,
-                                            uint16_t minutes, uint8_t value, bool on_remove)
+/* The effects' pool's count (19c2's): the nodes linked in the party's records (effect.c's pooled). */
+static unsigned pooled(cok_adventure *game)
 {
+    unsigned n = 0;
+    for (size_t i = 0; i < game->party.count; ++i)
+        for (const cok_effect *e = game->party.members[i]->effects; e != NULL; e = e->next) ++n;
+    return n;
+}
+
+/* 148f:19c2 (c, id, minutes, value, flag): the effect added. An id of 0 adds nothing. A full pool stops,
+ * cited as effect.c's add does (the rules' pool_size nodes, pool_unported); out of memory fails. */
+static bool add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes, uint8_t value,
+                    bool on_remove)
+{
+    const cok_rules_effects *E = &cok_game_rules(game)->effects;
     if (id == 0) return true;
+    if (E->pool_size != 0 && pooled(game) >= E->pool_size) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "effect 0x%02x: the effects' pool is full (%u nodes; %s)",
+                           id, E->pool_size, E->pool_unported);
+        return false;
+    }
     if (cok_character_add_effect(c, id, minutes, value, on_remove) != NULL) return true;
     cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory adding effect 0x%02x", id);
     return false;
@@ -70,6 +84,159 @@ static bool __attribute__((unused)) again(cok_adventure *game, cok_character *c,
 static cok_combat_record *block(cok_character *c)
 {
     return c->combat;
+}
+
+/* effects-3: images, haste, slow, prayer, missiles, 0x38 */
+
+/* A handler that reads its node, run with none (cok_effects_run's NULL): the port stops, cited. */
+static bool no_node(cok_adventure *game, uint8_t id, unsigned cite)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "effect 0x%02x (dqk 78e4:%04x) is run with no effect", id, cite);
+    return false;
+}
+
+/* The selected member (vm.character, DS:ad67), NULL with none. */
+static cok_character *selected_member(cok_adventure *game)
+{
+    if (game->vm.character == NULL) return NULL;
+    size_t i = cok_party_index(&game->party, game->vm.character);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
+/* 78e4:0580 (0x1c, Mirror Image; ev 5, 6, 9; applied_only). In mode 5 a d(value >> 5 + 1) (one draw, always) above
+ * 1 takes an image, unless the images flag (rolls.images) is set and the spell being cast is none or its
+ * SPELL_ALLIES word is not 0. The damage and the pending effect are cancelled, "lost an image" (row 10, waited),
+ * and the value's high nibble counts down: the first 0x1c goes at 0, else the nibble is the new count. */
+static bool images(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    enum { SPELL_ALLIES = 0x13 }; /* queen_cast.c's SPELL_ALLIES: a word, 0 for the caster's own side */
+    cok_rolls *r = &game->effects.rolls;
+    if (effect == NULL) return no_node(game, 0x1c, 0x0580);
+    if (game->vm.mode != 5) return true;
+    uint8_t d = cok_dice(&game->vm.seed, 1, (uint8_t)((effect->value >> 5) + 1));
+    if (d <= 1) return true;
+    if (r->images != 0 && (r->spell == 0 || queen_spell_word(game, r->spell, SPELL_ALLIES) != 0)) return true;
+    cancel(game, 0);
+    if (!cok_arena_say(game, c, "lost an image", 10, true)) return false;
+    uint8_t n = (uint8_t)((effect->value >> 5) - 1);
+    if (n == 0) return cok_effects_remove(&game->effects, c, NULL, 0x1c) || cok_adventure_effect_failed(game);
+    effect->value = (uint8_t)((n << 5) | (effect->value & 0x1f));
+    return true;
+}
+
+/* 78e4:06e8 (0x27, haste; ev 0x12; applied_only). The first time (bit 5 of the value clear) the value gains 0x20,
+ * the holder "ages" (row 10, waited), its age (+0x52 word) goes up a year and the battle's aging is asked for.
+ * Every time, the movement and the rate are doubled. */
+static bool haste(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_rolls *r = &game->effects.rolls;
+    if (effect == NULL) return no_node(game, 0x27, 0x06e8);
+    if ((effect->value & 0x20) == 0) {
+        effect->value = (uint8_t)(effect->value + 0x20);
+        if (!cok_arena_say(game, c, "ages", 10, true)) return false;
+        cok_field_set16(L, c->record, COK_FIELD_AGE, (uint16_t)(cok_field_u16(L, c->record, COK_FIELD_AGE) + 1));
+        game->effects.aging = true;
+    }
+    r->movement = (uint8_t)(r->movement << 1);
+    r->rate = (uint8_t)(r->rate << 1);
+    return true;
+}
+
+/* 78e4:0877 (0x2a, slow; ev 0x12; applied_only). Unless the holder holds effect 0x96 (177e:1734), the movement and the
+ * rate are halved. */
+static void slow(cok_adventure *game, cok_character *c)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (cok_character_find_effect(c, 0x96) != NULL) return;
+    r->movement = (uint8_t)(r->movement >> 1);
+    r->rate = (uint8_t)(r->rate >> 1);
+}
+
+/* 78e4:09d3 (0x31, prayer; ev 0x0a, 0x0c, shared within 6; applied_only). The side in bit 7 of the value (0 or 1)
+ * against the holder's side word (+0x66): equal, the save and the attack roll 1 better (011f); else both 1 worse. */
+static bool prayer(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (effect == NULL) return no_node(game, 0x31, 0x09d3);
+    unsigned side = (unsigned)(effect->value & 0x80) >> 7;
+    if (cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_HOSTILE) == side) {
+        r->save_roll = (uint8_t)(r->save_roll + 1);
+        r->attack_roll = (uint8_t)(r->attack_roll + 1);
+    } else {
+        r->attack_roll = (uint8_t)(r->attack_roll - 1);
+        r->save_roll = (uint8_t)(r->save_roll - 1);
+    }
+    return true;
+}
+
+/* 78e4:07d4 (a): the item the selected member a strikes with against a missile: NULL with no readied weapon (slot 0),
+ * else the ammunition (51c2:10c3, cok_combat_ammunition) when it has one, else the weapon. The original calls it
+ * twice (the NULL test and the bonus); the lookup draws nothing, so once is the same. */
+static bool missile_item(cok_adventure *game, cok_character *a, const uint8_t **m)
+{
+    *m = NULL;
+    size_t weapon = a->slots[0];
+    if (weapon == 0 || weapon > a->item_count) return true;
+    size_t item = 0;
+    bool has = false;
+    if (!cok_combat_ammunition(game, a, &item, &has)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "an item type past ITEMS reads past the table "
+                                                    "(dqk 51c2:10c3, 78e4:07d4)");
+        return false;
+    }
+    *m = a->items[(item != 0 ? item : weapon) - 1];
+    return true;
+}
+
+/* 78e4:076e (a, c, 100): the attacker's readied weapon, and a distance (51c2:0b26, the hook) above 1, then one d100
+ * (drawn; a chance of 100 is never exceeded): "Avoids it" (row 10, waited), the damage 0, the attack roll 0xff and
+ * one hit less (rolls.hits[0]). */
+static bool avoid(cok_adventure *game, cok_character *a, cok_character *c)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (a->slots[0] == 0) return true;
+    char why[200] = "";
+    uint8_t d;
+    if (!game->effects.distance(&game->effects, a->record, c->record, &d, why, sizeof why, game)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", why);
+        return false;
+    }
+    if (d <= 1) return true;
+    (void)cok_dice(&game->vm.seed, 1, 100);
+    if (!cok_arena_say(game, c, "Avoids it", 10, true)) return false;
+    set_damage(game, 0);
+    r->attack_roll = 0xff;
+    --r->hits[0];
+    return true;
+}
+
+/* 78e4:0832 (0x29, Protection from Normal Missiles; ev 5; applied_only). The selected member's missile item (07d4)
+ * with no bonus (+0x30 byte 0) avoids the blow from a square more than 1 away (076e). No selected member is read
+ * through NULL in the original: the port stops, cited. */
+static bool missiles(cok_adventure *game, cok_character *c)
+{
+    cok_character *a = selected_member(game);
+    if (a == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "dqk 78e4:0832 reads the selected character (DS:ad67) "
+                                                    "with none");
+        return false;
+    }
+    const uint8_t *m;
+    if (!missile_item(game, a, &m)) return false;
+    if (m == NULL || m[cok_game_rules(game)->item_record.bonus] != 0) return true;
+    return avoid(game, a, c);
+}
+
+/* 78e4:0acf (0x38, add invisibility; ev 8; not applied_only). Removed: in battle (mode 5) the first 0x19 goes. Not
+ * removed: 0x19 for a minute, value 0x0c, flag 0 (148f:19c2). */
+static bool add_invisible(cok_adventure *game, cok_character *c, bool removing)
+{
+    if (removing) {
+        if (game->vm.mode != 5) return true;
+        return cok_effects_remove(&game->effects, c, NULL, 0x19) || cok_adventure_effect_failed(game);
+    }
+    return add_raw(game, c, 0x19, 1, 0x0c, false);
 }
 
 /* effects-4: the 7e76 four */
@@ -252,6 +419,19 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
         return true;
     }
     /* effects-3: images, haste, slow, prayer, missiles, 0x38 */
+    case COK_FX_QUEEN_IMAGES:
+        return images(game, c, effect);
+    case COK_FX_QUEEN_HASTE:
+        return haste(game, c, effect);
+    case COK_FX_QUEEN_SLOW:
+        slow(game, c);
+        return true;
+    case COK_FX_QUEEN_PRAYER:
+        return prayer(game, c, effect);
+    case COK_FX_QUEEN_MISSILES:
+        return missiles(game, c);
+    case COK_FX_QUEEN_ADD_INVISIBLE:
+        return add_invisible(game, c, removing);
     /* effects-4: the 7e76 four */
     case COK_FX_QUEEN_CHARM:
         return charm(game, removing, effect, c);
