@@ -311,6 +311,11 @@ queen_spell_fn *queen_area_handler(uint8_t id);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);
+/* The line spell's routine (dqk 7fd8:1772 bolt(len, amount, flag)): the bolt from the spell's cell away from the caster
+ * (vm.character), 2 * len half-cells of walk, bouncing off a wall in var 0x22 1 (flag: the walk back doubled once where the
+ * line back is 8 or fewer). Lightning Bolt (0x33) and Javelin of Lightning (0x81) are queen_area.c's; exported for their
+ * tests, which set the length. False where the run stopped. */
+bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag);
 
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the

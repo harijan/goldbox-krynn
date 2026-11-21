@@ -4361,18 +4361,38 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 }
 
 /* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
- * own cell), read where Lightning (0x33) on the open ground stops at its citation (dry: no burst, the handler unrun). */
+ * own cell), read where Spiritual Hammer (0x1c, unported: its stop is 7fd8:08e3, after the flight, no burst) stops. Lightning
+ * (0x33) is ported (band b3): it runs its handler at the own cell, so it no longer stops before its draws. */
 static uint32_t own_cell_flight(uint32_t start)
 {
     cast_open(false);
-    menu_c->record[0xce] = 0x33;
+    menu_c->record[0xce] = 0x1c;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x33, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1ac3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    uint32_t entry = menu_game.vm.seed;
+    menu_close();
+    return entry;
+}
+
+/* The same at a foe's cell (9, 5), the caster's aim by N then T: the missile to the foe draws (its flight is not the own
+ * cell's), so a foe's burst base is read the same way, where Spiritual Hammer stops. */
+static uint32_t foe_flight(uint32_t start)
+{
+    cast_open(false);
+    aim_foe(9, 5, 1);
+    menu_c->record[0xce] = 0x1c;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("NT");
+    menu_game.vm.seed = start;
+    bool done = false;
+    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
@@ -4522,33 +4542,40 @@ static void test_flight_bursts(void)
     static const struct {
         uint8_t spell, var3d, wet, rings, slot;
         const char *sounds, *stop; /* stop NULL: the handler is ported (band b2) and runs to its end */
+        bool foe;                  /* cast at a foe's cell (9, 5), not the caster's own: the aim's N then T */
     } runs[] = {
-        {0x4a, 0, 0, 0, 0, "3;", NULL},
-        {0x73, 0, 0, 7, 0x19, "3;12;", NULL},
-        {0x73, 1, 0, 10, 0x19, "3;12;", NULL},
-        {0x2f, 1, 0, 10, 0x19, "12;12;", NULL},
-        {0x85, 1, 0, 7, 0x19, "3;12;", NULL},
-        {0x85, 0, 1, 7, 0x19, "3;12;", NULL}, /* underwater: the handler's bar (one draw), the burst's frames kept */
-        {0x57, 0, 0, 7, 0x1a, "3;12;", NULL},
-        {0x57, 0, 1, 10, 0x1a, "3;12;", NULL},
-        {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
-        {0x33, 0, 1, 7, 0x14, "9;9;", "7fd8:1ac3"},
-        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4"},
-        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4"},
+        {0x4a, 0, 0, 0, 0, "3;", NULL, false},
+        {0x73, 0, 0, 7, 0x19, "3;12;", NULL, false},
+        {0x73, 1, 0, 10, 0x19, "3;12;", NULL, false},
+        {0x2f, 1, 0, 10, 0x19, "12;12;", NULL, false},
+        {0x85, 1, 0, 7, 0x19, "3;12;", NULL, false},
+        {0x85, 0, 1, 7, 0x19, "3;12;", NULL, false}, /* underwater: the handler's bar (one draw), the burst's frames kept */
+        {0x57, 0, 0, 7, 0x1a, "3;12;", NULL, false},
+        {0x57, 0, 1, 10, 0x1a, "3;12;", NULL, false},
+        {0x33, 0, 0, 0, 0, "9;", NULL, true}, /* band b3: Lightning at a foe (the own cell's bolt stops at 7fd8:192f, below) */
+        {0x33, 0, 1, 7, 0x14, "9;9;", NULL, false}, /* underwater: queen_fireball's area, the spell kept */
+        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4", false},
+        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4", false},
     };
     const uint32_t start = 0x2468ace1u;
     const uint32_t base = own_cell_flight(start); /* the flight's draws at the own cell, the same for each spell */
+    const uint32_t base_foe = foe_flight(start);  /* and at the foe's cell (its missile draws) */
     static uint8_t got[64000], want[64000];
     for (size_t k = 0; k < sizeof runs / sizeof runs[0]; ++k) {
         cast_open(false);
         menu_c->record[0xce] = runs[k].spell;
         cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, runs[k].var3d);
         cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, runs[k].wet);
-        cast_keys("T");
+        if (runs[k].foe) {
+            aim_foe(9, 5, 1);
+            cast_keys("NT");
+        } else {
+            cast_keys("T");
+        }
         menu_game.vm.seed = start;
         bool done = false;
         bool ran = queen_cast(&menu_game, runs[k].spell, false, true, &done);
-        uint32_t burst = runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings);
+        uint32_t burst = runs[k].rings == 0 ? (runs[k].foe ? base_foe : base) : rings_model(base, 1, runs[k].rings);
         if (runs[k].stop != NULL) {
             CHECK(!ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
             CHECK(menu_game.vm.seed == burst);
@@ -4561,7 +4588,13 @@ static void test_flight_bursts(void)
             }
         } else {
             CHECK(ran && menu_game.vm.status == COK_ECL_OK);
-            CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            if (runs[k].foe) {
+                /* Lightning at a foe: its bolt's missiles draw by the view, which handler_draws (run again on the view the
+                 * cast left) does not repeat, so only the draws are checked here (the flow band_b3 checks RandSeed). */
+                CHECK(menu_game.vm.seed != burst);
+            } else {
+                CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            }
             if (runs[k].wet && runs[k].spell == 0x85) { /* the bar only: no flash reloaded the frames */
                 uint32_t bar = burst;
                 cok_tp_random(&bar, 1000);
@@ -4578,6 +4611,18 @@ static void test_flight_bursts(void)
                                    : strncmp(script.sounds, runs[k].sounds, strlen(runs[k].sounds)) == 0);
         menu_close();
     }
+    /* Lightning at the caster's own cell (band b3): the bolt hits the caster, then the stop 7fd8:192f (the zero-length
+     * line compares an occupant it never read), with the flight's and the hit's draws kept. */
+    cast_open(false);
+    menu_c->record[0xce] = 0x33;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("T");
+    menu_game.vm.seed = start;
+    bool done = false;
+    CHECK(!queen_cast(&menu_game, 0x33, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNDEFINED && strstr(menu_game.error, "7fd8:192f") != NULL);
+    menu_close();
 }
 
 static void test_flight_burst(void)
