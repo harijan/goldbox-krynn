@@ -288,10 +288,13 @@ bool queen_healed(cok_adventure *game, cok_character *c);
  * (rolls.spell is the spell). False where the run stopped. */
 bool queen_cure_light(cok_adventure *game);
 bool queen_magic_missile(cok_adventure *game);
-/* The handler of a spell id the port carries out (CLW 0x03, MM 0x0f), NULL for any other: the cast
- * takes its handler from here before rules_dark_queen_magic.c's unported table. */
+/* The handler of a spell id the port carries out (CLW 0x03, MM 0x0f, the plain applies), NULL for any
+ * other: the cast takes its handler from here before rules_dark_queen_magic.c's unported table. */
 typedef bool queen_spell_fn(cok_adventure *game);
 queen_spell_fn *queen_spell_handler(uint8_t id);
+/* The plain apply's text of spell (queen_cast.c's table, 7fd8's routines) and the DS offset that
+ * routine pushes for it (*ds); NULL, with *ds unset, for a spell with no plain apply. */
+const char *queen_plain_text(uint8_t spell, uint16_t *ds);
 
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the

@@ -970,6 +970,7 @@ static void test_magic_ids(void)
      * damage " for 1, the source suffixes "%sfrom Fire" (Cold, Electricity, Acid), "%sfrom Magic",
      * "Goes Down", "%s and is Dying", "is killed", "lost a spell", the heal's two texts and the
      * flash's "is Unaffected" (dqk 148f:2214, 177e:187a, 51c2:0731). */
+    /* The plain applies' texts (queen_cast.c's table; "" at 879d). */
     static const struct { unsigned off; const char *text; } words[] = {
         {0x0c7, "lost a spell"},   {0x0fc, "is killed"},          {0x120, "takes %d%s"},
         {0x12b, " points of damage "}, {0x13e, "takes 1 point of damage "},
@@ -977,6 +978,11 @@ static void test_magic_ids(void)
         {0x182, "%sfrom Acid"},    {0x18e, "%sfrom Magic"},       {0x19b, "Goes Down"},
         {0x1a5, "%s and is Dying"}, {0x1b5, "is Unaffected"},     {0x263, "is fully healed"},
         {0x273, "is partially healed"},
+        {0x879d, ""},              {0x879e, "is affected"},       {0x87aa, "is protected"},
+        {0x87b7, "is cold-resistant"}, {0x882a, "is shielded"},   {0x884b, "is fire resistant"},
+        {0x885d, "is silenced"},   {0x8869, "is invisible"},      {0x8876, "Knock-Knock"},
+        {0x8890, "is weakened"},   {0x88f2, "is blind"},          {0x8929, "has been cursed!"},
+        {0x893a, "is blinking"},   {0x8964, "is paralyzed"},      {0x8a2b, "is toughened"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
@@ -1021,6 +1027,32 @@ static void test_magic_ids(void)
         CHECK(h->address == off->imm && h->handler == COK_CAST_NONE && h->unported != NULL);
         CHECK(strcmp(h->unported, cite) == 0);
     }
+
+    /* The plain applies: a routine is 849a:10f9(spell, 0, 0, 0, 0, text) when its bytes are push ds; mov
+     * ax, text; push ax; the zeros and the spell's word; call 749a:10f9; add sp, 14; retf (the text's offset
+     * LL HH is the DS offset it pushes). Each such id's routine is one of them, with that offset and text,
+     * and every other spell routine has none (38 ids; 21 routines serve them). */
+    static const uint8_t plain_tail[] = {0x50, 0x33, 0xc0, 0x50, 0xb0, 0x00, 0x50, 0xb0, 0x00, 0x50, 0xb0, 0x00,
+                                         0x50, 0xff, 0x36, 0xea, 0xb2, 0x9a, 0xf9, 0x10, 0x9a, 0x74, 0x83, 0xc4,
+                                         0x0e, 0xcb};
+    unsigned plain_ids = 0, plain_routines = 0;
+    for (unsigned id = 1; id < R->spells.count; ++id) {
+        const cok_rules_cast *h = &R->spells.cast[id];
+        const uint8_t *p = exe + header + (size_t)(0x7fd8 - 0x1000) * 16 + h->address;
+        uint16_t at = 0;
+        const char *text = queen_plain_text((uint8_t)id, &at);
+        bool shape = h->address != 0 && p[0] == 0x1e && p[1] == 0xb8 &&
+                     memcmp(p + 4, plain_tail, sizeof plain_tail) == 0;
+        if (text != NULL) plain_ids++;
+        if (shape) {
+            plain_routines++;
+            CHECK(text != NULL && at == (uint16_t)(p[2] | p[3] << 8));
+            CHECK(text != NULL && strcmp((const char *)exe + ds + at, text) == 0);
+        } else {
+            CHECK(text == NULL);
+        }
+    }
+    CHECK(plain_ids == 38 && plain_routines == 38);
 
     /* The effects' handlers: a routine that is a bare retf (push bp; mov bp,sp;
      * pop bp; retf) does nothing, COK_FX_NOTHING; the rest are cited. */
@@ -4194,14 +4226,14 @@ static void test_cast_targets(void)
     cast_keys("ENEY");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
     CHECK(cast_said("Spell Aborted"));
-    /* The dispatch: an unported spell (0x13 Shield, kind 0, no Aim) runs its flight and forgets it,
-     * then stops at its cited routine (7fd8:056a). The byte is marked (0x93). */
+    /* The dispatch: an unported spell (0x1c Spiritual Hammer, kind 0, no Aim; Shield is a plain apply now)
+     * runs its flight and forgets it, then stops at its cited routine (7fd8:08e3). The byte is marked (0x9c). */
     cast_open(false);
-    menu_c->record[0xce] = 0x13;
+    menu_c->record[0xce] = 0x1c;
     cast_keys("");
-    CHECK(!queen_cast(&menu_game, 0x13, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:056a") != NULL);
-    CHECK(menu_c->record[0xce] == 0x93);
+    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    CHECK(menu_c->record[0xce] == 0x9c);
     /* A ported handler runs: CLW on herself (the Aim's T), the spell marked, the cast over. */
     cast_open(false);
     cast_keys("T");
@@ -4407,12 +4439,12 @@ static void test_cast_kinds(void)
     menu_c->combat->facing = 2;
     cast_keys("T");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_c->combat->facing == 0);
-    /* A pending spell is cleared before its cast: one that stops (Shield's handler, 7fd8:056a) leaves
-     * none pending. */
+    /* A pending spell is cleared before its cast: one that stops (Spiritual Hammer's handler, 7fd8:08e3)
+     * leaves none pending. */
     cast_open(false);
-    menu_c->record[0xce] = 0x13;
-    menu_c->combat->spell = 0x13;
-    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:056a") != NULL);
+    menu_c->record[0xce] = 0x1c;
+    menu_c->combat->spell = 0x1c;
+    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:08e3") != NULL);
     CHECK(menu_c->combat->spell == 0);
     menu_close();
 }

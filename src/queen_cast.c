@@ -539,12 +539,92 @@ bool queen_magic_missile(cok_adventure *game)
     return queen_spell_apply(game, spell, 0, false, amount, 8, "");
 }
 
+/* The plain applies: 7fd8's 21 routines, 38 ids (plain.txt). Each is 849a:10f9(spell, 0, 0, 0, 0, text):
+ * the spell's effect (its +0xe) for its duration with the text said, after the saves and the touch as the
+ * spell's record gives. ds is the DS offset the routine pushes (the string there, checked by the tests); the
+ * empty text at 879d adds the effect silently. 0x50 (Invisibility to Animals) is a touch castable in combat
+ * and camp: outside combat its touch's combatant is undefined here (the original's 148f:1771 is well
+ * defined), not reachable before part 46's camp Cast. 0x12, 0x16 and 0x1f are camp-only ("Camp Only Spell"
+ * in a battle) and 0x82, 0x87 and 0x88 are items' (Use, part 50): the same routines, reached by those. */
+typedef struct {
+    uint8_t id;
+    uint16_t ds;
+    const char *text;
+} queen_plain;
+
+static const queen_plain plain_table[] = {
+    /* 018c */
+    {0x05, 0x879e, "is affected"}, {0x0b, 0x879e, "is affected"}, {0x12, 0x879e, "is affected"},
+    {0x16, 0x879e, "is affected"}, {0x1d, 0x879e, "is affected"}, {0x3c, 0x879e, "is affected"},
+    {0x4d, 0x879e, "is affected"},
+    /* 01aa */
+    {0x06, 0x87aa, "is protected"}, {0x07, 0x87aa, "is protected"}, {0x10, 0x87aa, "is protected"},
+    {0x11, 0x87aa, "is protected"}, {0x34, 0x87aa, "is protected"}, {0x35, 0x87aa, "is protected"},
+    {0x36, 0x87aa, "is protected"}, {0x39, 0x87aa, "is protected"}, {0x45, 0x87aa, "is protected"},
+    {0x7a, 0x87aa, "is protected"},
+    /* 01c8 */
+    {0x08, 0x87b7, "is cold-resistant"},
+    /* 056a */
+    {0x13, 0x882a, "is shielded"},
+    /* 073c */
+    {0x18, 0x884b, "is fire resistant"},
+    /* 075a */
+    {0x19, 0x885d, "is silenced"}, {0x3b, 0x885d, "is silenced"},
+    /* 091b */
+    {0x1e, 0x8869, "is invisible"}, {0x32, 0x8869, "is invisible"},
+    /* 0939 */
+    {0x1f, 0x8876, "Knock-Knock"},
+    /* 09a6 */
+    {0x21, 0x8890, "is weakened"},
+    /* 1026 */
+    {0x26, 0x88f2, "is blind"},
+    /* 14dd */
+    {0x2c, 0x8929, "has been cursed!"},
+    /* 14fb */
+    {0x2d, 0x893a, "is blinking"},
+    /* 1d39 */
+    {0x82, 0x8964, "is paralyzed"},
+    /* 23a7: a touch, castable in combat and camp (outside combat undefined: see above) */
+    {0x50, 0x8869, "is invisible"},
+    /* 2960 */
+    {0x58, 0x87aa, "is protected"},
+    /* 297e */
+    {0x5a, 0x8a2b, "is toughened"},
+    /* 2b1c, 2c14, 2cae: no text */
+    {0x87, 0x879d, ""}, {0x88, 0x879d, ""}, {0x64, 0x879d, ""},
+    /* 3279, 370d */
+    {0x70, 0x87aa, "is protected"}, {0x77, 0x87aa, "is protected"},
+};
+
+static const queen_plain *plain_of(uint8_t id)
+{
+    for (size_t i = 0; i < sizeof plain_table / sizeof *plain_table; ++i)
+        if (plain_table[i].id == id) return &plain_table[i];
+    return NULL;
+}
+
+const char *queen_plain_text(uint8_t id, uint16_t *ds)
+{
+    const queen_plain *p = plain_of(id);
+    if (p == NULL) return NULL;
+    *ds = p->ds;
+    return p->text;
+}
+
+/* 7fd8's plain apply of the spell being cast (rolls.spell). */
+static bool queen_plain_apply(cok_adventure *game)
+{
+    const queen_plain *p = plain_of(game->effects.rolls.spell);
+    if (p == NULL) return undefined(game, "a spell with no plain apply reaches its routine (7fd8)");
+    return queen_spell_apply(game, p->id, 0, false, 0, 0, p->text);
+}
+
 queen_spell_fn *queen_spell_handler(uint8_t id)
 {
     switch (id) {
     case CLW: return queen_cure_light;
     case MM: return queen_magic_missile;
-    default: return NULL;
+    default: return plain_of(id) != NULL ? queen_plain_apply : NULL;
     }
 }
 
