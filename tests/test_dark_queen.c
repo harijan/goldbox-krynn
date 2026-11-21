@@ -4263,12 +4263,11 @@ static void test_cast_forget(void)
     }
     bool done = false;
     /* A Delayed Blast Fireball (0x73): its flight (the Fireball family's picture, one frame) and its burst
-     * run, the byte is forgotten (0xf3), then the handler stops at its citation (7fd8:1519). */
+     * run, the byte is forgotten (0xf3), then the handler (queen_area.c, band b2) runs to its end. */
     cast_open(true);
     menu_c->record[0xce] = 0x73;
     cast_keys("T");
-    CHECK(!queen_cast(&menu_game, 0x73, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1519") != NULL);
+    CHECK(queen_cast(&menu_game, 0x73, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
     CHECK(menu_c->record[0xce] == 0xf3);
     /* A ported spell (CLW 0x03) cast from the list: the announce, then the byte marked. */
     cast_open(true);
@@ -4347,25 +4346,6 @@ static void test_direction_picture(void)
     menu_close();
 }
 
-/* The Delayed Blast Fireball's flight (queen_cast.c's switch): its burst's radius is 2 with var 0x22 0 and 3 with 1
- * (on the open ground 2). The cast is at the caster's own cell (CINDER at 5, 5: no missile, the offset 0), from the
- * same seed, so the radius 3 run's draws are the radius 2 run's (rings 1-7) and rings 8-10 after them, as rings_model
- * draws. The run stops at the handler (7fd8:1519) after the burst; the seed it leaves is compared. */
-static uint32_t own_cell_dbf(uint16_t var, uint32_t seed)
-{
-    cast_open(false);
-    menu_c->record[0xce] = 0x73;
-    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, var);
-    cast_keys("T");
-    menu_game.vm.seed = seed;
-    bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x73, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1519") != NULL);
-    uint32_t after = menu_game.vm.seed;
-    menu_close();
-    return after;
-}
-
 /* The rings from first to last at offset 0 (ox = oy = 0): the draws of queen_burst's rings, as the test writes them. */
 static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 {
@@ -4378,6 +4358,62 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
             if (px >= -9 && px <= 9 && py >= -9 && py <= 9) cok_tp_random(&seed, 4);
         }
     return seed;
+}
+
+/* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
+ * own cell), read where Lightning (0x33) on the open ground stops at its citation (dry: no burst, the handler unrun). */
+static uint32_t own_cell_flight(uint32_t start)
+{
+    cast_open(false);
+    menu_c->record[0xce] = 0x33;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("T");
+    menu_game.vm.seed = start;
+    bool done = false;
+    CHECK(!queen_cast(&menu_game, 0x33, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1ac3") != NULL);
+    uint32_t entry = menu_game.vm.seed;
+    menu_close();
+    return entry;
+}
+
+/* The draws of the handler alone for spell from seed (queen_spell_handler, on the caster and targets the cast left
+ * in place): the seed after it. The cast's draws after the burst are these, so a burst's draws are checked by them. */
+static uint32_t handler_draws(uint8_t spell, uint32_t seed)
+{
+    menu_game.effects.rolls.spell = spell;
+    menu_game.vm.seed = seed;
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    CHECK(handler != NULL && handler(&menu_game) && menu_game.vm.status == COK_ECL_OK);
+    menu_game.effects.rolls.spell = 0;
+    return menu_game.vm.seed;
+}
+
+/* The Delayed Blast Fireball's flight (queen_cast.c's switch): its burst's radius is 2 with var 0x22 0 and 3 with 1
+ * (on the open ground 2). The cast is at the caster's own cell (CINDER at 5, 5: no missile, the offset 0), from the
+ * same seed, so the radius 3 run's draws are the radius 2 run's (rings 1-7) and rings 8-10 after them, as rings_model
+ * draws. The handler (queen_area.c, band b2) runs after the burst: the seed it leaves is the handler's draws from the
+ * burst's seed (handler_draws). */
+static uint32_t own_cell_dbf(uint16_t var, uint32_t seed, uint32_t *expect)
+{
+    uint32_t entry = own_cell_flight(seed);
+    cast_open(false);
+    menu_c->record[0xce] = 0x73;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, var);
+    /* Hit points high enough that the damage (2d6 and the level) leaves the caster up: the handler's draws, run again
+     * below from the same caster, are then the same as the cast's (a death would change them). */
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_HIT_POINTS, 0xf0);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_MAX_HIT_POINTS, 0xf0);
+    cast_keys("T");
+    menu_game.vm.seed = seed;
+    bool done = false;
+    CHECK(queen_cast(&menu_game, 0x73, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    uint32_t after = menu_game.vm.seed;
+    /* The handler's draws from the burst's seed: radius 2 (7 rings) with var 0x22 0, radius 3 (10 rings) with 1. */
+    *expect = handler_draws(0x73, rings_model(entry, 1, var == 0 ? 7 : 10));
+    menu_close();
+    return after;
 }
 
 /* A burst's draws from seed (radius, at sx, sy): the offset of 3 cells off an edge of the view ((s - 3) * 3 below
@@ -4402,11 +4438,21 @@ static uint32_t burst_model(uint32_t seed, unsigned radius, int sx, int sy)
  * flight's 12 draws) counted in probe_flight0. */
 static unsigned probe_delays, probe_frame0, probe_flight0;
 static uint8_t probe_screen[64000];
+/* At the first delay (the flight's): whether missile frame 0 is then the picture of probe_slot (image, mirror). */
+static uint8_t probe_slot, probe_image;
+static bool probe_mirror, probe_picture;
 
 static void frame0_probe(void)
 {
     size_t n = screen_bytes();
     memcpy(probe_screen, menu_game.screen.pixels, n);
+    if (probe_delays == 0) {
+        static uint8_t got[64000], want[64000];
+        spark_over(probe_screen, 0, got);
+        CHECK(cok_arena_missile_frame(&menu_game, probe_slot, probe_image, 0, probe_mirror));
+        spark_over(probe_screen, 0, want);
+        probe_picture = memcmp(got, want, n) == 0;
+    }
     bool found = false;
     for (int y = -3; y <= 21 && !found; ++y)
         for (int x = -3; x <= 21 && !found; ++x) {
@@ -4419,8 +4465,8 @@ static void frame0_probe(void)
     probe_frame0 += found;
 }
 
-/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), stopping
- * at its handler; whether missile frame 0 is then slot's (image, mirror). */
+/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), on to its
+ * handler's end or stop; whether missile frame 0 is slot's (image, mirror) at the flight's first delay. */
 static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uint8_t slot, uint8_t image,
                       bool mirror)
 {
@@ -4429,6 +4475,10 @@ static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uin
     menu_c->record[0xce] = spell;
     cast_keys("NT");
     probe_delays = probe_frame0 = probe_flight0 = 0;
+    probe_slot = slot;
+    probe_image = image;
+    probe_mirror = mirror;
+    probe_picture = false;
     delay_probe = frame0_probe;
     bool done = false;
     bool ran = queen_cast(&menu_game, spell, false, false, &done);
@@ -4436,14 +4486,8 @@ static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uin
     CHECK(menu_game.spell_x == fx && menu_game.spell_y == fy);
     CHECK(stop == NULL ? ran && menu_game.vm.status == COK_ECL_OK
                        : !ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, stop) != NULL);
-    static uint8_t got[64000], want[64000];
-    memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
-    spark_over(picture_base, 0, got);
-    CHECK(cok_arena_missile_frame(&menu_game, slot, image, 0, mirror));
-    spark_over(picture_base, 0, want);
-    bool same = memcmp(got, want, screen_bytes()) == 0;
     menu_close();
-    return same;
+    return probe_picture;
 }
 
 /* The flight's frames (849a:1656): the Fireball family flies one frame, its picture by the facing (51c2:0fc8), so
@@ -4456,17 +4500,19 @@ static void test_flight_frames(void)
         puts("dark queen: DQKAssets not found; the flight's frames not checked");
         return;
     }
-    CHECK(flight_at(0x4a, 9, 5, "7fd8:2157", 0x22, 0, false));
-    CHECK(probe_delays == 12 && probe_frame0 == 12);
-    CHECK(flight_at(0x4a, 9, 9, "7fd8:2157", 0x21, 1, false));
-    CHECK(probe_delays == 12 && probe_frame0 == 12);
+    /* The first 12 delays are the flight's (the handler's come after them, probe_flight0 counts only the first 12). */
+    CHECK(flight_at(0x4a, 9, 5, NULL, 0x22, 0, false));
+    CHECK(probe_delays >= 12 && probe_flight0 == 12);
+    CHECK(flight_at(0x4a, 9, 9, NULL, 0x21, 1, false));
+    CHECK(probe_delays >= 12 && probe_flight0 == 12);
     flight_at(0x0f, 9, 5, NULL, 0x13, 0, false);
     CHECK(probe_delays >= 12 && probe_flight0 == 3); /* frame 0 at the 1st, 5th and 9th draws */
 }
 
 /* The bursts by spell (849a:16f9's table), each cast at CINDER's own cell (no missile, the offset 0) from the same
- * seed and stopping at its handler: the draws past Flame Strike's (no burst) are rings_model's rings 1 to 3r + 1, the
- * sounds the flight's then the burst's, and missile frame 0 is the burst's slot's (image 0). */
+ * seed: the draws past the flight are rings_model's rings 1 to 3r + 1 (none for Flame Strike, no burst), then the
+ * handler's (handler_draws: band b2's ported spells run to their end; the rest stop at their citation, and their
+ * missile frame 0 is the burst's slot's, image 0). The sounds are the flight's then the burst's. */
 static void test_flight_bursts(void)
 {
     if (!have_assets()) {
@@ -4475,22 +4521,23 @@ static void test_flight_bursts(void)
     }
     static const struct {
         uint8_t spell, var3d, wet, rings, slot;
-        const char *sounds, *stop;
+        const char *sounds, *stop; /* stop NULL: the handler is ported (band b2) and runs to its end */
     } runs[] = {
-        {0x4a, 0, 0, 0, 0, "3;", "7fd8:2157"},
-        {0x73, 0, 0, 7, 0x19, "3;12;", "7fd8:1519"},
-        {0x73, 1, 0, 10, 0x19, "3;12;", "7fd8:1519"},
-        {0x2f, 1, 0, 10, 0x19, "12;12;", "7fd8:1519"},
-        {0x85, 1, 0, 7, 0x19, "3;12;", "7fd8:1519"},
-        {0x57, 0, 0, 7, 0x1a, "3;12;", "7fd8:28fb"},
-        {0x57, 0, 1, 10, 0x1a, "3;12;", "7fd8:28fb"},
+        {0x4a, 0, 0, 0, 0, "3;", NULL},
+        {0x73, 0, 0, 7, 0x19, "3;12;", NULL},
+        {0x73, 1, 0, 10, 0x19, "3;12;", NULL},
+        {0x2f, 1, 0, 10, 0x19, "12;12;", NULL},
+        {0x85, 1, 0, 7, 0x19, "3;12;", NULL},
+        {0x85, 0, 1, 7, 0x19, "3;12;", NULL}, /* underwater: the handler's bar (one draw), the burst's frames kept */
+        {0x57, 0, 0, 7, 0x1a, "3;12;", NULL},
+        {0x57, 0, 1, 10, 0x1a, "3;12;", NULL},
         {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
         {0x33, 0, 1, 7, 0x14, "9;9;", "7fd8:1ac3"},
         {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4"},
         {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4"},
     };
     const uint32_t start = 0x2468ace1u;
-    uint32_t base = 0;
+    const uint32_t base = own_cell_flight(start); /* the flight's draws at the own cell, the same for each spell */
     static uint8_t got[64000], want[64000];
     for (size_t k = 0; k < sizeof runs / sizeof runs[0]; ++k) {
         cast_open(false);
@@ -4500,18 +4547,35 @@ static void test_flight_bursts(void)
         cast_keys("T");
         menu_game.vm.seed = start;
         bool done = false;
-        CHECK(!queen_cast(&menu_game, runs[k].spell, false, true, &done));
-        CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
-        CHECK(strcmp(script.sounds, runs[k].sounds) == 0);
-        if (k == 0) base = menu_game.vm.seed;
-        CHECK(menu_game.vm.seed == (runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings)));
-        if (runs[k].rings != 0) {
-            memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
-            spark_over(picture_base, 0, got);
-            CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
-            spark_over(picture_base, 0, want);
-            CHECK(memcmp(got, want, screen_bytes()) == 0);
+        bool ran = queen_cast(&menu_game, runs[k].spell, false, true, &done);
+        uint32_t burst = runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings);
+        if (runs[k].stop != NULL) {
+            CHECK(!ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
+            CHECK(menu_game.vm.seed == burst);
+            if (runs[k].rings != 0) {
+                memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+                spark_over(picture_base, 0, got);
+                CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
+                spark_over(picture_base, 0, want);
+                CHECK(memcmp(got, want, screen_bytes()) == 0);
+            }
+        } else {
+            CHECK(ran && menu_game.vm.status == COK_ECL_OK);
+            CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            if (runs[k].wet && runs[k].spell == 0x85) { /* the bar only: no flash reloaded the frames */
+                uint32_t bar = burst;
+                cok_tp_random(&bar, 1000);
+                CHECK(menu_game.vm.seed == bar);
+                memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+                spark_over(picture_base, 0, got);
+                CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
+                spark_over(picture_base, 0, want);
+                CHECK(memcmp(got, want, screen_bytes()) == 0);
+            }
         }
+        /* The flight's and the burst's sounds first; a ported handler's (its damage's) come after them. */
+        CHECK(runs[k].stop != NULL ? strcmp(script.sounds, runs[k].sounds) == 0
+                                   : strncmp(script.sounds, runs[k].sounds, strlen(runs[k].sounds)) == 0);
         menu_close();
     }
 }
@@ -4523,8 +4587,9 @@ static void test_flight_burst(void)
         return;
     }
     const uint32_t start = 0x2468ace1u;
-    uint32_t radius2 = own_cell_dbf(0, start), radius3 = own_cell_dbf(1, start);
-    CHECK(radius2 != start && radius3 == rings_model(radius2, 8, 10));
+    uint32_t expect2 = 0, expect3 = 0;
+    uint32_t radius2 = own_cell_dbf(0, start, &expect2), radius3 = own_cell_dbf(1, start, &expect3);
+    CHECK(radius2 == expect2 && radius3 == expect3 && radius2 != radius3);
 }
 
 /* The burst (dqk 51c2:0def, queen_burst): radius 2 at (32, 18) is 3 * 2 + 1 = 7 rings, 49 sparks, all in view

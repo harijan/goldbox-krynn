@@ -308,6 +308,9 @@ bool queen_area_targets(cok_adventure *game, uint16_t radius);
 /* The band b handlers (queen_area.c's switch): the handler of a spell id it carries out, NULL for any other. The
  * cast takes it before the plain table (queen_spell_handler). */
 queen_spell_fn *queen_area_handler(uint8_t id);
+/* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
+ * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
+bool queen_fireball(cok_adventure *game);
 /* 849a:19ff, the cone from x0, y0 aimed at x1, y1 (queen_area.c; Cone of Cold, and for band b5 and c Meteor and Fear):
  * its targets are spell_targets 1 to spell_target_count, the selected member left out. width 1 is the centre line
  * alone, 2 adds the right side, 3 the left, 0xff the combatants within 3 of the end. len is in cells: the aim goes on
