@@ -378,7 +378,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x0d] = {0x021d, COK_FX_QUEEN_BARKSKIN, .applied_only = true}, /* 78e4:021d: save +1 unless magic, attack -1 */
     [0x0e] = {0x0238, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x0f] = {0x023d, COK_FX_MISSING, "dqk 78e4:023d"},
+    [0x0f] = {0x023d, COK_FX_QUEEN_POISON}, /* 78e4:023d: poison, its 0x1a (sic) for ten minutes, the damage */
     [0x10] = {0x02b4, COK_FX_NOTHING}, /* does nothing: retf */
     [0x11] = {0x02b9, COK_FX_QUEEN_SHIELD, .applied_only = true}, /* 78e4:02b9: AC 0x39, save +1, MM cancelled */
     [0x12] = {0x02e6, COK_FX_RESIST_CHARM_30, .applied_only = true}, /* 78e4:02e6: d100 30 or less */
@@ -397,7 +397,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x1f] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x20] = {0x028c, COK_FX_MISSING, "dqk 7e76:028c"},
     [0x21] = {0x0672, COK_FX_BLIND, .applied_only = true}, /* 78e4:0672: attack, save and AC */
-    [0x22] = {0x0696, COK_FX_MISSING, "dqk 78e4:0696"},
+    [0x22] = {0x0696, COK_FX_QUEEN_DISEASE, .applied_only = true}, /* 78e4:0696: cause disease, runs 0x2b and 0x2c */
     [0x23] = {0x033f, COK_FX_QUEEN_CONFUSED, .applied_only = true}, /* 7e76:033f: confusion in battle */
     [0x24] = {0x06d3, COK_FX_MINUS_FOUR, .applied_only = true}, /* 78e4:06d3: attack and save */
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
@@ -406,8 +406,8 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x28] = {0x073b, COK_FX_QUEEN_GLOBE, .applied_only = true}, /* 78e4:073b: spells of level below 8 cancelled */
     [0x29] = {0x0832, COK_FX_MISSING, "dqk 78e4:0832"},
     [0x2a] = {0x0877, COK_FX_MISSING, "dqk 78e4:0877"},
-    [0x2b] = {0x08ba, COK_FX_MISSING, "dqk 78e4:08ba"},
-    [0x2c] = {0x0920, COK_FX_MISSING, "dqk 78e4:0920"},
+    [0x2b] = {0x08ba, COK_FX_QUEEN_DRAIN}, /* 78e4:08ba: strength drain, "is weakened", or 0x1f */
+    [0x2c] = {0x0920, COK_FX_QUEEN_WASTING}, /* 78e4:0920: wasting, the damage, or 0x1f */
     [0x2d] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198 */
     [0x2e] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6 */
     [0x2f] = {0x09b2, COK_FX_AGAINST_FLAG4, .applied_only = true}, /* 78e4:09b2: flag 4 -4 */
