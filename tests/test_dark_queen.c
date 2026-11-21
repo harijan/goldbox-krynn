@@ -4509,6 +4509,35 @@ static void test_flight_frames(void)
     CHECK(probe_delays >= 12 && probe_flight0 == 3); /* frame 0 at the 1st, 5th and 9th draws */
 }
 
+/* Meteor Swarm's frames (7fd8:3b99: no flight for 0x7c; each meteor's 0053(0x20), 0fc8(dir, 0x20) and one frame): from
+ * CINDER (5, 5) at a foe at 9, 6 (N, T), the first meteor falls at 8, 5, east (2): at each of its missile's 10 delays the
+ * frame shown is frame 0 (one frame: 4 would show it at the 1st, 5th and 9th only), and frame 0 is slot 0x22's image 0 (as
+ * Flame Strike's east flight). */
+static void test_meteor_frames(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Meteor Swarm's frames not checked");
+        return;
+    }
+    cast_open(false);
+    aim_foe(9, 6, 1);
+    menu_c->record[0xce] = 0x7c;
+    cast_keys("NT");
+    probe_delays = probe_frame0 = probe_flight0 = 0;
+    probe_slot = 0x22;
+    probe_image = 0;
+    probe_mirror = false;
+    probe_picture = false;
+    delay_probe = frame0_probe;
+    bool done = false;
+    bool ran = queen_cast(&menu_game, 0x7c, false, false, &done);
+    delay_probe = NULL;
+    CHECK(ran && done && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.spell_x == 10 && menu_game.spell_y == 7); /* the fourth meteor's cell */
+    CHECK(probe_picture && probe_delays >= 12 && probe_flight0 == 10); /* the first meteor's 10 delays, then its burst's */
+    menu_close();
+}
+
 /* The bursts by spell (849a:16f9's table), each cast at CINDER's own cell (no missile, the offset 0) from the same
  * seed: the draws past the flight are rings_model's rings 1 to 3r + 1 (none for Flame Strike, no burst), then the
  * handler's (handler_draws: band b2's ported spells run to their end; the rest stop at their citation, and their
@@ -4903,6 +4932,7 @@ int main(void)
     test_burst();
     test_flight_burst();
     test_flight_frames();
+    test_meteor_frames();
     test_flight_bursts();
     test_pending_cast();
     test_pending_act();

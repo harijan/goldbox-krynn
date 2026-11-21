@@ -3366,6 +3366,16 @@ static void test_meteor_try(void)
     my = 7;
     CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 2, 1, &mx, &my, &range, &seen));
     CHECK(mx == 20 && my == 7 && seen);
+    /* So does try 4 (as after a try 3 whose sight pulled the y back; a mutant's my = ty would give 12). */
+    my = 7;
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 4, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 20 && my == 7 && seen);
+    /* The map's edges are on it (x 0 and 0x31, y 0 and 0x18): tried, and seen across the floor. */
+    my = 12;
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 12, 2, 1, &mx, &my, &range, &seen) && mx == 0 && my == 12 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 0x31, 12, 2, 1, &mx, &my, &range, &seen) && mx == 0x31 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 0, 3, 1, &mx, &my, &range, &seen) && mx == 19 && my == 0 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 0x18, 3, 1, &mx, &my, &range, &seen) && my == 0x18 && seen);
     /* A cell off the map stops the try: no sight, the range 0xff halved to 0x7f, the cell kept (x -1 from 0; y -1). */
     CHECK(queen_meteor_try(&game, 10, 10, 0, 5, 1, 1, &mx, &my, &range, &seen));
     CHECK(mx == -1 && my == 4 && !seen && range == 0x7f);
@@ -3501,6 +3511,47 @@ static uint32_t meteor_base(uint32_t seed, int8_t x, int8_t y)
     return base;
 }
 
+/* The first facing whose quarter holds x1, y1 from x0, y0 (5d71:048f). */
+static uint8_t meteor_facing(int8_t x0, int8_t y0, int8_t x1, int8_t y1)
+{
+    uint8_t dir = 0;
+    bool in = false;
+    for (;;) {
+        CHECK(dir < 8 && cok_combat_in_arc(x0, y0, x1, y1, dir, &in));
+        if (in) return dir;
+        ++dir;
+    }
+}
+
+/* The four meteors' arena from the caster c at its cell, made of the shared calls with the original's arguments (7fd8:3b99:
+ * 09ab(rec, dir, 1, 0), 0053(0x20), 0fc8(dir, 0x20), 00df(cx, cy, mx, my, 1, 0x1e), the cell, 0def(1, 0x19, 0x0c), then
+ * 0626 and the poses), from seed; the meteors at 19, 11; 21, 11; 19, 13; 21, 13. Returns the seed after it. */
+static uint32_t meteor_arena(cok_character *c, uint32_t seed)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    int8_t cx = cok_combat_x(k, c->record), cy = cok_combat_y(k, c->record);
+    game.vm.seed = seed;
+    for (unsigned m = 1; m <= 4; ++m) {
+        int8_t mx = (int8_t)(20 + dx[m - 1]), my = (int8_t)(12 + dy[m - 1]);
+        uint8_t dir = meteor_facing(cx, cy, mx, my);
+        k->show_actions = true;
+        CHECK(cok_arena_pose(&game, c, dir, 1, false));
+        CHECK(cok_arena_missile_frames(&game, 0x20) && queen_direction_picture(&game, dir, 0x20));
+        CHECK(cok_arena_missile(&game, cx, cy, mx, my, 1, 0x1e));
+        game.spell_x = mx;
+        game.spell_y = my;
+        CHECK(queen_burst(&game, 1, 0x19, 0x0c));
+        bool shown = false;
+        CHECK(cok_combat_visible(k, R, c->record, false, &shown));
+        if (shown) {
+            uint8_t facing = c->combat->facing;
+            CHECK(cok_arena_pose(&game, c, facing, 1, true) && cok_arena_pose(&game, c, facing, 0, false));
+        }
+    }
+    return game.vm.seed;
+}
+
 static void test_meteor_swarm(void)
 {
     const uint32_t seed = 1234;
@@ -3525,6 +3576,31 @@ static void test_meteor_swarm(void)
     c = meteor_field(10, 10);
     ran = meteor_run(seed);
     CHECK(ran == base && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 9);
+    /* The spell's cell is the fourth meteor's, and the caster faces it (the pose before its missile). */
+    CHECK(game.spell_x == 21 && game.spell_y == 13 && c->combat->facing == meteor_facing(10, 10, 21, 13));
+    battle_clear();
+    /* That arena's draws are the shared calls' with the original's arguments (the burst of radius 1, ...), from the
+     * same view (the one meteor_base's runs leave). */
+    c = meteor_field(10, 10);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+    CHECK(meteor_arena(c, seed) == base);
+    battle_clear();
+
+    /* The tries in the handler: walls at 21, 13, at 20, 13 and at 21, 12 stop the fourth meteor's tries 1 to 3 (each sight
+     * pulled back to the wall), so try 4 (20, the y of try 3's wall: 12) is seen and the meteor falls there. */
+    c = meteor_field(10, 10);
+    game.combat.cells[13][21] = 1;
+    game.combat.cells[13][20] = 1;
+    game.combat.cells[12][21] = 1;
+    meteor_run(seed);
+    CHECK(game.vm.status == COK_ECL_OK && game.spell_x == 20 && game.spell_y == 12);
+    battle_clear();
+    /* A wall next to the caster (11, 10) stops every try of every meteor: the last try's cell (the wall's, where its
+     * sight stopped) is used. */
+    c = meteor_field(10, 10);
+    game.combat.cells[10][11] = 1;
+    meteor_run(seed);
+    CHECK(game.vm.status == COK_ECL_OK && game.spell_x == 11 && game.spell_y == 10);
     battle_clear();
 
     /* One target at 22, 14: within 1 of the fourth meteor's cell (21, 13) and of no other, nor on any line. Its hit comes
@@ -3535,9 +3611,12 @@ static void test_meteor_swarm(void)
         base = meteor_base(s0, 10, 10);
         c = meteor_field(10, 10);
         t4 = meteor_target('T', 22, 14, true);
+        uint8_t needed = k % 2 == 0 ? 21 : 2; /* 2: saved but on a 1 (half the damage) */
+        cok_field_set8_at(R->character, t4->record, COK_FIELD_SAVING_THROW, 4, needed);
         ran = meteor_run(s0);
         uint32_t p = base;
-        bool saved = cok_dice(&p, 1, 20) == 20;
+        uint8_t roll = (uint8_t)cok_dice(&p, 1, 20);
+        bool saved = roll == 20 || (roll != 1 && roll >= needed);
         uint8_t dealt = cok_dice(&p, 10, 4);
         flash_draws(&p, 4);
         CHECK(ran == p);
