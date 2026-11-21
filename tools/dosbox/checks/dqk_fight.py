@@ -239,7 +239,8 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2", "band_b4")
+                 "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2", "band_b4",
+                 "band_b5")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5726,6 +5727,119 @@ def band_b4(v, work, opts):
     print(f"eclplay (band b4) turn mark 03 after {p['last']!r}", flush=True)
 
 
+# Band b5's Meteor Swarm (step 4, part 31e: 7fd8:3b99 and its try 3a73, queen_area.c). Saved game A with BALTHIR
+# memorising Meteor Swarm (+0xce 0x7c, time 3) and nothing else: C, C (Begins Casting: WALKER's menu, 2 draws), E (WALKER's
+# End: SHARKMAN 2's turn, then TIMASALIN's menu), E (TIMASALIN's End: CINDER's menu), E (CINDER's End: BALTHIR's pending
+# Meteor Swarm at its Aim, no menu), N (no target in range: the cursor stays on BALTHIR, no draw), then T: the four meteors
+# from his own cell (29, 14), and the tail.
+BAND_B5_METEOR = 0x7C
+BAND_B5_TIMASALIN = 1                   # the record of TIMASALIN (downed by the meteors: status 4)
+BAND_B5_CINDER = 2                      # the record of CINDER (no hit)
+BAND_B5_SHARKMAN_1 = 6                  # the record of SHARKMAN 1 (no hit)
+BAND_B5_TAIL = (358, 0xA1AD7490)        # the tail after T: 358 draws past the menu
+BAND_B5_CELL = (30, 15)                 # the spell's cell at the tail: the fourth meteor's (DS:bd2c, bd49)
+BAND_B5_TARGETS = 2                     # DS:c6f4 at the tail: WALKER and BALTHIR, the fourth meteor's list (repeats kept)
+BAND_B5_HP = {                          # the hit points before and at the tail, by record: ROLAND (0), TIMASALIN (1), BALTHIR
+    0: (0x86, 0x6F),                    # (3), ROARK (4), WALKER (5); CINDER and the SHARKMEN (2, 6, 7) are untouched
+    1: (0x3D, 0),
+    3: (0x6A, 0x2B),
+    4: (0x62, 0x3D),
+    5: (0x45, 0x1E),                    # WALKER: 0x40 after SHARKMAN 2's hit in its turn (0x45 at the menu)
+}
+BAND_B5_NAMES = "CCEEENT"              # the keys of the meteor flow (eclplay)
+BAND_B5_MARK = "06"                     # eclplay's turn mark of the tail (the marks 01 to 05: the turns before it)
+
+
+def meteor_save():
+    """Saved game A with BALTHIR memorising Meteor Swarm (+0xce 0x7c) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B5_METEOR}})
+
+
+def cast_run_meteor(box, menu, work, tag):
+    """C, C (WALKER's menu), E (WALKER's End: SHARKMAN 2's turn, then TIMASALIN's menu), E (TIMASALIN's End: CINDER's menu),
+    E (CINDER's End: BALTHIR's pending Aim), N (SHARKMAN 2 is not in range: the cursor stays on him), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["third"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_b5(v, work, opts):
+    """Band b5's Meteor Swarm (part 31e), the flow band_b5: the four meteors at BALTHIR's own cell (his pending Aim at 29,
+    14), on the original's tail after T (the line's and the area's dice, the saves, the flashes) and eclplay's turn mark 06.
+    The original: RandSeed at WALKER's menu after C, C (CAST_CLW_NEXT), at TIMASALIN's and at CINDER's menus (16 draws
+    each, from the first: BAND_B2_FLAME_MENU), at BALTHIR's pending Aim (BAND_B2_FLAME_AIM), and at the tail 358 draws past
+    the menu, RandSeed a1ad7490; the cell 30, 15 (the fourth meteor's), DS:c6f4 2, the hit points of BAND_B5_HP, TIMASALIN
+    downed (status 4), BALTHIR's +0xce 0xfc. eclplay runs the same keys: its Aim's screen and its turn mark (the one with the
+    original's RandSeed) agree on RandSeed, records, combat blocks and effect chains."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = meteor_save()
+    o = cast_original(work, wild, save, "band-b5", opts.verbose, cast_run_meteor)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b5-save", save)
+    nxt, second, third, aim, tail = o["next"], o["second"], o["third"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Meteor Swarm: "
+            f"Begins Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, second["seed"])
+    v.check((draws, second["seed"]) == BAND_B2_FLAME_MENU, f"the original's RandSeed at TIMASALIN's menu after WALKER's End "
+            f"(SHARKMAN 2's turn between) is {BAND_B2_FLAME_MENU[0]} draws past the menu, at {BAND_B2_FLAME_MENU[1]:#x}",
+            f"{draws} draws, {second['seed']:#x}")
+    draws = L.draws(m0, third["seed"])
+    v.check(draws == BAND_B2_FLAME_MENU[0], f"the original's RandSeed at CINDER's menu after TIMASALIN's End is "
+            f"{BAND_B2_FLAME_MENU[0]} draws past the menu (none drawn by his End)", f"{draws} draws")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_B2_FLAME_AIM, f"the original's RandSeed at BALTHIR's pending Meteor Swarm at its "
+            f"Aim (after CINDER's End) is {BAND_B2_FLAME_AIM[0]} draws past the menu, at {BAND_B2_FLAME_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (no target in range) is unchanged",
+            f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_B5_TAIL, f"the original's tail after T (Meteor Swarm) is {BAND_B5_TAIL[0]} draws "
+            f"past BALTHIR's menu, at {BAND_B5_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_B5_CELL and tail["targets"] == BAND_B5_TARGETS, f"at the tail the last meteor's cell is "
+            f"{BAND_B5_CELL} and DS:c6f4 is {BAND_B5_TARGETS}", f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    for record, (before, after) in BAND_B5_HP.items():
+        was = rec_byte(o["menu"]["records"][record], HIT_POINTS)
+        now = rec_byte(tail["records"][record], HIT_POINTS)
+        v.check((was, now) == (before, after), f"record {record}'s hit points go from {before:#x} to {after:#x} by the meteors",
+                f"{was:#x} -> {now:#x}")
+    v.check(rec_byte(tail["records"][BAND_B5_TIMASALIN], STATUS_AT) == 4, "TIMASALIN is downed (status 4) at the tail",
+            f"status {rec_byte(tail['records'][BAND_B5_TIMASALIN], STATUS_AT)}")
+    untouched = [BAND_B5_CINDER, BAND_B5_SHARKMAN_1, CAST_SHARKMAN_2]
+    v.check(all(rec_byte(o["menu"]["records"][i], HIT_POINTS) == rec_byte(tail["records"][i], HIT_POINTS) for i in untouched),
+            "CINDER and both SHARKMEN are untouched at the tail", "")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_B5_METEOR | CAST_FORGOTTEN, "at the tail BALTHIR's Meteor Swarm is forgotten (+0xce 0xfc)",
+            f"+0xce {forgotten:#x}")
+    p_aim = turn_port(work, wild, "band-b5-aim", "CCEEE", entry=entry)
+    cast_screen(v, work, "BALTHIR's pending Meteor Swarm at its Aim (row 23 Spell:Meteor Swarm)", aim["screen"], p_aim,
+                SHIELD_POINTER)
+    command_state(v, "BALTHIR's pending Meteor Swarm at its Aim", aim, p_aim, third["seed"])
+    p = turn_port(work, wild, "band-b5", BAND_B5_NAMES, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's tail ({tail['seed']:#x}) after "
+                f"{BAND_B5_NAMES}", p["last"])
+        return
+    v.check(mark["number"] == BAND_B5_MARK, f"the turn mark with the original's tail is {BAND_B5_MARK} (the sixth turn: "
+            "BALTHIR, WALKER, SHARKMAN 2, TIMASALIN, CINDER, then BALTHIR's pending Meteor Swarm)", mark["number"])
+    command_state(v, f"Meteor Swarm's tail (the turn's tail, {mark['number']})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Meteor Swarm's tail, turn mark {mark['number']})")
+    marked = ported_records(mark)
+    got = {record: rec_byte(marked[record], HIT_POINTS) for record in BAND_B5_HP}
+    want = {record: after for record, (_, after) in BAND_B5_HP.items()}
+    v.check(got == want and rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_B5_METEOR | CAST_FORGOTTEN,
+            "eclplay's tail after Meteor Swarm: the hit points of the records above, BALTHIR's +0xce 0xfc",
+            f"{got}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band b5, Meteor Swarm) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5819,6 +5933,8 @@ def main():
         band_b2(v, work, opts)
     if "band_b4" in flows:
         band_b4(v, work, opts)
+    if "band_b5" in flows:
+        band_b5(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
