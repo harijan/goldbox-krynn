@@ -373,17 +373,17 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x07] = {0x0075, COK_FX_NOTHING}, /* does nothing: retf */
     [0x08] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198: alignment 2, 5, 8 */
     [0x09] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6: alignment 0, 3, 6 */
-    [0x0a] = {0x01f4, COK_FX_MISSING, "dqk 78e4:01f4"},
+    [0x0a] = {0x01f4, COK_FX_QUEEN_RESIST, .value = 2, .applied_only = true}, /* 78e4:01f4: cold halved, save +3 */
     [0x0b] = {0x007a, COK_FX_MISSING, "dqk 7e76:007a"},
     [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x0d] = {0x021d, COK_FX_MISSING, "dqk 78e4:021d"},
+    [0x0d] = {0x021d, COK_FX_QUEEN_BARKSKIN, .applied_only = true}, /* 78e4:021d: save +1 unless magic, attack -1 */
     [0x0e] = {0x0238, COK_FX_NOTHING}, /* does nothing: retf */
     [0x0f] = {0x023d, COK_FX_MISSING, "dqk 78e4:023d"},
     [0x10] = {0x02b4, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x11] = {0x02b9, COK_FX_MISSING, "dqk 78e4:02b9"},
+    [0x11] = {0x02b9, COK_FX_QUEEN_SHIELD, .applied_only = true}, /* 78e4:02b9: AC 0x39, save +1, MM cancelled */
     [0x12] = {0x02e6, COK_FX_RESIST_CHARM_30, .applied_only = true}, /* 78e4:02e6: d100 30 or less */
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x14] = {0x0313, COK_FX_MISSING, "dqk 78e4:0313"},
+    [0x14] = {0x0313, COK_FX_QUEEN_RESIST, .value = 1, .applied_only = true}, /* 78e4:0313: fire halved, save +3 */
     [0x15] = {0x012c, COK_FX_MISSING, "dqk 7e76:012c"},
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
     [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
@@ -392,7 +392,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x1a] = {0x01c7, COK_FX_TARGET_BONUS, .battle = true, .applied_only = true}, /* 7e76:01c7 */
     [0x1b] = {0x010d, COK_FX_HELD}, /* 78e4:010d: ends the holder's turn in battle */
     [0x1c] = {0x0580, COK_FX_MISSING, "dqk 78e4:0580"},
-    [0x1d] = {0x0654, COK_FX_MISSING, "dqk 78e4:0654"},
+    [0x1d] = {0x0654, COK_FX_QUEEN_QUARTER_LESS, .applied_only = true}, /* 78e4:0654: a quarter less */
     [0x1e] = {0x01fb, COK_FX_MISSING, "dqk 7e76:01fb"},
     [0x1f] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x20] = {0x028c, COK_FX_MISSING, "dqk 7e76:028c"},
@@ -403,7 +403,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
     [0x26] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x27] = {0x06e8, COK_FX_MISSING, "dqk 78e4:06e8"},
-    [0x28] = {0x073b, COK_FX_MISSING, "dqk 78e4:073b"},
+    [0x28] = {0x073b, COK_FX_QUEEN_GLOBE, .applied_only = true}, /* 78e4:073b: spells of level below 8 cancelled */
     [0x29] = {0x0832, COK_FX_MISSING, "dqk 78e4:0832"},
     [0x2a] = {0x0877, COK_FX_MISSING, "dqk 78e4:0877"},
     [0x2b] = {0x08ba, COK_FX_MISSING, "dqk 78e4:08ba"},
@@ -413,14 +413,14 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x2f] = {0x09b2, COK_FX_AGAINST_FLAG4, .applied_only = true}, /* 78e4:09b2: flag 4 -4 */
     [0x30] = {0x09ce, COK_FX_NOTHING}, /* does nothing: retf */
     [0x31] = {0x09d3, COK_FX_MISSING, "dqk 78e4:09d3"},
-    [0x32] = {0x0a22, COK_FX_MISSING, "dqk 78e4:0a22"},
+    [0x32] = {0x0a22, COK_FX_QUEEN_RESISTANT, .value = 2, .applied_only = true}, /* 78e4:0a22: cold saved, fire doubled */
     [0x33] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x34] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x35] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
-    [0x36] = {0x0a7e, COK_FX_MISSING, "dqk 78e4:0a7e"},
+    [0x36] = {0x0a7e, COK_FX_QUEEN_RESISTANT, .value = 1, .applied_only = true}, /* 78e4:0a7e: fire saved, cold doubled */
     [0x37] = {0x0aca, COK_FX_NOTHING}, /* does nothing: retf */
     [0x38] = {0x0acf, COK_FX_MISSING, "dqk 78e4:0acf"},
-    [0x39] = {0x0b11, COK_FX_MISSING, "dqk 78e4:0b11"},
+    [0x39] = {0x0b11, COK_FX_QUEEN_GLOBE_MAGIC, .applied_only = true}, /* 78e4:0b11: level 4 or below, magic, cancelled */
     [0x3a] = {0x0b50, COK_FX_MISSING, "dqk 78e4:0b50"},
     [0x3b] = {0x0d30, COK_FX_NOTHING}, /* does nothing: retf */
     [0x3c] = {0x0d8c, COK_FX_MISSING, "dqk 78e4:0d8c"},

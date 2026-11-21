@@ -4282,6 +4282,221 @@ static void test_meteor_swarm(void)
     game.vm.character = NULL;
 }
 
+/* Effects-2 (step 4, part 34b): the damage word and the rolls. Each routine runs on its holder at its event (6, 4, 0x0c) with
+ * the damage (amount16 and its byte) and the rolls set by hand; the handler is the test's, not the spells'. A spell id of level
+ * L is the first with its table byte 2 at L (the table's level), so the premises are checked. */
+static unsigned spell_of_level(unsigned level)
+{
+    for (unsigned id = 1; id < 0x90; ++id)
+        if (queen_spell_byte(&game, id, 2) == level) return id;
+    return 0;
+}
+
+static void set_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
+{
+    game.effects.rolls.amount16 = amount;
+    game.effects.rolls.amount = (uint8_t)amount;
+    game.effects.rolls.damage_type = type;
+    game.effects.rolls.save_roll = save_roll;
+}
+
+/* Resist Cold (0x0a, 78e4:01f4) and Resist Fire (0x14, 0313): the type's damage halved as a signed word, the save 3 better.
+ * 300 of fire is 150 (the byte alone would be 22). Each leaves the other type alone. */
+static void test_effects2_resist(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    CHECK(cok_character_add_effect(t, 0x14, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(u, 0x0a, 0, 0, false) != NULL);
+    set_rolls(7, 9, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 3 && game.effects.rolls.amount == 3 && game.effects.rolls.save_roll == 13);
+    set_rolls(7, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 7 && game.effects.rolls.save_roll == 10);
+    set_rolls(300, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 150 &&
+          game.effects.rolls.amount == 150 && game.effects.rolls.save_roll == 13);
+    set_rolls(7, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 3 && game.effects.rolls.amount == 3 &&
+          game.effects.rolls.save_roll == 13);
+    set_rolls(7, 9, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 7 && game.effects.rolls.save_roll == 10);
+    set_rolls(300, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 150 &&
+          game.effects.rolls.amount == 150 && game.effects.rolls.save_roll == 13);
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Shield (0x11, 78e4:02b9): the holder's AC raised to 0x39 (not lowered from 0x40), the save 1 better, Magic Missile's damage
+ * word zeroed with its pending effect kept; another spell's damage stays. */
+static void test_effects2_shield(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x11, 0, 0, false) != NULL);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x20);
+    set_rolls(5, 0, 10);
+    game.effects.rolls.spell = 0x0f;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x39 && game.effects.rolls.save_roll == 11 &&
+          game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0x6f);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x40);
+    set_rolls(5, 0, 10);
+    game.effects.rolls.spell = 0x09;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x40 && game.effects.rolls.save_roll == 11 &&
+          game.effects.rolls.amount16 == 5 && game.effects.rolls.amount == 5);
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Barkskin (0x0d, 78e4:021d): the save 1 better unless the damage is magic (type 8), the attack roll 1 worse, always. The
+ * Ray of Enfeeblement (0x1d, 0654): the holder's strike of 9 is 7 (9 - 9 / 4). */
+static void test_effects2_barkskin_ray(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0, false) != NULL);
+    set_rolls(5, 1, 10);
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0c) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.save_roll == 11 && game.effects.rolls.attack_roll == 9);
+    set_rolls(5, 8, 10);
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0c) && game.effects.rolls.save_roll == 10 &&
+          game.effects.rolls.attack_roll == 9);
+    battle_clear();
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(a, 0x1d, 0, 0, false) != NULL);
+    set_rolls(9, 0, 0);
+    CHECK(cok_effects_dispatch(&game.effects, a, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 7 && game.effects.rolls.amount == 7);
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Globe (0x28, 78e4:073b): a spell of level below 8 cancelled (its damage and pending effect), level 8 not, and none (spell 0)
+ * not. Globe of Invulnerability (0x39, 0b11): rolls.spell above 0, level 4 or below and the magic type (8): level 1 with type
+ * 9 cancelled; the same with type 1 not; level 5 with type 8 not. */
+static void test_effects2_globes(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    const unsigned below = spell_of_level(7), eight = spell_of_level(8);
+    CHECK(below != 0 && eight != 0);
+    CHECK(cok_character_add_effect(t, 0x28, 0, 0, false) != NULL);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = (uint8_t)below;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = (uint8_t)eight;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    CHECK(queen_spell_byte(&game, 0x09, 2) == 1 && queen_spell_byte(&game, 0x5c, 2) == 5);
+    CHECK(cok_character_add_effect(u, 0x39, 0, 0, false) != NULL);
+    set_rolls(5, 9, 0);
+    game.effects.rolls.spell = 0x09;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = 0x09;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    set_rolls(5, 8, 0);
+    game.effects.rolls.spell = 0x5c;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
+    set_rolls(5, 8, 0);
+    game.effects.rolls.spell = 0;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    game.effects.rolls.spell = 0;
+    battle_clear();
+}
+
+/* Resistant (0x32, 78e4:0a22: cold, saved by 2; the fire of it is doubled unsaved) and 0x36 (0a7e: the mirror, fire saved and cold
+ * doubled). A saved type takes 2 from the save; its damage is zeroed when the save is made, halved when not. */
+static void test_effects2_resistant(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    CHECK(cok_character_add_effect(t, 0x32, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(u, 0x36, 0, 0, false) != NULL);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 0 && game.effects.rolls.save_roll == 12);
+    game.effects.rolls.save_made = 0;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 4 && game.effects.rolls.save_roll == 12);
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 16 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 8 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 0 && game.effects.rolls.save_roll == 12);
+    game.effects.rolls.save_made = 0;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 4 && game.effects.rolls.save_roll == 12);
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 16 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 8);
+    game.effects.rolls.save_made = 0;
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Each of the nine is applied_only: a node of flag 1 removed changes no roll, even with the damage, the type and the spell that
+ * would change them. */
+static void test_effects2_applied_only(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    static const uint8_t ids[] = {0x0a, 0x0d, 0x11, 0x14, 0x1d, 0x28, 0x32, 0x36, 0x39};
+    for (size_t i = 0; i < sizeof ids / sizeof *ids; ++i) {
+        cok_effect *e = cok_character_add_effect(t, ids[i], 0, 0, true);
+        CHECK(e != NULL);
+        set_rolls(9, 9, 10);
+        game.effects.rolls.spell = 0x0f;
+        game.effects.rolls.attack_roll = 10;
+        game.effects.rolls.pending = 0x6f;
+        game.effects.rolls.save_made = 1;
+        CHECK(cok_effects_remove(&game.effects, t, e, ids[i]) && game.vm.status == COK_ECL_OK);
+        CHECK(game.effects.rolls.amount16 == 9 && game.effects.rolls.amount == 9 && game.effects.rolls.save_roll == 10 &&
+              game.effects.rolls.attack_roll == 10 && game.effects.rolls.pending == 0x6f);
+        CHECK(cok_character_find_effect(t, ids[i]) == NULL);
+    }
+    game.effects.rolls.save_made = 0;
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    game.effects.rolls.attack_roll = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -4373,6 +4588,12 @@ int main(void)
     test_cone_of_cold();
     test_meteor_try();
     test_meteor_swarm();
+    test_effects2_resist();
+    test_effects2_shield();
+    test_effects2_barkskin_ray();
+    test_effects2_globes();
+    test_effects2_resistant();
+    test_effects2_applied_only();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
