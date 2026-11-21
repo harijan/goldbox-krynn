@@ -4361,18 +4361,38 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 }
 
 /* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
- * own cell), read where Lightning (0x33) on the open ground stops at its citation (dry: no burst, the handler unrun). */
+ * own cell), read where Spiritual Hammer (0x1c, unported: its stop is 7fd8:08e3, after the flight, no burst) stops. Lightning
+ * (0x33) is ported (band b3): it runs its handler at the own cell, so it no longer stops before its draws. */
 static uint32_t own_cell_flight(uint32_t start)
 {
     cast_open(false);
-    menu_c->record[0xce] = 0x33;
+    menu_c->record[0xce] = 0x1c;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x33, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1ac3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    uint32_t entry = menu_game.vm.seed;
+    menu_close();
+    return entry;
+}
+
+/* The same at a foe's cell (9, 5), the caster's aim by N then T: the missile to the foe draws (its flight is not the own
+ * cell's), so a foe's burst base is read the same way, where Spiritual Hammer stops. */
+static uint32_t foe_flight(uint32_t start)
+{
+    cast_open(false);
+    aim_foe(9, 5, 1);
+    menu_c->record[0xce] = 0x1c;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("NT");
+    menu_game.vm.seed = start;
+    bool done = false;
+    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
@@ -4509,6 +4529,35 @@ static void test_flight_frames(void)
     CHECK(probe_delays >= 12 && probe_flight0 == 3); /* frame 0 at the 1st, 5th and 9th draws */
 }
 
+/* Meteor Swarm's frames (7fd8:3b99: no flight for 0x7c; each meteor's 0053(0x20), 0fc8(dir, 0x20) and one frame): from
+ * CINDER (5, 5) at a foe at 9, 6 (N, T), the first meteor falls at 8, 5, east (2): at each of its missile's 10 delays the
+ * frame shown is frame 0 (one frame: 4 would show it at the 1st, 5th and 9th only), and frame 0 is slot 0x22's image 0 (as
+ * Flame Strike's east flight). */
+static void test_meteor_frames(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; Meteor Swarm's frames not checked");
+        return;
+    }
+    cast_open(false);
+    aim_foe(9, 6, 1);
+    menu_c->record[0xce] = 0x7c;
+    cast_keys("NT");
+    probe_delays = probe_frame0 = probe_flight0 = 0;
+    probe_slot = 0x22;
+    probe_image = 0;
+    probe_mirror = false;
+    probe_picture = false;
+    delay_probe = frame0_probe;
+    bool done = false;
+    bool ran = queen_cast(&menu_game, 0x7c, false, false, &done);
+    delay_probe = NULL;
+    CHECK(ran && done && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.spell_x == 10 && menu_game.spell_y == 7); /* the fourth meteor's cell */
+    CHECK(probe_picture && probe_delays >= 12 && probe_flight0 == 10); /* the first meteor's 10 delays, then its burst's */
+    menu_close();
+}
+
 /* The bursts by spell (849a:16f9's table), each cast at CINDER's own cell (no missile, the offset 0) from the same
  * seed: the draws past the flight are rings_model's rings 1 to 3r + 1 (none for Flame Strike, no burst), then the
  * handler's (handler_draws: band b2's ported spells run to their end; the rest stop at their citation, and their
@@ -4522,33 +4571,40 @@ static void test_flight_bursts(void)
     static const struct {
         uint8_t spell, var3d, wet, rings, slot;
         const char *sounds, *stop; /* stop NULL: the handler is ported (band b2) and runs to its end */
+        bool foe;                  /* cast at a foe's cell (9, 5), not the caster's own: the aim's N then T */
     } runs[] = {
-        {0x4a, 0, 0, 0, 0, "3;", NULL},
-        {0x73, 0, 0, 7, 0x19, "3;12;", NULL},
-        {0x73, 1, 0, 10, 0x19, "3;12;", NULL},
-        {0x2f, 1, 0, 10, 0x19, "12;12;", NULL},
-        {0x85, 1, 0, 7, 0x19, "3;12;", NULL},
-        {0x85, 0, 1, 7, 0x19, "3;12;", NULL}, /* underwater: the handler's bar (one draw), the burst's frames kept */
-        {0x57, 0, 0, 7, 0x1a, "3;12;", NULL},
-        {0x57, 0, 1, 10, 0x1a, "3;12;", NULL},
-        {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
-        {0x33, 0, 1, 7, 0x14, "9;9;", "7fd8:1ac3"},
-        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4"},
-        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4"},
+        {0x4a, 0, 0, 0, 0, "3;", NULL, false},
+        {0x73, 0, 0, 7, 0x19, "3;12;", NULL, false},
+        {0x73, 1, 0, 10, 0x19, "3;12;", NULL, false},
+        {0x2f, 1, 0, 10, 0x19, "12;12;", NULL, false},
+        {0x85, 1, 0, 7, 0x19, "3;12;", NULL, false},
+        {0x85, 0, 1, 7, 0x19, "3;12;", NULL, false}, /* underwater: the handler's bar (one draw), the burst's frames kept */
+        {0x57, 0, 0, 7, 0x1a, "3;12;", NULL, false},
+        {0x57, 0, 1, 10, 0x1a, "3;12;", NULL, false},
+        {0x33, 0, 0, 0, 0, "9;", NULL, true}, /* band b3: Lightning at a foe (the own cell's, below) */
+        {0x33, 0, 1, 7, 0x14, "9;9;", NULL, false}, /* underwater: queen_fireball's area, the spell kept */
+        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4", false},
+        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4", false},
     };
     const uint32_t start = 0x2468ace1u;
     const uint32_t base = own_cell_flight(start); /* the flight's draws at the own cell, the same for each spell */
+    const uint32_t base_foe = foe_flight(start);  /* and at the foe's cell (its missile draws) */
     static uint8_t got[64000], want[64000];
     for (size_t k = 0; k < sizeof runs / sizeof runs[0]; ++k) {
         cast_open(false);
         menu_c->record[0xce] = runs[k].spell;
         cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, runs[k].var3d);
         cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, runs[k].wet);
-        cast_keys("T");
+        if (runs[k].foe) {
+            aim_foe(9, 5, 1);
+            cast_keys("NT");
+        } else {
+            cast_keys("T");
+        }
         menu_game.vm.seed = start;
         bool done = false;
         bool ran = queen_cast(&menu_game, runs[k].spell, false, true, &done);
-        uint32_t burst = runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings);
+        uint32_t burst = runs[k].rings == 0 ? (runs[k].foe ? base_foe : base) : rings_model(base, 1, runs[k].rings);
         if (runs[k].stop != NULL) {
             CHECK(!ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
             CHECK(menu_game.vm.seed == burst);
@@ -4561,7 +4617,13 @@ static void test_flight_bursts(void)
             }
         } else {
             CHECK(ran && menu_game.vm.status == COK_ECL_OK);
-            CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            if (runs[k].foe) {
+                /* Lightning at a foe: its bolt's missiles draw by the view, which handler_draws (run again on the view the
+                 * cast left) does not repeat, so only the draws are checked here (the flow band_b3 checks RandSeed). */
+                CHECK(menu_game.vm.seed != burst);
+            } else {
+                CHECK(menu_game.vm.seed == handler_draws(runs[k].spell, burst));
+            }
             if (runs[k].wet && runs[k].spell == 0x85) { /* the bar only: no flash reloaded the frames */
                 uint32_t bar = burst;
                 cok_tp_random(&bar, 1000);
@@ -4578,6 +4640,22 @@ static void test_flight_bursts(void)
                                    : strncmp(script.sounds, runs[k].sounds, strlen(runs[k].sounds)) == 0);
         menu_close();
     }
+    /* Lightning at the caster's own cell (band b3), dry: no burst, so the handler's draws start at the own-cell flight's
+     * base: the level's d6, the bolt's hit on the caster, its zero-length line's second hit (no missile draws), no stop.
+     * Hit points high enough that the cast's and handler_draws' hits leave the caster up (the draws stay the same). */
+    cast_open(false);
+    menu_c->record[0xce] = 0x33;
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_HIT_POINTS, 0xf0);
+    cok_field_set8(R->character, menu_c->record, COK_FIELD_MAX_HIT_POINTS, 0xf0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
+    cast_keys("T");
+    menu_game.vm.seed = start;
+    bool done = false;
+    CHECK(queen_cast(&menu_game, 0x33, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(strncmp(script.sounds, "9;", 2) == 0);
+    CHECK(menu_game.vm.seed == handler_draws(0x33, base));
+    menu_close();
 }
 
 static void test_flight_burst(void)
@@ -4903,6 +4981,7 @@ int main(void)
     test_burst();
     test_flight_burst();
     test_flight_frames();
+    test_meteor_frames();
     test_flight_bursts();
     test_pending_cast();
     test_pending_act();

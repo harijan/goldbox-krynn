@@ -166,7 +166,7 @@ About 20 seconds.
     python3 tools/dosbox/checks/dqk_fight.py [--workdir DIR] [--verbose]
         [--flows setup,load,clear,six,ground,encounter,field,wild,slots,icons,dispatch,keys,
          altq_missile,turns,round,melee,melee-long,melee-dying,won,drop,timer,walk,mouse,move,aim,turn,
-         cast,cast_auto]
+         cast,cast_auto,cast_auto_area]
         (auto alone)
 
 Ends with VERDICT: AGREES, or VERDICT: DIFFERS new (...) listing what differs."""
@@ -239,7 +239,8 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2", "band_b4")
+                 "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
+                 "band_b3", "band_b4", "band_b5")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5077,17 +5078,18 @@ CAST_AUTO_DEAD = 5
 CAST_AUTO_STOP = re.compile(r"error: not yet ported: .* effect 0x2f \(dqk 78e4:09b2\)")  # eclplay's stop (a later part)
 
 
-def cast_auto_original(work, patched, data, verbose):
+def cast_auto_original(work, patched, data, verbose, tag="cast-auto", to_end=True):
     """The original at BALTHIR's first menu (CAST's save): Alt-M (the menu again), then Alt-Q: her computer turn's
     dispatch (5045:0891 spun, then given back), then the turn's tail (5045:066a, trapped once loaded, RandSeed settled
-    by wait_seed: the cast done), then the trap given back and the fight run to its end (key_wait, end_state).
-    Returns the menu, the Alt-M and the dispatch's states, the tail's and the end's."""
-    with cokbox.Box(workdir=work / "box-cast-auto", game="dark-queen", verbose=verbose, timeout=1800,
+    by wait_seed: the cast done), then the trap given back and, if TO_END, the fight run to its end (key_wait,
+    end_state). Returns the menu, the Alt-M and the dispatch's states, the tail's and, if TO_END, the end's.
+    TAG names the box and the screens (cast_auto_area runs the same keys on its own save and stops at the tail)."""
+    with cokbox.Box(workdir=work / f"box-{tag}", game="dark-queen", verbose=verbose, timeout=1800,
                     files={**L.files(patched), "SAVE/SAVGAMA.QSV": data}) as box:
         enter(box)
         box.set_seed(SEED)
         menu = to_menu(box)
-        magic = cast_key(box, work, "cast-auto-magic", "\\@M")
+        magic = cast_key(box, work, f"{tag}-magic", "\\@M")
         magic["magic"] = box.ds_byte(MAGIC)
         t = arm(box, menu["handle"], COMPUTER)
         box.keys("\\@Q")
@@ -5100,8 +5102,10 @@ def cast_auto_original(work, patched, data, verbose):
         tail = snapshot(box)
         tail.update(selected=selected(box), cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)),
                     targets=box.ds_byte(CAST_TARGETS))
-        tail["screen"] = box.screenshot(path=str(work / "cast-auto-tail.png"))
+        tail["screen"] = box.screenshot(path=str(work / f"{tag}-tail.png"))
         L.untrap(box, t2)
+        if not to_end:
+            return dict(menu=menu, magic=magic, dispatch=dispatch, tail=tail)
         end_screen = key_wait(box)
         end = end_state(box)
         end["screen"] = end_screen
@@ -5174,6 +5178,71 @@ def cast_auto(v, work, opts):
     v.check(memo == CAST_AUTO_MEMO,
             f"eclplay's BALTHIR keeps +0xcf {CAST_AUTO_MEMO:#x} (MM forgotten) at its stop", f"{memo}")
     print(f"eclplay (cast auto) ends {p['last']!r}", flush=True)
+
+
+# Cast's computer area cast (step 4, part 31f: 5bb8:0306's choice, 52db:2543, the computer's area aim 52db:48aa, the flight
+# and the burst, carry-over C3: the handler reads the caster's level through vm.character, set by the computer's cast).
+# Saved game A with BALTHIR memorising Delayed Blast Fireball (+0xce 0x73) and nothing else: Alt-M at his menu (the magic on,
+# one draw), then Alt-Q (her computer turn: the dispatch's two draws, then the choice: d100 above her p 40, d5 at or below
+# the priority 9, the cast at once, the aim, the flight), trapped at the turn's tail (5045:066a) with RandSeed settled. The
+# original stops there; eclplay runs the same keys with the turn marks and its stop after the tail is reported.
+CAST_AUTO_AREA_TAIL = (171, 0x7DDC25DD)  # RandSeed at the tail: 171 draws past the menu, 7ddc25dd
+CAST_AUTO_AREA_CELL = (35, 12)           # the burst's cell (DS:bd2c, bd49)
+CAST_AUTO_AREA_TARGET = 6                # the record of SHARKMAN 1 (the list's index: 4aba:0f9d), the burst's one target
+CAST_AUTO_AREA_HP = (0x4E, 0x45)         # SHARKMAN 1's hit points before and after the burst
+CAST_AUTO_AREA_MEMO = 0xF3               # BALTHIR's +0xce after the cast (Delayed Blast Fireball forgotten)
+
+
+def cast_auto_area(v, work, opts):
+    """Cast's computer area cast (part 31f): Alt-M at BALTHIR's menu (one draw), then Alt-Q (her computer turn). The original,
+    at the tail (5045:066a): 171 draws past the menu, RandSeed 7ddc25dd, the burst's cell 35,12 and one target (DS:c6f4 1),
+    SHARKMAN 1 (record 6) hit from 0x4e to 0x45, and BALTHIR's +0xce 0xf3 (Delayed Blast Fireball forgotten). eclplay runs the
+    same keys: its turn mark 02 (the computer turn's tail) agrees with the original's (RandSeed, records, blocks, effect
+    chains); its stop after the tail is reported, not checked."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dbf_save()
+    o = cast_auto_original(work, wild, save, opts.verbose, tag="cast-auto-area", to_end=False)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "cast-auto-area-save", save)
+    p = turn_port(work, wild, "cast-auto-area", "\\@M\\@Q", entry=entry)
+    magic, dispatch, tail = o["magic"], o["dispatch"], o["tail"]
+    v.check(magic["magic"] == 1 and (L.draws(m0, magic["seed"]), magic["seed"]) == CAST_AUTO_MAGIC,
+            f"the original's Alt-M turns the magic on (DS:b1cb 1) with {CAST_AUTO_MAGIC[0]} draw past the menu, at "
+            f"{CAST_AUTO_MAGIC[1]:#x}", f"DS:b1cb {magic['magic']}, {L.draws(m0, magic['seed'])} draws, {magic['seed']:#x}")
+    v.check((L.draws(m0, dispatch["seed"]), dispatch["seed"]) == CAST_AUTO_DISPATCH,
+            f"the original's RandSeed at BALTHIR's computer dispatch (after Alt-Q) is {CAST_AUTO_DISPATCH[0]} draws past "
+            f"the menu, at {CAST_AUTO_DISPATCH[1]:#x}", f"{L.draws(m0, dispatch['seed'])} draws, {dispatch['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == CAST_AUTO_AREA_TAIL,
+            f"the original's RandSeed at the turn's tail (5045:066a, settled) is {CAST_AUTO_AREA_TAIL[0]} draws past the "
+            f"menu, at {CAST_AUTO_AREA_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == CAST_AUTO_AREA_CELL and tail["targets"] == CAST_AUTO_TARGETS,
+            f"at the tail the burst's cell is {CAST_AUTO_AREA_CELL} and DS:c6f4 is {CAST_AUTO_TARGETS} (one target)",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    hp = (rec_byte(dispatch["records"][CAST_AUTO_AREA_TARGET], HIT_POINTS),
+          rec_byte(tail["records"][CAST_AUTO_AREA_TARGET], HIT_POINTS))
+    v.check(hp == CAST_AUTO_AREA_HP,
+            f"the burst hits SHARKMAN 1 (record {CAST_AUTO_AREA_TARGET}) from {CAST_AUTO_AREA_HP[0]:#x} to {CAST_AUTO_AREA_HP[1]:#x}",
+            f"hit points {hp[0]:#x} -> {hp[1]:#x}")
+    memo = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(memo == CAST_AUTO_AREA_MEMO,
+            f"BALTHIR's +0xce is {CAST_AUTO_AREA_MEMO:#x} (Delayed Blast Fireball forgotten) at the tail", f"{memo:#x}")
+    # eclplay's mark after BALTHIR's computer turn's tail (turn_port's 02: 01 is the turn Alt-Q gives back) against the
+    # original's tail: the computer's aim, the choice and the burst compared (RandSeed, records, blocks, chains, turn list).
+    mark = cast_mark(p, "02")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's computer turn's mark (02) after Alt-M and Alt-Q", p["last"])
+    else:
+        command_state(v, "BALTHIR's computer area cast's tail (turn mark 02)", tail, mark, m0)
+        chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (BALTHIR's computer area cast, turn mark 02)")
+        marked = ported_records(mark)
+        v.check(rec_byte(marked[CAST_AUTO_AREA_TARGET], HIT_POINTS) == CAST_AUTO_AREA_HP[1] and
+                rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == CAST_AUTO_AREA_MEMO,
+                f"eclplay's tail after the computer's burst: SHARKMAN 1 at {CAST_AUTO_AREA_HP[1]:#x}, +0xce "
+                f"{CAST_AUTO_AREA_MEMO:#x}", f"SHARKMAN 1 {rec_byte(marked[CAST_AUTO_AREA_TARGET], HIT_POINTS):#x}, +0xce "
+                f"{rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (cast auto area) ends {p['last']!r}", flush=True)
 
 
 # Band a1's plain apply (step 4, part 30a-2: queen_cast.c's plain table, Silence 0x19, 075a: "is silenced"). Saved game A
@@ -5654,6 +5723,78 @@ def band_b2(v, work, opts):
     band_b2_flame(v, work, wild, opts)
 
 
+# Band b3 (step 4, part 31d, queen_area.c): Lightning Bolt (0x33, time 1) at SHARKMAN 2 on the open ground: the bolt's first hit
+# on the spell's cell, its walk on from there, the caster behind BALTHIR out of line. Keys C, C (WALKER's menu: Begins Casting),
+# E (WALKER's End: BALTHIR's pending Aim), N (SHARKMAN 2 under the cursor), then T: the tail (5045:066a). The draws at the
+# menu and the Aim are CLW's (the picks draw nothing: the same keys). eclplay's turn mark 03 is the tail's.
+BAND_B3_LIGHTNING = 0x33
+BAND_B3_TAIL = (38, 0xA31F31D0)         # the tail after T: 38 draws past the menu
+BAND_B3_HP = (0x4E, 0x42)               # SHARKMAN 2 before and at the tail: 2d6 = 12, not saved
+BAND_B3_FACING = 3                      # BALTHIR's facing at the tail (at SHARKMAN 2)
+BAND_B3_MARK = "03"                     # eclplay's turn mark of the tail (band b2's Ice Storm, with the same keys, is 03)
+
+
+def lightning_save():
+    """Saved game A with BALTHIR memorising Lightning Bolt (+0xce 0x33) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B3_LIGHTNING}})
+
+
+def cast_run_lightning(box, menu, work, tag):
+    """C, C (Begins Casting: BALTHIR's turn ends at WALKER's menu), E (WALKER's End: BALTHIR's pending Aim), N (SHARKMAN 2 under
+    the cursor), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_b3(v, work, opts):
+    """Band b3 (part 31d), the flow band_b3: Lightning Bolt at SHARKMAN 2 (queen_bolt's walk and hits, the Lightning's
+    dice): the original's RandSeed at the tail (38 draws past the menu, a31f31d0), SHARKMAN 2 from 0x4e to 0x42 (2d6, not
+    saved), BALTHIR's byte forgotten and facing 3; eclplay's turn mark 03 agrees with the original's tail on RandSeed,
+    records, blocks and effect chains."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = lightning_save()
+    o = cast_original(work, wild, save, "band-b3", opts.verbose, cast_run_lightning)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b3-save", save)
+    nxt, aim, n, tail = o["next"], o["aim"], o["n"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C is {CAST_CLW_NEXT[0]} "
+            f"draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}", f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Lightning Bolt at its Aim "
+            f"(after WALKER's End) is {CAST_CLW_AIM[0]} draws past the menu, at {CAST_CLW_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(aim["seed"], n["seed"])
+    v.check(draws == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is unchanged", f"{draws} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_B3_TAIL, f"the original's tail after T (Lightning Bolt) is {BAND_B3_TAIL[0]} draws past "
+            f"the menu, at {BAND_B3_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hp = (rec_byte(o["menu"]["records"][CAST_SHARKMAN_2], HIT_POINTS), rec_byte(tail["records"][CAST_SHARKMAN_2], HIT_POINTS))
+    v.check(hp == BAND_B3_HP, f"SHARKMAN 2's hit points go from {BAND_B3_HP[0]:#x} to {BAND_B3_HP[1]:#x} at the tail (2d6, "
+            "not saved)", f"{hp[0]:#x} -> {hp[1]:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_B3_LIGHTNING | CAST_FORGOTTEN and facing == BAND_B3_FACING,
+            f"at the tail BALTHIR's Lightning Bolt is forgotten (+0xce 0xb3) and he faces {BAND_B3_FACING}",
+            f"+0xce {forgotten:#x}, facing {facing}")
+    p = turn_port(work, wild, "band-b3", "CCENT", entry=entry)
+    mark = cast_mark(p, BAND_B3_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_B3_MARK}) after C, C, E, N and T", p["last"])
+        return
+    command_state(v, f"Lightning Bolt's tail (the turn's tail, {BAND_B3_MARK})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Lightning Bolt's tail, turn mark {BAND_B3_MARK})")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_SHARKMAN_2], HIT_POINTS) == BAND_B3_HP[1] and
+            rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_B3_LIGHTNING | CAST_FORGOTTEN,
+            f"eclplay's tail after Lightning Bolt: SHARKMAN 2 at {BAND_B3_HP[1]:#x}, +0xce {BAND_B3_LIGHTNING | CAST_FORGOTTEN:#x}",
+            f"{rec_byte(marked[CAST_SHARKMAN_2], HIT_POINTS):#x}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band b3) ends {p['last']!r} at turn mark {BAND_B3_MARK}", flush=True)
+
+
 # Band b4's cone (step 4, part 31c: queen_area.c's queen_cone and Cone of Cold, 7fd8:299c). Saved game A with BALTHIR
 # memorising Cone of Cold (+0xce 0x5c, time 0) and his class 5 level at 9 (+0xaa 9: the mage's level, a cone of length
 # 5; the poke changes no draw before the Aim): C, C (Begins Casting: WALKER's menu, 2 draws), E (WALKER's End: his pending
@@ -5724,6 +5865,119 @@ def band_b4(v, work, opts):
             "eclplay's tail after Cone of Cold: BALTHIR's Cone of Cold forgotten (+0xce 0xdc), SHARKMAN 2 at 0x3d",
             f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
     print(f"eclplay (band b4) turn mark 03 after {p['last']!r}", flush=True)
+
+
+# Band b5's Meteor Swarm (step 4, part 31e: 7fd8:3b99 and its try 3a73, queen_area.c). Saved game A with BALTHIR
+# memorising Meteor Swarm (+0xce 0x7c, time 3) and nothing else: C, C (Begins Casting: WALKER's menu, 2 draws), E (WALKER's
+# End: SHARKMAN 2's turn, then TIMASALIN's menu), E (TIMASALIN's End: CINDER's menu), E (CINDER's End: BALTHIR's pending
+# Meteor Swarm at its Aim, no menu), N (no target in range: the cursor stays on BALTHIR, no draw), then T: the four meteors
+# from his own cell (29, 14), and the tail.
+BAND_B5_METEOR = 0x7C
+BAND_B5_TIMASALIN = 1                   # the record of TIMASALIN (downed by the meteors: status 4)
+BAND_B5_CINDER = 2                      # the record of CINDER (no hit)
+BAND_B5_SHARKMAN_1 = 6                  # the record of SHARKMAN 1 (no hit)
+BAND_B5_TAIL = (358, 0xA1AD7490)        # the tail after T: 358 draws past the menu
+BAND_B5_CELL = (30, 15)                 # the spell's cell at the tail: the fourth meteor's (DS:bd2c, bd49)
+BAND_B5_TARGETS = 2                     # DS:c6f4 at the tail: WALKER and BALTHIR, the fourth meteor's list (repeats kept)
+BAND_B5_HP = {                          # the hit points before and at the tail, by record: ROLAND (0), TIMASALIN (1), BALTHIR
+    0: (0x86, 0x6F),                    # (3), ROARK (4), WALKER (5); CINDER and the SHARKMEN (2, 6, 7) are untouched
+    1: (0x3D, 0),
+    3: (0x6A, 0x2B),
+    4: (0x62, 0x3D),
+    5: (0x45, 0x1E),                    # WALKER: 0x40 after SHARKMAN 2's hit in its turn (0x45 at the menu)
+}
+BAND_B5_NAMES = "CCEEENT"              # the keys of the meteor flow (eclplay)
+BAND_B5_MARK = "06"                     # eclplay's turn mark of the tail (the marks 01 to 05: the turns before it)
+
+
+def meteor_save():
+    """Saved game A with BALTHIR memorising Meteor Swarm (+0xce 0x7c) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B5_METEOR}})
+
+
+def cast_run_meteor(box, menu, work, tag):
+    """C, C (WALKER's menu), E (WALKER's End: SHARKMAN 2's turn, then TIMASALIN's menu), E (TIMASALIN's End: CINDER's menu),
+    E (CINDER's End: BALTHIR's pending Aim), N (SHARKMAN 2 is not in range: the cursor stays on him), then T: the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["third"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_b5(v, work, opts):
+    """Band b5's Meteor Swarm (part 31e), the flow band_b5: the four meteors at BALTHIR's own cell (his pending Aim at 29,
+    14), on the original's tail after T (the line's and the area's dice, the saves, the flashes) and eclplay's turn mark 06.
+    The original: RandSeed at WALKER's menu after C, C (CAST_CLW_NEXT), at TIMASALIN's and at CINDER's menus (16 draws
+    each, from the first: BAND_B2_FLAME_MENU), at BALTHIR's pending Aim (BAND_B2_FLAME_AIM), and at the tail 358 draws past
+    the menu, RandSeed a1ad7490; the cell 30, 15 (the fourth meteor's), DS:c6f4 2, the hit points of BAND_B5_HP, TIMASALIN
+    downed (status 4), BALTHIR's +0xce 0xfc. eclplay runs the same keys: its Aim's screen and its turn mark (the one with the
+    original's RandSeed) agree on RandSeed, records, combat blocks and effect chains."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = meteor_save()
+    o = cast_original(work, wild, save, "band-b5", opts.verbose, cast_run_meteor)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b5-save", save)
+    nxt, second, third, aim, tail = o["next"], o["second"], o["third"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Meteor Swarm: "
+            f"Begins Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, second["seed"])
+    v.check((draws, second["seed"]) == BAND_B2_FLAME_MENU, f"the original's RandSeed at TIMASALIN's menu after WALKER's End "
+            f"(SHARKMAN 2's turn between) is {BAND_B2_FLAME_MENU[0]} draws past the menu, at {BAND_B2_FLAME_MENU[1]:#x}",
+            f"{draws} draws, {second['seed']:#x}")
+    draws = L.draws(m0, third["seed"])
+    v.check(draws == BAND_B2_FLAME_MENU[0], f"the original's RandSeed at CINDER's menu after TIMASALIN's End is "
+            f"{BAND_B2_FLAME_MENU[0]} draws past the menu (none drawn by his End)", f"{draws} draws")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_B2_FLAME_AIM, f"the original's RandSeed at BALTHIR's pending Meteor Swarm at its "
+            f"Aim (after CINDER's End) is {BAND_B2_FLAME_AIM[0]} draws past the menu, at {BAND_B2_FLAME_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (no target in range) is unchanged",
+            f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_B5_TAIL, f"the original's tail after T (Meteor Swarm) is {BAND_B5_TAIL[0]} draws "
+            f"past BALTHIR's menu, at {BAND_B5_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_B5_CELL and tail["targets"] == BAND_B5_TARGETS, f"at the tail the last meteor's cell is "
+            f"{BAND_B5_CELL} and DS:c6f4 is {BAND_B5_TARGETS}", f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    for record, (before, after) in BAND_B5_HP.items():
+        was = rec_byte(o["menu"]["records"][record], HIT_POINTS)
+        now = rec_byte(tail["records"][record], HIT_POINTS)
+        v.check((was, now) == (before, after), f"record {record}'s hit points go from {before:#x} to {after:#x} by the meteors",
+                f"{was:#x} -> {now:#x}")
+    v.check(rec_byte(tail["records"][BAND_B5_TIMASALIN], STATUS_AT) == 4, "TIMASALIN is downed (status 4) at the tail",
+            f"status {rec_byte(tail['records'][BAND_B5_TIMASALIN], STATUS_AT)}")
+    untouched = [BAND_B5_CINDER, BAND_B5_SHARKMAN_1, CAST_SHARKMAN_2]
+    v.check(all(rec_byte(o["menu"]["records"][i], HIT_POINTS) == rec_byte(tail["records"][i], HIT_POINTS) for i in untouched),
+            "CINDER and both SHARKMEN are untouched at the tail", "")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_B5_METEOR | CAST_FORGOTTEN, "at the tail BALTHIR's Meteor Swarm is forgotten (+0xce 0xfc)",
+            f"+0xce {forgotten:#x}")
+    p_aim = turn_port(work, wild, "band-b5-aim", "CCEEE", entry=entry)
+    cast_screen(v, work, "BALTHIR's pending Meteor Swarm at its Aim (row 23 Spell:Meteor Swarm)", aim["screen"], p_aim,
+                SHIELD_POINTER)
+    command_state(v, "BALTHIR's pending Meteor Swarm at its Aim", aim, p_aim, third["seed"])
+    p = turn_port(work, wild, "band-b5", BAND_B5_NAMES, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's tail ({tail['seed']:#x}) after "
+                f"{BAND_B5_NAMES}", p["last"])
+        return
+    v.check(mark["number"] == BAND_B5_MARK, f"the turn mark with the original's tail is {BAND_B5_MARK} (the sixth turn: "
+            "BALTHIR, WALKER, SHARKMAN 2, TIMASALIN, CINDER, then BALTHIR's pending Meteor Swarm)", mark["number"])
+    command_state(v, f"Meteor Swarm's tail (the turn's tail, {mark['number']})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Meteor Swarm's tail, turn mark {mark['number']})")
+    marked = ported_records(mark)
+    got = {record: rec_byte(marked[record], HIT_POINTS) for record in BAND_B5_HP}
+    want = {record: after for record, (_, after) in BAND_B5_HP.items()}
+    v.check(got == want and rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_B5_METEOR | CAST_FORGOTTEN,
+            "eclplay's tail after Meteor Swarm: the hit points of the records above, BALTHIR's +0xce 0xfc",
+            f"{got}, +0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band b5, Meteor Swarm) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
 
 
 def commands(v, work, patched, opts):
@@ -5807,6 +6061,8 @@ def main():
         cast(v, work, opts)
     if "cast_auto" in flows:
         cast_auto(v, work, opts)
+    if "cast_auto_area" in flows:
+        cast_auto_area(v, work, opts)
     if "band_a1" in flows:
         band_a1(v, work, opts)
     if "band_a2" in flows:
@@ -5817,8 +6073,12 @@ def main():
         band_b1(v, work, opts)
     if "band_b2" in flows:
         band_b2(v, work, opts)
+    if "band_b3" in flows:
+        band_b3(v, work, opts)
     if "band_b4" in flows:
         band_b4(v, work, opts)
+    if "band_b5" in flows:
+        band_b5(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()

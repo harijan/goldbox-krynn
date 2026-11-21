@@ -2088,8 +2088,9 @@ static void test_plain_apply(void)
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
+        bool b3 = id == 0x33 || id == 0x81; /* queen_area.c's band b3 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || id == 0x5c)); /* 0x5c: band b4 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -3073,6 +3074,488 @@ static void test_band_b2_ice(void)
     battle_clear();
 }
 
+/* Band b3 (part 31d): the bolt (dqk 7fd8:1772, queen_bolt) and its hit (7fd8:1a54), Lightning Bolt (7fd8:1ac3) and Javelin
+ * of Lightning (7fd8:1d20). The bolt walks 2 * len half-cells from the spell's cell away from the caster (vm.character): a
+ * straight step is 2, a diagonal one 3. A segment ends at another combatant, a cell costing more than 1, or the line's end,
+ * and hits its last cell's combatant once (the save of type 4, halved where saved). The walks below are the listing's
+ * (7fd8:1772's charges and ends), worked out by hand. The missiles draw random numbers too (their waits), so a test
+ * does not model the seed: it searches for a start seed whose saves roll what the expected outcome needs (a throw of 30
+ * saves only a roll of 20, a throw of 0 only a roll of 1 fails), and checks the hit points of every combatant. */
+
+/* The selected member, C, at x, y in a battle of its own: the bolt's missile icons (slot 0x14) loaded, its save of type 4 at
+ * 30, full hit points (record()'s are 10), and the damage's type electricity (0x0c, as the Lightning and the Javelin set it). */
+static cok_character *bolt_caster(int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, c->record, COK_FIELD_SAVING_THROW, 4, 30);
+    cok_field_set8(R->character, c->record, COK_FIELD_HIT_POINTS, 0xf0);
+    cok_field_set8(R->character, c->record, COK_FIELD_MAX_HIT_POINTS, 0xf0);
+    game.effects.rolls.damage_type = 0x0c; /* the Lightning's electricity: the text of the bolt's hits */
+    game.vm.character = c->record;
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x14));
+    return c;
+}
+
+/* A foe at x, y: full hit points, saving throws 30 of the other types and throw_value of type 4. */
+static cok_character *bolt_foe(int8_t x, int8_t y, uint8_t throw_value)
+{
+    cok_character *t = record('M', 1, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    for (unsigned k = 0; k < 4; ++k) cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, k, 30);
+    b2_target(t, throw_value);
+    return t;
+}
+
+/* The start seeds tried by a test (the first whose outcome is the test's). */
+enum { BOLT_SEEDS = 4096 };
+
+/* The hits of amount logged since log_text was cleared ("takes N points of damage", once a hit). */
+static unsigned bolt_logged(unsigned amount)
+{
+    char text[40];
+    snprintf(text, sizeof text, "takes %u points of damage", amount);
+    unsigned n = 0;
+    for (const char *p = strstr(log_text, text); p != NULL; p = strstr(p + 1, text)) ++n;
+    return n;
+}
+
+/* queen_bolt(len, 20, flag) from a cleared log, true where it ran with hits hits of 20 and no saved one (10): a search's
+ * seed then has every throw failed, so the hit points count the hits (an extra hit cannot pass as two saved halves). */
+static bool bolt_run(uint8_t len, bool flag, unsigned hits)
+{
+    log_text[0] = '\0';
+    return queen_bolt(&game, len, 20, flag) && bolt_logged(20) == hits && bolt_logged(10) == 0;
+}
+
+/* Four hits on a straight line east: the spell's cell 7, 10 and the foes at 9, 11, 13 (the charges 4, 4, 2, 2 walk the 14
+ * half-cells to 13 and past). Each foe once, all 20 (throw 30); the caster at 5, 10 behind the spell is not in line. */
+static void test_band_b3_straight(void)
+{
+    cok_character *c = NULL, *f[4] = {NULL, NULL, NULL, NULL};
+    uint32_t start;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f[0] = bolt_foe(7, 10, 30);
+        f[1] = bolt_foe(9, 10, 30);
+        f[2] = bolt_foe(11, 10, 30);
+        f[3] = bolt_foe(13, 10, 30);
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (bolt_run(7, false, 4) && hit_points(f[0]) == 0xf0 - 20 && hit_points(f[1]) == 0xf0 - 20 &&
+            hit_points(f[2]) == 0xf0 - 20 && hit_points(f[3]) == 0xf0 - 20 && hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS && game.vm.status == COK_ECL_OK && LOGGED("from Electricity"));
+    battle_clear();
+}
+
+/* The lengths: a straight step is 2 half-cells, a diagonal one 3. len 3 (6 half-cells) from the spell 6, 9 with the caster at
+ * 5, 10 walks the diagonal 7, 8 then 8, 7 (charges 3, 3): those two are hit and 9, 6 is not. Straight from 6, 10 it walks
+ * 7, 8, 9 (charges 2, 2, 2): all three are hit and 10, 10 is not. len 1 (2 half-cells) walks one cell: 7, 10 is hit, 8, 10
+ * is not. */
+static void test_band_b3_lengths(void)
+{
+    cok_character *c = NULL, *d1 = NULL, *d2 = NULL, *d3 = NULL;
+    uint32_t start;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        d1 = bolt_foe(7, 8, 30);
+        d2 = bolt_foe(8, 7, 30);
+        d3 = bolt_foe(9, 6, 30);
+        game.spell_x = 6;
+        game.spell_y = 9;
+        game.vm.seed = start;
+        if (bolt_run(3, false, 2) && hit_points(d1) == 0xf0 - 20 && hit_points(d2) == 0xf0 - 20 &&
+            hit_points(d3) == 0xf0 && hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+
+    cok_character *s[4] = {NULL, NULL, NULL, NULL};
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        s[0] = bolt_foe(7, 10, 30);
+        s[1] = bolt_foe(8, 10, 30);
+        s[2] = bolt_foe(9, 10, 30);
+        s[3] = bolt_foe(10, 10, 30);
+        game.spell_x = 6;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(3, false, 3) && hit_points(s[0]) == 0xf0 - 20 && hit_points(s[1]) == 0xf0 - 20 &&
+            hit_points(s[2]) == 0xf0 - 20 && hit_points(s[3]) == 0xf0 && hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        cok_character *one = bolt_foe(7, 10, 30), *two = bolt_foe(8, 10, 30);
+        game.spell_x = 6;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(1, false, 1) && hit_points(one) == 0xf0 - 20 && hit_points(two) == 0xf0 &&
+            hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+}
+
+/* One hit at the spell's cell with throw 0 (saved by any roll but a 1): half the damage, the save of type 4 (the other
+ * types' throws are 30, so a save by any type but 4 takes all of it). */
+static void test_band_b3_save(void)
+{
+    cok_character *c = NULL, *g = NULL;
+    uint32_t start;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        g = bolt_foe(7, 10, 0);
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (queen_bolt(&game, 1, 20, false) && hit_points(g) == 0xf0 - 10) break;
+    }
+    CHECK(start < BOLT_SEEDS && LOGGED("takes 10 points of damage from Electricity") && hit_points(c) == 0xf0);
+    battle_clear();
+}
+
+/* A wall (terrain 1, cost 255) at 9, 10 between the spell (7, 10) and the caster (5, 10); the foe G at 2, 10 is beyond the
+ * caster. The walk from 7 (charge 4) bounces at the wall, back toward the caster along the line (8 half-cells long: no
+ * doubling without flag). The new line from 9 hits the spell's foe again (charge 0, so 2; the rest 8), then the caster at 5
+ * (charge 4), and the walk ends at 3, short of G. With flag the walk back is doubled once (line 8, charge 8): the second hit
+ * on the spell's foe comes with its first charge wrapped (4 - 8), which ends the bolt, so the caster is not hit. Any cell
+ * costing more than 1 ends a segment and bounces (1772's DS:6197 > 1): the same with terrain 44 (cost 2) for the wall. */
+static void test_band_b3_bounce(void)
+{
+    cok_character *c = NULL, *f = NULL, *g = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    CHECK(cok_ecl_load_var(&game.vm, 0x22) == 1);
+    static const uint8_t walls[] = {1, 44};
+    for (size_t w = 0; w < sizeof walls; ++w) {
+        CHECK(cok_combat_terrain(R, walls[w]).cost > 1);
+        for (start = 1; start < BOLT_SEEDS; ++start) {
+            c = bolt_caster(5, 10);
+            f = bolt_foe(7, 10, 30);
+            g = bolt_foe(2, 10, 30);
+            game.combat.cells[10][9] = walls[w];
+            game.spell_x = 7;
+            game.spell_y = 10;
+            game.vm.seed = start;
+            if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 20 && hit_points(g) == 0xf0)
+                break;
+        }
+        CHECK(start < BOLT_SEEDS);
+        battle_clear();
+        for (start = 1; start < BOLT_SEEDS; ++start) {
+            c = bolt_caster(5, 10);
+            f = bolt_foe(7, 10, 30);
+            g = bolt_foe(2, 10, 30);
+            game.combat.cells[10][9] = walls[w];
+            game.spell_x = 7;
+            game.spell_y = 10;
+            game.vm.seed = start;
+            if (bolt_run(7, true, 2) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 && hit_points(g) == 0xf0) break;
+        }
+        CHECK(start < BOLT_SEEDS);
+        battle_clear();
+    }
+}
+
+/* flag is spent at the first bounce, doubled or not: len 13 (26 half-cells), the caster at 5, 10, the spell's foe F at 6, 10,
+ * walls at 10, 10 and 3, 10. The walk 6 -> 10 (charge 8, the rest 18) bounces with the line back 10 long (no doubling) and
+ * clears flag; the new line hits F at 6 (charge 2), the caster at 5 (2) and bounces at 3 (charge 4, the rest 10; the line back
+ * 4 long, but flag is clear); the next line hits the caster at 5 again and its first charge wraps (4 - 14): the end. F and
+ * the caster each twice. (flag kept to the second bounce would double its line to 28: charge 18, the rest 0, the caster
+ * hit once.) */
+static void test_band_b3_second_bounce(void)
+{
+    cok_character *c = NULL, *f = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(6, 10, 30);
+        game.combat.cells[10][10] = 1;
+        game.combat.cells[10][3] = 1;
+        game.spell_x = 6;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(13, true, 4) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 40) break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+}
+
+/* A bounce off the caster's own cell (terrain 44, cost 2, under the caster at 5, 10; var 0x22 1): the spell's foe F at 7,
+ * 10, a wall at 9, 10. The walk bounces at 9 (charge 4, the rest 10), the new line hits F (2) and the caster (charge 4, the
+ * rest 4), whose cell bounces it again: the next line is from the caster's cell to itself, zero long. Its segment walks
+ * nothing and keeps the occupant last read (the caster's, 1772's bp-0x3e), so no hit, and its charge wraps (0 - 8): the end.
+ * F twice, the caster once. */
+static void test_band_b3_caster_bounce(void)
+{
+    cok_character *c = NULL, *f = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        game.combat.cells[10][5] = 44;
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0 - 20) break;
+    }
+    CHECK(start < BOLT_SEEDS && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* The wrapped first charge is the bolt's own: a foe M at 8, 10 between the spell and the wall at 9, 10 (the spell's foe F at
+ * 7, 10). The first segment hits M (charge 2), the wall bounces the bolt (charge 4 - 2 = 2, the line 4 long), and the new
+ * line's first segment hits M again: its charge is 2 - 4, which wraps, so the bolt ends there. The caster at 5, 10 is not
+ * hit. (A charge reset after the bounce would charge the new line's first segment 2 - 0, so the bolt would go on: hit F at 7
+ * and the caster at 5.) */
+static void test_band_b3_wrap(void)
+{
+    cok_character *c = NULL, *f = NULL, *m = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        m = bolt_foe(8, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(7, false, 3) && hit_points(f) == 0xf0 - 20 && hit_points(m) == 0xf0 - 40 &&
+            hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+}
+
+/* Open ground (var 0x22 0): a wall never bounces; the walk goes on through it. The spell's foe F at 7, 10, the wall at 9, 10,
+ * the foe G at 10, 10 beyond it: G is hit, the caster at 5, 10 is not. */
+static void test_band_b3_open(void)
+{
+    cok_character *c = NULL, *f = NULL, *g = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    CHECK(cok_ecl_load_var(&game.vm, 0x22) == 0);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        g = bolt_foe(10, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(7, false, 2) && hit_points(f) == 0xf0 - 20 && hit_points(g) == 0xf0 - 20 &&
+            hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+}
+
+/* Off the map: the walk from 48, 10 reaches 49 (F, hit), then 50 is off the map (no combatant, terrain 0): the end steps back
+ * to 49 (rem 0), and the cell is hit again (the last occupant F, the off-map cell's 0 as the occupant now). No bounce, even
+ * with var 0x22 1 and the caster at 47, 10 behind the spell in line. */
+static void test_band_b3_offmap(void)
+{
+    cok_character *c = NULL, *f = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(47, 10);
+        f = bolt_foe(49, 10, 30);
+        game.spell_x = 48;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(3, false, 2) && hit_points(f) == 0xf0 - 40 && hit_points(c) == 0xf0) break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+    /* Off the bottom edge on a diagonal step the walk ends there (terrain 0: rem 0), though the line's next step would come
+     * back on the map: from the spell's (empty) cell 10, 23 away from the caster at 8, 22 the walk is 11, 24, 12, 24, then
+     * 13, 25 off the map (stepped back to 12, 24); G at 13, 24, the step after it, is not hit. */
+    cok_character *g = NULL;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(8, 22);
+        g = bolt_foe(13, 24, 30);
+        game.spell_x = 10;
+        game.spell_y = 23;
+        game.vm.seed = start;
+        if (bolt_run(7, false, 0) && hit_points(g) == 0xf0 && hit_points(c) == 0xf0) break;
+    }
+    CHECK(start == 1 && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* The own-cell aim: the spell's cell is the caster's (5, 10). The hit on the caster (type 4, throw 30), then the zero-length
+ * line: its segments walk nothing (len 3: three, each charged 2), and the first compares the caster with the occupant
+ * never read, 0 (measured: the poses before the handler leave it), so the caster is hit again; after that last is 0 too,
+ * so no more hits. The caster twice, no stop. */
+static void test_band_b3_own_cell(void)
+{
+    cok_character *c = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        game.spell_x = 5;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        if (bolt_run(3, false, 2) && hit_points(c) == 0xf0 - 40) break;
+    }
+    CHECK(start < BOLT_SEEDS && game.vm.status == COK_ECL_OK);
+    battle_clear();
+}
+
+/* Lightning Bolt (0x33) dry: the caster level's d6 first (the sum is the damage, rolls.dice its count), then the bolt (its
+ * own damage type 0x0c: the caster's battle leaves it 0). On the open ground the walk of len 7 from the foe F at the spell's
+ * cell 7, 10 reaches 14, 10 (14 half-cells: G hit) and not 15, 10 (H). With var 0x22 1 and a wall at 9, 10 (the caster at
+ * 5, 10) flag doubles the walk back: F is hit again and the bolt ends (test_band_b3_bounce's), the caster untouched. The
+ * search needs the saves to roll no 20 after the dice. */
+static void test_band_b3_lightning(void)
+{
+    cok_character *c = bolt_caster(5, 10);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x33, false, &lv) && lv > 0);
+    battle_clear();
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        cok_character *f = bolt_foe(7, 10, 30), *g = bolt_foe(14, 10, 30), *h = bolt_foe(15, 10, 30);
+        game.effects.rolls.damage_type = 0;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.effects.rolls.spell = 0x33;
+        uint32_t w = start;
+        uint8_t sum = cok_dice(&w, lv, 6);
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - sum) && hit_points(g) == (uint8_t)(0xf0 - sum)) {
+            CHECK(game.effects.rolls.dice == lv && game.effects.rolls.damage_type == 0x0c);
+            CHECK(LOGGED("from Electricity") && hit_points(c) == 0xf0 && hit_points(h) == 0xf0);
+            break;
+        }
+    }
+    CHECK(start < BOLT_SEEDS);
+    battle_clear();
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        cok_character *f = bolt_foe(7, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.effects.rolls.spell = 0x33;
+        uint32_t w = start;
+        uint8_t sum = cok_dice(&w, lv, 6);
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - 2 * sum)) {
+            CHECK(hit_points(c) == 0xf0);
+            break;
+        }
+    }
+    CHECK(start < BOLT_SEEDS);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    battle_clear();
+}
+
+/* Lightning Bolt underwater (var 0x3c): the Fireball family's area (queen_fireball, radius 2) with the spell kept at 0x33: the
+ * level's d6 (the damage, type 9 "from Fire"), the foe at the spell's cell takes it, and the caster 5 away is not listed. */
+static void test_band_b3_lightning_wet(void)
+{
+    cok_character *c = bolt_caster(5, 10);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x33, false, &lv) && lv > 0);
+    battle_clear();
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    uint32_t start;
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        cok_character *f = bolt_foe(6, 5, 30);
+        cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+        game.spell_x = 6;
+        game.spell_y = 5;
+        game.effects.rolls.spell = 0x33;
+        uint32_t w = start;
+        uint8_t sum = cok_dice(&w, lv, 6);
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x33) && hit_points(f) == (uint8_t)(0xf0 - sum)) {
+            CHECK(game.effects.rolls.spell == 0x33 && LOGGED("from Fire") && hit_points(c) == 0xf0);
+            break;
+        }
+    }
+    CHECK(start < BOLT_SEEDS);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    battle_clear();
+}
+
+/* Javelin of Lightning (0x81): no dice, 20 points of electricity (its own type 0x0c: the battle leaves it 0), a bolt of 3
+ * with no flag. On the open ground the walk from the foe F at the spell's cell 7, 10 reaches 10, 10 (6 half-cells: G hit)
+ * and not 11, 10 (H). With var 0x22 1, a foe M at 8, 10 and a wall at 9, 10 (test_band_b3_wrap's): M (charge 2), the wall
+ * (2, the rest 2) bounces undoubled, and the new line's first segment hits M again (its charge wraps: the end). (flag
+ * would double the line back to 8: charge 6, the end at the wall, M hit once.) */
+static void test_band_b3_javelin(void)
+{
+    cok_character *c = NULL, *f = NULL, *g = NULL, *h = NULL, *m = NULL;
+    uint32_t start;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        g = bolt_foe(10, 10, 30);
+        h = bolt_foe(11, 10, 30);
+        game.effects.rolls.damage_type = 0;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x81) && bolt_logged(20) == 2 && hit_points(f) == 0xf0 - 20 && hit_points(g) == 0xf0 - 20) break;
+    }
+    CHECK(start < BOLT_SEEDS && game.effects.rolls.damage_type == 0x0c && LOGGED("from Electricity"));
+    CHECK(hit_points(c) == 0xf0 && hit_points(h) == 0xf0);
+    battle_clear();
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    for (start = 1; start < BOLT_SEEDS; ++start) {
+        c = bolt_caster(5, 10);
+        f = bolt_foe(7, 10, 30);
+        m = bolt_foe(8, 10, 30);
+        game.combat.cells[10][9] = 1;
+        game.spell_x = 7;
+        game.spell_y = 10;
+        game.vm.seed = start;
+        log_text[0] = '\0';
+        if (run_handler(0x81) && bolt_logged(20) == 3 && hit_points(f) == 0xf0 - 20 && hit_points(m) == 0xf0 - 40 &&
+            hit_points(c) == 0xf0)
+            break;
+    }
+    CHECK(start < BOLT_SEEDS);
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    battle_clear();
+}
+
 /* The cone (dqk 849a:19ff, queen_cone) on the made-up map: the caster's cell is 10, 10 unless the test places it.
  * Its walk: a straight step adds 2 to the walk, a diagonal one 3; the aim goes on along its own steps until the walk
  * is 2 * len. Each test checks the targets the cone lists (spell_targets 1 to the count). */
@@ -3325,6 +3808,338 @@ static void test_cone_of_cold(void)
     }
 }
 
+/* The length of the line from x0, y0 to x1, y1 (every step of cok_combat_line). */
+static unsigned line_length(int8_t x0, int8_t y0, int8_t x1, int8_t y1)
+{
+    cok_combat_line line = {.x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1};
+    cok_combat_line_start(&line);
+    while (cok_combat_line_step(&line, R)) {
+    }
+    return line.length;
+}
+
+/* Meteor Swarm's tries (dqk 7fd8:3a73, queen_meteor_try) on the made-up map: the caster at 10, 10 aims at 20, 12. The
+ * steps of meteor m are {-1, 1, -1, 1} and {-1, -1, 1, 1} (DS:8788, DS:8790). Try 1 is the diagonal neighbour, try 2 the
+ * aimed x with my kept, try 3 the neighbour's x with the aimed y, try 4 the aimed x with my kept. */
+static void test_meteor_try(void)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    cok_character *c;
+    int8_t mx = 0, my = 0;
+    uint16_t range = 0;
+    bool seen = false;
+    battle_clear();
+    c = record('C', 0, 0);
+    place(c, 10, 10);
+    game.vm.character = c->record;
+    for (unsigned m = 1; m <= 4; ++m) {
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 1, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 + dx[m - 1] && my == 12 + dy[m - 1] && seen);
+        CHECK(range == line_length(10, 10, mx, my) / 2);
+        int8_t first_y = my;
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 2, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 && my == first_y && seen && range == line_length(10, 10, 20, first_y) / 2);
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 3, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 + dx[m - 1] && my == 12 && seen);
+        CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 4, m, &mx, &my, &range, &seen));
+        CHECK(mx == 20 && my == 12 && seen);
+    }
+    /* Try 2 keeps the y it is given (a mutant's my = ty would give 12). */
+    my = 7;
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 2, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 20 && my == 7 && seen);
+    /* So does try 4 (as after a try 3 whose sight pulled the y back; a mutant's my = ty would give 12). */
+    my = 7;
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 12, 4, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 20 && my == 7 && seen);
+    /* The map's edges are on it (x 0 and 0x31, y 0 and 0x18): tried, and seen across the floor. */
+    my = 12;
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 12, 2, 1, &mx, &my, &range, &seen) && mx == 0 && my == 12 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 0x31, 12, 2, 1, &mx, &my, &range, &seen) && mx == 0x31 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 0, 3, 1, &mx, &my, &range, &seen) && mx == 19 && my == 0 && seen);
+    CHECK(queen_meteor_try(&game, 10, 10, 20, 0x18, 3, 1, &mx, &my, &range, &seen) && my == 0x18 && seen);
+    /* A cell off the map stops the try: no sight, the range 0xff halved to 0x7f, the cell kept (x -1 from 0; y -1). */
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 5, 1, 1, &mx, &my, &range, &seen));
+    CHECK(mx == -1 && my == 4 && !seen && range == 0x7f);
+    CHECK(queen_meteor_try(&game, 10, 10, 0, 0, 1, 2, &mx, &my, &range, &seen));
+    CHECK(mx == 1 && my == -1 && !seen && range == 0x7f);
+    /* A wall at 11, 10 stops the sight at its own cell: try 2 at 13, 10 with my 10 is pulled to 11, 10 (length 2, halved). */
+    k->cells[10][11] = 1;
+    my = 10;
+    CHECK(queen_meteor_try(&game, 10, 10, 13, 12, 2, 1, &mx, &my, &range, &seen));
+    CHECK(mx == 11 && my == 10 && !seen && range == 1);
+    k->cells[10][11] = 0;
+    /* The own cell at length 0: the sight gives range 0 there, so the cone's walk never runs (849a:1a9d is not reached). */
+    CHECK(queen_cone(&game, 10, 10, 10, 10, 1, 0) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_target_count == 0);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Meteor Swarm's fixture: the caster C at x, y (hit points 0xff, its record active), the spell's cell 20, 12 (the four
+ * meteors land at 19, 11; 21, 11; 19, 13; 21, 13: each try 1 is seen across the open floor). */
+static cok_character *meteor_field(int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_character *c = record('C', 0, 0);
+    place(c, x, y);
+    set_hit_points(c, 0xff, 0xff);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, c->record, COK_FIELD_ICON, ICON_SLOT);
+    game.vm.mode = 5;
+    game.vm.character = c->record;
+    game.spell_x = 20;
+    game.spell_y = 12;
+    game.effects.rolls.spell = 0x7c;
+    game.effects.rolls.images = 0;
+    return c;
+}
+
+/* A hostile target at x, y: hit points 0xff, active or not, saving throw 4 of 21 (saved on a 20 only: the cone's test). */
+static cok_character *meteor_target(char name, int8_t x, int8_t y, bool active)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    set_hit_points(t, 0xff, 0xff);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, active ? 1 : 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_ICON, ICON_SLOT);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    return t;
+}
+
+/* The handler from seed: the final seed (the status and the bar's text checked by the caller). */
+static uint32_t meteor_run(uint32_t seed)
+{
+    game.vm.seed = seed;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7c));
+    return game.vm.seed;
+}
+
+/* The draws of one hit: a saving throw's d20 first when in the area (the save before the dice), then 10d4 and the flash's
+ * four draws. */
+static void meteor_hit(uint32_t *s, bool area)
+{
+    if (area) cok_dice(s, 1, 20);
+    cok_dice(s, 10, 4);
+    flash_draws(s, 4);
+}
+
+/* Whether a and b are within one cell of each other. */
+static bool within_one(int a, int b)
+{
+    return a - b <= 1 && b - a <= 1;
+}
+
+/* The hits of the four meteors on the fixture's map, counted as the handler lists them: each active target on a meteor's
+ * line (the caster out, once each) takes a hit with no save, and each active combatant within 1 of the meteor's cell (the
+ * caster in) takes a hit with a save. The draws are one stream, so the hits' draws advance the seed in any order. Returns
+ * the number of hits in *hits. */
+static void meteor_model(cok_character *c, uint32_t *s, unsigned *hits)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    int8_t cx = cok_combat_x(k, c->record), cy = cok_combat_y(k, c->record);
+    *hits = 0;
+    for (unsigned m = 1; m <= 4; ++m) {
+        int8_t mx = (int8_t)(20 + dx[m - 1]), my = (int8_t)(12 + dy[m - 1]);
+        cok_character *on_line[30];
+        unsigned n = 0;
+        cok_combat_line line = {.x0 = cx, .y0 = cy, .x1 = mx, .y1 = my};
+        cok_combat_line_start(&line);
+        while (cok_combat_line_step(&line, R)) {
+            uint8_t occ, terrain;
+            cok_combat_cell(k, (int8_t)line.x, (int8_t)line.y, &occ, &terrain);
+            if (occ == 0 || k->combatant[occ].character == c) continue;
+            cok_character *t = k->combatant[occ].character;
+            bool again = false;
+            for (unsigned j = 0; j < n; ++j) again |= on_line[j] == t;
+            if (!again) on_line[n++] = t;
+        }
+        for (unsigned j = 0; j < n; ++j)
+            if (cok_field_u8(R->character, on_line[j]->record, COK_FIELD_ACTIVE) != 0) {
+                meteor_hit(s, false);
+                ++*hits;
+            }
+        for (unsigned i = 1; i <= k->count; ++i) {
+            cok_character *t = k->combatant[i].character;
+            if (t == NULL || !within_one(cok_combat_x(k, t->record), mx) ||
+                !within_one(cok_combat_y(k, t->record), my))
+                continue;
+            if (cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) != 0) {
+                meteor_hit(s, true);
+                ++*hits;
+            }
+        }
+    }
+}
+
+/* The seed after the meteors' arena alone: the caster at x, y, inactive (no one is hit), and no target. The view's first run
+ * differs from the later ones (the centring), so the run is made twice, and the second is the baseline. */
+static uint32_t meteor_base(uint32_t seed, int8_t x, int8_t y)
+{
+    for (unsigned k = 0; k < 2; ++k) {
+        cok_character *c = meteor_field(x, y);
+        cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+        meteor_run(seed);
+        battle_clear();
+    }
+    cok_character *c = meteor_field(x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+    uint32_t base = meteor_run(seed);
+    battle_clear();
+    return base;
+}
+
+/* The first facing whose quarter holds x1, y1 from x0, y0 (5d71:048f). */
+static uint8_t meteor_facing(int8_t x0, int8_t y0, int8_t x1, int8_t y1)
+{
+    uint8_t dir = 0;
+    bool in = false;
+    for (;;) {
+        CHECK(dir < 8 && cok_combat_in_arc(x0, y0, x1, y1, dir, &in));
+        if (in) return dir;
+        ++dir;
+    }
+}
+
+/* The four meteors' arena from the caster c at its cell, made of the shared calls with the original's arguments (7fd8:3b99:
+ * 09ab(rec, dir, 1, 0), 0053(0x20), 0fc8(dir, 0x20), 00df(cx, cy, mx, my, 1, 0x1e), the cell, 0def(1, 0x19, 0x0c), then
+ * 0626 and the poses), from seed; the meteors at 19, 11; 21, 11; 19, 13; 21, 13. Returns the seed after it. */
+static uint32_t meteor_arena(cok_character *c, uint32_t seed)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    cok_combat *k = &game.combat;
+    int8_t cx = cok_combat_x(k, c->record), cy = cok_combat_y(k, c->record);
+    game.vm.seed = seed;
+    for (unsigned m = 1; m <= 4; ++m) {
+        int8_t mx = (int8_t)(20 + dx[m - 1]), my = (int8_t)(12 + dy[m - 1]);
+        uint8_t dir = meteor_facing(cx, cy, mx, my);
+        k->show_actions = true;
+        CHECK(cok_arena_pose(&game, c, dir, 1, false));
+        CHECK(cok_arena_missile_frames(&game, 0x20) && queen_direction_picture(&game, dir, 0x20));
+        CHECK(cok_arena_missile(&game, cx, cy, mx, my, 1, 0x1e));
+        game.spell_x = mx;
+        game.spell_y = my;
+        CHECK(queen_burst(&game, 1, 0x19, 0x0c));
+        bool shown = false;
+        CHECK(cok_combat_visible(k, R, c->record, false, &shown));
+        if (shown) {
+            uint8_t facing = c->combat->facing;
+            CHECK(cok_arena_pose(&game, c, facing, 1, true) && cok_arena_pose(&game, c, facing, 0, false));
+        }
+    }
+    return game.vm.seed;
+}
+
+static void test_meteor_swarm(void)
+{
+    const uint32_t seed = 1234;
+    uint32_t base, want, ran;
+    unsigned hits = 0;
+    cok_character *c, *t4, *l, *a, *inactive;
+    /* Underwater the bar says so, its one draw (the bar's wait, as the Fireball's underwater test) and no meteor: no image,
+     * the damage type left as it was. */
+    c = meteor_field(10, 10);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    game.vm.seed = seed;
+    game.effects.rolls.damage_type = 0;
+    uint32_t bar = seed;
+    cok_tp_random(&bar, 1000);
+    CHECK(run_handler(0x7c) && game.vm.seed == bar && game.effects.rolls.images == 0);
+    CHECK(game.effects.rolls.damage_type == 0 && LOGGED("That has no effect underwater!"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    battle_clear();
+
+    /* The caster alone at 10, 10: the four meteors' arena (the poses, the missiles, the bursts), and the image and type. */
+    base = meteor_base(seed, 10, 10);
+    c = meteor_field(10, 10);
+    ran = meteor_run(seed);
+    CHECK(ran == base && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 9);
+    /* The spell's cell is the fourth meteor's, and the caster faces it (the pose before its missile). */
+    CHECK(game.spell_x == 21 && game.spell_y == 13 && c->combat->facing == meteor_facing(10, 10, 21, 13));
+    battle_clear();
+    /* That arena's draws are the shared calls' with the original's arguments (the burst of radius 1, ...), from the
+     * same view (the one meteor_base's runs leave). */
+    c = meteor_field(10, 10);
+    cok_field_set8(R->character, c->record, COK_FIELD_ACTIVE, 0);
+    CHECK(meteor_arena(c, seed) == base);
+    battle_clear();
+
+    /* The tries in the handler: walls at 21, 13, at 20, 13 and at 21, 12 stop the fourth meteor's tries 1 to 3 (each sight
+     * pulled back to the wall), so try 4 (20, the y of try 3's wall: 12) is seen and the meteor falls there. */
+    c = meteor_field(10, 10);
+    game.combat.cells[13][21] = 1;
+    game.combat.cells[13][20] = 1;
+    game.combat.cells[12][21] = 1;
+    meteor_run(seed);
+    CHECK(game.vm.status == COK_ECL_OK && game.spell_x == 20 && game.spell_y == 12);
+    battle_clear();
+    /* A wall next to the caster (11, 10) stops every try of every meteor: the last try's cell (the wall's, where its
+     * sight stopped) is used. */
+    c = meteor_field(10, 10);
+    game.combat.cells[10][11] = 1;
+    meteor_run(seed);
+    CHECK(game.vm.status == COK_ECL_OK && game.spell_x == 11 && game.spell_y == 10);
+    battle_clear();
+
+    /* One target at 22, 14: within 1 of the fourth meteor's cell (21, 13) and of no other, nor on any line. Its hit comes
+     * after the fourth meteor's arena: a d20 (the save, first), then 10d4 (half on a save), then the flash's draws. */
+    /* Several seeds: a seed whose 10d4 is the same one draw later would not tell the orders apart. */
+    for (uint32_t k = 0; k < 4; ++k) {
+        uint32_t s0 = seed + 7 * k;
+        base = meteor_base(s0, 10, 10);
+        c = meteor_field(10, 10);
+        t4 = meteor_target('T', 22, 14, true);
+        uint8_t needed = k % 2 == 0 ? 21 : 2; /* 2: saved but on a 1 (half the damage) */
+        cok_field_set8_at(R->character, t4->record, COK_FIELD_SAVING_THROW, 4, needed);
+        ran = meteor_run(s0);
+        uint32_t p = base;
+        uint8_t roll = (uint8_t)cok_dice(&p, 1, 20);
+        bool saved = roll == 20 || (roll != 1 && roll >= needed);
+        uint8_t dealt = cok_dice(&p, 10, 4);
+        flash_draws(&p, 4);
+        CHECK(ran == p);
+        CHECK(hit_points(t4) == (uint8_t)(0xff - (saved ? dealt / 2 : dealt)));
+        battle_clear();
+    }
+
+    /* Line and area: the target on meteor 1's line next to its cell is hit twice (the line, then the area); the one at 18,
+     * 10 in its area only; the inactive one at 19, 10 is skipped. The seed is the model's, its hits in any order. */
+    base = meteor_base(seed, 10, 10);
+    c = meteor_field(10, 10);
+    cok_combat_line line = {.x0 = 10, .y0 = 10, .x1 = 19, .y1 = 11};
+    cok_combat_line_start(&line);
+    unsigned steps = 0;
+    while (cok_combat_line_step(&line, R)) ++steps;
+    int8_t lx = 0, ly = 0;
+    line_cell(10, 10, 19, 11, steps - 1, &lx, &ly);
+    l = meteor_target('L', lx, ly, true);
+    a = meteor_target('A', 18, 10, true);
+    inactive = meteor_target('I', 19, 10, false);
+    ran = meteor_run(seed);
+    want = base;
+    meteor_model(c, &want, &hits);
+    CHECK(ran == want && hits >= 3);
+    CHECK(hit_points(l) < 0xff && hit_points(a) < 0xff && hit_points(inactive) == 0xff);
+    battle_clear();
+
+    /* The caster in the area: adjacent to meteor 1's cell (19, 11), so hit with a save; the line leaves her out. */
+    base = meteor_base(seed, 18, 10);
+    c = meteor_field(18, 10);
+    inactive = meteor_target('I', 19, 10, false);
+    ran = meteor_run(seed);
+    want = base;
+    meteor_model(c, &want, &hits);
+    CHECK(ran == want && hits == 1);
+    CHECK(hit_points(c) < 0xff && hit_points(inactive) == 0xff);
+    battle_clear();
+    game.vm.character = NULL;
+}
+
 int main(void)
 {
     struct stat st;
@@ -3394,8 +4209,23 @@ int main(void)
     test_band_b2_fireball();
     test_band_b2_flame();
     test_band_b2_ice();
+    test_band_b3_straight();
+    test_band_b3_lengths();
+    test_band_b3_save();
+    test_band_b3_bounce();
+    test_band_b3_second_bounce();
+    test_band_b3_caster_bounce();
+    test_band_b3_wrap();
+    test_band_b3_open();
+    test_band_b3_offmap();
+    test_band_b3_own_cell();
+    test_band_b3_lightning();
+    test_band_b3_lightning_wet();
+    test_band_b3_javelin();
     test_cone();
     test_cone_of_cold();
+    test_meteor_try();
+    test_meteor_swarm();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
