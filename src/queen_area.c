@@ -21,7 +21,8 @@
 /* b4: Cone of Cold 0x5c (7fd8:299c). */
 
 /* The cone's steps for part (0 left x, 1 left y, 2 right x, 3 right y) and side: DS:8cc8 + 8 * part + side,
- * the bytes the port holds in data_dark_queen.c (signed; side is a step's direction, 0-7). */
+ * the bytes the port holds in data_dark_queen.c (signed; side is a step's direction, 0-7, or 0xff where the centre
+ * line met no one: DS:8dc7 + 8 * part). */
 static int8_t cone_side(const cok_adventure *game, unsigned part, uint8_t side)
 {
     return (int8_t)cok_data_held(cok_game_rules(game)->data, 0x8cc8 + 8 * (long)part + side);
@@ -63,7 +64,13 @@ static bool undefined(cok_adventure *game, const char *what)
  * and the end is on the map; the end is clamped and pulled back by the sight (range 2 * len), and the line to it
  * lists the combatants on its cells, each once, though none after one met a second time. For width 2 and up the
  * right side (the end's neighbour by the direction of the last step that met one), for 3 the left, add theirs; width
- * 0xff those within 3 of the end instead. The targets are spell_targets 1 to the count, the caster left out. */
+ * 0xff those within 3 of the end instead. The targets are spell_targets 1 to the count, the caster left out.
+ * Where the centre line meets no one the side (19ff's bp-5) is never written: it holds the high byte of the caller's
+ * BP, which 5837:0aea's push bp leaves there (the callers of width 2 and 3, 7fd8:299c and 257a, push 19ff's arguments
+ * alike, 0aea the last call before it). Measured in DOSBox-X at 849a:1c4a: bp-6 0xff3c, 299c's BP; the handler's BP
+ * is 0xff3c for a pending cast, 0xff1e at once, 0xff14 for the computer's (the dispatch 849a:21b5's 0xff42, 0xff24,
+ * 0xff1a): 0xff, the sides at DS:8dc7, 8dcf, 8dd7, 8ddf (left x + 0x63, left y + 0, right x + 0x53, right y + 0x43:
+ * the right end clamped to 0x31, 0x18, or 0, 0x18 from x 45 on). */
 bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1, uint8_t width, uint8_t len)
 {
     cok_combat *combat = &game->combat;
@@ -94,8 +101,8 @@ bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1,
     if (!cok_combat_sight(combat, rules, x0, y0, &x1, &y1, &range, &seen))
         return undefined(game, "terrain past the table is read (DS:1ee4, 6b30:03f1)");
     /* The centre line: once an occupant has been met twice, no later one is added (again is never cleared). */
-    uint8_t list[32] = {0}, n = 1, side = 0;
-    bool again = false, side_set = false;
+    uint8_t list[32] = {0}, n = 1, side = 0xff;
+    bool again = false;
     line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = x1, .y1 = y1};
     cok_combat_line_start(&line);
     while (cok_combat_line_step(&line, rules)) {
@@ -114,13 +121,9 @@ bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1,
             list[n++] = occupant;
         }
         side = line.direction;
-        side_set = true;
     }
     static const char overrun[] = "dqk 849a:194a: a cone's list of more than 30 runs past its directions";
     if (width > 1 && width != 0xff) {
-        if (!side_set)
-            return undefined(game, "dqk 849a:1c4a reads the side of a cone whose centre line met no one (a "
-                                   "local never written)");
         int8_t rx = (int8_t)(x1 + cone_side(game, 2, side)), ry = (int8_t)(y1 + cone_side(game, 3, side));
         cone_clamp(&rx, &ry);
         line = (cok_combat_line){.x0 = x0, .y0 = y0, .x1 = rx, .y1 = ry};
