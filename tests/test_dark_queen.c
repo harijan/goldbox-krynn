@@ -988,6 +988,9 @@ static void test_magic_ids(void)
         /* Band a3's texts (7fd8:0001's "is %s" with "Blessed" and "Cursed", 13b7, 0957, 36d6). */
         {0x8798, "is %s"},         {0x693f, "Blessed"},           {0x6947, "Cursed"},
         {0x88fb, "is praying"},    {0x8882, "is duplicated"},     {0x8ab3, "is covered in flame"},
+        /* Effects-4's texts (7e76:012c's "is %s" with "Silenced", 033f's, 0b3c's runs). */
+        {0x8674, "is %s"},         {0x6a42, "Silenced"},          {0x86a7, "runs away"},
+        {0x86b1, "is confused"},   {0x86bd, "goes berserk"},      {0x86ca, "is enraged"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
@@ -1077,7 +1080,8 @@ static void test_magic_ids(void)
         {0x1b, 0x78e4, 0x010d}, {0x1f, 0x78e4, 0x010d}, {0x21, 0x78e4, 0x0672},
         {0x24, 0x78e4, 0x06d3}, {0x2d, 0x78e4, 0x0198}, {0x2e, 0x78e4, 0x01c6},
         {0x2f, 0x78e4, 0x09b2}, {0x33, 0x78e4, 0x010d}, {0x34, 0x78e4, 0x010d},
-        {0x35, 0x78e4, 0x010d}};
+        {0x35, 0x78e4, 0x010d},
+        {0x0b, 0x7e76, 0x007a}, {0x15, 0x7e76, 0x012c}, {0x23, 0x7e76, 0x033f}, {0x6f, 0x7e76, 0x0b3c}};
     for (unsigned id = 0; id < R->effects.count; ++id) {
         const struct fill_cell *off = &effect_cells[4 * id], *seg = &effect_cells[4 * id + 2];
         const cok_rules_effect *h = &R->effects.handlers[id];

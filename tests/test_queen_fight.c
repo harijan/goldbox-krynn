@@ -2719,6 +2719,239 @@ static void test_own_hook_missing(void)
     battle_clear();
 }
 
+/* effects-4: the 7e76 four (queen_effect.c's charm, silence, confusion and terror). Each returns at once with no
+ * combat record (the original's rec+0x40 NULL), before its flag test. */
+static uint8_t side_of(const cok_character *c)
+{
+    return (uint8_t)cok_combat_field_word(R, c->record, COK_FIELD_HOSTILE);
+}
+
+static uint8_t npc_of(const cok_character *c)
+{
+    return cok_field_u8(R->character, c->record, COK_FIELD_NPC);
+}
+
+static void set_side(cok_character *c, unsigned side)
+{
+    cok_combat_set_field_word(R, c->record, COK_FIELD_HOSTILE, side);
+}
+
+static void set_npc(cok_character *c, uint8_t npc, uint8_t computer)
+{
+    cok_field_set8(R->character, c->record, COK_FIELD_NPC, npc);
+    cok_field_set8(R->character, c->record, COK_FIELD_COMPUTER, computer);
+}
+
+/* 7e76:007a (0x0b, charm; ev 0x0f, not applied_only): the first run takes hold (value 0x05 on side 0: value 0x25,
+ * side 0, computer 1, NPC 0xb3, target NULL, the sides counted, morale 100); a second run with bit 5 set is the
+ * morale only; a value 0x85 on side 1 gains the side and 0x20 (0xe5) and the side is 1; removing puts the side
+ * back from bit 6 and an NPC 0xb3 back to a player (computer 0), an NPC not 0xb3 is left alone; with no block
+ * nothing runs, either way (h_charm would fail). */
+static void test_effects_four_charm(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    set_side(t, 0);
+    set_npc(t, 0, 0);
+    t->combat->target = a->record;
+    cok_effect *e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    CHECK(e != NULL);
+    game.combat.sides[0] = game.combat.sides[1] = 9;
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x25 && side_of(t) == 0 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(t->combat->target == NULL && game.combat.sides[0] == 2 && game.combat.sides[1] == 0);
+    CHECK(game.effects.rolls.morale == 100);
+    /* Bit 5 set: the morale only. */
+    t->combat->target = a->record;
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x25 && t->combat->target == a->record && game.effects.rolls.morale == 100);
+    /* Value 0x85 on side 1, NPC 0x80 (bit 7 kept, not made 0xb3): 0xe5 and side 1. */
+    e->value = 0x85;
+    set_side(t, 1);
+    set_npc(t, 0x80, 0);
+    t->combat->target = a->record;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0xe5 && side_of(t) == 1 && npc_of(t) == 0x80 && computer(t) == 1);
+    CHECK(t->combat->target == NULL);
+    /* Removing it (value 0xe5: side 1 in bit 6): the side is 1, the NPC 0x80 and computer 1 stay. */
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 1 && npc_of(t) == 0x80 && computer(t) == 1 && game.effects.rolls.morale == 50);
+    CHECK(cok_character_find_effect(t, 0x0b) == NULL);
+    /* Removing one with NPC 0xb3 (value 0x05: side 0): side 0, NPC 0 and computer 0. */
+    e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    set_side(t, 1);
+    set_npc(t, 0xb3, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 0 && npc_of(t) == 0 && computer(t) == 0);
+    /* No block: nothing, first run or removal. */
+    cok_combat_record *saved = t->combat;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    set_side(t, 1);
+    set_npc(t, 0xb3, 1);
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x05 && side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(game.effects.rolls.morale == 50);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    t->combat = saved;
+    battle_clear();
+}
+
+/* 7e76:012c (0x15, silence; ev 0x0f, applied_only; shared within 1): a block that may use items is said "is
+ * Silenced" (row 10, waited); a pending spell is forgotten (cok_combat_forget, marked as Dark Queen's rules say:
+ * 0x80); the spell, may_use and may_cast are 0 and no turn ends (initiative kept, unlike a "lost a spell"). A
+ * holder within 1 silences a member who holds nothing. With no block, nothing. */
+static void test_effects_four_silence(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    cok_effect *e = cok_character_add_effect(t, 0x15, 0, 10, false);
+    CHECK(e != NULL);
+    cr->may_use = 1;
+    cr->may_cast = 1;
+    cr->spell = 0x0f;
+    cr->initiative = 3;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_MEMORIZED, 0, 0x0f);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is Silenced") && !LOGGED("lost a spell"));
+    CHECK(cr->may_use == 0 && cr->may_cast == 0 && cr->spell == 0 && cr->initiative == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_MEMORIZED, 0) == (0x0f | R->fight.forget_mark));
+    /* No block: nothing said. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK && !LOGGED("is Silenced"));
+    t->combat = saved;
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x15) && game.vm.status == COK_ECL_OK);
+    /* Shared: a holder at 5, 5 silences t at 6, 5 (within 1), who holds nothing. */
+    CHECK(cok_character_add_effect(a, 0x15, 0, 10, false) != NULL);
+    cr->may_use = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is Silenced") && cr->may_use == 0);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* A seed whose first d100 is in low..high, whose next draws are the effect's flash (cok_arena_flash: its four
+ * frames, one draw each; the text is said with no wait), and whose d20 after them, the save's, is save. */
+static uint32_t confusion_seed(unsigned low, unsigned high, unsigned save)
+{
+    for (uint32_t start = 1;; ++start) {
+        uint32_t s = start;
+        unsigned d = cok_dice(&s, 1, 100);
+        if (d < low || d > high) continue;
+        for (unsigned k = 0; k < 4; ++k) cok_tp_random(&s, 1000);
+        if (cok_dice(&s, 1, 20) == save) return start;
+    }
+}
+
+/* 7e76:033f (0x23, confusion; ev 0x15, applied_only): one d100 by the original's table. 1-10 runs away: the 0x23
+ * removed, the block forced and computer controlled, its target NULL, and 0x6f added for ten minutes. 11-60 "is
+ * confused" and the turn ends. 61-80 0x4d is added and run: its cited stop (7e76:081f) stops the run, before the
+ * save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps it; a d20 of 10
+ * leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
+static void test_effects_four_confusion(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    set_npc(t, 0, 0);
+    cr->forced = 0;
+    cr->target = a->record;
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    /* 1-10: runs away. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(1, 10, 20);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x23) == NULL && cr->forced == 1 && computer(t) == 1 && npc_of(t) == 0xb3);
+    CHECK(cr->target == NULL && LOGGED("runs away"));
+    cok_effect *run = cok_character_find_effect(t, 0x6f);
+    CHECK(run != NULL && run->duration == 10 && run->on_remove && run->value == 0);
+    CHECK(cok_effects_remove(&game.effects, t, run, 0x6f) && game.vm.status == COK_ECL_OK);
+    /* 11-60, saved: "is confused", the turn ends, and the 0x23 is removed. */
+    cr->forced = 0;
+    set_npc(t, 0, 0);
+    cr->initiative = 3;
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(11, 60, 20);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is confused") && cr->initiative == 0 && cok_character_find_effect(t, 0x23) == NULL);
+    CHECK(cr->forced == 0 && npc_of(t) == 0 && computer(t) == 0);
+    /* 11-60, failed save: the 0x23 kept. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(11, 60, 1);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x23) != NULL);
+    /* The save bonus: a d20 of 10 leaves the roll at the save bonus, 10 and -2. */
+    game.vm.seed = confusion_seed(11, 60, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.save_roll ==
+          (uint8_t)(cok_field_s8(R->character, t->record, COK_FIELD_SAVE_BONUS) + 10 + 0xfe));
+    CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x23), 0x23) &&
+          game.vm.status == COK_ECL_OK);
+    /* 61-80: 0x4d added, run, and its cited stop ends the run before the save. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(61, 80, 20);
+    log_text[0] = '\0';
+    game.effects.error[0] = '\0';
+    CHECK(!cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_EFFECT_FAILED);
+    CHECK(strstr(game.effects.error, "7e76:081f") != NULL && LOGGED("goes berserk"));
+    CHECK(cok_character_find_effect(t, 0x4d) != NULL && cok_character_find_effect(t, 0x23) != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    game.error[0] = '\0';
+    /* 81-100: "is enraged" and the save: made removes it. */
+    game.vm.seed = confusion_seed(81, 100, 20);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is enraged") && cok_character_find_effect(t, 0x23) == NULL);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 7e76:0b3c (0x6f, terror; no event, not applied_only): only removing does anything: an NPC 0xb3 goes back to a
+ * player (computer 0) and the block's forced is 0; not removing, nothing; with no block, nothing (h_terror
+ * fails there). */
+static void test_effects_four_terror(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    cok_effect *e = cok_character_add_effect(t, 0x6f, 0, 0, true);
+    CHECK(e != NULL);
+    set_npc(t, 0xb3, 1);
+    cr->forced = 1;
+    CHECK(cok_effects_run(&game.effects, t, 0x6f, e) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1 && cr->forced == 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x6f) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && cr->forced == 0);
+    /* No block: nothing, removal included. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x6f, 0, 0, true);
+    set_npc(t, 0xb3, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x6f) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1);
+    t->combat = saved;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 /* Bless (dqk 7fd8:0001, 00a2) and Curse (00c9): a target whose word +0x66 is not the side is cleared (the
  * whole word: a 0x0100 there is the other side). A Bless of spell 1 (not 0x3e) in a battle also clears one
  * of the side with an enemy within 1 (51c2:0980). The rest take the effect (1, 2) with "is Blessed" or
@@ -4353,6 +4586,10 @@ int main(void)
     test_held_ends_turn();
     test_cancel_word();
     test_own_hook_missing();
+    test_effects_four_charm();
+    test_effects_four_silence();
+    test_effects_four_confusion();
+    test_effects_four_terror();
     test_band_b2_fireball();
     test_band_b2_flame();
     test_band_b2_ice();

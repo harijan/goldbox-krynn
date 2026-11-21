@@ -374,7 +374,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x08] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198: alignment 2, 5, 8 */
     [0x09] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6: alignment 0, 3, 6 */
     [0x0a] = {0x01f4, COK_FX_MISSING, "dqk 78e4:01f4"},
-    [0x0b] = {0x007a, COK_FX_MISSING, "dqk 7e76:007a"},
+    [0x0b] = {0x007a, COK_FX_QUEEN_CHARM}, /* 7e76:007a: charm in battle, its side and NPC */
     [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
     [0x0d] = {0x021d, COK_FX_MISSING, "dqk 78e4:021d"},
     [0x0e] = {0x0238, COK_FX_NOTHING}, /* does nothing: retf */
@@ -384,7 +384,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x12] = {0x02e6, COK_FX_RESIST_CHARM_30, .applied_only = true}, /* 78e4:02e6: d100 30 or less */
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x14] = {0x0313, COK_FX_MISSING, "dqk 78e4:0313"},
-    [0x15] = {0x012c, COK_FX_MISSING, "dqk 7e76:012c"},
+    [0x15] = {0x012c, COK_FX_QUEEN_SILENCE, .applied_only = true}, /* 7e76:012c: silence in battle */
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
     [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
@@ -398,7 +398,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x20] = {0x028c, COK_FX_MISSING, "dqk 7e76:028c"},
     [0x21] = {0x0672, COK_FX_BLIND, .applied_only = true}, /* 78e4:0672: attack, save and AC */
     [0x22] = {0x0696, COK_FX_MISSING, "dqk 78e4:0696"},
-    [0x23] = {0x033f, COK_FX_MISSING, "dqk 7e76:033f"},
+    [0x23] = {0x033f, COK_FX_QUEEN_CONFUSED, .applied_only = true}, /* 7e76:033f: confusion in battle */
     [0x24] = {0x06d3, COK_FX_MINUS_FOUR, .applied_only = true}, /* 78e4:06d3: attack and save */
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
     [0x26] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
@@ -479,7 +479,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x6c] = {0x0ad9, COK_FX_MISSING, "dqk 7e76:0ad9"},
     [0x6d] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x6e] = {0x1b0b, COK_FX_MISSING, "dqk 78e4:1b0b"},
-    [0x6f] = {0x0b3c, COK_FX_MISSING, "dqk 7e76:0b3c"},
+    [0x6f] = {0x0b3c, COK_FX_QUEEN_TERROR}, /* 7e76:0b3c: terror in battle, its block cleared on removal */
     [0x70] = {0x1b39, COK_FX_MISSING, "dqk 78e4:1b39"},
     [0x71] = {0x1bd5, COK_FX_MISSING, "dqk 78e4:1bd5"},
     [0x72] = {0x1c12, COK_FX_MISSING, "dqk 78e4:1c12"},
