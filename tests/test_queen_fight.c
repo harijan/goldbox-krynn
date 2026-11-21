@@ -4809,8 +4809,8 @@ static void test_effects3_images(void)
         game.effects.rolls.amount16 = 300;
         game.vm.seed = big;
         CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
-        if (flagged[k].lost) CHECK(e->value == 0x42 && game.effects.rolls.amount16 == 0);
-        else CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300);
+        if (flagged[k].lost) CHECK(e->value == 0x42 && game.effects.rolls.amount16 == 0 && game.vm.seed == want);
+        else CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300 && game.vm.seed == after_draws(big, 1, 4));
         game.effects.rolls.images = 0;
         game.effects.rolls.spell = 0;
     }
@@ -4823,6 +4823,31 @@ static void test_effects3_images(void)
     CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
     CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300 && game.vm.seed == big);
     game.vm.mode = 5;
+    /* Removed (flag 1): 0x1c, 0x31 and 0x29 are applied_only: no draw, no text, the rolls kept (0x29 run with no member
+     * selected would stop). */
+    static const uint8_t removed[] = {0x1c, 0x31, 0x29};
+    for (size_t k = 0; k < sizeof removed / sizeof *removed; ++k) {
+        duel(&a, &t);
+        game.vm.character = NULL;
+        e = cok_character_add_effect(t, removed[k], 0, 0x62, true);
+        game.effects.rolls.amount16 = 300;
+        game.effects.rolls.attack_roll = 10;
+        game.vm.seed = big;
+        CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, removed[k]) && game.vm.status == COK_ECL_OK);
+        CHECK(game.effects.rolls.amount16 == 300 && game.effects.rolls.attack_roll == 10 && game.vm.seed == big);
+        CHECK(!LOGGED("lost an image"));
+    }
+    /* A terrible presence (0x64, effect.c's h_presence) sets the images flag across its walk (dqk 78e4:14d7, 1584): its
+     * add's event 9 on a Mirror Image holder draws the d4 and, with no spell, keeps the image; the terror is added. */
+    duel(&a, &t);
+    e = cok_character_add_effect(a, 0x1c, 0, 0x62, false);
+    CHECK(e != NULL && cok_character_add_effect(t, 0x64, 0, 0, false) != NULL);
+    game.effects.rolls.images = 0;
+    game.effects.rolls.spell = 0;
+    game.vm.seed = big;
+    CHECK(cok_effects_run(&game.effects, t, 0x64, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x62 && !LOGGED("lost an image") && cok_character_find_effect(a, 0x78) != NULL);
+    CHECK(game.effects.rolls.images == 0);
     /* No node: the port stops, cited. */
     CHECK(!cok_effects_run(&game.effects, t, 0x1c, NULL) && strstr(game.effects.error, "no effect") != NULL);
     game.vm.status = COK_ECL_OK;
@@ -4875,10 +4900,14 @@ static void test_effects3_slow(void)
     game.effects.rolls.movement = 10;
     CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
     CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    /* Removed (flag 1), 0x96 not held: applied_only, nothing. */
+    cok_effect *e = cok_character_add_effect(t, 0x2a, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x2a) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
     CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
     CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
     CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
-    cok_effect *e = cok_character_add_effect(t, 0x2a, 0, 0, true);
+    e = cok_character_add_effect(t, 0x2a, 0, 0, true);
     CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x2a) && game.vm.status == COK_ECL_OK);
     CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
     battle_clear();
@@ -4946,6 +4975,31 @@ static void test_effects3_missiles(void)
         }
         game.vm.character = NULL;
     }
+    /* A bow (its type's flags 9: arrows, slot 11): 07d4 takes the arrows, so the arrows' bonus decides, not the bow's. */
+    uint8_t row[16];
+    memcpy(row, game.item_types.type[3], sizeof row);
+    game.item_types.type[3][14] = 9;
+    static const struct { uint8_t bow, arrows; bool avoided; } shot[] = {{1, 0, true}, {0, 1, false}};
+    for (size_t k = 0; k < sizeof shot / sizeof *shot; ++k) {
+        cok_character *a, *t;
+        duel_at(&a, &t, 7, 5);
+        uint8_t bow[COK_ITEM_SIZE] = {0}, arrows[COK_ITEM_SIZE] = {0};
+        bow[0x28] = 3;
+        bow[0x30] = shot[k].bow;
+        arrows[0x30] = shot[k].arrows;
+        CHECK(cok_character_insert_item(a, 0, bow) && cok_character_insert_item(a, 1, arrows));
+        a->slots[0] = 1;
+        a->slots[11] = 2;
+        CHECK(cok_character_add_effect(t, 0x29, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.effects.rolls.amount16 = 9;
+        game.effects.rolls.attack_roll = 10;
+        game.vm.seed = 1234;
+        CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+        CHECK(LOGGED("Avoids it") == shot[k].avoided && (game.effects.rolls.attack_roll == 0xff) == shot[k].avoided);
+        game.vm.character = NULL;
+    }
+    memcpy(game.item_types.type[3], row, sizeof row);
     game.effects.in_battle = false;
     battle_clear();
 }
@@ -4986,7 +5040,9 @@ static void test_effects3_pool(void)
     unsigned n = 0;
     for (size_t i = 0; i < game.party.count; ++i)
         for (const cok_effect *e = game.party.members[i]->effects; e != NULL; e = e->next) ++n;
-    for (; n < R->effects.pool_size; ++n) CHECK(cok_character_add_effect(t, 0x01, 0, 0, false) != NULL);
+    for (; n + 1 < R->effects.pool_size; ++n) CHECK(cok_character_add_effect(t, 0x01, 0, 0, false) != NULL);
+    /* One node short of full: the add is made (the pool then full). */
+    CHECK(cok_effects_run(&game.effects, t, 0x38, NULL) && cok_character_find_effect(t, 0x19) != NULL);
     CHECK(!cok_effects_run(&game.effects, a, 0x38, NULL));
     CHECK(strstr(game.effects.error, "effect 0x19") != NULL && strstr(game.effects.error, "pool is full") != NULL &&
           strstr(game.effects.error, "19c2") != NULL);

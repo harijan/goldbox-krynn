@@ -2622,7 +2622,8 @@ static bool h_item(cok_effects *fx, bool removing, cok_effect *effect, cok_chara
  * (+0x64, a word), of level (+0x91) below 7 (unsigned) and holding neither the entry's effect
  * (0x78) nor 0x5c is terrified: 252c(r, 0x78, 0 minutes, value 0, flag 1, kind 1, not saved, "is
  * terrified", DS:83bc). No saving throw, unlike Champions' 0x48 and 0x52. The routine sets DS:c280
- * across the walk; only 0x1c's handler (78e4:0580, not ported) reads it, which event 9 can reach. */
+ * (rolls.images) to 1 across the walk and to 0 after it (14d7, 1584): 0x1c's handler (78e4:0580,
+ * queen_effect.c's images), which each add's event 9 reaches, reads it. */
 static bool h_presence(cok_effects *fx, bool removing, cok_effect *effect, cok_character *c)
 {
     const cok_character_layout *L = fx->rules->character;
@@ -2630,6 +2631,7 @@ static bool h_presence(cok_effects *fx, bool removing, cok_effect *effect, cok_c
     (void)removing, (void)effect;
     size_t status = cok_field_one_(L, COK_FIELD_STATUS, 1);
     size_t side = cok_field_one_(L, COK_FIELD_HOSTILE, 1);
+    fx->rolls.images = 1; /* 14d7 */
     for (size_t i = 0; i < fx->party->count; ++i) {
         cok_character *other = fx->party->members[i];
         const uint8_t *r = other->record;
@@ -2642,6 +2644,7 @@ static bool h_presence(cok_effects *fx, bool removing, cok_effect *effect, cok_c
         if (!add_with_text(fx, other, h->value, 0, 0, true, 1, false, h->address, h->text))
             return false;
     }
+    fx->rolls.images = 0; /* 1584 */
     return true;
 }
 
