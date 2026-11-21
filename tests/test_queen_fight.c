@@ -3969,6 +3969,18 @@ static unsigned effects_with(const cok_character *c, uint8_t id, uint8_t value)
     return n;
 }
 
+/* Whether every id of c with value has flag 0 (no handler on its removal), and there is one. */
+static bool held_for_good(const cok_character *c, uint8_t id, uint8_t value)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e->id == id && e->value == value) {
+            if (e->on_remove) return false;
+            ++n;
+        }
+    return n > 0;
+}
+
 static uint8_t strength_of(const cok_character *c)
 {
     return cok_field_u8_at(R->character, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH);
@@ -4002,7 +4014,9 @@ static void test_effects5_poison(void)
     cok_effect *e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
     CHECK(e != NULL);
     log_text[0] = '\0';
+    game.effects.rolls.damage_type = 8; /* the timer's damage is of type 0 */
     CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.damage_type == 0);
     cok_effect *p = cok_character_find_effect(t, 0x1a);
     CHECK(p != NULL && p->duration == 10 && p->value == 0x05 && p->on_remove);
     CHECK(effects_of(t, 0x0f) == 0 && hit_points_of(t) == 9 && LOGGED("takes 1 point of damage "));
@@ -4013,6 +4027,12 @@ static void test_effects5_poison(void)
     CHECK(cok_character_find_effect(t, 0x1a) != NULL && hit_points_of(t) == 8);
     clear_effect(t, 0x1a);
     clear_effect(t, 0x0f);
+    /* At two hit points: the point (more than one, unsigned). */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 2);
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(hit_points_of(t) == 1);
+    clear_effect(t, 0x1a);
     /* At one hit point: the 0x1a, no damage. */
     cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
     e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
@@ -4067,6 +4087,13 @@ static void test_effects5_drain(void)
     CHECK(cok_effects_run(&game.effects, t, 0x2b, d) && game.vm.status == COK_ECL_OK);
     CHECK(strength_of(t) == 8 && effects_of(t, 0x2b) == 2 && LOGGED("is weakened"));
     clear_effect(t, 0x2b);
+    /* Strength 4: still weakened, 4 -> 3. */
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 4);
+    e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is weakened") && strength_of(t) == 3 && effects_of(t, 0x1f) == 0);
+    clear_effect(t, 0x2b);
     /* Strength 3: 0x1f for good, even with one held (two then). */
     cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 3);
     CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
@@ -4074,8 +4101,20 @@ static void test_effects5_drain(void)
     log_text[0] = '\0';
     CHECK(cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_OK);
     CHECK(!LOGGED("is weakened") && strength_of(t) == 3);
-    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1);
+    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1 && held_for_good(t, 0x1f, 0xff));
     CHECK(cok_character_find_effect(t, 0x2b) != NULL);
+    clear_effect(t, 0x2b);
+    /* Outside a battle the say (177e:156e in the camp's shape) is a cited stop; the 0x2b is added first. */
+    game.vm.mode = 2;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 10);
+    e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(!cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "dqk 177e:156e outside combat") != NULL && !LOGGED("is weakened"));
+    CHECK(strength_of(t) == 10);
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
     clear_effect(t, 0x2b);
     /* No node: the stop that reads the node's value. */
     CHECK(!cok_effects_run(&game.effects, t, 0x2b, NULL) && game.vm.status == COK_ECL_UNPORTED);
@@ -4102,6 +4141,12 @@ static void test_effects5_wasting(void)
     CHECK(d != NULL && d->duration == 10 && d->value == 0x05 && d->on_remove);
     CHECK(hit_points_of(t) == 9 && LOGGED("takes 1 point of damage ") && effects_of(t, 0x1f) == 0);
     clear_effect(t, 0x2c);
+    /* At two hit points: the point. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 2);
+    e = cok_character_add_effect(t, 0x2c, 0, 0x05, true);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2c) && game.vm.status == COK_ECL_OK);
+    CHECK(hit_points_of(t) == 1 && effects_of(t, 0x1f) == 0);
+    clear_effect(t, 0x2c);
     /* At one hit point, with a 0x1f held: no damage, the 0x2c again, a second 0x1f. */
     cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
     CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
@@ -4109,7 +4154,7 @@ static void test_effects5_wasting(void)
     log_text[0] = '\0';
     CHECK(cok_effects_remove(&game.effects, t, e, 0x2c) && game.vm.status == COK_ECL_OK);
     CHECK(hit_points_of(t) == 1 && !LOGGED("takes") && cok_character_find_effect(t, 0x2c) != NULL);
-    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1);
+    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1 && held_for_good(t, 0x1f, 0xff));
     clear_effect(t, 0x2c);
     battle_clear();
 }
@@ -4131,6 +4176,11 @@ static void test_effects5_disease(void)
     CHECK(drain != NULL && drain->duration == 60 && drain->value == 0x05);
     CHECK(wasting != NULL && wasting->duration == 10 && wasting->value == 0x05);
     CHECK(strength_of(t) == 9 && hit_points_of(t) == 9 && LOGGED("is weakened") && LOGGED("takes 1 point of damage "));
+    /* 0x2b first: its say before the damage, its node before the 0x2c's. */
+    CHECK(strstr(log_text, "is weakened") < strstr(log_text, "takes 1 point of damage "));
+    const cok_effect *first = t->effects;
+    while (first != NULL && first->id != 0x2b && first->id != 0x2c) first = first->next;
+    CHECK(first != NULL && first->id == 0x2b);
     clear_effect(t, 0x2b);
     clear_effect(t, 0x2c);
     /* Removed (its node with flag 1): nothing, the strength and the hit points kept. */

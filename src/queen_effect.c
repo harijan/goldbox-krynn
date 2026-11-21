@@ -188,8 +188,8 @@ static bool terror(cok_adventure *game, cok_character *c, bool removing)
     return true;
 }
 
-/* effects-5: timers. These run when their node is removed (its count-down, or 1b66 at the battle's
- * end) with flag 1, or when called (0x22 by its spell); they read the node's value, so a run with no
+/* effects-5: timers. These run when their node is removed (its count-down) with flag 1, or when
+ * called (0x22 by its spell); they read the node's value, so a run with no
  * node (cok_effects_run's NULL) is a stop: the original reads 0000:0003. */
 static bool no_node(cok_adventure *game, const char *routine)
 {
@@ -243,6 +243,11 @@ static bool drain(cok_adventure *game, cok_character *c, cok_effect *effect)
     if (!again(game, c, 0x2b, effect->value, 60, &added)) return false;
     if (!added) return true;
     if (cok_field_u8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH) > 3) {
+        /* Outside a battle (a 0x2b counted down while walking or resting) 177e:156e says it in the
+         * camp's shape (dark_queen.c's member_say, colour 7), not cok_arena_say's COK camp text. */
+        if (game->vm.mode != 5)
+            return cok_adventure_not_yet(game, "the drain's text outside combat (the camp's text and wait)",
+                                         "dqk 177e:156e outside combat");
         if (!cok_arena_say(game, c, "is weakened", 10, true)) return false;
         cok_field_add8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, -1);
         return true;
