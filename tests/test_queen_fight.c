@@ -2083,7 +2083,8 @@ static void test_plain_apply(void)
         for (size_t i = 0; i < sizeof band_a2 / sizeof *band_a2; ++i) a2 = a2 || band_a2[i] == id;
         bool a3 = id == 0x01 || id == 0x02 || id == 0x20 || id == 0x2a || id == 0x3e || id == 0x49 ||
                   id == 0x76;
-        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3));
+        bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
+        CHECK((queen_spell_handler((uint8_t)id) != NULL) == (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2));
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2823,6 +2824,250 @@ static void test_fire_touch(void)
     battle_clear();
 }
 
+/* A seed whose draws are dice (count, sides), then rounds of a d20 with four flash frames after each (a target's save and
+ * its damage's flash, queen_cast_damage): every d20 is 2 to 19, so a save is the saving throw's alone (a natural 1 fails,
+ * a 20 saves). */
+static uint32_t mid_seed(unsigned count, uint8_t sides, unsigned rounds)
+{
+    for (uint32_t start = 1;; ++start) {
+        uint32_t w = start;
+        cok_dice(&w, (uint8_t)count, sides);
+        bool ok = true;
+        for (unsigned i = 0; i < rounds && ok; ++i) {
+            uint8_t r = cok_dice(&w, 1, 20);
+            ok = r >= 2 && r <= 19;
+            flash_draws(&w, 4);
+        }
+        if (ok) return start;
+    }
+}
+
+/* A target the spells of band b2 hit with no saving throw (30: above any roll) or with one (0: any roll but a 1 saves),
+ * on the saving throw of type 4 (the spell records' type), at full hit points. */
+static void b2_target(cok_character *t, uint8_t throw_value)
+{
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, throw_value);
+    set_hit_points(t, 0xf0, 0xf0);
+}
+
+/* Band b2's Fireball family (dqk 7fd8:1519) on the non-caster's level 6 (class 0 and 5 at 0): nd6 of fire (type 9) at the
+ * level, the save (kind 2: half on a save), the flash. Delayed Blast Fireball adds the level to the dice (before the
+ * half); the Necklace rolls a d3 first and counts (2d + 1)d6 with no bonus. Underwater the bar says it has no effect
+ * (its wait one draw) and nothing else. Lightning's underwater area (queen_fireball with 0x33) lists the two combatants at
+ * radius 2, and each takes the one amount, nearest first. */
+static void test_band_b2_fireball(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    uint8_t lv = 0;
+    game.vm.character = a->record; /* the caster the level is read from (DS:ad67) */
+    CHECK(queen_spell_level(&game, 0x2f, false, &lv) && lv == 6);
+    /* The records: the save kind 2 (half) and type 4 for the three spells. */
+    CHECK(queen_spell_word(&game, 0x2f, 0x0a) == 2 && queen_spell_word(&game, 0x73, 0x0a) == 2 &&
+          queen_spell_word(&game, 0x85, 0x0a) == 2 && queen_spell_word(&game, 0x2f, 0x0c) == 4);
+    for (unsigned k = 0; k < 2; ++k) {
+        /* Fireball (0x2f): one target, a d20 for the save, then the damage's flash. */
+        uint8_t throw_value = k == 0 ? 30 : 0;
+        b2_target(t, throw_value);
+        set_target(a, t, 0x2f);
+        uint32_t seed = mid_seed(6, 6, 1);
+        game.vm.seed = seed;
+        uint32_t want = seed;
+        uint8_t sum = cok_dice(&want, 6, 6);
+        cok_dice(&want, 1, 20);
+        flash_draws(&want, 4);
+        uint8_t amount = k == 0 ? sum : (uint8_t)(sum / 2);
+        log_text[0] = '\0';
+        game.effects.rolls.images = 0;
+        CHECK(run_handler(0x2f) && game.vm.seed == want && game.effects.rolls.dice == 6);
+        CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && LOGGED("from Fire") && game.effects.rolls.images == 1);
+        /* Delayed Blast Fireball (0x73): the level added to the dice, before the half. */
+        b2_target(t, throw_value);
+        set_target(a, t, 0x73);
+        seed = mid_seed(6, 6, 1);
+        game.vm.seed = seed;
+        want = seed;
+        uint8_t total = (uint8_t)(cok_dice(&want, 6, 6) + lv);
+        cok_dice(&want, 1, 20);
+        flash_draws(&want, 4);
+        amount = k == 0 ? total : (uint8_t)(total / 2);
+        log_text[0] = '\0';
+        CHECK(run_handler(0x73) && game.vm.seed == want && game.effects.rolls.dice == 6);
+        CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && LOGGED("from Fire"));
+    }
+    /* The Necklace (0x85): a d3 first, then (2d + 1) d6, the count stored, no bonus; not underwater the same. */
+    b2_target(t, 30);
+    set_target(a, t, 0x85);
+    uint32_t seed = 1;
+    for (;; ++seed) {
+        uint32_t w = seed;
+        uint8_t n = (uint8_t)(cok_dice(&w, 1, 3) * 2 + 1);
+        cok_dice(&w, n, 6);
+        uint8_t r = cok_dice(&w, 1, 20);
+        if (r >= 2 && r <= 19) break;
+    }
+    game.vm.seed = seed;
+    uint32_t want = seed;
+    uint8_t n = (uint8_t)(cok_dice(&want, 1, 3) * 2 + 1);
+    uint8_t sum = cok_dice(&want, n, 6);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x85) && game.vm.seed == want && game.effects.rolls.dice == n);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    /* A mage of level 60 (class 5): the level is uncapped (not 31), and the Delayed Blast's 60d6 + 60 is a byte (the
+     * seed's sum is past 255, so it wraps: 148f:199e's byte and 1625's byte add). */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 60);
+    CHECK(queen_spell_level(&game, 0x73, false, &lv) && lv == 60);
+    CHECK(queen_spell_level(&game, 0x73, true, &lv) && lv == 0x1f);
+    b2_target(t, 30);
+    set_target(a, t, 0x73);
+    for (seed = 1;; ++seed) {
+        uint32_t w = seed;
+        unsigned whole = 60;
+        for (unsigned i = 0; i < 60; ++i) whole += cok_tp_random(&w, 6) + 1u;
+        uint8_t r = cok_dice(&w, 1, 20);
+        if (whole > 0xff && (uint8_t)whole < 0xf0 && r >= 2 && r <= 19) break;
+    }
+    game.vm.seed = seed;
+    want = seed;
+    sum = (uint8_t)(cok_dice(&want, 60, 6) + 60);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x73) && game.vm.seed == want && game.effects.rolls.dice == 60);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 0);
+    /* Underwater (var 0x3c), the Fireball is refused: the bar (one draw at speed 0), no damage. */
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    b2_target(t, 30);
+    set_target(a, t, 0x2f);
+    game.vm.seed = 17;
+    want = 17;
+    cok_tp_random(&want, 1000);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x2f) && game.vm.seed == want);
+    CHECK(LOGGED("That has no effect underwater!") && hit_points(t) == 0xf0 && !LOGGED("takes"));
+    /* Lightning underwater (0x33) through queen_fireball: the area at radius 2 round (6, 5) lists the target (nearest)
+     * and the caster, and each takes the one amount of nd6 (level 6): two saves (a natural 1 fails, a 20 saves, so the
+     * seed is mid) and two flashes, nothing for the centre. */
+    b2_target(t, 30);
+    b2_target(a, 30);
+    set_hit_points(a, 0xf0, 0xf0);
+    game.spell_x = 6;
+    game.spell_y = 5;
+    set_target(a, t, 0x33);
+    seed = mid_seed(6, 6, 2);
+    game.vm.seed = seed;
+    want = seed;
+    sum = cok_dice(&want, 6, 6);
+    for (unsigned i = 0; i < 2; ++i) {
+        cok_dice(&want, 1, 20);
+        flash_draws(&want, 4);
+    }
+    log_text[0] = '\0';
+    CHECK(queen_fireball(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == want);
+    CHECK(game.spell_target_count == 2 && game.effects.rolls.images == 1);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && hit_points(a) == (uint8_t)(0xf0 - sum) && LOGGED("from Fire"));
+    /* The radius is 2: round (8, 5) the target (6, 5) is listed, the caster (5, 5) is not, and he takes nothing. */
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    b2_target(t, 30);
+    b2_target(a, 30);
+    game.spell_x = 8;
+    game.spell_y = 5;
+    set_target(a, a, 0x33);
+    seed = mid_seed(6, 6, 1);
+    game.vm.seed = seed;
+    want = seed;
+    sum = cok_dice(&want, 6, 6);
+    cok_dice(&want, 1, 20);
+    flash_draws(&want, 4);
+    log_text[0] = '\0';
+    CHECK(queen_fireball(&game) && game.vm.status == COK_ECL_OK && game.vm.seed == want);
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == t);
+    CHECK(hit_points(t) == (uint8_t)(0xf0 - sum) && hit_points(a) == 0xf0);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Band b2's Flame Strike (dqk 7fd8:2157): 6d8 of fire (type 9), halved by a save; underwater the bar only. */
+static void test_band_b2_flame(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    CHECK(queen_spell_word(&game, 0x4a, 0x0a) == 2);
+    for (unsigned k = 0; k < 2; ++k) {
+        b2_target(t, k == 0 ? 30 : 0);
+        set_target(a, t, 0x4a);
+        uint32_t seed = mid_seed(6, 8, 1);
+        game.vm.seed = seed;
+        uint32_t want = seed;
+        uint8_t sum = cok_dice(&want, 6, 8);
+        cok_dice(&want, 1, 20);
+        flash_draws(&want, 4);
+        uint8_t amount = k == 0 ? sum : (uint8_t)(sum / 2);
+        log_text[0] = '\0';
+        game.effects.rolls.images = 0;
+        CHECK(run_handler(0x4a) && game.vm.seed == want && game.effects.rolls.dice == 6);
+        CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && LOGGED("from Fire") && game.effects.rolls.images == 1);
+    }
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    b2_target(t, 30);
+    set_target(a, t, 0x4a);
+    game.vm.seed = 17;
+    uint32_t want = 17;
+    cok_tp_random(&want, 1000);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x4a) && game.vm.seed == want);
+    CHECK(LOGGED("That has no effect underwater!") && hit_points(t) == 0xf0 && !LOGGED("takes"));
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* Band b2's Ice Storm (dqk 7fd8:28fb): 3d10 of magic (type 8), one roll for every target (the second target takes the
+ * same), no save roll (save kind 0), and the image flag; underwater 1d10. */
+static void test_band_b2_ice(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    CHECK(queen_spell_word(&game, 0x57, 0x0a) == 0);
+    for (unsigned k = 0; k < 2; ++k) {
+        b2_target(t, 30);
+        b2_target(a, 30);
+        set_target(a, t, 0x57);
+        game.spell_targets[2] = a;
+        game.spell_target_count = 2;
+        uint32_t seed = 9 + k;
+        game.vm.seed = seed;
+        uint32_t want = seed;
+        uint8_t amount = cok_dice(&want, k == 0 ? 3 : 1, 10);
+        flash_draws(&want, 4);
+        flash_draws(&want, 4);
+        log_text[0] = '\0';
+        game.effects.rolls.images = 0;
+        CHECK(run_handler(0x57) && game.vm.seed == want && game.effects.rolls.dice == (k == 0 ? 3 : 1));
+        CHECK(hit_points(t) == (uint8_t)(0xf0 - amount) && hit_points(a) == (uint8_t)(0xf0 - amount));
+        CHECK(LOGGED("from Magic") && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 0);
+        if (k == 0) cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1); /* the underwater round below */
+    }
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -2889,6 +3134,9 @@ int main(void)
     test_band_a2_damage();
     test_band_a2_heals();
     test_band_a2_cure();
+    test_band_b2_fireball();
+    test_band_b2_flame();
+    test_band_b2_ice();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
