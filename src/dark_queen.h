@@ -62,6 +62,11 @@ void cok_dark_queen_set_monsters_present_for_test(cok_adventure *game, bool pres
  * tests: the stoned and Order's texts reach it through the camp's menus only. */
 void cok_dark_queen_member_say_for_test(cok_adventure *game, const uint8_t *c, const char *text);
 
+/* A burst's spark (51c2:00be, 19a4:04e1): the missile frame (0-3, built by cok_arena_missile_frame) drawn
+ * masked at the sub-cell place of x, y (0-18 across the view), nothing saved under it. False, with
+ * game->error, where the frame is not built. */
+bool cok_dark_queen_burst_spark(cok_adventure *game, uint8_t frame, int x, int y);
+
 /* The small picture's frame (DS:b20e) and whether the menu waiting now animates it. */
 unsigned cok_dark_queen_picture_frame(const cok_adventure *game);
 bool cok_dark_queen_picture_animating(const cok_adventure *game);

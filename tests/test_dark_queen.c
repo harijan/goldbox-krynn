@@ -1745,9 +1745,13 @@ static void menu_flush(cok_adventure *game, void *context)
     ((menu_script *)context)->flushes++;
 }
 
+/* A test's look at the screen at each delay (NULL: none). */
+static void (*delay_probe)(void);
+
 static void menu_delay(cok_adventure *game, unsigned ms, void *context)
 {
     menu_script *s = context;
+    if (delay_probe != NULL) delay_probe();
     if (s->delays++ == 0) {
         s->delay_ms = ms;
         s->delay_seed = game->vm.seed;
@@ -4248,9 +4252,9 @@ static void test_cast_targets(void)
     menu_close();
 }
 
-/* The forget's place (dqk 849a:145b): a spell is forgotten after its flight, not before it (a flight that
- * stops, the Fireball family's picture, leaves the byte), and an item's cast forgets nothing and says no
- * "Casts a Spell" (the announce is the spell's own, 7fd8:45d7). */
+/* The forget's place (dqk 849a:145b): a spell is forgotten after its flight and its burst, before its handler
+ * (the handler's stop leaves the byte marked), and an item's cast forgets nothing and says no "Casts a Spell"
+ * (the announce is the spell's own, 7fd8:45d7). */
 static void test_cast_forget(void)
 {
     if (!have_assets()) {
@@ -4258,14 +4262,14 @@ static void test_cast_forget(void)
         return;
     }
     bool done = false;
-    /* A Fireball (0x2f) whose flight stops at 51c2:0fc8: the stop comes before the forget, so the byte
-     * stays 0x2f (unmarked). */
+    /* A Delayed Blast Fireball (0x73): its flight (the Fireball family's picture, one frame) and its burst
+     * run, the byte is forgotten (0xf3), then the handler stops at its citation (7fd8:1519). */
     cast_open(true);
-    menu_c->record[0xce] = 0x2f;
+    menu_c->record[0xce] = 0x73;
     cast_keys("T");
-    CHECK(!queen_cast(&menu_game, 0x2f, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "51c2:0fc8") != NULL);
-    CHECK(menu_c->record[0xce] == 0x2f);
+    CHECK(!queen_cast(&menu_game, 0x73, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1519") != NULL);
+    CHECK(menu_c->record[0xce] == 0xf3);
     /* A ported spell (CLW 0x03) cast from the list: the announce, then the byte marked. */
     cast_open(true);
     menu_c->record[0xce] = 0x03;
@@ -4280,6 +4284,318 @@ static void test_cast_forget(void)
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && menu_game.vm.status == COK_ECL_OK);
     menu_game.effects.rolls.item = 0;
     CHECK(strstr(script.prints, "Casts a Spell") == NULL && menu_c->record[0xce] == 0x03);
+    menu_close();
+}
+
+/* The screen's bytes (the whole VGA screen) and a burst's spark: frame drawn at (9, 9) over base, the screen then
+ * copied to out. */
+static size_t screen_bytes(void)
+{
+    return (size_t)menu_game.screen.units * 8 * menu_game.screen.height;
+}
+
+static uint8_t picture_base[64000], picture_got[64000], picture_want[64000];
+
+static void spark_over(const uint8_t *base, unsigned frame, uint8_t *out)
+{
+    CHECK(screen_bytes() <= sizeof picture_base);
+    memcpy(menu_game.screen.pixels, base, screen_bytes());
+    CHECK(cok_dark_queen_burst_spark(&menu_game, (uint8_t)frame, 9, 9));
+    memcpy(out, menu_game.screen.pixels, screen_bytes());
+}
+
+/* The Fireball family's picture by facing (dqk 51c2:0fc8): for each facing 0-7 and slot 0x20 or 0x14, the frame is
+ * the one cok_arena_missile_frame builds from the slot, image and mirror the original gives it (odd: slot + 1, image
+ * for 3 and 5, mirror for 5 and 7; even: slot + dir % 4, image dir / 4; slot 0x14 kept). The images and mirrors
+ * differ on the ground, so the pictures are told apart. */
+static void test_direction_picture(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the Fireball family's picture not checked");
+        return;
+    }
+    aim_open();
+    memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+    /* The pictures told apart: the icon's two images and its mirror differ (else the checks below prove nothing). */
+    static uint8_t other[64000];
+    CHECK(cok_arena_missile_frame(&menu_game, 0x20, 0, 0, false));
+    spark_over(picture_base, 0, picture_want);
+    CHECK(cok_arena_missile_frame(&menu_game, 0x20, 1, 0, false));
+    spark_over(picture_base, 0, other);
+    CHECK(memcmp(picture_want, other, screen_bytes()) != 0);
+    CHECK(cok_arena_missile_frame(&menu_game, 0x20, 0, 0, true));
+    spark_over(picture_base, 0, other);
+    CHECK(memcmp(picture_want, other, screen_bytes()) != 0);
+    static const uint8_t slots[2] = {0x20, 0x14};
+    for (unsigned dir = 0; dir < 8; ++dir)
+        for (unsigned k = 0; k < 2; ++k) {
+            uint8_t slot = slots[k], image = (uint8_t)(dir / 4), want_slot = slot;
+            bool mirror = false;
+            if (dir & 1) {
+                image = dir == 3 || dir == 5;
+                mirror = dir == 5 || dir == 7;
+                if (slot != 0x14) want_slot = (uint8_t)(slot + 1);
+            } else if (slot != 0x14) {
+                want_slot = (uint8_t)(slot + dir % 4);
+            }
+            CHECK(queen_direction_picture(&menu_game, (uint8_t)dir, slot) && menu_game.vm.status == COK_ECL_OK);
+            spark_over(picture_base, 0, picture_got);
+            CHECK(cok_arena_missile_frame(&menu_game, want_slot, image, 0, mirror));
+            spark_over(picture_base, 0, picture_want);
+            CHECK(memcmp(picture_got, picture_want, screen_bytes()) == 0);
+        }
+    menu_close();
+}
+
+/* The Delayed Blast Fireball's flight (queen_cast.c's switch): its burst's radius is 2 with var 0x22 0 and 3 with 1
+ * (on the open ground 2). The cast is at the caster's own cell (CINDER at 5, 5: no missile, the offset 0), from the
+ * same seed, so the radius 3 run's draws are the radius 2 run's (rings 1-7) and rings 8-10 after them, as rings_model
+ * draws. The run stops at the handler (7fd8:1519) after the burst; the seed it leaves is compared. */
+static uint32_t own_cell_dbf(uint16_t var, uint32_t seed)
+{
+    cast_open(false);
+    menu_c->record[0xce] = 0x73;
+    cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, var);
+    cast_keys("T");
+    menu_game.vm.seed = seed;
+    bool done = false;
+    CHECK(!queen_cast(&menu_game, 0x73, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:1519") != NULL);
+    uint32_t after = menu_game.vm.seed;
+    menu_close();
+    return after;
+}
+
+/* The rings from first to last at offset 0 (ox = oy = 0): the draws of queen_burst's rings, as the test writes them. */
+static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
+{
+    for (unsigned i = first; i <= last; ++i)
+        for (unsigned j = 0; j < 2 * i - 1; ++j) {
+            unsigned a = cok_tp_random(&seed, 180);
+            int tx = (int8_t)cok_data_held(R->data, 0x5976 + (a + 45) % 180);
+            int ty = (int8_t)cok_data_held(R->data, 0x5976 + a);
+            int px = ((int)tx * (int)i + 50) / 100, py = ((int)ty * (int)i + 50) / 100;
+            if (px >= -9 && px <= 9 && py >= -9 && py <= 9) cok_tp_random(&seed, 4);
+        }
+    return seed;
+}
+
+/* A burst's draws from seed (radius, at sx, sy): the offset of 3 cells off an edge of the view ((s - 3) * 3 below
+ * 3, (s - 0x2e) * 3 or (s - 0x15) * 3 above), then rings_model's rings with it. */
+static uint32_t burst_model(uint32_t seed, unsigned radius, int sx, int sy)
+{
+    int ox = sx < 3 ? (sx - 3) * 3 : sx > 0x2e ? (sx - 0x2e) * 3 : 0;
+    int oy = sy < 3 ? (sy - 3) * 3 : sy > 0x15 ? (sy - 0x15) * 3 : 0;
+    for (int i = 1; i <= (int)(3 * radius + 1); ++i)
+        for (int j = 0; j < 2 * i - 1; ++j) {
+            unsigned a = cok_tp_random(&seed, 180);
+            int tx = (int8_t)cok_data_held(R->data, 0x5976 + (a + 45) % 180);
+            int ty = (int8_t)cok_data_held(R->data, 0x5976 + a);
+            int px = (tx * i + 50) / 100 + ox, py = (ty * i + 50) / 100 + oy;
+            if (px >= -9 && px <= 9 && py >= -9 && py <= 9) cok_tp_random(&seed, 4);
+        }
+    return seed;
+}
+
+/* Whether missile frame 0, drawn again at some sub-cell place of the view, leaves the screen as it is (the
+ * frame on the screen there now is frame 0): at each delay while delay_probe is set, the first 12 delays' (the
+ * flight's 12 draws) counted in probe_flight0. */
+static unsigned probe_delays, probe_frame0, probe_flight0;
+static uint8_t probe_screen[64000];
+
+static void frame0_probe(void)
+{
+    size_t n = screen_bytes();
+    memcpy(probe_screen, menu_game.screen.pixels, n);
+    bool found = false;
+    for (int y = -3; y <= 21 && !found; ++y)
+        for (int x = -3; x <= 21 && !found; ++x) {
+            memcpy(menu_game.screen.pixels, probe_screen, n);
+            found = cok_dark_queen_burst_spark(&menu_game, 0, x, y) &&
+                    memcmp(menu_game.screen.pixels, probe_screen, n) == 0;
+        }
+    memcpy(menu_game.screen.pixels, probe_screen, n);
+    if (probe_delays++ < 12) probe_flight0 += found;
+    probe_frame0 += found;
+}
+
+/* A spell from CINDER (5, 5) at a foe at fx, fy (N, T; no announce, so the flight's are the only delays), stopping
+ * at its handler; whether missile frame 0 is then slot's (image, mirror). */
+static bool flight_at(uint8_t spell, int8_t fx, int8_t fy, const char *stop, uint8_t slot, uint8_t image,
+                      bool mirror)
+{
+    cast_open(false);
+    aim_foe(fx, fy, 1);
+    menu_c->record[0xce] = spell;
+    cast_keys("NT");
+    probe_delays = probe_frame0 = probe_flight0 = 0;
+    delay_probe = frame0_probe;
+    bool done = false;
+    bool ran = queen_cast(&menu_game, spell, false, false, &done);
+    delay_probe = NULL;
+    CHECK(menu_game.spell_x == fx && menu_game.spell_y == fy);
+    CHECK(stop == NULL ? ran && menu_game.vm.status == COK_ECL_OK
+                       : !ran && menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, stop) != NULL);
+    static uint8_t got[64000], want[64000];
+    memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+    spark_over(picture_base, 0, got);
+    CHECK(cok_arena_missile_frame(&menu_game, slot, image, 0, mirror));
+    spark_over(picture_base, 0, want);
+    bool same = memcmp(got, want, screen_bytes()) == 0;
+    menu_close();
+    return same;
+}
+
+/* The flight's frames (849a:1656): the Fireball family flies one frame, its picture by the facing (51c2:0fc8), so
+ * at every delay of Flame Strike's flight (0x4a: no burst after it) the missile shown is frame 0, and frame 0 is the
+ * facing's picture: east (2) slot 0x22 image 0, south-east (3) slot 0x21 image 1 (0053's frame 0 is slot 0x20 image
+ * 0). Magic Missile flies 4 frames (0053's of slot 0x13): frames 1-3 are shown too. */
+static void test_flight_frames(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the flight's frames not checked");
+        return;
+    }
+    CHECK(flight_at(0x4a, 9, 5, "7fd8:2157", 0x22, 0, false));
+    CHECK(probe_delays == 12 && probe_frame0 == 12);
+    CHECK(flight_at(0x4a, 9, 9, "7fd8:2157", 0x21, 1, false));
+    CHECK(probe_delays == 12 && probe_frame0 == 12);
+    flight_at(0x0f, 9, 5, NULL, 0x13, 0, false);
+    CHECK(probe_delays >= 12 && probe_flight0 == 3); /* frame 0 at the 1st, 5th and 9th draws */
+}
+
+/* The bursts by spell (849a:16f9's table), each cast at CINDER's own cell (no missile, the offset 0) from the same
+ * seed and stopping at its handler: the draws past Flame Strike's (no burst) are rings_model's rings 1 to 3r + 1, the
+ * sounds the flight's then the burst's, and missile frame 0 is the burst's slot's (image 0). */
+static void test_flight_bursts(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the bursts by spell not checked");
+        return;
+    }
+    static const struct {
+        uint8_t spell, var3d, wet, rings, slot;
+        const char *sounds, *stop;
+    } runs[] = {
+        {0x4a, 0, 0, 0, 0, "3;", "7fd8:2157"},
+        {0x73, 0, 0, 7, 0x19, "3;12;", "7fd8:1519"},
+        {0x73, 1, 0, 10, 0x19, "3;12;", "7fd8:1519"},
+        {0x2f, 1, 0, 10, 0x19, "12;12;", "7fd8:1519"},
+        {0x85, 1, 0, 7, 0x19, "3;12;", "7fd8:1519"},
+        {0x57, 0, 0, 7, 0x1a, "3;12;", "7fd8:28fb"},
+        {0x57, 0, 1, 10, 0x1a, "3;12;", "7fd8:28fb"},
+        {0x33, 0, 0, 0, 0, "9;", "7fd8:1ac3"},
+        {0x33, 0, 1, 7, 0x14, "9;9;", "7fd8:1ac3"},
+        {0x22, 0, 0, 4, 0x1b, "3;12;", "7fd8:09c4"},
+        {0x5b, 0, 0, 4, 0x1c, "3;12;", "7fd8:09c4"},
+    };
+    const uint32_t start = 0x2468ace1u;
+    uint32_t base = 0;
+    static uint8_t got[64000], want[64000];
+    for (size_t k = 0; k < sizeof runs / sizeof runs[0]; ++k) {
+        cast_open(false);
+        menu_c->record[0xce] = runs[k].spell;
+        cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, runs[k].var3d);
+        cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, runs[k].wet);
+        cast_keys("T");
+        menu_game.vm.seed = start;
+        bool done = false;
+        CHECK(!queen_cast(&menu_game, runs[k].spell, false, true, &done));
+        CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, runs[k].stop) != NULL);
+        CHECK(strcmp(script.sounds, runs[k].sounds) == 0);
+        if (k == 0) base = menu_game.vm.seed;
+        CHECK(menu_game.vm.seed == (runs[k].rings == 0 ? base : rings_model(base, 1, runs[k].rings)));
+        if (runs[k].rings != 0) {
+            memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+            spark_over(picture_base, 0, got);
+            CHECK(cok_arena_missile_frame(&menu_game, runs[k].slot, 0, 0, false));
+            spark_over(picture_base, 0, want);
+            CHECK(memcmp(got, want, screen_bytes()) == 0);
+        }
+        menu_close();
+    }
+}
+
+static void test_flight_burst(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the flight's burst radius not checked");
+        return;
+    }
+    const uint32_t start = 0x2468ace1u;
+    uint32_t radius2 = own_cell_dbf(0, start), radius3 = own_cell_dbf(1, start);
+    CHECK(radius2 != start && radius3 == rings_model(radius2, 8, 10));
+}
+
+/* The burst (dqk 51c2:0def, queen_burst): radius 2 at (32, 18) is 3 * 2 + 1 = 7 rings, 49 sparks, all in view
+ * (the sine's offsets are 0 there): 98 draws, the angle then the frame of each, from the seed. Radius 1 at (0, 0)
+ * has 4 rings (16 sparks) and some out of view (the offset of -9 on each axis): the draws are the table's, computed
+ * here with the same formula. The four frames the burst builds are the ready (0, 0), the ready mirrored (0, 1), the
+ * attacking (1, 0) and the attacking mirrored (1, 1): the mirrors are 0005's calls, not 0053's. */
+static void test_burst(void)
+{
+    if (!have_assets()) {
+        puts("dark queen: DQKAssets not found; the burst (51c2:0def) not checked");
+        return;
+    }
+    aim_open();
+    memcpy(picture_base, menu_game.screen.pixels, screen_bytes());
+    menu_game.spell_x = 32;
+    menu_game.spell_y = 18;
+    uint32_t want = menu_game.vm.seed;
+    for (unsigned i = 0; i < 49; ++i) {
+        cok_tp_random(&want, 180);
+        cok_tp_random(&want, 4);
+    }
+    CHECK(queen_burst(&menu_game, 2, 0x19, 0x0c) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.vm.seed == want);
+    /* The final centre (5837:0846 again) redrew the view over the sparks: centring once more changes nothing. */
+    static uint8_t after_burst[64000];
+    memcpy(after_burst, menu_game.screen.pixels, screen_bytes());
+    CHECK(cok_arena_centre(&menu_game, 32, 18, 0xff, 8));
+    CHECK(memcmp(after_burst, menu_game.screen.pixels, screen_bytes()) == 0);
+    /* Radius 3 near each edge (the offsets of 3 cells: below 3 and above 0x2e across, above 0x15 down), from a
+     * pinned seed: the draws are burst_model's. */
+    static const int8_t edges[][2] = {{2, 2}, {1, 22}, {46, 21}, {47, 22}, {49, 24}, {48, 1}};
+    for (size_t k = 0; k < sizeof edges / sizeof edges[0]; ++k) {
+        menu_game.spell_x = edges[k][0];
+        menu_game.spell_y = edges[k][1];
+        menu_game.vm.seed = 0x13579bdfu + (uint32_t)k;
+        want = burst_model(menu_game.vm.seed, 3, edges[k][0], edges[k][1]);
+        CHECK(queen_burst(&menu_game, 3, 0x19, 0x0c) && menu_game.vm.status == COK_ECL_OK);
+        CHECK(menu_game.vm.seed == want);
+    }
+    /* Radius 1 at (0, 0): the offset (sx - 3) * 3 = -9 on both axes; 16 sparks, and those past the view's edge
+     * (-9 to 9) draw no frame. */
+    menu_game.spell_x = 0;
+    menu_game.spell_y = 0;
+    /* A pinned seed where the rounding of a negative quotient (truncated, as idiv) moves sparks into view:
+     * 9 sparks in view (floor would give 5). */
+    menu_game.vm.seed = 2;
+    want = menu_game.vm.seed;
+    unsigned in_view = 0;
+    for (int i = 1; i <= 4; ++i)
+        for (int j = 0; j < 2 * i - 1; ++j) {
+            unsigned a = cok_tp_random(&want, 180);
+            int tx = (int8_t)cok_data_held(R->data, 0x5976 + (a + 45) % 180);
+            int ty = (int8_t)cok_data_held(R->data, 0x5976 + a);
+            int px = (tx * i + 50) / 100 - 9, py = (ty * i + 50) / 100 - 9;
+            if (px >= -9 && px <= 9 && py >= -9 && py <= 9) {
+                cok_tp_random(&want, 4);
+                ++in_view;
+            }
+        }
+    CHECK(queen_burst(&menu_game, 1, 0x1b, 0x0c) && menu_game.vm.status == COK_ECL_OK);
+    CHECK(menu_game.vm.seed == want);
+    CHECK(in_view == 9);
+    /* The four frames, as the last burst built them (the radius 1 burst above): each one's picture. */
+    static const uint8_t images[4] = {0, 0, 1, 1}, mirrors[4] = {0, 1, 0, 1};
+    for (unsigned k = 0; k < 4; ++k) {
+        spark_over(picture_base, k, picture_got);
+        CHECK(cok_arena_missile_frame(&menu_game, 0x1b, images[k], (uint8_t)k, mirrors[k] != 0));
+        spark_over(picture_base, k, picture_want);
+        CHECK(memcmp(picture_got, picture_want, screen_bytes()) == 0);
+    }
     menu_close();
 }
 
@@ -4518,6 +4834,11 @@ int main(void)
     test_cast_targets();
     test_command_aim_empty();
     test_cast_forget();
+    test_direction_picture();
+    test_burst();
+    test_flight_burst();
+    test_flight_frames();
+    test_flight_bursts();
     test_pending_cast();
     test_pending_act();
     test_cast_kinds();

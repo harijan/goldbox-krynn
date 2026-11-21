@@ -239,7 +239,7 @@ STATE = ROOT / "build" / "dqk-fight" / "setup.json"
 DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field", "wild", "slots",
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
-                 "cast_auto", "band_a1", "band_a2", "band_a3")
+                 "cast_auto", "band_a1", "band_a2", "band_a3", "band_b1")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -5440,6 +5440,75 @@ def band_a3(v, work, opts):
                   BAND_A3_MIRROR_MINUTES, lambda value: (value & 0x1F) == 2 and 1 <= value >> 5 <= 4)
 
 
+# Band b1's flight and bursts (step 4, part 31a: queen_cast.c's picture by direction and bursts, queen_area.c's table).
+# Saved game A with BALTHIR memorising Delayed Blast Fireball (+0xce 0x73, time 0): C, C (the Aim at once, one draw),
+# N (SHARKMAN 2 under the cursor, no draw), then T with a trap at the handler's call (849a:21b5): the flight (the
+# Fireball family's picture, one frame), the burst of radius 2 (var 0x22 0), the byte forgotten, then the handler's
+# stop (7fd8:1519, a later part).
+BAND_B1_DBF = 0x73
+BAND_B1_AIM = (1, 0xEB831397)           # C, C: the Aim at once, one draw past the menu
+BAND_B1_DISPATCH = (111, 0x829B77A9)    # T: the flight and the burst's draws, at the handler's call (849a:21b5)
+BAND_B1_CELL = (32, 18)                 # the spell's cell (DS:bd2c, bd49: SHARKMAN 2's)
+BAND_B1_STOP = re.compile(r"error: not yet ported: .*spell 115, .* \(dqk 7fd8:1519\)")
+
+
+def dbf_save():
+    """Saved game A with BALTHIR memorising Delayed Blast Fireball (+0xce 0x73) and nothing else (the WILD block's fixture)."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_B1_DBF}})
+
+
+def band_b1_run(box, menu, work, tag):
+    """C, C (the Aim at once), N (SHARKMAN 2 under the cursor), then T with a trap at the handler's call (849a:21b5),
+    the state read once it is held and RandSeed settled."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    t = L.trap(box, 0x849A, 0x21B5, until=lambda: box.keys("T") or True)
+    wait_seed(box, t, "849a:21b5")
+    s = snapshot(box)
+    s.update(tail_state(box), selected=selected(box), targets=box.ds_byte(CAST_TARGETS),
+             cell=(box.ds_byte(0xBD2C), box.ds_byte(0xBD49)), images=box.ds_byte(0xC280))
+    L.untrap(box, t)
+    box.settled(quiet=1.0, tolerance=0)
+    out["dispatch"] = s
+    return out
+
+
+def band_b1(v, work, opts):
+    """Band b1's flight and bursts (part 31a), the flow band_b1: Delayed Blast Fireball at SHARKMAN 2 (32, 18), the
+    original at the handler's call against eclplay's stop there (the cited "dqk 7fd8:1519"): RandSeed, records, blocks,
+    effect chains. The original: the Aim's one draw, N none, then 111 draws past the menu at the call, RandSeed
+    829b77a9; DS:c6f4 1, the images flag (DS:c280) 1, the byte forgotten (+0xce 0xf3), SHARKMAN 2 at 0x4e."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dbf_save()
+    o = cast_original(work, wild, save, "band-b1", opts.verbose, band_b1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-b1-save", save)
+    aim, dispatch = o["aim"], o["dispatch"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_B1_AIM, f"the original's RandSeed at Delayed Blast Fireball's Aim (C, C) is "
+            f"{BAND_B1_AIM[0]} draw past BALTHIR's menu, at {BAND_B1_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(aim["seed"], o["n"]["seed"])
+    v.check(draws == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is unchanged", f"{draws} draws")
+    draws = L.draws(m0, dispatch["seed"])
+    v.check((draws, dispatch["seed"]) == BAND_B1_DISPATCH, f"the original's RandSeed at the handler's call (849a:21b5) "
+            f"is {BAND_B1_DISPATCH[0]} draws past the menu, at {BAND_B1_DISPATCH[1]:#x}", f"{draws} draws, "
+            f"{dispatch['seed']:#x}")
+    v.check(dispatch["cell"] == BAND_B1_CELL and dispatch["targets"] == 1 and dispatch["images"] == 1,
+            f"at the call the spell's cell is {BAND_B1_CELL}, DS:c6f4 is 1 and DS:c280 (images) is 1",
+            f"cell {dispatch['cell']}, DS:c6f4 {dispatch['targets']}, DS:c280 {dispatch['images']}")
+    forgotten = rec_byte(dispatch["records"][CAST_BALTHIR], CAST_MEMO)
+    hp = rec_byte(dispatch["records"][CAST_SHARKMAN_2], HIT_POINTS)
+    v.check(forgotten == BAND_B1_DBF | CAST_FORGOTTEN and hp == 0x4E, "at the call BALTHIR's Delayed Blast Fireball is "
+            "forgotten (+0xce 0xf3) and SHARKMAN 2 is at 0x4e", f"+0xce {forgotten:#x}, hit points {hp:#x}")
+    p = command_port(work, wild, "band-b1", "CCNT", entry=entry, effects=True)
+    v.check(p["last"] is not None and BAND_B1_STOP.fullmatch(p["last"]) is not None,
+            "eclplay stops at the cited unported spell 115 (dqk 7fd8:1519) after the flight and the burst", p["last"])
+    command_state(v, "Delayed Blast Fireball at the handler's call (849a:21b5)", dispatch, p, m0)
+    chains_agree(v, dispatch["chains"], p["base"].with_suffix(".effects"), " (Delayed Blast Fireball at the handler's call)")
+    print(f"eclplay (band b1) ends {p['last']!r}", flush=True)
+
+
 def commands(v, work, patched, opts):
     """The command menu's commands from the first turn's menu: Quick, Alt-Q, Alt-M and Speed (S, F,
     E) (step 4, part 22b), then Alt-X without the Helm and Bandage (its leftovers), each run against
@@ -5527,6 +5596,8 @@ def main():
         band_a2(v, work, opts)
     if "band_a3" in flows:
         band_a3(v, work, opts)
+    if "band_b1" in flows:
+        band_b1(v, work, opts)
     if "auto" in flows:
         auto(v, work, opts)
     return v.finish()
