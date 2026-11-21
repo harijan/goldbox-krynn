@@ -323,6 +323,11 @@ bool queen_bolt(cok_adventure *game, uint8_t len, uint8_t amount, bool flag);
  * along its steps until its walk (2 a straight step, 3 a diagonal one) is 2 * len. Where the centre line meets no one
  * the sides are those of side 0xff (the caller's BP's high byte: 7fd8:299c's and 257a's). False where the run stopped. */
 bool queen_cone(cok_adventure *game, int8_t x0, int8_t y0, int8_t x1, int8_t y1, uint8_t width, uint8_t len);
+/* 7fd8:3a73, the try k (1 to 4) of Meteor Swarm's meteor m (1 to 4) from the caster's cell cx, cy aimed at tx, ty
+ * (queen_area.c): mx, my is the cell tried (the sight may pull it back), *range the halved range, *seen the sight's.
+ * A cell off the map is stopped without a sight. False where the run stopped. */
+bool queen_meteor_try(cok_adventure *game, int8_t cx, int8_t cy, int8_t tx, int8_t ty, unsigned k, unsigned m,
+                      int8_t *mx, int8_t *my, uint16_t *range, bool *seen);
 
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the

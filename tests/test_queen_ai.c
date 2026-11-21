@@ -2293,6 +2293,30 @@ static void test_computer_aim_silence(void)
     battle_clear();
 }
 
+/* The computer's area cast of Delayed Blast Fireball (0x73, radius 2 with var 0x22 0), as the fixture in the
+ * dqk_fight flow cast_auto_area: two hostiles (the caster m at (10,10) and b at (6,10), each -40 on the party's
+ * side) and one party member a at (14,10), +4 for the burst. A wall (terrain 1) down column 12 blocks the sight
+ * from the floor (eye 1) and not from the terrain 0x1a (eye 2): a's cells at x 13 and 14 are seen, those at 15 and
+ * 16 are not. Every positive cell sums 4 (the cells at x 12 are under m's -40), so every cell after the first is a
+ * tie drawn before the sight test: the draws count the unseen cells too (a draw after the sight would count fewer).
+ * The 18 positive cells draw 17 times, and the cell taken is 14,12 (the last tie that wins its draw, 25 in 100, and is
+ * seen). */
+static void test_computer_aim_dbf_fixture(void)
+{
+    cok_character *a;
+    cok_character *m = aim_pair(10, 10, 14, 10, &a);
+    cok_character *b = record('B', 1, 0);
+    place(b, 6, 10);
+    for (int y = 0; y < 24; ++y) game.combat.cells[y][12] = 1;
+    for (int y = 7; y <= 13; ++y)
+        for (int x = 13; x <= 14; ++x) game.combat.cells[y][x] = 0x1a;
+    int8_t w = 0;
+    CHECK(queen_target_worth(&game, a, 0x73, queen_spell_side(&game, m, 0x73), &w) && w == 4);
+    CHECK(area_draws(m, 0x73) == 17);
+    CHECK(game.spell_x == 14 && game.spell_y == 12);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -2358,6 +2382,7 @@ int main(void)
     test_computer_aim_forced();
     test_computer_aim_line();
     test_computer_aim_silence();
+    test_computer_aim_dbf_fixture();
     test_weapon_needs();
     test_weapon_score();
     test_weapon_choice();

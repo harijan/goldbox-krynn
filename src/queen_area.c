@@ -4,6 +4,8 @@
 #include "combat.h"
 #include "data.h"
 #include "ecl.h"
+#include "field.h"
+#include "party.h"
 #include "round.h"
 
 #include <assert.h>
@@ -387,7 +389,134 @@ static bool cone_of_cold(cok_adventure *game)
     return queen_spell_apply(game, spell, 0, false, amount, 0x0a, "from Cold");
 }
 
-/* b5: Meteor Swarm 0x7c (7fd8:3b99). */
+/* b5: Meteor Swarm 0x7c (7fd8:3b99) and its try (7fd8:3a73). */
+
+/* The selected member's record as a party member (queen_cast.c's caster_member), NULL with none. */
+static cok_character *caster_member(cok_adventure *game)
+{
+    if (game->vm.character == NULL) return NULL;
+    size_t i = cok_party_index(&game->party, game->vm.character);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
+/* 7fd8:3a73, the try k (1 to 4) of meteor m (1 to 4) from the caster's cell cx, cy at the aimed cell tx, ty: mx, my
+ * is the cell tried. DS:8788 and DS:8790 hold the steps of m - 1, {-1, 1, -1, 1} and {-1, -1, 1, 1}: k 1 is the aimed
+ * cell's diagonal neighbour, k 2 the aimed x with my kept (the last try's, pulled back or not), k 3 the neighbour's x
+ * with the aimed y, k 4 the aimed x with my kept. A cell off the map is stopped (no sight; range 0xff stays). Else the
+ * sight from the caster may pull mx, my back to a blocking cell, and seen is its result. The range is halved after
+ * either (a stopped try leaves 0x7f). DS:c6f3 (set only while the pending list 148f:2d9b runs; 148f:2da1 and 2ef2) is 0
+ * here: the port never runs that list (a non-empty one stops first), so the aimed cell's own test is left out. False
+ * where the sight's terrain is past the table. */
+bool queen_meteor_try(cok_adventure *game, int8_t cx, int8_t cy, int8_t tx, int8_t ty, unsigned k, unsigned m,
+                      int8_t *mx, int8_t *my, uint16_t *range, bool *seen)
+{
+    static const int8_t dx[4] = {-1, 1, -1, 1}, dy[4] = {-1, -1, 1, 1};
+    assert(k >= 1 && k <= 4 && m >= 1 && m <= 4);
+    *range = 0xff;
+    switch (k) {
+    case 1:
+        *mx = (int8_t)(tx + dx[m - 1]);
+        *my = (int8_t)(ty + dy[m - 1]);
+        break;
+    case 3:
+        *mx = (int8_t)(tx + dx[m - 1]);
+        *my = ty;
+        break;
+    default: /* k 2 and 4: the aimed x, my kept */
+        *mx = tx;
+        break;
+    }
+    bool stop = *mx < 0 || *mx > 0x31 || *my < 0 || *my > 0x18;
+    *seen = false;
+    if (!stop && !cok_combat_sight(&game->combat, cok_game_rules(game), cx, cy, mx, my, range, seen))
+        return undefined(game, "terrain past the table is read (DS:1ee4, 6b30:03f1)");
+    *range >>= 1;
+    return true;
+}
+
+/* 7fd8:3b99, Meteor Swarm (0x7c; the cast skips the flight): underwater the bar's refusal; else one image and the
+ * damage's type 9. Four meteors, each from the caster's cell to the cell its try found (tries 1 to 4 until one is
+ * seen): the caster's pose toward it, the Fireball family's picture and the missile, then the burst of radius 1 at
+ * the meteor. The combatants on its line (queen_cone, width 1, the caster out, length the halved range) take dN(10, 4)
+ * with no save; then the radius-1 list (the caster in) takes a save of type 4 first, and dN(10, 4) half on a save.
+ * Each target is read again at its place (NULL or inactive: skipped), so one on the line and in the area takes two
+ * hits. The caster's visible pose is set again after each meteor. */
+static bool meteor_swarm(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (underwater(game)) {
+        queen_bar_message(game, underwater_text);
+        return true;
+    }
+    r->images = 1;
+    r->damage_type = 9;
+    cok_character *c = caster_member(game);
+    if (c == NULL)
+        return undefined(game, "the caster is read through NULL with no character selected (DS:ad67)");
+    cok_combat *combat = &game->combat;
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    int8_t cx = cok_combat_x(combat, c->record), cy = cok_combat_y(combat, c->record);
+    int8_t tx = game->spell_x, ty = game->spell_y;
+    int8_t mx = 0, my = 0;
+    uint16_t range = 0xff;
+    for (unsigned m = 1; m <= 4; ++m) {
+        game->spell_targets[0] = NULL; /* 2093:0015 (DS:c5df) */
+        bool hit = false;
+        unsigned tries = 1;
+        do {
+            if (!queen_meteor_try(game, cx, cy, tx, ty, tries, m, &mx, &my, &range, &hit)) return false;
+        } while (++tries <= 4 && !hit);
+        uint8_t dir = 0;
+        bool in = false;
+        while (!in) {
+            if (!cok_combat_in_arc(cx, cy, mx, my, dir, &in))
+                return undefined(game, "the arc of the caster reads past the terrain (5d71:048f)");
+            if (!in && ++dir == 8)
+                return undefined(game, "no facing puts the meteor's cell in the caster's quarter (5d71:048f)");
+        }
+        combat->show_actions = true; /* DS:c3f5 */
+        if (!cok_arena_pose(game, c, dir, 1, false)) return false; /* 5837:09ab(rec, dir, 1, 0) */
+        if (!cok_arena_missile_frames(game, 0x20) || !queen_direction_picture(game, dir, 0x20)) return false;
+        if (!cok_arena_missile(game, cx, cy, mx, my, 1, 0x1e)) return false;
+        game->spell_x = mx;
+        game->spell_y = my;
+        if (!queen_burst(game, 1, 0x19, 0x0c)) return false;
+        if (!queen_cone(game, cx, cy, mx, my, 1, (uint8_t)range)) return false;
+        uint8_t n = game->spell_target_count;
+        /* 5d71:07d7 (the area's list, range 1, any facing, size 1), appended to the line's targets: repeats kept. */
+        if (!cok_combat_list(combat, rules, mx, my, 1, 0xff, 1))
+            return undefined(game, "the list of combatants around one (6b30:08d8) reads past its tables");
+        for (uint8_t j = 1; j <= combat->listed_count; ++j) {
+            if (game->spell_target_count >= COK_PARTY_RECORDS)
+                return undefined(game, "a meteor's targets run past the party's table (DS:c5df)");
+            game->spell_targets[++game->spell_target_count] =
+                combat->combatant[combat->listed[j].index].character;
+        }
+        for (uint8_t k = 1; k <= game->spell_target_count; ++k) {
+            cok_character *t = game->spell_targets[k];
+            if (t == NULL || cok_field_u8(L, t->record, COK_FIELD_ACTIVE) == 0) continue;
+            if (k <= n) {
+                /* On the line: no save, the damage whole (kind 0). */
+                if (!queen_cast_damage(game, t, dice_count(game, 10, 4), 0, false)) return false;
+            } else {
+                /* In the area: the save first (148f:1886), then the dice, half on a save (kind 2). */
+                bool saved = false;
+                if (!queen_save(game, t, 4, 0, &saved)) return false;
+                if (!queen_cast_damage(game, t, dice_count(game, 10, 4), 2, saved)) return false;
+            }
+        }
+        bool shown = false;
+        if (!cok_combat_visible(combat, rules, c->record, false, &shown))
+            return undefined(game, "a size past the footprints is read after them (5837:0626)");
+        if (shown) {
+            uint8_t facing = c->combat->facing;
+            if (!cok_arena_pose(game, c, facing, 1, true) || !cok_arena_pose(game, c, facing, 0, false))
+                return false;
+        }
+    }
+    return true;
+}
 
 queen_spell_fn *queen_area_handler(uint8_t id)
 {
@@ -407,6 +536,7 @@ queen_spell_fn *queen_area_handler(uint8_t id)
     case 0x5c: return cone_of_cold;
 
     /* b5: Meteor Swarm 0x7c (7fd8:3b99) */
+    case 0x7c: return meteor_swarm;
 
     default: return NULL;
     }
