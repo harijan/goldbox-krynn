@@ -5726,6 +5726,22 @@ static bool arena_missile_restore(cok_adventure *game, int x, int y)
     return true;
 }
 
+/* A burst's spark (51c2:00be, 19a4:04e1): frame (0-3) drawn masked at the sub-cell place of x, y, with
+ * nothing saved under it (the burst's final centre redraws the ground). Frames are built by
+ * cok_arena_missile_frame first. */
+bool cok_dark_queen_burst_spark(cok_adventure *game, uint8_t frame, int x, int y)
+{
+    queen *q = own(game);
+    if (frame >= 4 || q->missile[frame].pixels == NULL) {
+        snprintf(game->error, sizeof game->error,
+                 "missile frame %u is not built (51c2:00be's scratch slots)", frame);
+        return false;
+    }
+    cok_queen_arena_missile(&game->screen, &q->missile[frame], cok_queen_arena_place(x),
+                            cok_queen_arena_place(y));
+    return true;
+}
+
 /* A flash on c for a text in the battle (2d99:0f09 -> 51c2:0731, mode 5; cok_arena_flash calls this
  * only there): c is centred unless shown whole, the sound (5 for kind 1, an effect's; 4 for kind 0, a
  * damage's), the text said on row 10 with no wait, then the four frames of icon slot 0x17 (kind 1) or
