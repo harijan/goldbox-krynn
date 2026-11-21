@@ -221,6 +221,11 @@ static bool level_of(cok_adventure *game, uint8_t spell, bool capped, uint8_t *l
     return caster != NULL && queen_caster_level(game, caster, spell, capped, level);
 }
 
+bool queen_spell_level(cok_adventure *game, uint8_t spell, bool capped, uint8_t *level)
+{
+    return level_of(game, spell, capped, level);
+}
+
 bool queen_spell_range(cok_adventure *game, uint8_t spell, uint8_t *range)
 {
     uint8_t base = queen_spell_byte(game, spell, SPELL_RANGE);
@@ -868,7 +873,11 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     case 0x20: return mirror_image;
     case 0x49: return dispel_evil;
     case 0x76: return fire_touch;
-    default: return plain_of(id) != NULL ? queen_plain_apply : NULL;
+    default: {
+        queen_spell_fn *area_handler = queen_area_handler(id);
+        if (area_handler != NULL) return area_handler;
+        return plain_of(id) != NULL ? queen_plain_apply : NULL;
+    }
     }
 }
 
@@ -1076,6 +1085,11 @@ static bool area(cok_adventure *game, uint16_t radius)
     return true;
 }
 
+bool queen_area_targets(cok_adventure *game, uint16_t radius)
+{
+    return area(game, radius);
+}
+
 /* The area's radius of a spell of kind 8 to 0x0e (1f78's): 3 for 0x57 underwater, 2 for 0x33
  * underwater and for 0x73 or 0x2f with var 0x22 0, else the spell's +7 low nibble. */
 static unsigned area_radius(cok_adventure *game, uint8_t spell)
@@ -1259,11 +1273,60 @@ static bool handle_spell(cok_adventure *game, uint8_t spell)
     return cok_combat_pending_lists(game, "dqk 849a:000c (the guard after a spell's handler)");
 }
 
+/* The Fireball family's picture by the facing dir (51c2:0fc8): the odd facings take slot + 1 (image 1 for 3 and 5,
+ * mirrored for 5 and 7), the even ones slot + dir % 4 (image dir / 4), one frame (0); slot 0x14 is kept. */
+bool queen_direction_picture(cok_adventure *game, uint8_t dir, uint8_t slot)
+{
+    if (dir & 1) {
+        bool image = dir == 3 || dir == 5, mirror = dir == 5 || dir == 7;
+        return cok_arena_missile_frame(game, slot == 0x14 ? slot : slot + 1, image, 0, mirror);
+    }
+    return cok_arena_missile_frame(game, slot == 0x14 ? slot : slot + dir % 4, dir / 4, 0, false);
+}
+
+/* The sine of the burst's sparks (DS:5976, 180 signed bytes). */
+static int sine(cok_adventure *game, unsigned i)
+{
+    return (int8_t)cok_data_held(cok_game_rules(game)->data, 0x5976 + i);
+}
+
+/* The burst (51c2:0def): the centre on the spell's cell (the arena's centre, margin 0xff, dir 8), the sound, the four
+ * pictures of slot (the mirrors of 0005's calls: frames 1 and 3 mirrored), then the rings: 3 * radius + 1 rings, ring
+ * i of 2i - 1 sparks, each at a random angle a of 180 (the sine of a + 45 for x, of a for y, times i, plus 50, over 100,
+ * truncated, and the cell's offset: 3 cells off the edges of the view, byte adds) and, where the spark is within 9
+ * cells of the centre, a random frame of the four (cok_dark_queen_burst_spark). The ring's page (19a4:06d3) draws
+ * nothing here. The final centre redraws the view. False where the run stopped. */
+bool queen_burst(cok_adventure *game, uint8_t radius, uint8_t slot, uint8_t sound)
+{
+    int sx = game->spell_x, sy = game->spell_y;
+    if (!cok_arena_centre(game, game->spell_x, game->spell_y, 0xff, 8)) return false;
+    cok_arena_sound(game, sound);
+    if (!cok_arena_missile_frame(game, slot, 0, 0, false) ||
+        !cok_arena_missile_frame(game, slot, 0, 1, true) ||
+        !cok_arena_missile_frame(game, slot, 1, 2, false) ||
+        !cok_arena_missile_frame(game, slot, 1, 3, true))
+        return false;
+    int ox = sx < 3 ? (sx - 3) * 3 : sx > 0x2e ? (sx - 0x2e) * 3 : 0;
+    int oy = sy < 3 ? (sy - 3) * 3 : sy > 0x15 ? (sy - 0x15) * 3 : 0;
+    unsigned rings = (uint8_t)(radius * 3 + 1);
+    for (unsigned i = 1; i <= rings; ++i)
+        for (unsigned j = 0; j < 2 * i - 1; ++j) {
+            unsigned a = cok_tp_random(&game->vm.seed, 180);
+            int px = (sine(game, (a + 45) % 180) * (int)i + 50) / 100 + ox;
+            int py = (sine(game, a) * (int)i + 50) / 100 + oy;
+            if (px < -9 || px > 9 || py < -9 || py > 9) continue;
+            uint8_t frame = (uint8_t)cok_tp_random(&game->vm.seed, 4);
+            if (!cok_dark_queen_burst_spark(game, frame, px + 9, py + 9)) return false;
+        }
+    return cok_arena_centre(game, game->spell_x, game->spell_y, 0xff, 8);
+}
+
 /* The flight of a spell (mode 5, not 0x7c): the missile's pictures (slot 0x13, or 0x20 for the
  * Fireball family), the arc round the caster to the spell's cell (5d71:048f, the first facing whose
- * quarter holds it), the picture by direction (51c2:0fc8, cited), the pose, the sound, the missile
- * (4 frames, delay 0x1e; none to its own cell), the burst (51c2:0def, cited), then the caster's
- * visible pose again (5837:0626). False where the run stopped. */
+ * quarter holds it), the Fireball family's picture by direction (51c2:0fc8) with one frame, else 4
+ * frames, the pose, the sound, the missile (delay 0x1e; none to its own cell), the spell's burst
+ * (51c2:0def, by the spell: the switch below), then the caster's visible pose again (5837:0626).
+ * False where the run stopped. */
 static bool flight(cok_adventure *game, cok_character *c, uint8_t spell)
 {
     cok_combat *combat = &game->combat;
@@ -1279,16 +1342,39 @@ static bool flight(cok_adventure *game, cok_character *c, uint8_t spell)
         if (!in && ++dir == 8)
             return undefined(game, "no facing puts the spell's cell in the caster's quarter (5d71:048f)");
     }
-    if (fireball)
-        return cok_adventure_not_yet(game, "the Fireball family's picture by direction (51c2:0fc8)",
-                                     "dqk 51c2:0fc8");
+    if (fireball && !queen_direction_picture(game, dir, 0x20)) return false;
     combat->show_actions = true; /* DS:c3f5 */
     if (!cok_arena_pose(game, c, dir, 1, false)) return false; /* 5837:09ab(rec, dir, 1, 0) */
     cok_arena_sound(game, spell == 0x2f ? 0x0c : spell == 0x33 ? 9 : 3); /* 2023:0006 */
-    if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, 4, 0x1e)) return false;
-    bool burst = spell == 0x22 || spell == 0x5b || spell == 0x2f || spell == 0x73 ||
-                 spell == 0x85 || spell == 0x57 || (spell == 0x33 && underwater(game));
-    if (burst) return cok_adventure_not_yet(game, "a spell's burst (51c2:0def)", "dqk 51c2:0def");
+    if (!cok_arena_missile(game, x, y, game->spell_x, game->spell_y, fireball ? 1 : 4, 0x1e))
+        return false;
+    /* The bursts after the missile (849a:16f9's table): the clouds' 0x22 and 0x5b, the Fireball family
+     * (0x2f, 0x73 and 0x85: radius 2 with var 0x22 0 or the Necklace, else 3), Lightning underwater,
+     * Ice Storm (3 underwater). */
+    bool wet = underwater(game);
+    switch (spell) {
+    case 0x22:
+        if (!queen_burst(game, 1, 0x1b, 0x0c)) return false;
+        break;
+    case 0x5b:
+        if (!queen_burst(game, 1, 0x1c, 0x0c)) return false;
+        break;
+    case 0x2f:
+    case 0x73:
+    case 0x85:
+        if (!queen_burst(game, cok_ecl_load_var(&game->vm, 0x22) == 0 || spell == 0x85 ? 2 : 3, 0x19,
+                         0x0c))
+            return false;
+        break;
+    case 0x33:
+        if (wet && !queen_burst(game, 2, 0x14, 9)) return false;
+        break;
+    case 0x57:
+        if (!queen_burst(game, wet ? 3 : 2, 0x1a, 0x0c)) return false;
+        break;
+    default:
+        break;
+    }
     bool shown = false;
     if (!cok_combat_visible(combat, rules, c->record, false, &shown))
         return undefined(game, "a size past the footprints is read after them (5837:0626)");

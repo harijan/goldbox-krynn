@@ -296,6 +296,18 @@ queen_spell_fn *queen_spell_handler(uint8_t id);
 /* The plain apply's text of spell (queen_cast.c's table, 7fd8's routines) and the DS offset that
  * routine pushes for it (*ds); NULL, with *ds unset, for a spell with no plain apply. */
 const char *queen_plain_text(uint8_t spell, uint16_t *ds);
+/* The flight's picture of the Fireball family by facing dir (51c2:0fc8): slot's picture for the facing, one frame
+ * (frame 0). The burst (51c2:0def): radius's sparks (3 * radius + 1 rings, from the sine table DS:5976), slot's
+ * four pictures and the sound. Both false where the run stopped. */
+bool queen_direction_picture(cok_adventure *game, uint8_t dir, uint8_t slot);
+bool queen_burst(cok_adventure *game, uint8_t radius, uint8_t slot, uint8_t sound);
+/* The caster level of spell for the selected character (177e:1900) and the combatants listed round the spell's
+ * cell with radius (5d71:07d7, the targets 1 to the count), for queen_area.c. False where the run stopped. */
+bool queen_spell_level(cok_adventure *game, uint8_t spell, bool capped, uint8_t *level);
+bool queen_area_targets(cok_adventure *game, uint16_t radius);
+/* The band b handlers (queen_area.c's switch): the handler of a spell id it carries out, NULL for any other. The
+ * cast takes it before the plain table (queen_spell_handler). */
+queen_spell_fn *queen_area_handler(uint8_t id);
 
 /* 849a:0031: whether the character may cast spell (its low 7 bits) by its class levels, wisdom
  * or intelligence (the spell's kind in DS:27e9): the mage's kind 2 also by the armour and the
