@@ -640,7 +640,8 @@ static bool caster_side(cok_adventure *game, unsigned *side)
 
 /* 7fd8:0001 (side, text): Bless and Curse. Each target whose word +0x66 is not side is cleared (NULL);
  * a Bless (spell 1 only, not 0x3e) in a battle clears one of the side with an enemy within 1 (51c2:0980,
- * cok_combat_enemies). The images flag is set (no mirror image), then the apply of the spell with text.
+ * cok_combat_enemies). The images flag is set first (no mirror image), before the clears; then the
+ * apply of the spell with text.
  * The original reads a NULL target's +0x66 through NULL: undefined here. */
 static bool bless(cok_adventure *game, unsigned side, const char *text)
 {

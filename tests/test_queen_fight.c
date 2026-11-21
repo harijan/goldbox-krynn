@@ -2332,18 +2332,45 @@ static void test_bless_curse(void)
     CHECK(queen_spell_handler(bless_power)(&game) && game.vm.status == COK_ECL_OK);
     CHECK(game.spell_targets[1] == near && game.spell_targets[2] == far && game.spell_targets[3] == NULL);
     CHECK(cok_character_find_effect(near, 1) != NULL);
-    /* Outside a battle (mode 4) the melee test does not run: near is kept for Bless too. */
+    /* Outside a battle (mode 4) the melee test does not run: one beside the enemy (not yet blessed) is kept
+     * for Bless too and takes the effect. */
+    cok_character *beside = record('B', 0, 0);
+    place(beside, 6, 6); /* beside t */
     game.vm.mode = 4;
-    game.spell_targets[1] = near;
+    game.spell_targets[1] = beside;
     game.spell_targets[2] = NULL;
     game.spell_targets[3] = NULL;
     game.spell_targets[4] = NULL;
     game.spell_target_count = 1;
     game.effects.rolls.spell = bless;
     game.vm.status = COK_ECL_OK;
-    (void)queen_spell_handler(bless)(&game);
-    CHECK(game.spell_targets[1] == near);
+    CHECK(queen_spell_handler(bless)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == beside && cok_character_find_effect(beside, 1) != NULL);
     game.vm.mode = 5;
+    /* The caster's side is its whole word too: a caster of word 0x0100 blesses that side only (wide, not far)
+     * and curses the side 0 (51c2:08fd: the word is not 0), so far is kept and t cleared. */
+    duel(&a, &t);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 0x0100);
+    game.vm.character = a->record;
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    wide = record('W', 0, 0);
+    place(wide, 1, 3);
+    cok_combat_set_field_word(R, wide->record, COK_FIELD_HOSTILE, 0x0100);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = wide;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = bless;
+    CHECK(queen_spell_handler(bless)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == wide);
+    CHECK(cok_character_find_effect(wide, 1) != NULL && cok_character_find_effect(far, 1) == NULL);
+    game.spell_targets[1] = far;
+    game.spell_targets[2] = t;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = curse;
+    CHECK(queen_spell_handler(curse)(&game) && game.vm.status == COK_ECL_OK);
+    CHECK(game.spell_targets[1] == far && game.spell_targets[2] == NULL);
+    CHECK(cok_character_find_effect(far, 2) != NULL && cok_character_find_effect(t, 2) == NULL);
     /* Curse (0x02) of a side-0 caster: the other side (1) is kept; far and near are cleared. */
     duel(&a, &t);
     game.vm.character = a->record;
@@ -2375,20 +2402,21 @@ static void test_bless_curse(void)
     battle_clear();
 }
 
-/* Prayer (dqk 7fd8:13b7): the caster's level (capped; class 0 here) plus 0x80 where bit 0 of the caster's
+/* Prayer (dqk 7fd8:13b7): the caster's level (capped at 0x1f; class 0 here) plus 0x80 where bit 0 of the caster's
  * byte +0x66 is set, the effect (0x31) with "is praying". Bit 1 and bit 7 of that byte do nothing. */
 static void test_prayer(void)
 {
     game.vm.mode = 5; /* the battle */
     const uint8_t prayer = 0x2a;
     CHECK(queen_spell_byte(&game, prayer, 0x0e) == 0x31 && queen_spell_word(&game, prayer, 0x0a) == 0);
-    static const struct { uint8_t hostile, value; } cases[] = {
-        {0, 5}, {1, 0x85}, {2, 5}, {0x80, 5}, {0x81, 0x85},
+    static const struct { uint8_t hostile, level, value; } cases[] = {
+        {0, 5, 5}, {1, 5, 0x85}, {2, 5, 5}, {0x80, 5, 5}, {0x81, 5, 0x85},
+        {0, 40, 0x1f}, {1, 40, 0x9f}, /* the level capped at 0x1f (uncapped: 0x28, 0xa8) */
     };
     for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k) {
         cok_character *a, *t;
         duel(&a, &t);
-        set_class(a, 0, 5);
+        set_class(a, 0, cases[k].level);
         cok_field_set8(R->character, a->record, COK_FIELD_HOSTILE, cases[k].hostile);
         game.vm.character = a->record;
         game.spell_targets[1] = t;
