@@ -373,54 +373,54 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x07] = {0x0075, COK_FX_NOTHING}, /* does nothing: retf */
     [0x08] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198: alignment 2, 5, 8 */
     [0x09] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6: alignment 0, 3, 6 */
-    [0x0a] = {0x01f4, COK_FX_MISSING, "dqk 78e4:01f4"},
-    [0x0b] = {0x007a, COK_FX_MISSING, "dqk 7e76:007a"},
+    [0x0a] = {0x01f4, COK_FX_QUEEN_RESIST, .value = 2, .applied_only = true}, /* 78e4:01f4: cold halved, save +3 */
+    [0x0b] = {0x007a, COK_FX_QUEEN_CHARM}, /* 7e76:007a: charm in battle, its side and NPC */
     [0x0c] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x0d] = {0x021d, COK_FX_MISSING, "dqk 78e4:021d"},
+    [0x0d] = {0x021d, COK_FX_QUEEN_BARKSKIN, .applied_only = true}, /* 78e4:021d: save +1 unless magic, attack -1 */
     [0x0e] = {0x0238, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x0f] = {0x023d, COK_FX_MISSING, "dqk 78e4:023d"},
+    [0x0f] = {0x023d, COK_FX_QUEEN_POISON}, /* 78e4:023d: poison, its 0x1a (sic) for ten minutes, the damage */
     [0x10] = {0x02b4, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x11] = {0x02b9, COK_FX_MISSING, "dqk 78e4:02b9"},
+    [0x11] = {0x02b9, COK_FX_QUEEN_SHIELD, .applied_only = true}, /* 78e4:02b9: AC 0x39, save +1, MM cancelled */
     [0x12] = {0x02e6, COK_FX_RESIST_CHARM_30, .applied_only = true}, /* 78e4:02e6: d100 30 or less */
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x14] = {0x0313, COK_FX_MISSING, "dqk 78e4:0313"},
-    [0x15] = {0x012c, COK_FX_MISSING, "dqk 7e76:012c"},
+    [0x14] = {0x0313, COK_FX_QUEEN_RESIST, .value = 1, .applied_only = true}, /* 78e4:0313: fire halved, save +3 */
+    [0x15] = {0x012c, COK_FX_QUEEN_SILENCE, .applied_only = true}, /* 7e76:012c: silence in battle */
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
     [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x19] = {0x054a, COK_FX_INVISIBLE}, /* 78e4:054a: tests the removing flag itself */
     [0x1a] = {0x01c7, COK_FX_TARGET_BONUS, .battle = true, .applied_only = true}, /* 7e76:01c7 */
     [0x1b] = {0x010d, COK_FX_HELD}, /* 78e4:010d: ends the holder's turn in battle */
-    [0x1c] = {0x0580, COK_FX_MISSING, "dqk 78e4:0580"},
-    [0x1d] = {0x0654, COK_FX_MISSING, "dqk 78e4:0654"},
+    [0x1c] = {0x0580, COK_FX_QUEEN_IMAGES, .applied_only = true}, /* 78e4:0580: an image lost, the value counts down */
+    [0x1d] = {0x0654, COK_FX_QUEEN_QUARTER_LESS, .applied_only = true}, /* 78e4:0654: a quarter less */
     [0x1e] = {0x01fb, COK_FX_MISSING, "dqk 7e76:01fb"},
     [0x1f] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x20] = {0x028c, COK_FX_MISSING, "dqk 7e76:028c"},
     [0x21] = {0x0672, COK_FX_BLIND, .applied_only = true}, /* 78e4:0672: attack, save and AC */
-    [0x22] = {0x0696, COK_FX_MISSING, "dqk 78e4:0696"},
-    [0x23] = {0x033f, COK_FX_MISSING, "dqk 7e76:033f"},
+    [0x22] = {0x0696, COK_FX_QUEEN_DISEASE, .applied_only = true}, /* 78e4:0696: cause disease, runs 0x2b and 0x2c */
+    [0x23] = {0x033f, COK_FX_QUEEN_CONFUSED, .applied_only = true}, /* 7e76:033f: confusion in battle */
     [0x24] = {0x06d3, COK_FX_MINUS_FOUR, .applied_only = true}, /* 78e4:06d3: attack and save */
     [0x25] = {0x058c, COK_FX_MISSING, "dqk 7e76:058c"},
     [0x26] = {0x0218, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x27] = {0x06e8, COK_FX_MISSING, "dqk 78e4:06e8"},
-    [0x28] = {0x073b, COK_FX_MISSING, "dqk 78e4:073b"},
-    [0x29] = {0x0832, COK_FX_MISSING, "dqk 78e4:0832"},
-    [0x2a] = {0x0877, COK_FX_MISSING, "dqk 78e4:0877"},
-    [0x2b] = {0x08ba, COK_FX_MISSING, "dqk 78e4:08ba"},
-    [0x2c] = {0x0920, COK_FX_MISSING, "dqk 78e4:0920"},
+    [0x27] = {0x06e8, COK_FX_QUEEN_HASTE, .applied_only = true}, /* 78e4:06e8: the movement and rate doubled, aging */
+    [0x28] = {0x073b, COK_FX_QUEEN_GLOBE, .applied_only = true}, /* 78e4:073b: spells of level below 8 cancelled */
+    [0x29] = {0x0832, COK_FX_QUEEN_MISSILES, .applied_only = true}, /* 78e4:0832: "Avoids it" for a weapon of no bonus */
+    [0x2a] = {0x0877, COK_FX_QUEEN_SLOW, .applied_only = true}, /* 78e4:0877: the movement and rate halved */
+    [0x2b] = {0x08ba, COK_FX_QUEEN_DRAIN}, /* 78e4:08ba: strength drain, "is weakened", or 0x1f */
+    [0x2c] = {0x0920, COK_FX_QUEEN_WASTING}, /* 78e4:0920: wasting, the damage, or 0x1f */
     [0x2d] = {0x0198, COK_FX_PROTECTION_EVIL, .applied_only = true}, /* 78e4:0198 */
     [0x2e] = {0x01c6, COK_FX_PROTECTION_GOOD, .applied_only = true}, /* 78e4:01c6 */
     [0x2f] = {0x09b2, COK_FX_AGAINST_FLAG4, .applied_only = true}, /* 78e4:09b2: flag 4 -4 */
     [0x30] = {0x09ce, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x31] = {0x09d3, COK_FX_MISSING, "dqk 78e4:09d3"},
-    [0x32] = {0x0a22, COK_FX_MISSING, "dqk 78e4:0a22"},
+    [0x31] = {0x09d3, COK_FX_QUEEN_PRAYER, .applied_only = true}, /* 78e4:09d3: attack and save by the side */
+    [0x32] = {0x0a22, COK_FX_QUEEN_RESISTANT, .value = 2, .applied_only = true}, /* 78e4:0a22: cold saved, fire doubled */
     [0x33] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x34] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
     [0x35] = {0x010d, COK_FX_HELD}, /* 78e4:010d */
-    [0x36] = {0x0a7e, COK_FX_MISSING, "dqk 78e4:0a7e"},
+    [0x36] = {0x0a7e, COK_FX_QUEEN_RESISTANT, .value = 1, .applied_only = true}, /* 78e4:0a7e: fire saved, cold doubled */
     [0x37] = {0x0aca, COK_FX_NOTHING}, /* does nothing: retf */
-    [0x38] = {0x0acf, COK_FX_MISSING, "dqk 78e4:0acf"},
-    [0x39] = {0x0b11, COK_FX_MISSING, "dqk 78e4:0b11"},
+    [0x38] = {0x0acf, COK_FX_QUEEN_ADD_INVISIBLE}, /* 78e4:0acf: 0x19 added, or removed in battle */
+    [0x39] = {0x0b11, COK_FX_QUEEN_GLOBE_MAGIC, .applied_only = true}, /* 78e4:0b11: level 4 or below, magic, cancelled */
     [0x3a] = {0x0b50, COK_FX_MISSING, "dqk 78e4:0b50"},
     [0x3b] = {0x0d30, COK_FX_NOTHING}, /* does nothing: retf */
     [0x3c] = {0x0d8c, COK_FX_MISSING, "dqk 78e4:0d8c"},
@@ -479,7 +479,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x6c] = {0x0ad9, COK_FX_MISSING, "dqk 7e76:0ad9"},
     [0x6d] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x6e] = {0x1b0b, COK_FX_MISSING, "dqk 78e4:1b0b"},
-    [0x6f] = {0x0b3c, COK_FX_MISSING, "dqk 7e76:0b3c"},
+    [0x6f] = {0x0b3c, COK_FX_QUEEN_TERROR}, /* 7e76:0b3c: terror in battle, its block cleared on removal */
     [0x70] = {0x1b39, COK_FX_MISSING, "dqk 78e4:1b39"},
     [0x71] = {0x1bd5, COK_FX_MISSING, "dqk 78e4:1bd5"},
     [0x72] = {0x1c12, COK_FX_MISSING, "dqk 78e4:1c12"},

@@ -2719,6 +2719,240 @@ static void test_own_hook_missing(void)
     battle_clear();
 }
 
+/* effects-4: the 7e76 four (queen_effect.c's charm, silence, confusion and terror). Each returns at once with no
+ * combat record (the original's rec+0x40 NULL), before its flag test. */
+/* The whole side word (+0x66): the routines write its high byte 0. */
+static unsigned side_of(const cok_character *c)
+{
+    return cok_combat_field_word(R, c->record, COK_FIELD_HOSTILE);
+}
+
+static uint8_t npc_of(const cok_character *c)
+{
+    return cok_field_u8(R->character, c->record, COK_FIELD_NPC);
+}
+
+static void set_side(cok_character *c, unsigned side)
+{
+    cok_combat_set_field_word(R, c->record, COK_FIELD_HOSTILE, side);
+}
+
+static void set_npc(cok_character *c, uint8_t npc, uint8_t computer)
+{
+    cok_field_set8(R->character, c->record, COK_FIELD_NPC, npc);
+    cok_field_set8(R->character, c->record, COK_FIELD_COMPUTER, computer);
+}
+
+/* 7e76:007a (0x0b, charm; ev 0x0f, not applied_only): the first run takes hold (value 0x05 on side 0: value 0x25,
+ * side 0, computer 1, NPC 0xb3, target NULL, the sides counted, morale 100); a second run with bit 5 set is the
+ * morale only; a value 0x85 on side 1 gains the side and 0x20 (0xe5) and the side is 1; removing puts the side
+ * back from bit 6 and an NPC 0xb3 back to a player (computer 0), an NPC not 0xb3 is left alone; with no block
+ * nothing runs, either way (h_charm would fail). */
+static void test_effects_four_charm(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    set_side(t, 0x0100); /* the low byte read (0), the whole word written */
+    set_npc(t, 0, 0);
+    t->combat->target = a->record;
+    cok_effect *e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    CHECK(e != NULL);
+    game.combat.sides[0] = game.combat.sides[1] = 9;
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x25 && side_of(t) == 0 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(t->combat->target == NULL && game.combat.sides[0] == 2 && game.combat.sides[1] == 0);
+    CHECK(game.effects.rolls.morale == 100);
+    /* Bit 5 set: the morale only. */
+    t->combat->target = a->record;
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x25 && t->combat->target == a->record && game.effects.rolls.morale == 100);
+    /* Value 0x85 on side 1, NPC 0x80 (bit 7 kept, not made 0xb3): 0xe5 and side 1. */
+    e->value = 0x85;
+    set_side(t, 1);
+    set_npc(t, 0x80, 0);
+    t->combat->target = a->record;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0xe5 && side_of(t) == 1 && npc_of(t) == 0x80 && computer(t) == 1);
+    CHECK(t->combat->target == NULL);
+    /* Removing it (value 0xe5: side 1 in bit 6): the side is 1, the NPC 0x80 and computer 1 stay. */
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 1 && npc_of(t) == 0x80 && computer(t) == 1 && game.effects.rolls.morale == 50);
+    CHECK(cok_character_find_effect(t, 0x0b) == NULL);
+    /* Removing one with NPC 0xb3 (value 0x05: side 0): side 0, NPC 0 and computer 0. */
+    e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    set_side(t, 0x0101);
+    set_npc(t, 0xb3, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 0 && npc_of(t) == 0 && computer(t) == 0);
+    /* No block: nothing, first run or removal. */
+    cok_combat_record *saved = t->combat;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x0b, 0, 0x05, true);
+    set_side(t, 1);
+    set_npc(t, 0xb3, 1);
+    game.effects.rolls.morale = 50;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x05 && side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(game.effects.rolls.morale == 50);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    t->combat = saved;
+    battle_clear();
+}
+
+/* 7e76:012c (0x15, silence; ev 0x0f, applied_only; shared within 1): a block that may use items is said "is
+ * Silenced" (row 10, waited); a pending spell is forgotten (cok_combat_forget, marked as Dark Queen's rules say:
+ * 0x80); the spell, may_use and may_cast are 0 and no turn ends (initiative kept, unlike a "lost a spell"). A
+ * holder within 1 silences a member who holds nothing. With no block, nothing. */
+static void test_effects_four_silence(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    cok_effect *e = cok_character_add_effect(t, 0x15, 0, 10, false);
+    CHECK(e != NULL);
+    cr->may_use = 1;
+    cr->may_cast = 1;
+    cr->spell = 0x0f;
+    cr->initiative = 3;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_MEMORIZED, 0, 0x0f);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is Silenced") && !LOGGED("lost a spell"));
+    CHECK(cr->may_use == 0 && cr->may_cast == 0 && cr->spell == 0 && cr->initiative == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_MEMORIZED, 0) == (0x0f | R->fight.forget_mark));
+    /* No block: nothing said. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK && !LOGGED("is Silenced"));
+    t->combat = saved;
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x15) && game.vm.status == COK_ECL_OK);
+    /* Shared: a holder at 5, 5 silences t at 6, 5 (within 1), who holds nothing. */
+    CHECK(cok_character_add_effect(a, 0x15, 0, 10, false) != NULL);
+    cr->may_use = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is Silenced") && cr->may_use == 0);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* A seed whose first d100 is in low..high, whose next draws are the effect's flash (cok_arena_flash: its four
+ * frames, one draw each; the text is said with no wait), and whose d20 after them, the save's, is save. */
+static uint32_t confusion_seed(unsigned low, unsigned high, unsigned save)
+{
+    for (uint32_t start = 1;; ++start) {
+        uint32_t s = start;
+        unsigned d = cok_dice(&s, 1, 100);
+        if (d < low || d > high) continue;
+        for (unsigned k = 0; k < 4; ++k) cok_tp_random(&s, 1000);
+        if (cok_dice(&s, 1, 20) == save) return start;
+    }
+}
+
+/* 7e76:033f (0x23, confusion; ev 0x15, applied_only): one d100 by the original's table. 1-10 runs away: the 0x23
+ * removed, the block forced and computer controlled, its target NULL, and 0x6f added for ten minutes. 11-60 "is
+ * confused" and the turn ends. 61-80 0x4d is added and run: its cited stop (7e76:081f) stops the run, before the
+ * save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps it; a d20 of 10
+ * leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
+static void test_effects_four_confusion(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    set_npc(t, 0, 0);
+    cr->forced = 0;
+    cr->target = a->record;
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x19));
+    /* 1-10: runs away (the save failed: the 0x23 is gone by the run's own removal). */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(1, 10, 1);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x23) == NULL && cr->forced == 1 && computer(t) == 1 && npc_of(t) == 0xb3);
+    CHECK(cr->target == NULL && LOGGED("runs away"));
+    cok_effect *run = cok_character_find_effect(t, 0x6f);
+    CHECK(run != NULL && run->duration == 10 && run->on_remove && run->value == 0);
+    CHECK(cok_effects_remove(&game.effects, t, run, 0x6f) && game.vm.status == COK_ECL_OK);
+    /* 11-60, saved: "is confused", the turn ends, and the 0x23 is removed. */
+    cr->forced = 0;
+    set_npc(t, 0, 0);
+    cr->initiative = 3;
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(11, 60, 20);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is confused") && cr->initiative == 0 && cok_character_find_effect(t, 0x23) == NULL);
+    CHECK(cr->forced == 0 && npc_of(t) == 0 && computer(t) == 0);
+    /* 11-60, failed save: the 0x23 kept. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(11, 60, 1);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x23) != NULL);
+    /* The save bonus: a d20 of 10 leaves the roll at the save bonus, 10 and -2. */
+    game.vm.seed = confusion_seed(11, 60, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.save_roll ==
+          (uint8_t)(cok_field_s8(R->character, t->record, COK_FIELD_SAVE_BONUS) + 10 + 0xfe));
+    CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x23), 0x23) &&
+          game.vm.status == COK_ECL_OK);
+    /* 61-80: 0x4d added, run, and its cited stop ends the run before the save. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
+    game.vm.seed = confusion_seed(61, 80, 20);
+    log_text[0] = '\0';
+    game.effects.error[0] = '\0';
+    CHECK(!cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_EFFECT_FAILED);
+    CHECK(strstr(game.effects.error, "7e76:081f") != NULL && LOGGED("goes berserk"));
+    CHECK(cok_character_find_effect(t, 0x4d) != NULL && cok_character_find_effect(t, 0x23) != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    game.error[0] = '\0';
+    /* 81-100: "is enraged" and the save: made removes it. */
+    game.vm.seed = confusion_seed(81, 100, 20);
+    log_text[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is enraged") && cok_character_find_effect(t, 0x23) == NULL);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 7e76:0b3c (0x6f, terror; no event, not applied_only): only removing does anything: an NPC 0xb3 goes back to a
+ * player (computer 0) and the block's forced is 0; not removing, nothing; with no block, nothing (h_terror
+ * fails there). */
+static void test_effects_four_terror(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    cok_effect *e = cok_character_add_effect(t, 0x6f, 0, 0, true);
+    CHECK(e != NULL);
+    set_npc(t, 0xb3, 1);
+    cr->forced = 1;
+    CHECK(cok_effects_run(&game.effects, t, 0x6f, e) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1 && cr->forced == 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x6f) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && cr->forced == 0);
+    /* No block: nothing, removal included. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x6f, 0, 0, true);
+    set_npc(t, 0xb3, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x6f) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1);
+    t->combat = saved;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 /* Bless (dqk 7fd8:0001, 00a2) and Curse (00c9): a target whose word +0x66 is not the side is cleared (the
  * whole word: a 0x0100 there is the other side). A Bless of spell 1 (not 0x3e) in a battle also clears one
  * of the side with an enemy within 1 (51c2:0980). The rest take the effect (1, 2) with "is Blessed" or
@@ -3718,6 +3952,249 @@ static void line_cell(int8_t x0, int8_t y0, int8_t x1, int8_t y1, unsigned nth, 
     *y = (int8_t)line.y;
 }
 
+/* effects-5: the timers' helpers. */
+static unsigned effects_of(const cok_character *c, uint8_t id)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e->id == id) ++n;
+    return n;
+}
+
+static unsigned effects_with(const cok_character *c, uint8_t id, uint8_t value)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e->id == id && e->value == value) ++n;
+    return n;
+}
+
+/* Whether every id of c with value has flag 0 (no handler on its removal), and there is one. */
+static bool held_for_good(const cok_character *c, uint8_t id, uint8_t value)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        if (e->id == id && e->value == value) {
+            if (e->on_remove) return false;
+            ++n;
+        }
+    return n > 0;
+}
+
+static uint8_t strength_of(const cok_character *c)
+{
+    return cok_field_u8_at(R->character, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH);
+}
+
+static uint8_t hit_points_of(const cok_character *c)
+{
+    return cok_field_u8(R->character, c->record, COK_FIELD_HIT_POINTS);
+}
+
+/* Removes every effect id of c with curing set, so that a timer adds nothing back. */
+static void clear_effect(cok_character *c, uint8_t id)
+{
+    cok_effect *e;
+    game.effects.rolls.curing = 1;
+    while ((e = cok_character_find_effect(c, id)) != NULL)
+        CHECK(cok_effects_remove(&game.effects, c, e, id) && game.vm.status == COK_ECL_OK);
+    game.effects.rolls.curing = 0;
+}
+
+/* 78e4:023d (0x0f, poison; either flag): removed, it adds 0x1a for ten minutes with its value (the original's
+ * re-add of 0x1a, not 0x0f) and takes a point ("takes 1 point of damage ") from a character with more than one hit
+ * point; run (flag 0) the same; at one hit point, the 0x1a only; with rolls.curing set, nothing is added and nothing
+ * hurts. Outside a battle, the damage's cited stop (148f:2214) stops the run; no node is a stop too. */
+static void test_effects5_poison(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    cok_effect *e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    game.effects.rolls.damage_type = 8; /* the timer's damage is of type 0 */
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.damage_type == 0);
+    cok_effect *p = cok_character_find_effect(t, 0x1a);
+    CHECK(p != NULL && p->duration == 10 && p->value == 0x05 && p->on_remove);
+    CHECK(effects_of(t, 0x0f) == 0 && hit_points_of(t) == 9 && LOGGED("takes 1 point of damage "));
+    clear_effect(t, 0x1a);
+    /* Run (flag 0) from a node of value 0x05: the same, 9 -> 8. */
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    CHECK(cok_effects_run(&game.effects, t, 0x0f, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1a) != NULL && hit_points_of(t) == 8);
+    clear_effect(t, 0x1a);
+    clear_effect(t, 0x0f);
+    /* At two hit points: the point (more than one, unsigned). */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 2);
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(hit_points_of(t) == 1);
+    clear_effect(t, 0x1a);
+    /* At one hit point: the 0x1a, no damage. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1a) != NULL && hit_points_of(t) == 1 && !LOGGED("takes"));
+    clear_effect(t, 0x1a);
+    /* Curing: nothing added, no damage. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    game.effects.rolls.curing = 1;
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_OK);
+    game.effects.rolls.curing = 0;
+    CHECK(cok_character_find_effect(t, 0x1a) == NULL && hit_points_of(t) == 10 && !LOGGED("takes"));
+    /* Outside a battle: the damage's stop. */
+    game.vm.mode = 2;
+    e = cok_character_add_effect(t, 0x0f, 0, 0x05, true);
+    CHECK(!cok_effects_remove(&game.effects, t, e, 0x0f) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.effects.error, "dqk 148f:2214 outside combat") != NULL);
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    /* No node: the stop that reads the node's value (0000:0003). */
+    CHECK(!cok_effects_run(&game.effects, t, 0x0f, NULL) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.effects.error, "dqk 78e4:023d") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    clear_effect(t, 0x1a);
+    clear_effect(t, 0x0f);
+    battle_clear();
+}
+
+/* 78e4:08ba (0x2b, strength drain; either flag): again for an hour with its value (flag 1); a strength above 3 "is
+ * weakened" (row 10) and loses a point; a strength of 3 or less brings 0x1f for good (flag 0, 0xff), and with a 0x1f
+ * already held there are two (no holds-it test). Run (flag 0) from its node, the same. With no node, a cited stop. */
+static void test_effects5_drain(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 10);
+    cok_effect *e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_OK);
+    cok_effect *d = cok_character_find_effect(t, 0x2b);
+    CHECK(d != NULL && d->duration == 60 && d->value == 0x05 && d->on_remove);
+    CHECK(LOGGED("is weakened") && strength_of(t) == 9 && effects_of(t, 0x1f) == 0);
+    /* Run (flag 0) from the node: 9 -> 8, a second 0x2b. */
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x2b, d) && game.vm.status == COK_ECL_OK);
+    CHECK(strength_of(t) == 8 && effects_of(t, 0x2b) == 2 && LOGGED("is weakened"));
+    clear_effect(t, 0x2b);
+    /* Strength 4: still weakened, 4 -> 3. */
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 4);
+    e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("is weakened") && strength_of(t) == 3 && effects_of(t, 0x1f) == 0);
+    clear_effect(t, 0x2b);
+    /* Strength 3: 0x1f for good, even with one held (two then). */
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 3);
+    CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
+    e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_OK);
+    CHECK(!LOGGED("is weakened") && strength_of(t) == 3);
+    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1 && held_for_good(t, 0x1f, 0xff));
+    CHECK(cok_character_find_effect(t, 0x2b) != NULL);
+    clear_effect(t, 0x2b);
+    /* Outside a battle the say (177e:156e in the camp's shape) is a cited stop; the 0x2b is added first. */
+    game.vm.mode = 2;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 10);
+    e = cok_character_add_effect(t, 0x2b, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(!cok_effects_remove(&game.effects, t, e, 0x2b) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.error, "dqk 177e:156e outside combat") != NULL && !LOGGED("is weakened"));
+    CHECK(strength_of(t) == 10);
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    clear_effect(t, 0x2b);
+    /* No node: the stop that reads the node's value. */
+    CHECK(!cok_effects_run(&game.effects, t, 0x2b, NULL) && game.vm.status == COK_ECL_UNPORTED);
+    CHECK(strstr(game.effects.error, "dqk 78e4:08ba") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    battle_clear();
+}
+
+/* 78e4:0920 (0x2c, wasting; either flag): again for ten minutes with its value (flag 1); a character with more than one
+ * hit point takes a point ("takes 1 point of damage "); at one hit point or none, 0x1f for good (flag 0, 0xff), with
+ * no test for one held (two then). */
+static void test_effects5_wasting(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    cok_effect *e = cok_character_add_effect(t, 0x2c, 0, 0x05, true);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2c) && game.vm.status == COK_ECL_OK);
+    cok_effect *d = cok_character_find_effect(t, 0x2c);
+    CHECK(d != NULL && d->duration == 10 && d->value == 0x05 && d->on_remove);
+    CHECK(hit_points_of(t) == 9 && LOGGED("takes 1 point of damage ") && effects_of(t, 0x1f) == 0);
+    clear_effect(t, 0x2c);
+    /* At two hit points: the point. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 2);
+    e = cok_character_add_effect(t, 0x2c, 0, 0x05, true);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2c) && game.vm.status == COK_ECL_OK);
+    CHECK(hit_points_of(t) == 1 && effects_of(t, 0x1f) == 0);
+    clear_effect(t, 0x2c);
+    /* At one hit point, with a 0x1f held: no damage, the 0x2c again, a second 0x1f. */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 1);
+    CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
+    e = cok_character_add_effect(t, 0x2c, 0, 0x05, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x2c) && game.vm.status == COK_ECL_OK);
+    CHECK(hit_points_of(t) == 1 && !LOGGED("takes") && cok_character_find_effect(t, 0x2c) != NULL);
+    CHECK(effects_of(t, 0x1f) == 2 && effects_with(t, 0x1f, 0xff) == 1 && held_for_good(t, 0x1f, 0xff));
+    clear_effect(t, 0x2c);
+    battle_clear();
+}
+
+/* 78e4:0696 (0x22, cause disease; applied_only): run (flag 0) it runs 0x2b and 0x2c with its value: the strength drops
+ * a point ("is weakened") and a point is taken (ten-minute wasting). Removed (flag 1), nothing. */
+static void test_effects5_disease(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 10);
+    cok_effect *e = cok_character_add_effect(t, 0x22, 0, 0x05, false);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x22, e) && game.vm.status == COK_ECL_OK);
+    cok_effect *drain = cok_character_find_effect(t, 0x2b), *wasting = cok_character_find_effect(t, 0x2c);
+    CHECK(drain != NULL && drain->duration == 60 && drain->value == 0x05);
+    CHECK(wasting != NULL && wasting->duration == 10 && wasting->value == 0x05);
+    CHECK(strength_of(t) == 9 && hit_points_of(t) == 9 && LOGGED("is weakened") && LOGGED("takes 1 point of damage "));
+    /* 0x2b first: its say before the damage, its node before the 0x2c's. */
+    CHECK(strstr(log_text, "is weakened") < strstr(log_text, "takes 1 point of damage "));
+    const cok_effect *first = t->effects;
+    while (first != NULL && first->id != 0x2b && first->id != 0x2c) first = first->next;
+    CHECK(first != NULL && first->id == 0x2b);
+    clear_effect(t, 0x2b);
+    clear_effect(t, 0x2c);
+    /* Removed (its node with flag 1): nothing, the strength and the hit points kept. */
+    e = cok_character_add_effect(t, 0x22, 0, 0x05, true);
+    CHECK(e != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, 10);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x22) && game.vm.status == COK_ECL_OK);
+    CHECK(effects_of(t, 0x2b) == 0 && effects_of(t, 0x2c) == 0 && strength_of(t) == 10 && hit_points_of(t) == 10);
+    CHECK(!LOGGED("is weakened") && !LOGGED("takes"));
+    battle_clear();
+}
+
 static void test_cone(void)
 {
     cok_combat *k = &game.combat;
@@ -4282,6 +4759,544 @@ static void test_meteor_swarm(void)
     game.vm.character = NULL;
 }
 
+/* Effects-2 (step 4, part 34b): the damage word and the rolls. Each routine runs on its holder at its event (6, 4, 0x0c) with
+ * the damage (amount16 and its byte) and the rolls set by hand; the handler is the test's, not the spells'. A spell id of level
+ * L is the first with its table byte 2 at L (the table's level), so the premises are checked. */
+static unsigned spell_of_level(unsigned level)
+{
+    for (unsigned id = 1; id < 0x90; ++id)
+        if (queen_spell_byte(&game, id, 2) == level) return id;
+    return 0;
+}
+
+static void set_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
+{
+    game.effects.rolls.amount16 = amount;
+    game.effects.rolls.amount = (uint8_t)amount;
+    game.effects.rolls.damage_type = type;
+    game.effects.rolls.save_roll = save_roll;
+}
+
+/* Resist Cold (0x0a, 78e4:01f4) and Resist Fire (0x14, 0313): the type's damage halved as a signed word, the save 3 better.
+ * 300 of fire is 150 (the byte alone would be 22). Each leaves the other type alone. */
+static void test_effects2_resist(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    CHECK(cok_character_add_effect(t, 0x14, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(u, 0x0a, 0, 0, false) != NULL);
+    set_rolls(7, 9, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 3 && game.effects.rolls.amount == 3 && game.effects.rolls.save_roll == 13);
+    set_rolls(7, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 7 && game.effects.rolls.save_roll == 10);
+    set_rolls(300, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 150 &&
+          game.effects.rolls.amount == 150 && game.effects.rolls.save_roll == 13);
+    set_rolls(7, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 3 && game.effects.rolls.amount == 3 &&
+          game.effects.rolls.save_roll == 13);
+    set_rolls(7, 9, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 7 && game.effects.rolls.save_roll == 10);
+    set_rolls(300, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 150 &&
+          game.effects.rolls.amount == 150 && game.effects.rolls.save_roll == 13);
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Shield (0x11, 78e4:02b9): the holder's AC raised to 0x39 (not lowered from 0x40), the save 1 better, Magic Missile's damage
+ * word zeroed with its pending effect kept; another spell's damage stays. */
+static void test_effects2_shield(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x11, 0, 0, false) != NULL);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x20);
+    set_rolls(5, 0, 10);
+    game.effects.rolls.spell = 0x0f;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x39 && game.effects.rolls.save_roll == 11 &&
+          game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0x6f);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x40);
+    set_rolls(5, 0, 10);
+    game.effects.rolls.spell = 0x09;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x40 && game.effects.rolls.save_roll == 11 &&
+          game.effects.rolls.amount16 == 5 && game.effects.rolls.amount == 5);
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Barkskin (0x0d, 78e4:021d): the save 1 better unless the damage is magic (type 8), the attack roll 1 worse, always. The
+ * Ray of Enfeeblement (0x1d, 0654): the holder's strike of 9 is 7 (9 - 9 / 4). */
+static void test_effects2_barkskin_ray(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0, false) != NULL);
+    set_rolls(5, 1, 10);
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0c) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.save_roll == 11 && game.effects.rolls.attack_roll == 9);
+    set_rolls(5, 8, 10);
+    game.effects.rolls.attack_roll = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0c) && game.effects.rolls.save_roll == 10 &&
+          game.effects.rolls.attack_roll == 9);
+    battle_clear();
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(a, 0x1d, 0, 0, false) != NULL);
+    set_rolls(9, 0, 0);
+    CHECK(cok_effects_dispatch(&game.effects, a, 4) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 7 && game.effects.rolls.amount == 7);
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Globe (0x28, 78e4:073b): a spell of level below 8 cancelled (its damage and pending effect), level 8 not, and none (spell 0)
+ * not. Globe of Invulnerability (0x39, 0b11): rolls.spell above 0, level 4 or below and the magic type (8): level 1 with type
+ * 9 cancelled; the same with type 1 not; level 5 with type 8 not, level 4 with type 8 cancelled. */
+static void test_effects2_globes(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    const unsigned below = spell_of_level(7), eight = spell_of_level(8);
+    CHECK(below != 0 && eight != 0);
+    CHECK(cok_character_add_effect(t, 0x28, 0, 0, false) != NULL);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = (uint8_t)below;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = (uint8_t)eight;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    CHECK(queen_spell_byte(&game, 0x09, 2) == 1 && queen_spell_byte(&game, 0x5c, 2) == 5);
+    CHECK(cok_character_add_effect(u, 0x39, 0, 0, false) != NULL);
+    set_rolls(5, 9, 0);
+    game.effects.rolls.spell = 0x09;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    set_rolls(5, 1, 0);
+    game.effects.rolls.spell = 0x09;
+    game.effects.rolls.pending = 0x6f;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5 && game.effects.rolls.pending == 0x6f);
+    set_rolls(5, 8, 0);
+    game.effects.rolls.spell = 0x5c;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
+    set_rolls(5, 8, 0);
+    game.effects.rolls.spell = (uint8_t)spell_of_level(4); /* level 4, the last cancelled */
+    game.effects.rolls.pending = 0x6f;
+    CHECK(game.effects.rolls.spell != 0 && cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 0 &&
+          game.effects.rolls.pending == 0);
+    set_rolls(5, 8, 0);
+    game.effects.rolls.spell = 0;
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    game.effects.rolls.spell = 0;
+    battle_clear();
+}
+
+/* Resistant (0x32, 78e4:0a22: cold, saved by 2; the fire of it is doubled unsaved) and 0x36 (0a7e: the mirror, fire saved and cold
+ * doubled). A saved type adds 2 to the save roll; its damage is zeroed when the save is made, halved when not. */
+static void test_effects2_resistant(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_character *u = record('U', 0, 0);
+    CHECK(cok_character_add_effect(t, 0x32, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(u, 0x36, 0, 0, false) != NULL);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 0 && game.effects.rolls.save_roll == 12);
+    game.effects.rolls.save_made = 0;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 4 && game.effects.rolls.save_roll == 12);
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 16 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.effects.rolls.amount16 == 8 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 0 && game.effects.rolls.save_roll == 12);
+    game.effects.rolls.save_made = 0;
+    set_rolls(8, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 4 && game.effects.rolls.save_roll == 12);
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 16 && game.effects.rolls.save_roll == 10);
+    game.effects.rolls.save_made = 1;
+    set_rolls(8, 2, 10);
+    CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 8);
+    game.effects.rolls.save_made = 0;
+    set_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* Each of the nine is applied_only: a node of flag 1 removed changes no roll, even with the damage, the type and the spell that
+ * would change them: the type 0x0b (fire, cold and magic) is one each of the nine acts on when applied (0x0a's cold and 0x32's
+ * cold among them, which fire and magic alone leave alone). */
+static void test_effects2_applied_only(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    static const uint8_t ids[] = {0x0a, 0x0d, 0x11, 0x14, 0x1d, 0x28, 0x32, 0x36, 0x39};
+    for (size_t i = 0; i < sizeof ids / sizeof *ids; ++i) {
+        cok_effect *e = cok_character_add_effect(t, ids[i], 0, 0, true);
+        CHECK(e != NULL);
+        set_rolls(9, 0x0b, 10);
+        game.effects.rolls.spell = 0x0f;
+        game.effects.rolls.attack_roll = 10;
+        game.effects.rolls.pending = 0x6f;
+        game.effects.rolls.save_made = 1;
+        CHECK(cok_effects_remove(&game.effects, t, e, ids[i]) && game.vm.status == COK_ECL_OK);
+        CHECK(game.effects.rolls.amount16 == 9 && game.effects.rolls.amount == 9 && game.effects.rolls.save_roll == 10 &&
+              game.effects.rolls.attack_roll == 10 && game.effects.rolls.pending == 0x6f);
+        CHECK(cok_character_find_effect(t, ids[i]) == NULL);
+    }
+    game.effects.rolls.save_made = 0;
+    game.effects.rolls.spell = 0;
+    game.effects.rolls.pending = 0;
+    set_rolls(0, 0, 0);
+    game.effects.rolls.attack_roll = 0;
+    battle_clear();
+}
+
+/* effects-3 (queen_effect.c's images, haste, slow, prayer, missiles and add_invisible, dqk 78e4:0580, 06e8, 0877,
+ * 09d3, 0832, 0acf): the first seed whose first draw of d(sides) is want (the handler's die). */
+static uint32_t seed_showing(uint8_t sides, uint8_t want)
+{
+    for (uint32_t s = 1;; ++s) {
+        uint32_t t = s;
+        if (cok_dice(&t, 1, sides) == want) return s;
+    }
+}
+
+/* 78e4:0580 (0x1c, Mirror Image; ev 5, 6, 9; applied_only): in mode 5 a d(value >> 5 + 1) above 1 takes an image: the
+ * damage word and pending effect cancelled, "lost an image", the high nibble counts down (the first 0x1c goes at 0).
+ * A d of 1 keeps all, one draw either way. With the images flag set, a spell of ALLIES 0 (Bless, 0x01) loses the image,
+ * a spell of ALLIES 1 (Magic Missile, 0x0f) keeps it, and no spell keeps it; with the flag clear the spell is not tested. */
+static void test_effects3_images(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    uint32_t big = seed_showing(4, 3), small = seed_showing(4, 1);
+    CHECK(queen_spell_word(&game, 0x01, 0x13) == 0 && queen_spell_word(&game, 0x0f, 0x13) != 0);
+    game.effects.rolls.images = 0; /* an earlier test's cone leaves the flag set */
+    game.effects.rolls.spell = 0;
+    /* A d4 of 3 at event 6: the damage cancelled, the pending effect too, the value 0x62 -> 0x42. */
+    duel(&a, &t);
+    cok_effect *e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    CHECK(e != NULL);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.amount = 44;
+    game.effects.rolls.pending = 0x6f;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && game.effects.rolls.pending == 0);
+    /* The d4, then the say's wait (one random(1000), 1df9:052a). */
+    uint32_t want = big;
+    (void)cok_dice(&want, 1, 4);
+    cok_tp_random(&want, 1000);
+    CHECK(e->value == 0x42 && LOGGED("lost an image") && game.vm.seed == want);
+    /* The strike (event 5): the word zeroed, the image lost. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.amount = 44;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0 && e->value == 0x42);
+    /* A d4 of 1: nothing but the draw. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.effects.rolls.amount16 = 300;
+    game.effects.rolls.pending = 0x6f;
+    game.vm.seed = small;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 300 && game.effects.rolls.pending == 0x6f && e->value == 0x62);
+    CHECK(!LOGGED("lost an image") && game.vm.seed == after_draws(small, 1, 4));
+    /* The last image: value 0x22 (one image) at a d2 of 2 goes, the node with it. */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x1c, 0, 0x22, false) != NULL);
+    game.vm.seed = seed_showing(2, 2);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1c) == NULL && LOGGED("lost an image"));
+    /* The images flag and the spell: (flag, spell, lost). */
+    static const struct { uint8_t images, spell; bool lost; } flagged[] = {
+        {1, 0x01, true}, {1, 0x0f, false}, {1, 0, false}, {0, 0x0f, true},
+    };
+    for (size_t k = 0; k < sizeof flagged / sizeof *flagged; ++k) {
+        duel(&a, &t);
+        e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+        game.effects.rolls.images = flagged[k].images;
+        game.effects.rolls.spell = flagged[k].spell;
+        game.effects.rolls.amount16 = 300;
+        game.vm.seed = big;
+        CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+        if (flagged[k].lost) CHECK(e->value == 0x42 && game.effects.rolls.amount16 == 0 && game.vm.seed == want);
+        else CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300 && game.vm.seed == after_draws(big, 1, 4));
+        game.effects.rolls.images = 0;
+        game.effects.rolls.spell = 0;
+    }
+    /* Outside battle (mode 4): nothing, no draw. */
+    duel(&a, &t);
+    e = cok_character_add_effect(t, 0x1c, 0, 0x62, false);
+    game.vm.mode = 4;
+    game.effects.rolls.amount16 = 300;
+    game.vm.seed = big;
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x62 && game.effects.rolls.amount16 == 300 && game.vm.seed == big);
+    game.vm.mode = 5;
+    /* Removed (flag 1): 0x1c, 0x31 and 0x29 are applied_only: no draw, no text, the rolls kept (0x29 run with no member
+     * selected would stop). */
+    static const uint8_t removed[] = {0x1c, 0x31, 0x29};
+    for (size_t k = 0; k < sizeof removed / sizeof *removed; ++k) {
+        duel(&a, &t);
+        game.vm.character = NULL;
+        e = cok_character_add_effect(t, removed[k], 0, 0x62, true);
+        game.effects.rolls.amount16 = 300;
+        game.effects.rolls.attack_roll = 10;
+        game.vm.seed = big;
+        CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, removed[k]) && game.vm.status == COK_ECL_OK);
+        CHECK(game.effects.rolls.amount16 == 300 && game.effects.rolls.attack_roll == 10 && game.vm.seed == big);
+        CHECK(!LOGGED("lost an image"));
+    }
+    /* A terrible presence (0x64, effect.c's h_presence) sets the images flag across its walk (dqk 78e4:14d7, 1584): its
+     * add's event 9 on a Mirror Image holder draws the d4 and, with no spell, keeps the image; the terror is added. */
+    duel(&a, &t);
+    e = cok_character_add_effect(a, 0x1c, 0, 0x62, false);
+    CHECK(e != NULL && cok_character_add_effect(t, 0x64, 0, 0, false) != NULL);
+    game.effects.rolls.images = 0;
+    game.effects.rolls.spell = 0;
+    game.vm.seed = big;
+    CHECK(cok_effects_run(&game.effects, t, 0x64, NULL) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x62 && !LOGGED("lost an image") && cok_character_find_effect(a, 0x78) != NULL);
+    CHECK(game.effects.rolls.images == 0);
+    /* No node: the port stops, cited. */
+    CHECK(!cok_effects_run(&game.effects, t, 0x1c, NULL) && strstr(game.effects.error, "no effect") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 78e4:06e8 (0x27, haste; ev 0x12; applied_only): the first run (bit 5 clear) gives 0x20, "ages", the age up a year and the
+ * aging asked for; every run doubles the movement and the rate. A removal does nothing. */
+static void test_effects3_haste(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    const cok_character_layout *L = R->character;
+    cok_field_set16(L, t->record, COK_FIELD_AGE, 40);
+    cok_effect *e = cok_character_add_effect(t, 0x27, 0, 0, false);
+    CHECK(e != NULL);
+    game.effects.aging = false;
+    game.effects.rolls.rate = 3;
+    game.effects.rolls.movement = 5;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x20 && LOGGED("ages") && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41 && game.effects.aging);
+    CHECK(game.effects.rolls.rate == 6 && game.effects.rolls.movement == 10);
+    /* Again: the value's bit 5 is set: no text, no year, the rates doubled once more. */
+    log_text[0] = '\0';
+    game.effects.aging = false;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(e->value == 0x20 && !LOGGED("ages") && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41 && !game.effects.aging);
+    CHECK(game.effects.rolls.rate == 12 && game.effects.rolls.movement == 20);
+    /* Removed (flag 1): applied_only, nothing. */
+    e = cok_character_add_effect(t, 0x27, 0, 0x20, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x27) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 12 && game.effects.rolls.movement == 20 && cok_field_u16(L, t->record, COK_FIELD_AGE) == 41);
+    battle_clear();
+}
+
+/* 78e4:0877 (0x2a, slow; ev 0x12; applied_only): the movement and the rate halved, unless the holder holds effect 0x96
+ * (177e:1734): then nothing. A removal does nothing. */
+static void test_effects3_slow(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x2a, 0, 0, false) != NULL);
+    game.effects.rolls.rate = 6;
+    game.effects.rolls.movement = 10;
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    /* Removed (flag 1), 0x96 not held: applied_only, nothing. */
+    cok_effect *e = cok_character_add_effect(t, 0x2a, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x2a) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x12) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    e = cok_character_add_effect(t, 0x2a, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x2a) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.rate == 3 && game.effects.rolls.movement == 5);
+    battle_clear();
+}
+
+/* 78e4:09d3 (0x31, prayer; ev 0x0a and 0x0c; applied_only): the side in bit 7 of the value against the holder's side word:
+ * equal, the attack roll and the save 1 better; else both 1 worse. Bit 4 is not the side (value 0x85 is side 1). */
+static void test_effects3_prayer(void)
+{
+    game.vm.mode = 5; /* the battle */
+    static const struct { unsigned side; uint8_t value; int change; } cases[] = {
+        {1, 0x85, 1}, {0, 0x85, -1}, {0, 0x05, 1}, {1, 0x05, -1},
+    };
+    static const uint8_t events[] = {0x0a, 0x0c};
+    for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k)
+        for (size_t v = 0; v < sizeof events / sizeof *events; ++v) {
+            cok_character *a, *t;
+            duel(&a, &t);
+            set_side(t, cases[k].side);
+            CHECK(cok_character_add_effect(t, 0x31, 0, cases[k].value, false) != NULL);
+            game.effects.rolls.attack_roll = 10;
+            game.effects.rolls.save_roll = 10;
+            CHECK(cok_effects_dispatch(&game.effects, t, events[v]) && game.vm.status == COK_ECL_OK);
+            CHECK(game.effects.rolls.attack_roll == 10 + cases[k].change && game.effects.rolls.save_roll == 10 + cases[k].change);
+        }
+    battle_clear();
+}
+
+/* 78e4:0832 (0x29, Protection from Normal Missiles; ev 5; applied_only): the selected member's missile item (07d4) with no
+ * bonus (+0x30 byte 0) avoids a blow from more than a square off: "Avoids it", the damage 0, the attack roll 0xff, one hit
+ * less, one d100 drawn. A bonus of 1, an adjacent attacker, or no readied weapon: nothing, no draw. */
+static void test_effects3_missiles(void)
+{
+    game.vm.mode = 5; /* the battle */
+    game.effects.in_battle = true;
+    static const struct { int8_t tx; uint8_t bonus, weapon; bool avoided; } cases[] = {
+        {7, 0, 1, true}, {7, 1, 1, false}, {6, 0, 1, false}, {7, 0, 0, false},
+    };
+    for (size_t k = 0; k < sizeof cases / sizeof *cases; ++k) {
+        cok_character *a, *t;
+        duel_at(&a, &t, cases[k].tx, 5);
+        uint8_t axe[COK_ITEM_SIZE] = {0};
+        axe[0x28] = 3; /* a thrown axe: its ammunition is the weapon itself */
+        axe[0x30] = cases[k].bonus;
+        CHECK(cok_character_insert_item(a, 0, axe));
+        a->slots[0] = cases[k].weapon;
+        CHECK(cok_character_add_effect(t, 0x29, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.effects.rolls.amount16 = 9;
+        game.effects.rolls.amount = 9;
+        game.effects.rolls.attack_roll = 10;
+        game.effects.rolls.hits[0] = 2;
+        game.vm.seed = 1234;
+        CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+        if (cases[k].avoided) {
+            CHECK(LOGGED("Avoids it") && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+            CHECK(game.effects.rolls.attack_roll == 0xff && game.effects.rolls.hits[0] == 1);
+            uint32_t want = 1234; /* the d100, then the say's wait (one random(1000)) */
+            (void)cok_dice(&want, 1, 100);
+            cok_tp_random(&want, 1000);
+            CHECK(game.vm.seed == want);
+        } else {
+            CHECK(!LOGGED("Avoids it") && game.effects.rolls.amount16 == 9 && game.effects.rolls.attack_roll == 10);
+            CHECK(game.effects.rolls.hits[0] == 2 && game.vm.seed == 1234);
+        }
+        game.vm.character = NULL;
+    }
+    /* A bow (its type's flags 9: arrows, slot 11): 07d4 takes the arrows, so the arrows' bonus decides, not the bow's. */
+    uint8_t row[16];
+    memcpy(row, game.item_types.type[3], sizeof row);
+    game.item_types.type[3][14] = 9;
+    static const struct { uint8_t bow, arrows; bool avoided; } shot[] = {{1, 0, true}, {0, 1, false}};
+    for (size_t k = 0; k < sizeof shot / sizeof *shot; ++k) {
+        cok_character *a, *t;
+        duel_at(&a, &t, 7, 5);
+        uint8_t bow[COK_ITEM_SIZE] = {0}, arrows[COK_ITEM_SIZE] = {0};
+        bow[0x28] = 3;
+        bow[0x30] = shot[k].bow;
+        arrows[0x30] = shot[k].arrows;
+        CHECK(cok_character_insert_item(a, 0, bow) && cok_character_insert_item(a, 1, arrows));
+        a->slots[0] = 1;
+        a->slots[11] = 2;
+        CHECK(cok_character_add_effect(t, 0x29, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.effects.rolls.amount16 = 9;
+        game.effects.rolls.attack_roll = 10;
+        game.vm.seed = 1234;
+        CHECK(cok_effects_dispatch(&game.effects, t, 5) && game.vm.status == COK_ECL_OK);
+        CHECK(LOGGED("Avoids it") == shot[k].avoided && (game.effects.rolls.attack_roll == 0xff) == shot[k].avoided);
+        game.vm.character = NULL;
+    }
+    memcpy(game.item_types.type[3], row, sizeof row);
+    game.effects.in_battle = false;
+    battle_clear();
+}
+
+/* 78e4:0acf (0x38, add invisibility; ev 8; not applied_only): event 8 adds 0x19 for a minute, value 0x0c, flag 0. Removed
+ * in battle (mode 5) it takes the first 0x19; removed outside battle nothing goes. */
+static void test_effects3_add_invisible(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 0, false) != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 8) && game.vm.status == COK_ECL_OK);
+    cok_effect *inv = cok_character_find_effect(t, 0x19);
+    CHECK(inv != NULL && inv->duration == 1 && inv->value == 0x0c && !inv->on_remove);
+    /* A second 0x19 after it: the removal takes the first, the later stays. */
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0x55, false) != NULL);
+    cok_effect *gone = cok_character_add_effect(t, 0x38, 0, 0, true);
+    CHECK(gone != NULL && cok_effects_remove(&game.effects, t, gone, 0x38) && game.vm.status == COK_ECL_OK);
+    cok_effect *left = cok_character_find_effect(t, 0x19);
+    CHECK(left != NULL && left->value == 0x55 && left != inv);
+    /* Outside battle, nothing is removed. */
+    game.vm.mode = 4;
+    gone = cok_character_add_effect(t, 0x38, 0, 0, true);
+    CHECK(gone != NULL && cok_effects_remove(&game.effects, t, gone, 0x38) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x19) == left);
+    game.vm.mode = 5;
+    battle_clear();
+}
+
+/* effects-3's add_raw stop (the effects' pool, effect.c's add): with the pool full, 0x19 is not added: the port stops,
+ * cited as effect.c's (dqk 19c2). */
+static void test_effects3_pool(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    unsigned n = 0;
+    for (size_t i = 0; i < game.party.count; ++i)
+        for (const cok_effect *e = game.party.members[i]->effects; e != NULL; e = e->next) ++n;
+    for (; n + 1 < R->effects.pool_size; ++n) CHECK(cok_character_add_effect(t, 0x01, 0, 0, false) != NULL);
+    /* One node short of full: the add is made (the pool then full). */
+    CHECK(cok_effects_run(&game.effects, t, 0x38, NULL) && cok_character_find_effect(t, 0x19) != NULL);
+    CHECK(!cok_effects_run(&game.effects, a, 0x38, NULL));
+    CHECK(strstr(game.effects.error, "effect 0x19") != NULL && strstr(game.effects.error, "pool is full") != NULL &&
+          strstr(game.effects.error, "19c2") != NULL);
+    CHECK(cok_character_find_effect(a, 0x19) == NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.failed = false;
+    game.effects.error[0] = '\0';
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -4353,6 +5368,10 @@ int main(void)
     test_held_ends_turn();
     test_cancel_word();
     test_own_hook_missing();
+    test_effects_four_charm();
+    test_effects_four_silence();
+    test_effects_four_confusion();
+    test_effects_four_terror();
     test_band_b2_fireball();
     test_band_b2_flame();
     test_band_b2_ice();
@@ -4369,10 +5388,27 @@ int main(void)
     test_band_b3_lightning();
     test_band_b3_lightning_wet();
     test_band_b3_javelin();
+    test_effects5_poison();
+    test_effects5_drain();
+    test_effects5_wasting();
+    test_effects5_disease();
     test_cone();
     test_cone_of_cold();
     test_meteor_try();
     test_meteor_swarm();
+    test_effects2_resist();
+    test_effects2_shield();
+    test_effects2_barkskin_ray();
+    test_effects2_globes();
+    test_effects2_resistant();
+    test_effects2_applied_only();
+    test_effects3_images();
+    test_effects3_haste();
+    test_effects3_slow();
+    test_effects3_prayer();
+    test_effects3_missiles();
+    test_effects3_add_invisible();
+    test_effects3_pool();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
