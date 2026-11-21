@@ -1837,44 +1837,314 @@ static void test_cure_light(void)
     battle_clear();
 }
 
-/* The apply (dqk 849a:10f9): no target (count 0) leaves the damage type it was given; a save spell
- * (word +0xa) stops at 148f:1886; a touch (the cast's +3 0xff) stops at 148f:1771; a target's damage
- * leaves the type cleared after. */
+/* The saving throw (dqk 148f:1886, queen_save) against a type 4 saving throw of 10 (the record's
+ * byte at +0x8f). A holder of 0x76 rolls 1 and fails with one draw and no event; a natural 1 fails
+ * and a 20 saves, both with no event 0x0c (save_type keeps its sentinel). Otherwise the roll is d20
+ * plus the save bonus (+0xcb, signed) plus the mage's moon (class 5 above 0 and order above 0, both
+ * unsigned: order 1-3 reads COK_VAR_MOONS, 4-6 COK_VAR_MOON_DAYS; the byte 0 takes one off, 2 adds
+ * one); the event 0x0c runs with save_type set. An order past the moons stops, cited. */
+static void test_queen_save(void)
+{
+    const uint8_t type = 4;
+    const cok_character_layout *L = R->character;
+    cok_character *a, *t;
+    bool made;
+    game.vm.mode = 5; /* the battle */
+    duel(&a, &t);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    CHECK(cok_character_add_effect(t, 0x76, 0, 0, false) != NULL);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    uint32_t want = after_draws(game.vm.seed, 1, 20);
+    game.effects.rolls.save_type = 0x55;
+    made = true;
+    CHECK(queen_save(&game, t, type, 0, &made) && !made && game.vm.seed == want);
+    CHECK(game.effects.rolls.save_roll == 1 && game.effects.rolls.save_type == 0x55);
+    CHECK(game.vm.status == COK_ECL_OK);
+    /* Without the holder: a natural 20 saves and a natural 1 fails, both with no event. */
+    duel(&a, &t);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    game.effects.rolls.save_type = 0x55;
+    made = false;
+    CHECK(queen_save(&game, t, type, 0, &made) && made && game.effects.rolls.save_type == 0x55);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    made = true;
+    CHECK(queen_save(&game, t, type, 0, &made) && !made && game.effects.rolls.save_type == 0x55);
+    /* A roll of 10 against 10 saves; the mage of order 1 with moon 0 rolls 9 (fails), moon 2 rolls
+     * 11, and moon 1 or 3 leave the 10. Threshold 11 then saves only with moon 2. */
+    for (unsigned threshold = 10; threshold <= 11; ++threshold)
+        for (uint8_t phase = 0; phase <= 3; ++phase) {
+            duel(&a, &t);
+            set_class(t, 5, 3);
+            cok_field_set8(L, t->record, COK_FIELD_MAGIC_ORDER, 1);
+            cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, phase);
+            cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, (uint8_t)threshold);
+            game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+            made = false;
+            CHECK(queen_save(&game, t, type, 0, &made) && game.vm.status == COK_ECL_OK);
+            int roll = 10 + (phase == 0 ? -1 : phase == 2 ? 1 : 0);
+            CHECK(made == (roll >= (int)threshold));
+            CHECK(game.effects.rolls.save_roll == roll && game.effects.rolls.save_type == type);
+        }
+    /* Order 4 reads COK_VAR_MOON_DAYS[0] (0 takes one off), not the phases. */
+    duel(&a, &t);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    set_class(t, 5, 3);
+    cok_field_set8(L, t->record, COK_FIELD_MAGIC_ORDER, 4);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOON_DAYS, 0, 0);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 2);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = true;
+    CHECK(queen_save(&game, t, type, 0, &made) && !made && game.effects.rolls.save_roll == 9);
+    /* Class 5 0x80 is above 0 (unsigned): the same moon 0 takes one off. */
+    duel(&a, &t);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    set_class(t, 5, 0x80);
+    cok_field_set8(L, t->record, COK_FIELD_MAGIC_ORDER, 1);
+    cok_ecl_set_var_at(&game.vm, COK_VAR_MOONS, 0, 0);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = true;
+    CHECK(queen_save(&game, t, type, 0, &made) && !made && game.effects.rolls.save_roll == 9);
+    /* The save bonus is signed: -2 (0xfe) takes 2 off the 10. */
+    duel(&a, &t);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 9);
+    cok_field_set8(L, t->record, COK_FIELD_SAVE_BONUS, 0xfe);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = true;
+    CHECK(queen_save(&game, t, type, 0, &made) && !made && game.effects.rolls.save_roll == 8);
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 8);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = false;
+    CHECK(queen_save(&game, t, type, 0, &made) && made);
+    /* The roll wraps as a byte and is compared unsigned (1886's jbe): -16 (0xf0) on a 10 is 0xfa,
+     * at or above a saving throw of 10. */
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    cok_field_set8(L, t->record, COK_FIELD_SAVE_BONUS, 0xf0);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = false;
+    CHECK(queen_save(&game, t, type, 0, &made) && made && game.effects.rolls.save_roll == 0xfa);
+    /* Order 7 is past the moons' days: stopped, cited. */
+    duel(&a, &t);
+    set_class(t, 5, 3);
+    cok_field_set8(L, t->record, COK_FIELD_MAGIC_ORDER, 7);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    made = true;
+    CHECK(!queen_save(&game, t, type, 0, &made) && game.vm.status == COK_ECL_UNPORTED &&
+          strstr(game.error, "148f:1886") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* The apply's saving throw (dqk 849a:10f9) with Ray of Enfeeblement (0x21: save kind 1, type 4, effect
+ * 0x1d "is weakened"): a natural 20 saves it (no effect, "is Unaffected"), a natural 1 fails it (the
+ * effect is added with its text); status 10 saves it with no roll, so a roll of 1 does not fail it. */
 static void test_spell_apply(void)
 {
-    game.vm.mode = 5; /* the battle */
+    const uint8_t ray = 0x21, type = 4;
     cok_character *a, *t;
-    duel(&a, &t);
+    CHECK(queen_spell_word(&game, ray, 0x0a) == 1 && queen_spell_byte(&game, ray, 0x0c) == type &&
+          queen_spell_byte(&game, ray, 0x0e) == 0x1d);
+    game.vm.mode = 5; /* the battle */
+    /* No target (count 0): the damage type it was given is kept (DS:bebd is set before 10f9's
+     * count test). */
     game.spell_target_count = 0;
     game.effects.rolls.damage_type = 8;
     CHECK(queen_spell_apply(&game, 0x0f, 0, false, 3, 2, "") && game.effects.rolls.damage_type == 2);
+    /* Saved by a natural 20. */
+    duel(&a, &t);
+    game.vm.character = a->record;
     game.spell_targets[1] = t;
     game.spell_target_count = 1;
-    game.effects.rolls.spell = 0x0f;
-    uint8_t saved_spell = spell_of_kind(0);
-    uint8_t saving = 0;
-    for (unsigned id = 1; id < 0x8d && saving == 0; ++id)
-        if (queen_spell_word(&game, id, 0xa) != 0) saving = (uint8_t)id;
-    CHECK(saving != 0 && saved_spell != 0);
+    game.effects.rolls.spell = ray;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    CHECK(queen_spell_apply(&game, ray, 0, false, 0, 0, "is weakened") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1d) == NULL && LOGGED("is Unaffected"));
+    /* A natural 1 fails it: the effect is added and said. */
+    duel(&a, &t);
     game.vm.character = a->record;
-    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
-    CHECK(!queen_spell_apply(&game, saving, 0, false, 0, 0, "") &&
-          game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "148f:1886") != NULL);
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = ray;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, type, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(queen_spell_apply(&game, ray, 0, false, 0, 0, "is weakened") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1d) != NULL && LOGGED("is weakened"));
+    /* Status 10 saves it without a roll: the natural 1 that would fail it is not drawn. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = ray;
+    cok_field_set8(R->character, t->record, COK_FIELD_STATUS, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(queen_spell_apply(&game, ray, 0, false, 0, 0, "is weakened") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x1d) == NULL && LOGGED("is Unaffected"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* The touch (dqk 849a:10f9's +3 0xff): each target's hit roll (148f:1771, the caster against its
+ * armour class, 0 here: a natural 20 hits, a natural 1 misses). A hit applies the damage; a miss zeroes
+ * the damage for this target and every later one, and saves this target. Invisibility to Animals (0x50,
+ * save kind 0, effect 0x45) takes its effect either way; Cause Blindness (0x26, save kind 1, type 4,
+ * effect 0x21) is refused once a miss has saved its target. */
+static void test_spell_touch(void)
+{
+    const uint8_t invis = 0x50, blind = 0x26;
+    cok_character *a, *t, *t2;
+    game.vm.mode = 5; /* the battle */
+    CHECK(queen_spell_byte(&game, invis, 0x03) == 0xff && queen_spell_word(&game, invis, 0x0a) == 0 &&
+          queen_spell_byte(&game, invis, 0x0e) == 0x45);
+    CHECK(queen_spell_byte(&game, blind, 0x03) == 0xff && queen_spell_word(&game, blind, 0x0a) == 1 &&
+          queen_spell_byte(&game, blind, 0x0e) == 0x21);
+    /* A hit: 3 points of damage, and the effect. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = invis;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    CHECK(queen_spell_apply(&game, invis, 0, false, 3, 8, "") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 7);
+    CHECK(LOGGED("takes 3 points of damage from Magic") && cok_character_find_effect(t, 0x45) != NULL);
+    /* A miss on the first target and a hit on the second (armour class 0): no damage to either, since
+     * the miss zeroed the amount; both take the kind-0 effect. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    t2 = record('N', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    game.spell_targets[1] = t;
+    game.spell_targets[2] = t2;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = invis;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 20, 20});
+    CHECK(queen_spell_apply(&game, invis, 0, false, 3, 8, "") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 10);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_HIT_POINTS) == 10);
+    CHECK(!LOGGED("takes 3") && cok_character_find_effect(t, 0x45) != NULL &&
+          cok_character_find_effect(t2, 0x45) != NULL);
+    /* A miss saves its target: Cause Blindness's kind-1 effect is refused, with the save roll (1) first
+     * and the touch's miss (1) after it. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = blind;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 1, 1});
+    CHECK(queen_spell_apply(&game, blind, 0, false, 0, 0, "is blind") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x21) == NULL && LOGGED("is Unaffected"));
+    /* A hit with the save failed: the kind-1 effect is added. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = blind;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 20, 20});
+    CHECK(queen_spell_apply(&game, blind, 0, false, 0, 0, "is blind") && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && LOGGED("is blind"));
+    /* The touch's event 0x0b runs on the target before the hit roll: a holder of 0x04 (its handler a
+     * cited stop, 78e4:0168) stops there, with no draw. */
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    game.effects.rolls.spell = invis;
+    CHECK(cok_character_add_effect(t, 0x04, 0, 0, false) != NULL);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    uint32_t before = game.vm.seed;
+    /* The stop is the effect's own (COK_ECL_EFFECT_FAILED, with the handler's text). */
+    CHECK(!queen_spell_apply(&game, invis, 0, false, 3, 8, "") &&
+          game.vm.status == COK_ECL_EFFECT_FAILED && strstr(game.error, "78e4:0168") != NULL &&
+          game.vm.seed == before);
     game.vm.status = COK_ECL_OK;
     game.error[0] = '\0';
-    uint8_t touch = 0;
-    for (unsigned id = 1; id < 0x8d && touch == 0; ++id)
-        if (queen_spell_byte(&game, id, 3) == 0xff) touch = (uint8_t)id;
-    CHECK(touch != 0);
-    game.effects.rolls.spell = touch;
-    CHECK(!queen_spell_apply(&game, 0x0f, 0, false, 0, 0, "") &&
-          game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "849a:10f9 touch") != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.error[0] = '\0';
-    game.effects.rolls.spell = 0x0f;
-    game.vm.seed = seed_from(1, (const unsigned[]){4, 2, 2});
-    CHECK(queen_spell_apply(&game, 0x0f, 0, false, 3, 8, "") && game.effects.rolls.damage_type == 0);
-    CHECK(LOGGED("takes 3 points of damage from Magic"));
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
+    battle_clear();
+}
+
+/* The slot a test's handler of event 0x0b puts in place of the target (none: kept), and the count of
+ * targets it leaves (0: kept). */
+static cok_character *slot_to;
+static uint8_t slot_count;
+
+static bool swap_slot(cok_effects *fx, void *context)
+{
+    cok_adventure *g = context;
+    if (slot_to != NULL) *fx->target = slot_to;
+    if (slot_count != 0) g->spell_target_count = slot_count;
+    return true;
+}
+
+/* The touch reads the slot again after its event 0x0b (dqk 849a:10f9 1247-133e) and the count each
+ * pass (1347). No ported Dark Queen handler swaps a slot (0x47's turning is a cited stop), so a copy of
+ * the rules puts effect 0x22 (in no list) on event 0x0b alone with Champions' 0x4a handler (3f44:26a5:
+ * a d20 of 1 calls fx->dispel), whose hook here swaps the slot or cuts the count. The swap: the hit
+ * roll (against its armour class, not recomputed), the damage and the effect go to the record put in
+ * the slot. The cut to 1 on the first target's
+ * event leaves the second untouched. */
+static void test_spell_touch_slot(void)
+{
+    const uint8_t invis = 0x50, turn = 0x22;
+    const cok_rules_effects *E = &R->effects;
+    static cok_rules rules;
+    static cok_rules_effect handlers[0x100];
+    static const uint8_t *events[0x20];
+    static const uint8_t on_touch[] = {turn, 0};
+    CHECK(turn < E->count && E->count <= 0x100 && 0x0b < E->event_count && E->event_count <= 0x20);
+    rules = *R;
+    memcpy(handlers, E->handlers, E->count * sizeof *handlers);
+    handlers[turn] = (cok_rules_effect){.handler = COK_FX_DISPELLING};
+    for (unsigned e = 0; e < E->event_count; ++e) events[e] = E->events[e];
+    events[0x0b] = on_touch;
+    rules.effects.handlers = handlers;
+    rules.effects.events = events;
+    bool (*dispel)(cok_effects *, void *) = game.effects.dispel;
+    game.rules = game.effects.rules = &rules;
+    game.effects.dispel = swap_slot;
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t, *t2;
+    for (int cut = 0; cut < 2; ++cut) {
+        duel(&a, &t);
+        t2 = record('N', 1, 0);
+        place(t2, 7, 5);
+        cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+        CHECK(cok_character_add_effect(t, turn, 0, 0, false) != NULL);
+        game.vm.character = a->record;
+        game.spell_targets[1] = t;
+        game.spell_targets[2] = cut ? t2 : NULL;
+        game.spell_target_count = cut ? 2 : 1;
+        game.effects.rolls.spell = invis;
+        slot_to = cut ? NULL : t2;
+        slot_count = cut ? 1 : 0;
+        /* The stats (0be2) are recomputed for the target before the event, and the armour class is
+         * read from the slot after it: the swap's t has 60 from its base and t2 keeps its 0 over a
+         * base of 60; the cut's t has 0 from its base over a stale 60. The hit's 10 (with THAC0 10)
+         * meets 0, not 60. */
+        cok_field_set8(R->character, t->record, COK_FIELD_BASE_AC, cut ? 0 : 60);
+        cok_field_set8(R->character, t->record, COK_FIELD_AC, 60);
+        cok_field_set8(R->character, t2->record, COK_FIELD_BASE_AC, 60);
+        /* The handler's d20 of 1, then the hit's 10. */
+        game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 10, 10});
+        CHECK(queen_spell_apply(&game, invis, 0, false, 3, 8, "") && game.vm.status == COK_ECL_OK);
+        cok_character *hit = cut ? t : t2, *left = cut ? t2 : t;
+        CHECK(game.spell_targets[1] == hit && game.spell_target_count == 1);
+        CHECK(cok_field_u8(R->character, hit->record, COK_FIELD_HIT_POINTS) == 7 &&
+              cok_character_find_effect(hit, 0x45) != NULL);
+        CHECK(cok_field_u8(R->character, left->record, COK_FIELD_HIT_POINTS) == 10 &&
+              cok_character_find_effect(left, 0x45) == NULL);
+    }
+    game.rules = game.effects.rules = R;
+    game.effects.dispel = dispel;
+    slot_to = NULL;
+    slot_count = 0;
+    game.spell_targets[2] = NULL;
     game.vm.character = NULL;
     game.spell_target_count = 0;
     battle_clear();
@@ -2040,7 +2310,10 @@ int main(void)
     test_spell_duration();
     test_magic_missile();
     test_cure_light();
+    test_queen_save();
     test_spell_apply();
+    test_spell_touch();
+    test_spell_touch_slot();
     test_spell_damage();
     cok_party_free(&game.party);
     puts("queen fight tests passed");

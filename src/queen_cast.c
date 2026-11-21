@@ -37,6 +37,7 @@ enum {
     SPELL_DURATION_LEVEL = 0x06,
     SPELL_TARGETING = 0x07,    /* the low nibble the kind; 0 with a range of 0 is 1 */
     SPELL_SAVE_KIND = 0x0a,    /* a word: 0 none, 1 none on a save, 2 half */
+    SPELL_TYPE = 0x0c,         /* a word: the saving throw's type, 0-4 (849a:10f9 passes it to 148f:1886) */
     SPELL_EFFECT = 0x0e,       /* the effect added, 0 none */
     SPELL_HALF_RANGE = 0x7d,   /* its range is a quarter (849a:0f34) */
     SPELL_ALLIES = 0x13,       /* a word: 0 for the caster's own side (the computer's aim, part 29b) */
@@ -46,6 +47,7 @@ enum {
     MAGIC_ORDER = 0x19d,
     EFFECT_96 = 0x96,          /* the effect 849a:10f9 checks on a target (with spell 0x37) */
     SPELL_37 = 0x37,
+    SAVE_FAIL_EFFECT = 0x76,   /* the holder of this effect rolls 1 in 148f:1886 */
     TOUCH = 0xff,
     STATUS_TEN = 10,           /* the status word 0xa: saved by a spell (849a:10f9), no death */
 };
@@ -365,39 +367,132 @@ bool queen_cast_damage(cok_adventure *game, cok_character *t, uint16_t amount, u
     return true;
 }
 
+/* The character of a combatant's record (NULL for none, or a record not in the combat). */
+static cok_character *combatant_of(cok_adventure *game, const uint8_t *record)
+{
+    uint8_t n = cok_combat_index(&game->combat, record);
+    return n == 0 ? NULL : game->combat.combatant[n].character;
+}
+
+/* 177e:0be2 on c (cok_character_stats); its error ends the run as undefined. */
+static bool recompute(cok_adventure *game, cok_character *c)
+{
+    char error[300];
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error))
+        return true;
+    return undefined(game, error);
+}
+
+/* The byte at var 0x1f9 + order: the moons' phases (orders 1-3, COK_VAR_MOONS), then their days
+ * (orders 4-6, COK_VAR_MOON_DAYS); the caller stops past 6. */
+static uint8_t moon_byte(cok_adventure *game, uint8_t order)
+{
+    return order <= 3 ? (uint8_t)cok_ecl_var_at(&game->vm, COK_VAR_MOONS, order - 1)
+                      : (uint8_t)cok_ecl_var_at(&game->vm, COK_VAR_MOON_DAYS, order - 4);
+}
+
+/* 148f:1886 (t, type, bonus): the saving throw of t by type (the spell's +0xc word, 0-4), with
+ * bonus (0 in the apply). The roll is d20; a holder of 0x76 rolls 1. A roll of 1 fails and a 20
+ * saves, both with no event. Otherwise a mage (class 5 above 0, order above 0, both unsigned) gets
+ * -1 or +1 from its moon's byte, then the roll is the save bonus (+0xcb, signed) plus the roll plus
+ * the bonus, the type is kept for the event 0x0c on t (its slot, a copy here, may be swapped), and
+ * the save is made when t's saving throw of that type (+0x8b + type, unbounded within the record)
+ * is at most the roll. An order past the moons stops, cited. False where the run stopped. */
+bool queen_save(cok_adventure *game, cok_character *t, uint8_t type, uint8_t bonus, bool *made)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_rolls *r = &game->effects.rolls;
+    r->save_made = 1;
+    r->save_roll = roll(game, 1, 20);
+    if (cok_character_find_effect(t, SAVE_FAIL_EFFECT) != NULL) r->save_roll = 1;
+    if (r->save_roll == 1) {
+        r->save_made = 0;
+    } else if (r->save_roll != 20) {
+        if (cok_field_u8_at(L, t->record, COK_FIELD_CLASS_LEVEL, 5) > 0 &&
+            cok_field_u8(L, t->record, COK_FIELD_MAGIC_ORDER) > 0) {
+            uint8_t order = cok_field_u8(L, t->record, COK_FIELD_MAGIC_ORDER);
+            if (order > 6)
+                return cok_adventure_not_yet(game, "a saving throw by a mage past the moons (var "
+                                                   "0x1f9 + order, past its days)",
+                                             "dqk 148f:1886 reads var 0x1f9 + order past the moons' days");
+            uint8_t moon = moon_byte(game, order);
+            if (moon == 0) bonus = (uint8_t)(bonus - 1);
+            else if (moon == 2) bonus = (uint8_t)(bonus + 1);
+        }
+        r->save_roll = (uint8_t)(cok_field_s8(L, t->record, COK_FIELD_SAVE_BONUS) + r->save_roll +
+                                 bonus);
+        r->save_type = type;
+        cok_character *slot = t;
+        if (!dispatch_at(game, &slot, 0x0c)) return false;
+        t = slot;
+        long at = cok_field_offset_unchecked(L, COK_FIELD_SAVING_THROW, 0, type);
+        if (at < 0 || at >= L->size)
+            return undefined(game, "a saving throw type outside the record (148f:1886's +0x8b + type)");
+        r->save_made = t->record[at] <= r->save_roll;
+    }
+    *made = r->save_made != 0;
+    return true;
+}
+
 bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool on_remove,
                        uint8_t amount, uint8_t type, const char *text)
 {
     cok_rolls *r = &game->effects.rolls;
     r->damage_type = amount != 0 ? type : 0;
-    uint8_t n = game->spell_target_count;
-    if (n == 0) return true;
+    if (game->spell_target_count == 0) return true;
     if (value == 0 && !level_of(game, spell, true, &value)) return false;
     uint8_t save_kind = (uint8_t)queen_spell_word(game, spell, SPELL_SAVE_KIND);
     uint8_t effect = queen_spell_byte(game, spell, SPELL_EFFECT);
-    for (uint8_t i = 1; i <= n; ++i) {
-        cok_character *t = game->spell_targets[i];
-        if (t == NULL) continue;
+    /* The count and each target are read again at every use: the touch's event may swap a slot. */
+    for (uint8_t i = 1; i <= game->spell_target_count; ++i) {
+        if (game->spell_targets[i] == NULL) continue;
         bool saved = false;
         if (queen_spell_word(game, spell, SPELL_SAVE_KIND) != 0) {
             const cok_character_layout *L = cok_game_rules(game)->character;
+            cok_character *t = game->spell_targets[i];
             if (cok_field_u8(L, t->record, COK_FIELD_STATUS) == STATUS_TEN)
                 saved = true;
             else if (cok_character_find_effect(t, EFFECT_96) != NULL && r->spell == SPELL_37)
                 saved = true;
-            else
-                return cok_adventure_not_yet(game, "a spell's saving throw (148f:1886)",
-                                             "dqk 148f:1886 (the spell's saving throw, a band's)");
+            else {
+                bool made = false;
+                if (!queen_save(game, t, (uint8_t)queen_spell_word(game, spell, SPELL_TYPE), 0,
+                                &made))
+                    return false;
+                saved = made;
+            }
         }
-        if (queen_spell_byte(game, r->spell, SPELL_RANGE) == TOUCH)
-            return cok_adventure_not_yet(game, "a spell cast by touch (the hit roll, 148f:1771)",
-                                         "dqk 849a:10f9 touch (148f:1771)");
-        if (amount != 0 && !queen_cast_damage(game, t, amount, save_kind, saved)) return false;
+        if (queen_spell_byte(game, r->spell, SPELL_RANGE) == TOUCH) {
+            /* 849a:10f9's touch: the stats recomputed (0be2), the event 0x0b on the slot, then the
+             * hit roll (148f:1771) of the caster against the target's armour class. A miss zeroes
+             * the amount for this and every later target, and saves this one. */
+            const cok_character_layout *L = cok_game_rules(game)->character;
+            if (!recompute(game, game->spell_targets[i])) return false;
+            if (!dispatch_at(game, &game->spell_targets[i], 0x0b)) return false;
+            if (game->spell_targets[i] == NULL)
+                return undefined(game, "the touch's target slot is NULL after event 0x0b (DS:c5df)");
+            uint8_t *caster = caster_of(game);
+            if (caster == NULL) return false;
+            cok_character *attacker = combatant_of(game, caster);
+            if (attacker == NULL)
+                return undefined(game, "the caster has no combatant for the touch's hit roll (DS:ad67, "
+                                       "148f:1771)");
+            cok_character *t = game->spell_targets[i];
+            bool hit = false;
+            if (!cok_combat_hit(game, attacker, t, cok_field_u8(L, t->record, COK_FIELD_AC), &hit))
+                return false;
+            if (!hit) {
+                amount = 0;
+                saved = true;
+            }
+        }
+        if (amount != 0 && !queen_cast_damage(game, game->spell_targets[i], amount, save_kind, saved))
+            return false;
         if (effect > 0) {
             uint16_t minutes;
             if (!queen_spell_duration(game, spell, &minutes) ||
-                !cok_cast_add_effect(game, t, effect, minutes, value, on_remove, save_kind, saved,
-                                     text))
+                !cok_cast_add_effect(game, game->spell_targets[i], effect, minutes, value, on_remove,
+                                     save_kind, saved, text))
                 return false;
         }
     }
@@ -481,13 +576,6 @@ static cok_character *caster_member(cok_adventure *game)
     if (game->vm.character == NULL) return NULL;
     size_t i = cok_party_index(&game->party, game->vm.character);
     return i < game->party.count ? game->party.members[i] : NULL;
-}
-
-/* The character of a combatant's record (NULL for none, or a record not in the combat). */
-static cok_character *combatant_of(cok_adventure *game, const uint8_t *record)
-{
-    uint8_t n = cok_combat_index(&game->combat, record);
-    return n == 0 ? NULL : game->combat.combatant[n].character;
 }
 
 /* Whether who is one of the targets 1 to picks. */
