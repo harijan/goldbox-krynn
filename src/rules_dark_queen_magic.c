@@ -452,10 +452,16 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x59] = {0x12f3, COK_FX_MISSING, "dqk 78e4:12f3"},
     [0x5a] = {0x0ebf, COK_FX_MISSING, "dqk 7e76:0ebf"},
     [0x5b] = {0x10ab, COK_FX_MISSING, "dqk 7e76:10ab"},
-    [0x5c] = {0x1334, COK_FX_MISSING, "dqk 78e4:1334"},
+    /* The racial effects 0x5c, 0x5e and 0x5f (cancel, constitution save, resist charm 90;
+     * Death Knights' 504d:2162, 21bd and 223d, with the same constants). DQK's three test the
+     * removing flag first and do nothing when it is set; the shared routines do not. The racial
+     * nodes are made with the flag 0 (queen_create.c 148f:19c2), so they never run removing. The
+     * cancel zeroes rolls.amount (a byte) where 78e4:00a1 zeroes the word: no difference at
+     * event 9 or 0x0c. */
+    [0x5c] = {0x1334, COK_FX_CANCEL, NULL, 0x6f}, /* 78e4:1334 cancels 0x6f (00a1) */
     [0x5d] = {0x1347, COK_FX_MISSING, "dqk 78e4:1347"},
-    [0x5e] = {0x1355, COK_FX_MISSING, "dqk 78e4:1355"},
-    [0x5f] = {0x13df, COK_FX_MISSING, "dqk 78e4:13df"},
+    [0x5e] = {0x1355, COK_FX_CONSTITUTION_SAVE}, /* 78e4:1355: saves of types 0, 2, 4 */
+    [0x5f] = {0x13df, COK_FX_RESIST_CHARM_90}, /* 78e4:13df: a d100 of 90 or less, 0x0b, 0x35 */
     [0x60] = {0x12a1, COK_FX_MISSING, "dqk 7e76:12a1"},
     [0x61] = {0x140c, COK_FX_MISSING, "dqk 78e4:140c"},
     [0x62] = {0x148c, COK_FX_MISSING, "dqk 78e4:148c"},
@@ -594,7 +600,8 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
 
 /* The effect ids the code names (spells.h). Each is the id the original's routine tests:
  * CHARMED and BERSERK by the battle's end (5045:0001 and 1b66's test), INVISIBLE by the attack,
- * YELLED_AT by a yell (148f:0005's add; View's Lay tests it too, 86b8:314e: that routine stops).
+ * YELLED_AT by a yell (148f:0005's add; View's Lay tests it too, 86b8:314e: that routine stops),
+ * and ASLEEP by the resist-charm 90 (78e4:13df).
  * Every other name is 0 (the game has none under it yet, read as false by cok_effect_is and
  * cok_character_find_named; cok_effect_id asserts), so a routine that finds one of those names
  * must be ported with its id first (dqk-effects-a..e). */
@@ -610,6 +617,8 @@ const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_YELLED_AT] = 0x8c,
     /* 52db:1b26: the spiritual hammer's 0x17 (a thrown weapon with it is not put in the pool). */
     [COK_EFFECT_HAMMER] = 0x17,
+    /* 78e4:13df's cancel (0x5f): the sleep, as in Champions (rules.c). */
+    [COK_EFFECT_ASLEEP] = 0x35,
 };
 
 /* The event lists (148f:0512, a0512.txt): by event, the ids its handlers run, 0-ended, in
