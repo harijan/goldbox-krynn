@@ -4385,7 +4385,7 @@ static void test_effects2_barkskin_ray(void)
 
 /* Globe (0x28, 78e4:073b): a spell of level below 8 cancelled (its damage and pending effect), level 8 not, and none (spell 0)
  * not. Globe of Invulnerability (0x39, 0b11): rolls.spell above 0, level 4 or below and the magic type (8): level 1 with type
- * 9 cancelled; the same with type 1 not; level 5 with type 8 not. */
+ * 9 cancelled; the same with type 1 not; level 5 with type 8 not, level 4 with type 8 cancelled. */
 static void test_effects2_globes(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -4423,6 +4423,11 @@ static void test_effects2_globes(void)
     game.effects.rolls.spell = 0x5c;
     CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
     set_rolls(5, 8, 0);
+    game.effects.rolls.spell = (uint8_t)spell_of_level(4); /* level 4, the last cancelled */
+    game.effects.rolls.pending = 0x6f;
+    CHECK(game.effects.rolls.spell != 0 && cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 0 &&
+          game.effects.rolls.pending == 0);
+    set_rolls(5, 8, 0);
     game.effects.rolls.spell = 0;
     CHECK(cok_effects_dispatch(&game.effects, u, 6) && game.effects.rolls.amount16 == 5);
     game.effects.rolls.pending = 0;
@@ -4432,7 +4437,7 @@ static void test_effects2_globes(void)
 }
 
 /* Resistant (0x32, 78e4:0a22: cold, saved by 2; the fire of it is doubled unsaved) and 0x36 (0a7e: the mirror, fire saved and cold
- * doubled). A saved type takes 2 from the save; its damage is zeroed when the save is made, halved when not. */
+ * doubled). A saved type adds 2 to the save roll; its damage is zeroed when the save is made, halved when not. */
 static void test_effects2_resistant(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -4469,7 +4474,8 @@ static void test_effects2_resistant(void)
 }
 
 /* Each of the nine is applied_only: a node of flag 1 removed changes no roll, even with the damage, the type and the spell that
- * would change them. */
+ * would change them: the type 0x0b (fire, cold and magic) is one each of the nine acts on when applied (0x0a's cold and 0x32's
+ * cold among them, which fire and magic alone leave alone). */
 static void test_effects2_applied_only(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -4479,7 +4485,7 @@ static void test_effects2_applied_only(void)
     for (size_t i = 0; i < sizeof ids / sizeof *ids; ++i) {
         cok_effect *e = cok_character_add_effect(t, ids[i], 0, 0, true);
         CHECK(e != NULL);
-        set_rolls(9, 9, 10);
+        set_rolls(9, 0x0b, 10);
         game.effects.rolls.spell = 0x0f;
         game.effects.rolls.attack_roll = 10;
         game.effects.rolls.pending = 0x6f;
