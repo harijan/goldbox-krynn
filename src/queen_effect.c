@@ -355,6 +355,87 @@ static bool terror(cok_adventure *game, cok_character *c, bool removing)
     return true;
 }
 
+/* effects-5: timers. These run when their node is removed (its count-down) with flag 1, or when
+ * called (0x22 by its spell); they read the node's value, so a run with no
+ * node (cok_effects_run's NULL) is a stop: the original reads 0000:0003. */
+static bool no_timer_node(cok_adventure *game, const char *routine)
+{
+    return cok_adventure_not_yet(game, "a timer run with no effect (its value is read at 0000:0003)",
+                                 routine);
+}
+
+/* The timers' point of damage (poison 023d and wasting 0920): 1 of type 0, not saved, through
+ * queen_cast_damage (148f:2214); then outside a battle the party list is drawn again, which stops
+ * (5e22:0065). The caller has checked that the character has more than one hit point (+0x198). */
+static bool ticking_damage(cok_adventure *game, cok_character *c)
+{
+    game->effects.rolls.damage_type = 0;
+    if (!queen_cast_damage(game, c, 1, 0, false)) return false;
+    if (game->vm.mode != 5)
+        return cok_adventure_not_yet(game, "the party list drawn again after a poison's point",
+                                     "dqk 5e22:0065");
+    return true;
+}
+
+/* 78e4:023d (0x0f, poison; either flag): again(c, 0x1a, value, 10) (the original re-adds 0x1a, ROARK's
+ * +1-to-hit id, not 0x0f; reproduced); added, and a character with more than one hit point takes the
+ * ticking damage. */
+static bool poison(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    if (effect == NULL) return no_timer_node(game, "dqk 78e4:023d");
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    bool added;
+    if (!again(game, c, 0x1a, effect->value, 10, &added)) return false;
+    if (!added || cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) <= 1) return true;
+    return ticking_damage(game, c);
+}
+
+/* 78e4:0696 (0x22, cause disease; applied_only): the handlers of 0x2b and 0x2c run with flag 0 and this
+ * node (58e5, cok_effects_run), 0x2b first. */
+static bool disease(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    if (!cok_effects_run(&game->effects, c, 0x2b, effect)) return cok_adventure_effect_failed(game);
+    if (!cok_effects_run(&game->effects, c, 0x2c, effect)) return cok_adventure_effect_failed(game);
+    return true;
+}
+
+/* 78e4:08ba (0x2b, strength drain; either flag): again(c, 0x2b, value, 60); added, a strength (+0x79)
+ * above 3 "is weakened" (row 10, waited) and loses a point; else 0x1f for good (148f:19c2, with flag 0
+ * and no test for the character holding it: COK's h_drain tests it). */
+static bool drain(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    if (effect == NULL) return no_timer_node(game, "dqk 78e4:08ba");
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    bool added;
+    if (!again(game, c, 0x2b, effect->value, 60, &added)) return false;
+    if (!added) return true;
+    if (cok_field_u8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH) > 3) {
+        /* Outside a battle (a 0x2b counted down while walking or resting) 177e:156e says it in the
+         * camp's shape (dark_queen.c's member_say, colour 7), not cok_arena_say's COK camp text. */
+        if (game->vm.mode != 5)
+            return cok_adventure_not_yet(game, "the drain's text outside combat (the camp's text and wait)",
+                                         "dqk 177e:156e outside combat");
+        if (!cok_arena_say(game, c, "is weakened", 10, true)) return false;
+        cok_field_add8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_STRENGTH, -1);
+        return true;
+    }
+    return add_raw(game, c, 0x1f, 0, 0xff, false);
+}
+
+/* 78e4:0920 (0x2c, wasting; either flag): again(c, 0x2c, value, 10); added, a character with more than
+ * one hit point takes the ticking damage, one with a hit point or none gets 0x1f (no test for holding
+ * it). */
+static bool wasting(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    if (effect == NULL) return no_timer_node(game, "dqk 78e4:0920");
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    bool added;
+    if (!again(game, c, 0x2c, effect->value, 10, &added)) return false;
+    if (!added) return true;
+    if (cok_field_u8(L, c->record, COK_FIELD_HIT_POINTS) > 1) return ticking_damage(game, c);
+    return add_raw(game, c, 0x1f, 0, 0xff, false);
+}
+
 bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
                            cok_character *c)
 {
@@ -442,6 +523,14 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
     case COK_FX_QUEEN_TERROR:
         return terror(game, c, removing);
     /* effects-5: timers */
+    case COK_FX_QUEEN_POISON:
+        return poison(game, c, effect);
+    case COK_FX_QUEEN_DISEASE:
+        return disease(game, c, effect);
+    case COK_FX_QUEEN_DRAIN:
+        return drain(game, c, effect);
+    case COK_FX_QUEEN_WASTING:
+        return wasting(game, c, effect);
     default:
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "effect kind %u (dqk %04x) has no Dark Queen routine", kind, h->address);
