@@ -182,7 +182,9 @@ const char *const cok_dark_queen_spell_levels[10] = {
 };
 
 /* The spells' handlers by id, DS:af45 + 4 * id (cok_rules_cast): the original's
- * routine at 7fd8:xxxx, unported. */
+ * routine at 7fd8:xxxx. The ids queen_cast.c's queen_spell_handler carries out (CLW,
+ * MM, the plain applies, Bless and the other band a spells) are ported there, and take
+ * precedence over the COK_CAST_NONE entries below, which keep the cite. */
 const cok_rules_cast cok_dark_queen_spell_cast[0x8d] = {
     [0x00] = {0}, /* no store fills it */
     [0x01] = {0x00a2, COK_CAST_NONE, "dqk 7fd8:00a2"},
