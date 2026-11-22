@@ -1,6 +1,7 @@
 #include "dark_queen.h"
 
 #include "queen.h"
+#include "queen_view.h"
 #include "arena.h"
 #include "attack.h"
 #include "cast.h"
@@ -9,6 +10,8 @@
 #include "field.h"
 #include "party.h"
 #include "round.h"
+
+#include <string.h>
 
 /* The Dark Queen of Krynn's own effect routines (dqk 78e4 and 7e76), the handlers the descriptor's
  * table maps to the kinds of spells.h's COK_FX_QUEEN_*: effect.c has no handler for them, so it runs
@@ -525,6 +528,61 @@ static bool berserk(cok_adventure *game, cok_character *c, bool removing)
     return cok_arena_say(game, c, "goes berserk", 10, true);
 }
 
+/* 177e:0be2 on c (cok_character_stats); its error ends the run as undefined. */
+static bool hammer_stats(cok_adventure *game, cok_character *c)
+{
+    char error[300];
+    if (cok_character_stats(c, cok_game_rules(game), &game->item_types, error, sizeof error)) return true;
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", error);
+    return false;
+}
+
+/* 78e4:0397 (0x17, the spiritual hammer; not applied_only: its removal runs it too). The hammer is the first item of type 6
+ * named 0x79 (+0x28 6, +0x2b 0x79). Removing frees it (cok_character_remove_item: not unreadied first). Else, with none held
+ * and fewer than 16 items (the record's count +0xc9, as last counted), a hammer is made: 0x3d bytes zeroed, +0x28 6, +0x2a 6,
+ * +0x2b 0x79, +0x30 1, +0x37 0x17, +0x38 0x80, appended at the end. With the first hand empty (slots[0]) it is readied
+ * through queen_item_ready (the selected member set to c around it) and its +0x32 is then 1 whatever the ready said. "Gains
+ * an item" (row 10, waited). Every path ends in the stats (0be2). */
+static bool hammer(cok_adventure *game, cok_character *c, bool removing)
+{
+    enum { ITEM_HAMMER_TYPE = 0x28, ITEM_HAMMER_HAND = 0x2a, ITEM_HAMMER_NAME = 0x2b, ITEM_HAMMER_BONUS = 0x30,
+           ITEM_HAMMER_READIED = 0x32, ITEM_HAMMER_EFFECT = 0x37, ITEM_HAMMER_POWER = 0x38 };
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    size_t at = c->item_count;
+    for (size_t i = 0; i < c->item_count && at == c->item_count; ++i) {
+        const uint8_t *it = c->items[i];
+        if (it[ITEM_HAMMER_TYPE] == 6 && it[ITEM_HAMMER_NAME] == 0x79) at = i;
+    }
+    if (removing) {
+        if (at < c->item_count) cok_character_remove_item(c, at);
+        return hammer_stats(game, c);
+    }
+    if (at < c->item_count || cok_field_u8(L, c->record, COK_FIELD_ITEM_COUNT) >= 0x10) return hammer_stats(game, c);
+    uint8_t item[COK_ITEM_SIZE];
+    memset(item, 0, sizeof item);
+    item[ITEM_HAMMER_TYPE] = 6;
+    item[ITEM_HAMMER_HAND] = 6;
+    item[ITEM_HAMMER_NAME] = 0x79;
+    item[ITEM_HAMMER_BONUS] = 1;
+    item[ITEM_HAMMER_EFFECT] = 0x17;
+    item[ITEM_HAMMER_POWER] = 0x80;
+    if (!cok_character_insert_item(c, c->item_count, item)) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "out of memory making the spiritual hammer (dqk 78e4:0397)");
+        return false;
+    }
+    size_t made = c->item_count - 1;
+    if (c->slots[0] == 0) {
+        uint8_t *caster = game->vm.character;
+        game->vm.character = c->record;
+        bool readied = queen_item_ready(game, c, made);
+        game->vm.character = caster;
+        if (!readied) return false;
+        c->items[made][ITEM_HAMMER_READIED] = 1;
+    }
+    if (!cok_arena_say(game, c, "Gains an item", 10, true)) return false;
+    return hammer_stats(game, c);
+}
+
 bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
                            cok_character *c)
 {
@@ -625,7 +683,9 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
         return feeblemind(game, c, removing);
     case COK_FX_QUEEN_BERSERK:
         return berserk(game, c, removing);
-    /* c5: hammer */
+    /* c5: the spiritual hammer (78e4:0397) */
+    case COK_FX_QUEEN_HAMMER:
+        return hammer(game, c, removing);
     default:
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "effect kind %u (dqk %04x) has no Dark Queen routine", kind, h->address);

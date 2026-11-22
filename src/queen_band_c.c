@@ -424,6 +424,55 @@ static bool reduce(cok_adventure *game)
 
 /* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
 
+/* The item offsets Remove Curse reads (the readied and cursed flags, the power) and the effect it cures, the strength drain
+ * 0x2b (Bestow Curse's 0x24 is Death Knights' cure). */
+enum {
+    ITEM_READIED = 0x32,
+    ITEM_CURSED = 0x34,
+    ITEM_POWER = 0x38,
+    EFFECT_HAMMER = 0x17,
+    EFFECT_DRAIN = 0x2b,
+};
+
+/* 7fd8:08e3, Spiritual Hammer (0x1c): the first target (the caster, kind 0), the apply of the spell with no save, damage or
+ * text and its effect for its duration (on remove 1), then the run of 0x17 on the caster (78e4:0397: the hammer made, or
+ * kept). The target is read again after the apply, as the original pushes it again. */
+static bool spiritual_hammer(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (!queen_spell_apply(game, game->effects.rolls.spell, 0, true, 0, 0, "")) return false;
+    t = queen_first_target(game);
+    if (t == NULL) return false;
+    return cok_effects_run(&game->effects, t, EFFECT_HAMMER, NULL) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:13ef, Remove Curse (0x2b, 0x3d, 0x59): the first target. Its strength drain (0x2b) is cured ("is Cured", then "is
+ * un-cursed" with kind 1), and nothing else is done. Else the first item both cursed (+0x34) and readied (+0x32) is
+ * unreadied (+0x32 0: still cursed) and, with a power (+0x38 0x80), the power is taken off (queen_item_power, removing) and
+ * the stats 0 to 5 recomputed (cok_effects_ability); "has an item un-cursed" (kind 1) is flashed for it. Silent otherwise. */
+static bool remove_curse(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    bool cured = false;
+    if (!queen_cure(game, t, EFFECT_DRAIN, &cured)) return false;
+    if (cured) return cok_arena_flash(game, t, 1, "is un-cursed");
+    bool found = false;
+    for (size_t i = 0; i < t->item_count && !found; ++i) {
+        uint8_t *item = t->items[i];
+        if (item[ITEM_CURSED] == 0 || item[ITEM_READIED] == 0) continue;
+        found = true;
+        item[ITEM_READIED] = 0;
+        if ((item[ITEM_POWER] & 0x80) == 0) continue;
+        if (!queen_item_power(game, t, item, true)) return false;
+        for (unsigned k = 0; k <= 5; ++k)
+            if (!cok_effects_ability(&game->effects, t, k)) return cok_adventure_effect_failed(game);
+    }
+    if (found) return cok_arena_flash(game, t, 1, "has an item un-cursed");
+    return true;
+}
+
 /* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
 
 /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
@@ -454,6 +503,10 @@ queen_spell_fn *queen_band_c_handler(uint8_t id)
     case 0x0d: return reduce;
 
     /* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
+    case 0x1c: return spiritual_hammer;
+    case 0x2b:
+    case 0x3d:
+    case 0x59: return remove_curse;
 
     /* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
 

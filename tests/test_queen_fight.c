@@ -11,6 +11,7 @@
 #include "ecl.h"
 #include "party.h"
 #include "queen.h"
+#include "queen_view.h"
 #include "round.h"
 #include "rules.h"
 #include "step.h"
@@ -2102,10 +2103,11 @@ static void test_plain_apply(void)
         bool c2 = id == 0x15 || id == 0x4e || id == 0x52 || id == 0x54; /* queen_area.c's band c2 */
         bool c3 = id == 0x56 || id == 0x5d; /* queen_band_c.c's c3 */
         bool c4 = id == 0x30 || id == 0x37 || id == 0x0c || id == 0x0d; /* queen_band_c.c's c4 */
+        bool c5 = id == 0x1c || id == 0x2b || id == 0x3d || id == 0x59; /* queen_band_c.c's c5 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 || c4)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 || c4 || c5)); /* 0x5c: band b4, 0x7c: b5 */
     }
-    CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
+    CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
     duel(&a, &t);
     game.vm.character = a->record;
@@ -6654,6 +6656,231 @@ static void test_band_c4_reduce(void)
     battle_clear();
 }
 
+/* c5 (part 32e): Spiritual Hammer (0x1c, queen_band_c.c: 08e3) and its effect 0x17 (78e4:0397, queen_effect.c): the hammer
+ * item (type 6, name 0x79, power 0x80) made and readied when the first hand is free, the permanent 0x17 that readying adds
+ * (queen_item_power: 78e4:4f34), the round's-end run (event 0x13) and the removal; Remove Curse (0x2b, 13ef); queen_item_power
+ * both ways. The caster is c2_caster(5, 5), with every class's items usable. */
+
+static cok_character *c5_caster(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_USABLE_CLASSES, 0xff);
+    return a;
+}
+
+/* An item (63 bytes): its type, readied, cursed flag, effect and power byte. */
+static void c5_item(cok_character *c, uint8_t type, uint8_t readied, uint8_t cursed, uint8_t effect, uint8_t power)
+{
+    uint8_t item[COK_ITEM_SIZE];
+    memset(item, 0, sizeof item);
+    item[0x28] = type;
+    item[0x32] = readied;
+    item[0x34] = cursed;
+    item[0x37] = effect;
+    item[0x38] = power;
+    CHECK(cok_character_insert_item(c, c->item_count, item));
+}
+
+/* The hammer as made: type 6 and name 0x79 (the first such item in the list), NULL for none. */
+static const uint8_t *c5_hammer(const cok_character *c)
+{
+    for (size_t i = 0; i < c->item_count; ++i)
+        if (c->items[i][0x28] == 6 && c->items[i][0x2b] == 0x79) return c->items[i];
+    return NULL;
+}
+
+/* The permanent 0x17 that the readying adds (0 minutes, value 0xff). */
+static unsigned c5_permanent(const cok_character *c)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        n += e->id == 0x17 && e->duration == 0 && e->value == 0xff;
+    return n;
+}
+
+/* 0be2 on c: the record's item count (+0xc9) is what the hammer's limit reads, as last counted by the stats. */
+static void c5_stats(cok_character *c)
+{
+    char error[300];
+    CHECK(cok_character_stats(c, R, &game.item_types, error, sizeof error));
+}
+
+static bool c5_effect(cok_character *c)
+{
+    return cok_effects_run(&game.effects, c, 0x17, NULL) && game.vm.status == COK_ECL_OK;
+}
+
+/* 08e3 with a decoy unreadied first: the hammer is made after it (index 1), readied (its slot 0 is the hammer's), with the
+ * permanent 0x17 beside the spell's own; "Gains an item". Mutants: the readied flag not forced (hammer +0x32 0), the hammer
+ * inserted first (index 0), no permanent node (the readying's 4f34 left out). */
+static void test_band_c5_hammer(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 0x14, 0, 0, 0, 0);
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Gains an item"));
+    const uint8_t *h = c5_hammer(a);
+    CHECK(a->item_count == 2 && h == a->items[1] && a->items[0][0x28] == 0x14);
+    CHECK(h[0x2a] == 6 && h[0x30] == 1 && h[0x37] == 0x17 && h[0x38] == 0x80 && h[0x32] == 1);
+    CHECK(a->slots[0] == 2 && c5_permanent(a) == 1 && c4_count(a, 0x17) == 2);
+    battle_clear();
+
+    /* A class that cannot use the hammer: 86b8:1965 refuses ("Wrong Class"), yet 0397 forces the readied flag (+0x32 1) with no
+     * power's effect, so no permanent node. */
+    a = c2_caster(5, 5);
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Wrong Class") && LOGGED("Gains an item"));
+    h = c5_hammer(a);
+    CHECK(h != NULL && h[0x32] == 1 && c5_permanent(a) == 0);
+    battle_clear();
+
+    /* A weapon readied in the first hand: the hammer is made but not readied, no permanent node ("Gains an item" still). */
+    a = c5_caster();
+    c5_item(a, 0x14, 1, 0, 0, 0);
+    a->slots[0] = 1;
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Gains an item"));
+    h = c5_hammer(a);
+    CHECK(a->item_count == 2 && h == a->items[1] && h[0x32] == 0 && a->slots[0] == 1);
+    CHECK(c5_permanent(a) == 0 && c4_count(a, 0x17) == 1);
+    battle_clear();
+}
+
+/* The hammer is not made while one is held, nor with 16 items (the record's count +0xc9), and is made with 15. */
+static void test_band_c5_hammer_limits(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 6, 1, 0, 0x17, 0x80);
+    a->items[0][0x2b] = 0x79;
+    a->items[0][0x30] = 1;
+    a->slots[0] = 1;
+    game.vm.seed = 9;
+    CHECK(c5_effect(a) && a->item_count == 1 && !LOGGED("Gains an item") && game.vm.seed == 9);
+    battle_clear();
+
+    a = c5_caster();
+    for (unsigned i = 0; i < 15; ++i) c5_item(a, 0x14, 0, 0, 0, 0);
+    c5_stats(a);
+    CHECK(c5_effect(a) && a->item_count == 16 && c5_hammer(a) != NULL);
+    battle_clear();
+
+    a = c5_caster();
+    for (unsigned i = 0; i < 16; ++i) c5_item(a, 0x14, 0, 0, 0, 0);
+    c5_stats(a);
+    CHECK(c5_effect(a) && a->item_count == 16 && c5_hammer(a) == NULL && !LOGGED("Gains an item"));
+    battle_clear();
+}
+
+/* The round's end (event 0x13 runs 0x17 on each holder): a hammer gone is made again ("Gains an item"); a held one is kept. */
+static void test_band_c5_round_end(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
+    cok_character *t = a;
+    CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
+    CHECK(c5_hammer(a) != NULL && LOGGED("Gains an item") && c5_hammer(a)[0x32] == 1);
+    log_text[0] = '\0';
+    t = a;
+    CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 1 && !LOGGED("Gains an item"));
+    battle_clear();
+}
+
+/* The removal frees the hammer without unreadying it first: the 0x17 removed is the permanent one, and the timed one stays
+ * (an unready first would take the first 0x17, the timed one). */
+static void test_band_c5_remove(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x17, 5, 3, true) != NULL);
+    CHECK(c5_effect(a) && c5_hammer(a) != NULL && c5_permanent(a) == 1);
+    cok_effect *perm = NULL;
+    for (cok_effect *e = a->effects; e != NULL; e = e->next)
+        if (e->id == 0x17 && e->duration == 0) perm = e;
+    CHECK(perm != NULL && cok_effects_remove(&game.effects, a, perm, 0x17) && game.vm.status == COK_ECL_OK);
+    CHECK(c5_hammer(a) == NULL && a->item_count == 0 && a->slots[0] == 0 && c4_count(a, 0x17) == 1);
+    battle_clear();
+}
+
+/* 86b8:16f7's power 0 through the readying (the hammer, the permanent 0x17) and the unready (removed); powers 1 and 0x8c with
+ * power 0 stop cited. */
+static void test_band_c5_power(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 0x14, 0, 0, 0x17, 0x81);
+    CHECK(!queen_item_ready(&game, a, 0) && game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "16f7") != NULL);
+    a->items[0][0x32] = 0;
+    a->items[0][0x38] = 0x80;
+    a->items[0][0x37] = 0x8c;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!queen_item_ready(&game, a, 0) && game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "16f7") != NULL);
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 6, 0, 0, 0x17, 0x80);
+    a->items[0][0x2b] = 0x79;
+    a->items[0][0x30] = 1;
+    CHECK(queen_item_ready(&game, a, 0) && a->items[0][0x32] == 1 && c5_permanent(a) == 1);
+    CHECK(queen_item_ready(&game, a, 0) && a->items[0][0x32] == 0 && c5_permanent(a) == 0);
+    battle_clear();
+}
+
+/* queen_item_power (78e4:4f34): on adds the id for 0 minutes at 0xff, on remove unless it is 0x96 (flag 0); off removes the
+ * first such effect. Mutant: the 0x96 flag inverted (on remove set for it). */
+static void test_band_c5_power_flag(void)
+{
+    cok_character *a = c5_caster();
+    uint8_t item[COK_ITEM_SIZE];
+    memset(item, 0, sizeof item);
+    item[0x37] = 0x96;
+    CHECK(queen_item_power(&game, a, item, false));
+    cok_effect *e = cok_character_find_effect(a, 0x96);
+    CHECK(e != NULL && e->duration == 0 && e->value == 0xff && !e->on_remove);
+    item[0x37] = 0x17;
+    CHECK(queen_item_power(&game, a, item, false));
+    e = cok_character_find_effect(a, 0x17);
+    CHECK(e != NULL && e->duration == 0 && e->value == 0xff && e->on_remove);
+    CHECK(queen_item_power(&game, a, item, true) && c4_count(a, 0x17) == 0 && c4_count(a, 0x96) == 1);
+    battle_clear();
+}
+
+/* 13ef, Remove Curse (0x2b): the strength drain cured ("is Cured", "is un-cursed"), the cursed item left readied; a 0x24 (Bestow
+ * Curse's) is not cured (the mutant that cures it unreadies the item instead). A readied cursed item is unreadied (still
+ * cursed), with "has an item un-cursed"; a powered one's 0x17 is removed too. Nothing cursed: silent, no draw. */
+static void test_band_c5_remove_curse(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x2b, 0, 0, false) != NULL);
+    c5_item(a, 0x14, 1, 1, 0, 0);
+    set_target(a, a, 0x2b);
+    CHECK(c4_run(0x2b) && LOGGED("is Cured") && LOGGED("is un-cursed") && !LOGGED("has an item un-cursed"));
+    CHECK(c4_count(a, 0x2b) == 0 && a->items[0][0x32] == 1 && a->items[0][0x34] == 1);
+    battle_clear();
+
+    a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x24, 0, 0, false) != NULL);
+    c5_item(a, 0x14, 1, 1, 0, 0);
+    set_target(a, a, 0x2b);
+    CHECK(c4_run(0x2b) && !LOGGED("is un-cursed") && LOGGED("has an item un-cursed"));
+    CHECK(c4_count(a, 0x24) == 1 && a->items[0][0x32] == 0 && a->items[0][0x34] == 1);
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 0x14, 1, 1, 0x17, 0x80);
+    CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
+    set_target(a, a, 0x3d);
+    CHECK(c4_run(0x3d) && LOGGED("has an item un-cursed") && a->items[0][0x32] == 0);
+    CHECK(c4_count(a, 0x17) == 0);
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 0x14, 0, 1, 0, 0);
+    game.vm.seed = 7;
+    set_target(a, a, 0x59);
+    CHECK(c4_run(0x59) && game.vm.seed == 7 && !LOGGED("un-cursed") && a->items[0][0x32] == 0);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -6789,6 +7016,13 @@ int main(void)
     test_band_c4_slow();
     test_band_c4_enlarge();
     test_band_c4_reduce();
+    test_band_c5_hammer();
+    test_band_c5_hammer_limits();
+    test_band_c5_round_end();
+    test_band_c5_remove();
+    test_band_c5_power();
+    test_band_c5_power_flag();
+    test_band_c5_remove_curse();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

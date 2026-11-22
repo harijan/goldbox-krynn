@@ -1090,12 +1090,13 @@ static void test_magic_ids(void)
      * kind, queen_effect.c), each with the routine it runs (7e76 for 0x1a); effects-3's six (0x1c, 0x27, 0x29,
      * 0x2a, 0x31, 0x38: the own hook's kinds, queen_effect.c's images, haste, missiles, slow, prayer and
      * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting); band c1's 0x47 (Faerie Fire's armour,
-     * a descriptor row); band c3's 0x44 (feeblemind) and 0x4d (berserk). The list is in id order. */
+     * a descriptor row); band c3's 0x44 (feeblemind) and 0x4d (berserk); band c5's 0x17 (the spiritual hammer). The list is in
+     * id order. */
     static const struct { uint8_t id; uint16_t seg, off; } ported_effects[] = {
         {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x04, 0x78e4, 0x0168}, {0x06, 0x78e4, 0x0184},
         {0x08, 0x78e4, 0x0198}, {0x09, 0x78e4, 0x01c6}, {0x0a, 0x78e4, 0x01f4}, {0x0b, 0x7e76, 0x007a},
         {0x0d, 0x78e4, 0x021d}, {0x0f, 0x78e4, 0x023d}, {0x11, 0x78e4, 0x02b9}, {0x12, 0x78e4, 0x02e6},
-        {0x14, 0x78e4, 0x0313}, {0x15, 0x7e76, 0x012c}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
+        {0x14, 0x78e4, 0x0313}, {0x15, 0x7e76, 0x012c}, {0x17, 0x78e4, 0x0397}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
         {0x1b, 0x78e4, 0x010d}, {0x1c, 0x78e4, 0x0580}, {0x1d, 0x78e4, 0x0654}, {0x1f, 0x78e4, 0x010d},
         {0x21, 0x78e4, 0x0672}, {0x22, 0x78e4, 0x0696}, {0x23, 0x7e76, 0x033f}, {0x24, 0x78e4, 0x06d3},
         {0x27, 0x78e4, 0x06e8}, {0x28, 0x78e4, 0x073b}, {0x29, 0x78e4, 0x0832}, {0x2a, 0x78e4, 0x0877},
@@ -4272,14 +4273,14 @@ static void test_cast_targets(void)
     cast_keys("ENEY");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
     CHECK(cast_said("Spell Aborted"));
-    /* The dispatch: an unported spell (0x1c Spiritual Hammer, kind 0, no Aim; Shield is a plain apply now)
-     * runs its flight and forgets it, then stops at its cited routine (7fd8:08e3). The byte is marked (0x9c). */
+    /* The dispatch: an unported spell (0x7e Monster Summoning, kind 0, no Aim; Shield is a plain apply now)
+     * runs its flight and forgets it, then stops at its cited routine (7fd8:3fa4). The byte is marked (0xfe). */
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cast_keys("");
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
-    CHECK(menu_c->record[0xce] == 0x9c);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
+    CHECK(menu_c->record[0xce] == 0xfe);
     /* A ported handler runs: CLW on herself (the Aim's T), the spell marked, the cast over. */
     cast_open(false);
     cast_keys("T");
@@ -4398,38 +4399,38 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 }
 
 /* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
- * own cell), read where Spiritual Hammer (0x1c, unported: its stop is 7fd8:08e3, after the flight, no burst) stops. Lightning
+ * own cell), read where Monster Summoning (0x7e, unported: its stop is 7fd8:3fa4, after the flight, no burst) stops. Lightning
  * (0x33) is ported (band b3): it runs its handler at the own cell, so it no longer stops before its draws. */
 static uint32_t own_cell_flight(uint32_t start)
 {
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
 }
 
 /* The same at a foe's cell (9, 5), the caster's aim by N then T: the missile to the foe draws (its flight is not the own
- * cell's), so a foe's burst base is read the same way, where Spiritual Hammer stops. */
+ * cell's), so a foe's burst base is read the same way, where Monster Summoning stops. */
 static uint32_t foe_flight(uint32_t start)
 {
     cast_open(false);
     aim_foe(9, 5, 1);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("NT");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
@@ -4940,12 +4941,12 @@ static void test_cast_kinds(void)
     menu_c->combat->facing = 2;
     cast_keys("T");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_c->combat->facing == 0);
-    /* A pending spell is cleared before its cast: one that stops (Spiritual Hammer's handler, 7fd8:08e3)
+    /* A pending spell is cleared before its cast: one that stops (Monster Summoning's handler, 7fd8:3fa4)
      * leaves none pending. */
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
-    menu_c->combat->spell = 0x1c;
-    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    menu_c->record[0xce] = 0x7e;
+    menu_c->combat->spell = 0x7e;
+    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     CHECK(menu_c->combat->spell == 0);
     menu_close();
 }

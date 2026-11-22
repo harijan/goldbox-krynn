@@ -324,6 +324,10 @@ bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured);
 /* 148f:19c2 (c, id, minutes, value, flag), the raw add of an effect (queen_effect.c's: a full pool stops, cited). Enlarge
  * (queen_band_c.c) adds its 0x0c this way. False where the run stopped. */
 bool queen_add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes, uint8_t value, bool on_remove);
+/* 78e4:4f34 (queen_view.c): the item's power on (removing false: its effect item[0x37] added for 0 minutes, value 0xff, on
+ * remove unless it is 0x96) or off (removing: the first such effect removed). The spiritual hammer's readying, Remove Curse
+ * (queen_band_c.c) and 86b8:16f7's power 0 use it. False where the run stopped. */
+bool queen_item_power(cok_adventure *game, cok_character *c, uint8_t *item, bool removing);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);

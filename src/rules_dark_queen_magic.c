@@ -386,7 +386,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x14] = {0x0313, COK_FX_QUEEN_RESIST, .value = 1, .applied_only = true}, /* 78e4:0313: fire halved, save +3 */
     [0x15] = {0x012c, COK_FX_QUEEN_SILENCE, .applied_only = true}, /* 7e76:012c: silence in battle */
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
-    [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
+    [0x17] = {0x0397, COK_FX_QUEEN_HAMMER}, /* 78e4:0397: the spiritual hammer (queen_effect.c); event 0x13 */
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x19] = {0x054a, COK_FX_INVISIBLE}, /* 78e4:054a: tests the removing flag itself */
     [0x1a] = {0x01c7, COK_FX_TARGET_BONUS, .battle = true, .applied_only = true}, /* 7e76:01c7 */

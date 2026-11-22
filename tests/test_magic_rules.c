@@ -298,7 +298,6 @@ static void test_champions(void)
           r->casting.flame_type == NULL &&
           r->casting.cone_side_unknown == NULL);
     for (unsigned k = 1; k < COK_FX_HANDLERS; ++k) {
-        if (k == COK_FX_QUEEN_HAMMER) continue; /* 0x17's row comes with part 32c5 (its spell); the kind is declared now */
         bool used = false;
         for (unsigned id = 1; id < r->effects.count; ++id) used |= r->effects.handlers[id].handler == k;
         for (unsigned id = 1; id < d->effects.count; ++id)
