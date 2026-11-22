@@ -1,6 +1,7 @@
 #include "queen.h"
 
 #include "arena.h"
+#include "attack.h"
 #include "cast.h"
 #include "combat.h"
 #include "ecl.h"
@@ -473,7 +474,202 @@ static bool remove_curse(cok_adventure *game)
     return true;
 }
 
-/* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
+enum {
+    EFFECT_SNAKES = 0x03,  /* Sticks to Snakes (7e76:0009, the descriptor's row) */
+    EFFECT_DISEASE = 0x22, /* Cause Disease and Harm (78e4:0696, applied only) */
+    EFFECT_POISON = 0x40,  /* Poison's (78e4:0e7d: a cited stop, part 35) */
+};
+
+/* c6: the cures and the four computer-only spells (part 32f). Heal (7fd8:0e9f, with the cure of disease 0dc0), Sticks to
+ * Snakes (1fcb, its effect 0x03 is the descriptor's row), Cause Disease (1068), Poison (1f41), Harm (1b5c), Slay Living
+ * (223e). Their effects: disease 0x22, the drain 0x2b and the wasting 0x2c (with 0x1f and 0xac removed), the cures 0xb9 and
+ * 0xd7, blindness 0x21, the mind 0x44, the snakes 0x03 and Poison's 0x40 (78e4:0e7d, a cited stop: part 35). */
+
+/* 148f:017d (c, id, NULL): the first node of id removed, with its handler if its flag asks for one. */
+static bool remove_first(cok_adventure *game, cok_character *c, uint8_t id)
+{
+    return cok_effects_remove(&game->effects, c, NULL, id) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:0dc0, the cure of disease, with the curing flag set (rolls.curing: the drain and the wasting add nothing while it
+ * is). Each of 0x22, 0x2b, 0xb9 and 0xd7 is cured if held ("is Cured", queen_cure); the drain's cure also removes its 0x2c
+ * and 0x1f and recomputes the strength (1dfc, stat 0), and 0xd7's removes 0xac. cured is whether any was held. False where
+ * the run stopped. */
+static bool cure_disease(cok_adventure *game, bool *cured)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    bool any = false, found = false;
+    game->effects.rolls.curing = 1;
+    if (!queen_cure(game, t, 0x22, &found)) return false;
+    any = any || found;
+    if (!queen_cure(game, t, 0x2b, &found)) return false;
+    if (found) {
+        any = true;
+        if (!remove_first(game, t, 0x2c) || !remove_first(game, t, 0x1f)) return false;
+        if (!cok_effects_ability(&game->effects, t, 0)) return cok_adventure_effect_failed(game);
+    }
+    if (!queen_cure(game, t, 0xb9, &found)) return false;
+    any = any || found;
+    if (!queen_cure(game, t, 0xd7, &found)) return false;
+    if (found) {
+        any = true;
+        if (!remove_first(game, t, 0xac)) return false;
+    }
+    game->effects.rolls.curing = 0;
+    *cured = any;
+    return true;
+}
+
+/* 7fd8:0e9f, Heal (0x24). Out of combat the camp's Heal is part 46's: stopped, cited, as queen_healed stops. In combat the
+ * first target's cures in order, each with its text: 0xb9 ("is no longer diseased" after its "is Cured"), the cure of
+ * disease ("is cured" if any was held), blindness 0x21 ("is no longer blind"), the mind 0x44 ("regains intellect", and the
+ * mind scores 1 and 2 recomputed). Then d4 is always drawn, and the hit points are healed to the maximum less d4: nothing
+ * when the hit points with d4 already reach it (the sum a word; a target one below its maximum gets 0). "is Healed" whenever
+ * 25f7 (148f:25f7, flag 0) reports the heal, even for 0. */
+static bool heal(cok_adventure *game)
+{
+    if (game->vm.mode != 5)
+        return cok_adventure_not_yet(game, "a Heal outside combat (the camp's text and the party list, part 46)",
+                                     "dqk 7fd8:0e9f outside combat");
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    bool found = false, cured = false;
+    if (!queen_cure(game, t, 0xb9, &found)) return false;
+    if (found && !cok_arena_say(game, t, "is no longer diseased", 10, false)) return false;
+    if (!cure_disease(game, &cured)) return false;
+    if (cured && !cok_arena_say(game, t, "is cured", 10, false)) return false;
+    if (!queen_cure(game, t, 0x21, &found)) return false;
+    if (found && !cok_arena_say(game, t, "is no longer blind", 10, false)) return false;
+    if (!queen_cure(game, t, 0x44, &found)) return false;
+    if (found) {
+        if (!cok_arena_say(game, t, "regains intellect", 10, false)) return false;
+        if (!cok_effects_ability(&game->effects, t, 1)) return cok_adventure_effect_failed(game);
+        if (!cok_effects_ability(&game->effects, t, 2)) return cok_adventure_effect_failed(game);
+    }
+    uint8_t d = cok_dice(&game->vm.seed, 1, 4);
+    unsigned hp = cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS);
+    unsigned max = cok_field_u8(L, t->record, COK_FIELD_MAX_HIT_POINTS);
+    uint8_t amount = hp + d > max ? 0 : (uint8_t)(max - hp - d);
+    bool healed = false;
+    if (!cok_effects_heal(&game->effects, t, amount, false, &healed)) return cok_adventure_effect_failed(game);
+    return !healed || cok_arena_say(game, t, "is Healed", 10, false);
+}
+
+/* The character whose combat record (+0x40 of the record) is the caster's: the combatant of the record, NULL outside
+ * combat. */
+static cok_character *caster_combatant(cok_adventure *game, const uint8_t *record)
+{
+    if (record == NULL) return NULL;
+    uint8_t n = cok_combat_index(&game->combat, record);
+    return n == 0 ? NULL : game->combat.combatant[n].character;
+}
+
+/* 7fd8:1fcb, Sticks to Snakes (0x46). The first target's highest level, read as an unsigned byte: 6 or more "smashes them
+ * flat" (row 10, waited), and a helpless target (cok_combat_helpless) gets nothing at all. Else the spell's apply with the
+ * caster's level (capped, 1900), no save and no touch, then effect 0x03 run on the first target's node if it holds one: the
+ * snakes' counting down (7e76:0009, the descriptor's row). */
+static bool sticks(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (cok_field_u8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL) >= 6) {
+        if (cok_combat_helpless(t, R)) return true;
+        return cok_arena_say(game, t, "smashes them flat", 10, true);
+    }
+    uint8_t spell = game->effects.rolls.spell, lv = 0;
+    if (!queen_spell_level(game, spell, true, &lv)) return false;
+    if (!queen_spell_apply(game, spell, lv, false, 0, 8, "")) return false;
+    t = queen_first_target(game);
+    if (t == NULL) return false;
+    cok_effect *node = cok_character_find_effect(t, EFFECT_SNAKES);
+    return node == NULL || cok_effects_run(&game->effects, t, EFFECT_SNAKES, node) ||
+           cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:1068, Cause Disease (0x28; computer only: no member's picker lists it). The spell's apply with value 0 (the level),
+ * on remove, "is Diseased"; then the first target's disease node, if it holds one (the old one too, a target that saved or
+ * was refused: 1734 finds it), runs with flag 0: the handler of 0x22 (applied only: the drain and the wasting). */
+static bool cause_disease(cok_adventure *game)
+{
+    if (!queen_spell_apply(game, game->effects.rolls.spell, 0, true, 0, 0, "is Diseased")) return false;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    cok_effect *node = cok_character_find_effect(t, EFFECT_DISEASE);
+    return node == NULL || cok_effects_run(&game->effects, t, EFFECT_DISEASE, node) ||
+           cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:1f41, Poison (0x44; computer only). The caster's combat record NULL (outside combat): nothing at all. Else the spell's
+ * apply (no value, type 8: the saves of its targets, no damage), then event 9 on the caster's target (its combat record's
+ * target, not the first target) with pending 0x40, and if no handler cancelled 0x40, its handler runs on the caster with no
+ * node: effect 0x40 is 78e4:0e7d, a cited stop here (part 35). A NULL target is read through NULL: undefined (1f92). */
+static bool poison(cok_adventure *game)
+{
+    uint8_t *caster = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 1f41)");
+    if (caster == NULL) return false;
+    cok_character *c = caster_combatant(game, caster);
+    if (c == NULL || c->combat == NULL) return true;
+    if (!queen_spell_apply(game, game->effects.rolls.spell, 0, false, 0, 8, "")) return false;
+    c = caster_combatant(game, game->vm.character);
+    if (c == NULL || c->combat == NULL)
+        return undefined(game, "dqk 7fd8:1f41 reads the caster's combat record through NULL (DS:ad67, 1f85)");
+    cok_character *x = caster_combatant(game, c->combat->target);
+    if (x == NULL) return undefined(game, "dqk 7fd8:1f92 reads the caster's target through NULL (block +0x0b)");
+    game->effects.rolls.pending = EFFECT_POISON;
+    if (!cok_effects_dispatch_at(&game->effects, &x, 9)) return cok_adventure_effect_failed(game);
+    if (game->effects.rolls.pending != EFFECT_POISON) return true;
+    c = caster_combatant(game, game->vm.character);
+    if (c == NULL) return undefined(game, "dqk 7fd8:1f41 runs 0x40 on the caster through NULL (DS:ad67)");
+    return cok_effects_run(&game->effects, c, EFFECT_POISON, NULL) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:1b5c, Harm (0x38). Never cast in a battle (its priority is 0 and no picker lists it: repo tests only). The damage type
+ * 8, the disease 0x22 added for good with no text (its refusal and its event 9 as cok_cast_add_effect gives), then "is
+ * Diseased" said (row 10, waited) whether it was added or not. Above 4 hit points: d4 is drawn, and the hit points left
+ * are d4 taken off them, the damage from magic (no save). */
+static bool harm(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    game->effects.rolls.damage_type = 8;
+    if (!cok_cast_add_effect(game, t, EFFECT_DISEASE, 0, 0, false, 0, false, "")) return false;
+    if (!cok_arena_say(game, t, "is Diseased", 10, true)) return false;
+    unsigned hp = cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS);
+    if (hp <= 4) return true;
+    uint8_t d = cok_dice(&game->vm.seed, 1, 4);
+    return queen_cast_damage(game, t, (uint8_t)(hp - d), 0, false);
+}
+
+/* 7fd8:223e, Slay Living (0x4c; computer only). The damage type 0x40 and the word 0x43 (rolls.amount16 and its byte), event 9
+ * on the first target with the pending effect as it stands (no pending set here: the stale value of rolls.pending). A cancel
+ * left the amount 0: "is unaffected" (row 10, waited). Else a save of type 4: a failed one, unless the target's creature
+ * flags' second byte has the quiet bit (8: +0xc8), is killed (cok_combat_kill, status 6, "is slain"). Otherwise the damage
+ * from magic (type 8) is 2d8 + 1, no save. */
+static bool slay_living(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    cok_rolls *r = &game->effects.rolls;
+    r->damage_type = 0x40;
+    r->amount16 = 0x43;
+    r->amount = 0x43;
+    if (!cok_effects_dispatch_at(&game->effects, &t, 9)) return cok_adventure_effect_failed(game);
+    if (t == NULL) return undefined(game, "dqk 7fd8:223e's target is NULL after event 9 (DS:c5e3)");
+    if (r->amount16 == 0) return cok_arena_say(game, t, "is unaffected", 10, true);
+    bool saved = false;
+    if (!queen_save(game, t, 4, 0, &saved)) return false;
+    if (!saved && (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 1) & R->fight.quiet_flag) == 0)
+        return cok_combat_kill(game, t, 6, "is slain");
+    r->damage_type = 8;
+    uint8_t amount = (uint8_t)(cok_dice_count(&game->vm.seed, 2, 8, &r->dice) + 1);
+    return queen_cast_damage(game, t, amount, 0, false);
+}
 
 /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
 
@@ -508,7 +704,13 @@ queen_spell_fn *queen_band_c_handler(uint8_t id)
     case 0x3d:
     case 0x59: return remove_curse;
 
-    /* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
+    /* c6: the cures and the computer-only spells (queen_band_c.c's c6 section) */
+    case 0x24: return heal;
+    case 0x46: return sticks;
+    case 0x28: return cause_disease;
+    case 0x44: return poison;
+    case 0x38: return harm;
+    case 0x4c: return slay_living;
 
     /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
 

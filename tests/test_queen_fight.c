@@ -2104,8 +2104,10 @@ static void test_plain_apply(void)
         bool c3 = id == 0x56 || id == 0x5d; /* queen_band_c.c's c3 */
         bool c4 = id == 0x30 || id == 0x37 || id == 0x0c || id == 0x0d; /* queen_band_c.c's c4 */
         bool c5 = id == 0x1c || id == 0x2b || id == 0x3d || id == 0x59; /* queen_band_c.c's c5 */
+        bool c6 = id == 0x24 || id == 0x46 || id == 0x28 || id == 0x44 || id == 0x38 || id == 0x4c; /* queen_band_c.c's c6 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 || c4 || c5)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
+               c4 || c5 || c6)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -6901,6 +6903,379 @@ static void test_band_c5_remove_curse(void)
     battle_clear();
 }
 
+/* c6 (part 32f): the cures (7fd8:0e9f with 0dc0), Sticks to Snakes (1fcb, its effect 0x03 through the row), the
+ * computer-only Cause Disease (1068), Poison (1f41), Harm (1b5c) and Slay Living (223e), in queen_band_c.c. A
+ * caster with no class levels is the non-caster of level 6 (177e:1900). The waits and the touches draw too, so
+ * the tests take their rolls from seed_from's ranges or from a draw of the same seed. */
+static void no_classes(cok_character *c)
+{
+    for (unsigned i = 0; i < 7; ++i) cok_field_set8_at(R->character, c->record, COK_FIELD_CLASS_LEVEL, i, 0);
+}
+
+static cok_character *c6_target(char name, int8_t x, int8_t y, uint8_t hostile)
+{
+    cok_character *t = record(name, hostile, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    return t;
+}
+
+static void c6_reset(void)
+{
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+}
+
+/* Heal's order and cures: 0xb9 ("is no longer diseased" after its "is Cured"), the disease's (0x22, with its drain 0x2b,
+ * its 0x2c and 0x1f), blindness 0x21 ("is no longer blind"), then "is Healed". The nodes are all gone, and the hit
+ * points are the maximum less d4 (20 to a maximum of 30: 26 to 29). Mutant: the cures in another order (the texts
+ * out of order). */
+static void test_band_c6_heal_cures(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 20);
+    CHECK(cok_character_add_effect(t, 0xb9, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x21, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x2b, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x2c, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24));
+    const char *a1 = strstr(log_text, "is no longer diseased"), *a2 = strstr(log_text, "is cured"),
+               *a3 = strstr(log_text, "is no longer blind"), *a4 = strstr(log_text, "is Healed");
+    CHECK(a1 != NULL && a2 != NULL && a3 != NULL && a4 != NULL);
+    CHECK(a1 < a2 && a2 < a3 && a3 < a4);
+    CHECK(count_of("is Cured") == 4); /* 0xb9, 0x22, 0x2b, 0x21 */
+    CHECK(cok_character_find_effect(t, 0xb9) == NULL && cok_character_find_effect(t, 0x22) == NULL && cok_character_find_effect(t, 0x21) == NULL);
+    CHECK(cok_character_find_effect(t, 0x2b) == NULL && cok_character_find_effect(t, 0x2c) == NULL &&
+          cok_character_find_effect(t, 0x1f) == NULL);
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp >= 26 && hp <= 29);
+    battle_clear();
+}
+
+/* Heal's d4, drawn always: a target at its maximum takes it (the seed is one d4 on), gets 0 and is still "is Healed". One
+ * below the maximum gets 0 too (any d4 reaches it). Mutant: d4 skipped when the target is full (the seed unmoved). */
+static void test_band_c6_heal_full(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24));
+    uint32_t want = 1;
+    (void)cok_dice(&want, 1, 4);
+    CHECK(game.vm.seed == want && LOGGED("is Healed") && !LOGGED("is cured"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 29);
+    c6_reset();
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24) && LOGGED("is Healed"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 29);
+    /* Camp (mode 2): the camp's Heal is part 46's, a cited stop before any draw. */
+    game.vm.mode = 2;
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    c6_reset();
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x24) && strstr(game.error, "0e9f") != NULL && game.vm.seed == 1);
+    game.vm.mode = 5;
+    battle_clear();
+}
+
+/* Sticks to Snakes: a highest level of 6 or more smashes them flat (row 10, waited) with no effect; the level is an
+ * unsigned byte, so 0x80 (negative as a signed byte) smashes too. A helpless target (held, 0x33) gets nothing at all:
+ * no text, no effect. Mutant: the level as a signed byte (0x80 applies). */
+static void test_band_c6_sticks_smash(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    set_targets(a, 0x46, (cok_character *[]){t}, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 6);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    cok_tp_random(&want, 1000); /* the smash's wait, its only draw */
+    CHECK(c1_run(0x46) && LOGGED("smashes them flat") && cok_character_find_effect(t, 0x03) == NULL && game.vm.seed == want);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0x80);
+    log_text[0] = '\0';
+    CHECK(c1_run(0x46) && LOGGED("smashes them flat") && cok_character_find_effect(t, 0x03) == NULL);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 18);
+    CHECK(cok_character_add_effect(t, 0x33, 0, 0, false) != NULL);
+    log_text[0] = '\0';
+    CHECK(c1_run(0x46) && !LOGGED("smashes") && cok_character_find_effect(t, 0x03) == NULL && log_text[0] == '\0');
+    battle_clear();
+}
+
+/* Sticks to Snakes' apply: a level below 6 gets the spell's effect 0x03 for the caster's level (capped), silently (no
+ * save, no touch). Then 0x03 through event 7 (the holder's turn): the attacks left of its target (+0x190 and +0x191,
+ * 1) counts its value down and "is fighting with snakes" is flashed; the value at or below the attacks ends it (the
+ * first 0x03 removed). Mutant: 0x03 without its row (COK_FX_MISSING: the event stops). */
+static void test_band_c6_sticks_snakes(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 0, 40); /* capped: 0x1f (177e:1900's cap) */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 5);
+    set_targets(a, 0x46, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint8_t lv = 0, uncapped = 0;
+    CHECK(queen_spell_level(&game, 0x46, true, &lv) && lv >= 2);
+    CHECK(queen_spell_level(&game, 0x46, false, &uncapped) && uncapped != lv);
+    CHECK(c1_run(0x46));
+    cok_effect *e = cok_character_find_effect(t, 0x03);
+    CHECK(e != NULL && e->value == lv && !e->on_remove);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_ATTACKS_LEFT, 2, 0);
+    cok_character *slot = t;
+    game.spell_targets[1] = t;
+    CHECK(cok_effects_dispatch_at(&game.effects, &slot, 7) && slot == t);
+    CHECK(e->value == lv - 1 && LOGGED("is fighting with snakes") && cok_character_find_effect(t, 0x03) == e);
+    e->value = 1;
+    CHECK(cok_effects_dispatch_at(&game.effects, &slot, 7));
+    CHECK(cok_character_find_effect(t, 0x03) == NULL);
+    battle_clear();
+}
+
+/* Cause Disease on a target that saved (its type 4 save: a roll of 2 to 20 saves a 0) and held 0x22 from before: "is
+ * Unaffected" is said, and the old node's handler runs anyway (1734 finds it): the drain 0x2b is added. Mutant: the run
+ * skipped when the target saved (no drain). */
+static void test_band_c6_cause_disease(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    no_classes(a);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 0);
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, true) != NULL);
+    set_targets(a, 0x28, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 20});
+    CHECK(c1_run(0x28) && LOGGED("is Unaffected"));
+    CHECK(cok_character_find_effect(t, 0x22) != NULL && cok_character_find_effect(t, 0x2b) != NULL);
+    battle_clear();
+}
+
+/* Harm: the damage type 8 and the disease added for good (0x22, no text); "is Diseased" is said; above 4 hit points the
+ * damage from magic is the hit points less a d4, so d4 is left (1 to 4). At 4 or fewer hit points nothing is damaged and
+ * the disease is still added. Mutant: the damage to 4 or fewer. */
+static void test_band_c6_harm(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    game.effects.rolls.damage_type = 0x40; /* a stale type: Harm's own 8 gives "from Magic" */
+    CHECK(c1_run(0x38) && LOGGED("is Diseased") && LOGGED("from Magic"));
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp >= 1 && hp <= 4 && cok_character_find_effect(t, 0x22) != NULL); /* the damage is hp - d4: d4 is left */
+    battle_clear();
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 4);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    cok_tp_random(&want, 1000); /* "is Diseased"'s wait; no d4 at 4 hit points */
+    CHECK(c1_run(0x38) && LOGGED("is Diseased") && !LOGGED("from Magic") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 4);
+    CHECK(cok_character_find_effect(t, 0x22) != NULL);
+    battle_clear();
+    /* 5 hit points (above 4, unsigned): damaged to d4. */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 5);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    uint8_t d = cok_dice(&want, 1, 4);
+    CHECK(c1_run(0x38) && LOGGED("from Magic") && cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == d);
+    battle_clear();
+}
+
+/* Slay Living. The stale pending (a 0x6f left in rolls.pending: 223e does not set it) reaches a 0x5c holder's cancel:
+ * the amount is 0 and "is unaffected" is said, the target untouched. A failed save of type 4 kills (cok_combat_kill:
+ * status 6, "is slain", no hit points). A failed save against a creature with the quiet bit (8 in +0xc8) is not killed:
+ * the damage from magic (2d8 + 1, 3 to 17) is taken. Mutants: the pending 0x4c (the 0x5c cancel misses: no "is
+ * unaffected"); the quiet bit ignored (killed). */
+static void test_band_c6_slay(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t waited = 1;
+    cok_tp_random(&waited, 1000); /* "is unaffected"'s wait, the only draw */
+    CHECK(c1_run(0x4c) && LOGGED("is unaffected") && !LOGGED("is slain") && game.vm.seed == waited);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 10);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x4c) && LOGGED("is slain"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 0 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 1, 20); /* the save */
+    uint8_t d = cok_dice(&want, 2, 8);
+    CHECK(c1_run(0x4c) && !LOGGED("is slain"));
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp == 30u - (d + 1u) && cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 1);
+    battle_clear();
+}
+
+/* Poison. The caster's combat record NULL (outside combat): nothing at all, no draw. In combat the spell's apply rolls
+ * its targets' saves, then event 9 runs on the caster's target (its combat record's), not the spell's target, with the
+ * pending 0x40; with no handler to cancel it, 0x40 runs on the caster and stops, cited (78e4:0e7d, part 35). The seed
+ * after shows the event 9 went to the caster's target: a 0x5f holder there draws its d100 once more; the spell's
+ * target holding 0x5f draws nothing. */
+static void test_band_c6_poison(void)
+{
+    cok_character *a, *t, *x;
+    duel(&a, &t);
+    no_classes(a);
+    cok_combat_record *keep = a->combat;
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    a->combat = NULL;
+    game.vm.seed = 1;
+    CHECK(c1_run(0x44) && game.vm.seed == 1);
+    a->combat = keep;
+    battle_clear();
+
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL);
+    uint32_t control = game.vm.seed, one = 1;
+    cok_dice(&one, 1, 20); /* the apply's save of the spell's target, its only draw before the stop */
+    CHECK(control == one);
+    c6_reset();
+
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    c6_reset();
+    CHECK(cok_character_add_effect(x, 0x5f, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL);
+    uint32_t want = control;
+    (void)cok_dice(&want, 1, 100);
+    CHECK(game.vm.seed == want);
+    battle_clear();
+
+    /* The spell's target holds 0x5f and the caster's target does not: no event 9 on the spell's target, no draw. */
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    CHECK(cok_character_add_effect(t, 0x5f, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL && game.vm.seed == control);
+    battle_clear();
+
+    /* The caster's target holds a minor globe (0x28: a spell below level 8 cancelled, the pending effect too): 0x40 is not
+     * run, no stop. */
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    c6_reset();
+    CHECK(cok_character_add_effect(x, 0x28, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x44) && game.effects.rolls.pending != 0x40);
+    battle_clear();
+}
+
+/* Heal's cures in full: 0xb9, the cure of disease's four (0x22; the drain 0x2b and the wasting 0x2c with flag 1, as
+ * again() adds them, and 0x1f; 0xd7 with its 0xac), blindness 0x21 and the mind 0x44. The curing flag keeps the drain's
+ * and the wasting's removals from adding again (no "is weakened", no new node); 0xd7 (25f7's guard) is cured before the
+ * heal, so the target is healed; the strength and the mind scores are recomputed from their bases. Six "is Cured" waits
+ * (a draw each), then the d4: Heal's own texts do not wait. Mutants: no curing flag; 0xd7, 0xac or 0x44 left; no
+ * recompute; a Heal text waited. */
+static void test_band_c6_heal_all(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(L, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(L, t->record, COK_FIELD_HIT_POINTS, 10);
+    static const uint8_t base[3] = {16, 15, 14}, now[3] = {12, 3, 3};
+    for (unsigned s = 0; s < 3; ++s) {
+        cok_field_set8_at(L, t->record, COK_FIELD_SCORE_BASE, s, base[s]);
+        cok_field_set8_at(L, t->record, COK_FIELD_SCORE, s, now[s]);
+    }
+    static const struct { uint8_t id; bool flag; } held_ids[] = {
+        {0xb9, false}, {0x22, true}, {0x2b, true}, {0x2c, true}, {0x1f, false},
+        {0xd7, false}, {0xac, false}, {0x21, true}, {0x44, false},
+    };
+    for (size_t i = 0; i < sizeof held_ids / sizeof *held_ids; ++i)
+        CHECK(cok_character_add_effect(t, held_ids[i].id, 0, 5, held_ids[i].flag) != NULL);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    for (unsigned k = 0; k < 6; ++k) cok_tp_random(&want, 1000); /* the six "is Cured" waits */
+    uint8_t d = cok_dice(&want, 1, 4);
+    CHECK(c1_run(0x24) && game.vm.seed == want && count_of("is Cured") == 6);
+    const char *p1 = strstr(log_text, "is no longer diseased"), *p2 = strstr(log_text, "is cured"),
+               *p3 = strstr(log_text, "is no longer blind"), *p4 = strstr(log_text, "regains intellect"),
+               *p5 = strstr(log_text, "is Healed");
+    CHECK(p1 != NULL && p2 != NULL && p3 != NULL && p4 != NULL && p5 != NULL);
+    CHECK(p1 < p2 && p2 < p3 && p3 < p4 && p4 < p5 && !LOGGED("is weakened"));
+    for (size_t i = 0; i < sizeof held_ids / sizeof *held_ids; ++i)
+        CHECK(cok_character_find_effect(t, held_ids[i].id) == NULL);
+    CHECK(cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS) == 30 - d);
+    for (unsigned s = 0; s < 3; ++s) CHECK(cok_field_u8_at(L, t->record, COK_FIELD_SCORE, s) == base[s]);
+    /* 0xd7 alone is a cure of disease too: "is cured". */
+    CHECK(cok_character_add_effect(t, 0xd7, 0, 5, false) != NULL);
+    c6_reset();
+    CHECK(c1_run(0x24) && LOGGED("is cured") && cok_character_find_effect(t, 0xd7) == NULL);
+    battle_clear();
+}
+
+/* Cause Disease on a target whose save fails (a throw of 21: a roll below 20 fails) and whose touch hits (20): "is
+ * Diseased" is flashed and the disease 0x22 added for good with the non-caster's level (6) and flag 1 (on remove); its
+ * handler then runs on the new node: the drain 0x2b and the wasting 0x2c are added. Mutants: flag 0; no text; another
+ * value. */
+static void test_band_c6_cause_disease_fails(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    no_classes(a);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x28, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 19, 20, 20, 20});
+    CHECK(c1_run(0x28) && LOGGED("is Diseased") && !LOGGED("is Unaffected"));
+    cok_effect *e = cok_character_find_effect(t, 0x22);
+    CHECK(e != NULL && e->value == 6 && e->on_remove && e->duration == 0);
+    CHECK(cok_character_find_effect(t, 0x2b) != NULL && cok_character_find_effect(t, 0x2c) != NULL);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -7043,6 +7418,16 @@ int main(void)
     test_band_c5_power();
     test_band_c5_power_flag();
     test_band_c5_remove_curse();
+    test_band_c6_heal_cures();
+    test_band_c6_heal_full();
+    test_band_c6_sticks_smash();
+    test_band_c6_sticks_snakes();
+    test_band_c6_cause_disease();
+    test_band_c6_harm();
+    test_band_c6_slay();
+    test_band_c6_poison();
+    test_band_c6_heal_all();
+    test_band_c6_cause_disease_fails();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
