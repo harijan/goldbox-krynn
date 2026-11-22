@@ -241,7 +241,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_c7", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6555,6 +6555,45 @@ def cast_run_sticks(box, menu, work, tag):
     return out
 
 
+# Band c7's Dimension Door and Fire Shield (step 4, part 32g, 7fd8:24f0 and 26b4, queen_band_c.c). Dimension Door: saved game A
+# with BALTHIR memorising Dimension Door (+0xce 0x53) and nothing else: C, C (the Aim at once), `\v`, `\v` (the Manual's cursor two
+# cells south, the aimed cell (29, 16)), then T: the flight of the two cells, then the caster is put on the aimed cell ("teleports")
+# and the tail is 8 draws past the menu (RandSeed 3cee8796); his memorised byte forgotten and he faces 4. Fire Shield: saved game A
+# with BALTHIR memorising Fire Shield (+0xce 0x55) and nothing else: C, C (WALKER's menu), E (WALKER's End: BALTHIR's pending cast,
+# the flame menu with no Aim: RandSeed 8a1edda5, as band a1's Aim), then H (Hot): BALTHIR holds 0x32 and 0x70 for four minutes
+# each, and the byte forgotten.
+BAND_C7_DOOR = 0x53
+BAND_C7_DOOR_TAIL = (8, 0x3CEE8796)     # the tail after T: 8 draws past BALTHIR's menu
+BAND_C7_DOOR_CELL = (29, 16)            # the aimed cell (two south of his own (29, 14)): the spell's cell at the tail
+BAND_C7_DOOR_FACING = 4                 # BALTHIR's facing after the teleport
+BAND_C7_DOOR_MEMO = BAND_C7_DOOR | CAST_FORGOTTEN   # BALTHIR's +0xce after Dimension Door (0xd3)
+BAND_C7_DOOR_MARK = "01"                # eclplay's turn mark of the tail (the turn's first)
+BAND_C7_SHIELD = 0x55
+BAND_C7_SHIELD_NODES = ([0x32, 4, 0, 0], [0x70, 4, 0, 0])  # BALTHIR's Hot nodes: Protected (0x32) and gets-zapped (0x70)
+BAND_C7_SHIELD_MEMO = BAND_C7_SHIELD | CAST_FORGOTTEN      # BALTHIR's +0xce after Fire Shield (0xd5)
+BAND_C7_SHIELD_TAIL = (25, 0x28390BDF)  # the tail after H: 25 draws past BALTHIR's menu (measured in DOSBox-X)
+BAND_C7_SHIELD_MARK = "03"              # eclplay's turn mark of Fire Shield's tail (the turn's marks 01 and 02 come before it)
+
+
+def band_c7_door_save():
+    """Saved game A with BALTHIR memorising Dimension Door (+0xce 0x53) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C7_DOOR}})
+
+
+def band_c7_shield_save():
+    """Saved game A with BALTHIR memorising Fire Shield (+0xce 0x55) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C7_SHIELD}})
+
+
+def band_c7_door_run(box, menu, work, tag):
+    """C, C (the Aim at once), two Downs (the Manual's cursor two cells south), then T: the tail (5045:066a)."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["down1"] = cast_key(box, work, f"{tag}-down1", "\\v")
+    out["down2"] = cast_key(box, work, f"{tag}-down2", "\\v")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
 def band_c6_heal(v, work, wild, opts):
     """Heal on BALTHIR himself (the flow band_c6, Heal): the draw at the Aim, the tail (2 draws past the menu, d9491fd4), his
     hit points (lowered to 0x50 in the save, BAND_C6_HEAL_HP) the maximum less d4 (read at the menu and the tail), the byte forgotten. eclplay's turn mark 01 agrees with the
@@ -6633,6 +6672,87 @@ def band_c6(v, work, opts):
     wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
     band_c6_heal(v, work, wild, opts)
     band_c6_sticks(v, work, wild, opts)
+
+
+def band_c7_shield_run(box, menu, work, tag):
+    """C, C (WALKER's menu: BALTHIR's turn ends), E (WALKER's End: BALTHIR's pending Fire Shield at its flame menu), then H
+    (Hot) and the tail (5045:066a)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "H", None)])[0]
+    return out
+
+
+def band_c7_door(v, work, wild, opts):
+    """Dimension Door on BALTHIR's own cell's neighbourhood (the flow band_c7, Door): the tail 8 draws past the menu
+    (3cee8796), BALTHIR on the aimed cell (29, 16) facing 4, his byte forgotten; eclplay's turn mark 01 agrees with the
+    original's records, blocks and effect chains."""
+    save = band_c7_door_save()
+    o = cast_original(work, wild, save, "band-c7-door", opts.verbose, band_c7_door_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c7-door-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C7_DOOR_TAIL, f"the original's tail after T (Dimension Door) is "
+            f"{BAND_C7_DOOR_TAIL[0]} draws past the menu, at {BAND_C7_DOOR_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tuple(tail["cell"]) == BAND_C7_DOOR_CELL, f"the spell's cell at the tail is {BAND_C7_DOOR_CELL} (the Manual's "
+            "two Downs from his cell)", f"cell {tail['cell']}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_C7_DOOR_MEMO and facing == BAND_C7_DOOR_FACING,
+            f"at the tail BALTHIR's Dimension Door is forgotten (+0xce {BAND_C7_DOOR_MEMO:#x}) and he faces "
+            f"{BAND_C7_DOOR_FACING}", f"+0xce {forgotten:#x}, facing {facing}")
+    p = turn_port(work, wild, "band-c7-door", "CC\\v\\vT", entry=entry)
+    mark = cast_mark(p, BAND_C7_DOOR_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C7_DOOR_MARK}) after C, C, two Downs and T", p["last"])
+        return
+    command_state(v, "Dimension Door's tail (the turn's tail, 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Dimension Door's tail, turn mark 01)")
+
+
+def band_c7_shield(v, work, wild, opts):
+    """Fire Shield's Hot (the flow band_c7, Shield): WALKER's menu after C, C (the same draws as band a1's), BALTHIR's pending
+    cast at its flame menu after E (RandSeed 8a1edda5), then H: the tail, BALTHIR holds [0x32, 4, 0, 0] and [0x70, 4, 0, 0],
+    and his byte is forgotten (0xd5); eclplay's turn mark 03 agrees with the original's records, blocks and effect chains."""
+    save = band_c7_shield_save()
+    o = cast_original(work, wild, save, "band-c7-shield", opts.verbose, band_c7_shield_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c7-shield-save", save)
+    nxt, aim, tail = o["next"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Fire Shield: "
+            f"Begins Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's flame menu after E is "
+            f"{CAST_CLW_AIM[0]} draws past the menu, at {CAST_CLW_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C7_SHIELD_TAIL, f"the original's tail after H (Fire Shield, Hot) is "
+            f"{BAND_C7_SHIELD_TAIL[0]} draws past the menu, at {BAND_C7_SHIELD_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    nodes = [list(n) for n in tail["chains"][CAST_BALTHIR]]
+    v.check(all(node in nodes for node in BAND_C7_SHIELD_NODES),
+            f"BALTHIR holds Fire Shield's nodes {[list(n) for n in BAND_C7_SHIELD_NODES]} at the tail", f"nodes {nodes}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C7_SHIELD_MEMO, f"at the tail BALTHIR's Fire Shield is forgotten (+0xce {BAND_C7_SHIELD_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c7-shield", "CCEH", entry=entry)
+    mark = cast_mark(p, BAND_C7_SHIELD_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C7_SHIELD_MARK}) after C, C, E and H", p["last"])
+        return
+    command_state(v, "Fire Shield's tail (the turn's tail, 03)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Fire Shield's tail, turn mark 03)")
+
+
+def band_c7(v, work, opts):
+    """Band c7's Dimension Door and Fire Shield (part 32g), the flow band_c7: each against the original's tail and eclplay's
+    turn mark (band_c7_door, band_c7_shield). Dispel Magic is a repo test only: saved game A's effect chains are all 0xff
+    (no draw, no text), so the flow would see nothing of it."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c7_door(v, work, wild, opts)
+    band_c7_shield(v, work, wild, opts)
 
 
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
@@ -7002,6 +7122,8 @@ def main():
         band_c5(v, work, opts)
     if "band_c6" in flows:
         band_c6(v, work, opts)
+    if "band_c7" in flows:
+        band_c7(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:

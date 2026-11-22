@@ -1013,6 +1013,9 @@ static void test_magic_ids(void)
         {0x889c, "is no longer diseased"}, {0x88b2, "is cured"}, {0x88bb, "is no longer blind"},
         {0x88ce, "regains intellect"},     {0x88e0, "is Healed"}, {0x89a3, "smashes them flat"},
         {0x89bf, "is slain"},              {0x6abc, "Diseased"},
+        /* Band c7's texts (7fd8:24f0's "teleports", 26b4's "Flame type: " 4db9 and "Hot Cold" 4f36, and "is Protected" 8a0a). */
+        {0x89f0, "teleports"},     {0x4db9, "Flame type: "},      {0x4f36, "Hot Cold"},
+        {0x8a0a, "is Protected"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);

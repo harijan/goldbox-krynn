@@ -673,6 +673,155 @@ static bool slay_living(cok_adventure *game)
 
 /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
 
+/* The caster as a party member (queen_area.c's and queen_cast.c's caster_member), NULL with none. */
+static cok_character *caster_member(cok_adventure *game)
+{
+    if (game->vm.character == NULL) return NULL;
+    size_t i = cok_party_index(&game->party, game->vm.character);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
+/* The chance of 114e's removal (lv the caster's level, lev the node's value & 0x1f): 5 a level above lev with 50 over,
+ * 2 a level below with 50 under, a byte (the subtraction wraps past 25 below: 0xfe or more, always taken); 50 level. */
+static uint8_t dispel_chance(uint8_t lv, uint8_t lev)
+{
+    if (lv > lev) return (uint8_t)((lv - lev) * 5 + 50);
+    if (lv < lev) return (uint8_t)(50 - (uint8_t)((lev - lv) << 1));
+    return 50;
+}
+
+/* Whether node is still on t's list (the removal of a node may free another: cast.c's guard). */
+static bool listed_effect(const cok_character *t, const cok_effect *node)
+{
+    if (node == NULL) return true;
+    for (const cok_effect *f = t->effects; f != NULL; f = f->next)
+        if (f == node) return true;
+    return false;
+}
+
+/* 7fd8:114e's cloud cells (mode 5): the 9 cells round the spell's cell by the steps (index 0-8, the spell's own last),
+ * on terrain 0x1d or 0x1c (a cloud's): with a cloud on the map (combat->clouds) the port stops here (part 39 walks the
+ * clouds: 7fd8:10d9 and 148f:2817); with none, the screen is centred on the spell's cell (margin 3, dir 8) for each such
+ * cell and nothing else is done (2817 with an empty list does nothing). */
+static bool dispel_clouds(cok_adventure *game)
+{
+    const cok_data_segment *D = cok_game_rules(game)->data;
+    cok_combat *combat = &game->combat;
+    for (unsigned k = 0; k <= 8; ++k) {
+        int8_t x = (int8_t)(game->spell_x + cok_data_s8_at(D, COK_DATA_STEP_X, k)),
+               y = (int8_t)(game->spell_y + cok_data_s8_at(D, COK_DATA_STEP_Y, k));
+        uint8_t occupant, terrain;
+        cok_combat_cell(combat, x, y, &occupant, &terrain);
+        if (terrain != 0x1d && terrain != 0x1c) continue;
+        if (combat->clouds != NULL)
+            return cok_adventure_not_yet(game, "Dispel Magic's clouds", "dqk 7fd8:12cc (7fd8:10d9, 148f:2817; part 39)");
+        if (!cok_arena_centre(game, game->spell_x, game->spell_y, 3, 8)) return false;
+    }
+    return true;
+}
+
+/* 7fd8:114e, Dispel Magic (0x29, 0x2e): the images flag set and the caster level (uncapped) lv. Per target t[i] (1 to the
+ * count, read again at each pass; NULL: undefined), each effect node (the next one read first) whose value is not 0xff:
+ * lev = value & 0x1f (kept in stale, the last one tried: 10d9 reads it in part 39), a d100 at or under dispel_chance
+ * removes the node (cok_effects_remove, its handler run; a removal that frees the next node is undefined). A target with
+ * any removed is "is affected" (kind 1, a flash). No draw for 0xff: the racial effects skip. Then in mode 5 the clouds'
+ * cells (dispel_clouds). Racial effects with 0xff, or none, draw nothing. */
+static bool dispel_magic(cok_adventure *game)
+{
+    game->effects.rolls.images = 1;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, game->effects.rolls.spell, false, &lv)) return false;
+    int stale = -1;
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "dqk 7fd8:114e reads a NULL target's effects (DS:c5df)");
+        bool removed = false;
+        for (cok_effect *node = t->effects; node != NULL;) {
+            cok_effect *next = node->next;
+            if (node->value != 0xff) {
+                uint8_t lev = node->value & 0x1f;
+                stale = lev;
+                if (cok_dice(&game->vm.seed, 1, 100) <= dispel_chance(lv, lev)) {
+                    if (!cok_effects_remove(&game->effects, t, node, node->id)) return cok_adventure_effect_failed(game);
+                    removed = true;
+                    if (!listed_effect(t, next))
+                        return undefined(game, "dqk 7fd8:1232 reads the next effect from the one a removal freed");
+                }
+            }
+            node = next;
+        }
+        if (removed && !cok_arena_flash(game, t, 1, "is affected")) return false;
+    }
+    (void)stale; /* the cloud walk of part 39 reads it (10d9's stale DS:c7e5) */
+    return game->vm.mode != 5 || dispel_clouds(game);
+}
+
+/* 7fd8:24f0, Dimension Door (0x53): the caster is erased from its cell and placed at the aimed cell (spell_x, spell_y).
+ * The placement's result is ignored, as the original's: where another stands there the caster is left off the map
+ * (queen_commands' undo does the same). A placement that reads or writes outside its tables (cok_combat_place false:
+ * the footprints or the terrain past their tables) is undefined, as queen_commands' undo stops there. The screen is
+ * centred on the caster's cell (margin 0, dir 8), and "teleports" is said on row 10, waited (one draw). No effect, no save. */
+static bool dimension_door(cok_adventure *game)
+{
+    cok_combat *combat = &game->combat;
+    cok_character *c = caster_member(game);
+    if (c == NULL) return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 24f0)");
+    if (!cok_arena_erase(game, 0, 0, cok_combat_index(combat, c->record))) return false;
+    bool placed = false;
+    if (!cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game), (uint8_t)game->spell_x, (uint8_t)game->spell_y,
+                          false, &placed))
+        return undefined(game, "a combatant put at the spell's cell reads or writes outside its tables (dqk 5837:10bd, 24f0)");
+    if (!cok_arena_centre(game, cok_combat_x(combat, c->record), cok_combat_y(combat, c->record), 0, 8)) return false;
+    return cok_arena_say(game, c, "teleports", 10, true);
+}
+
+/* The effect of a flame: 0x32 (Hot) or 0x36 (Cold) "is Protected" (kind 0, unsaved), then 0x70 (the gets-zapped effect)
+ * silently, each for the spell's duration (101b before each add). */
+static bool flame(cok_adventure *game, uint8_t id)
+{
+    cok_character *c = caster_member(game);
+    if (c == NULL) return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 26b4)");
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, 0x55, &minutes)) return false;
+    if (!cok_cast_add_effect(game, c, id, minutes, 0, false, 0, false, "is Protected")) return false;
+    if (!queen_spell_duration(game, 0x55, &minutes)) return false;
+    return cok_cast_add_effect(game, c, 0x70, minutes, 0, false, 0, false, "");
+}
+
+/* 7fd8:26b4, Fire Shield (0x55): in mode 5 a computer member (+0x18c) takes its flame by a d2 (one draw, 0 Hot, 1 Cold);
+ * else "Flame type: " on the bar, Hot or Cold (Escape, or any other key, asks "Abort Spell": Yes ends the spell silently,
+ * No asks the flame again). Keys running out ends the run (the next read). Hot underwater (var 0x3c) is refused with
+ * "That has no effect underwater!" (row 10 of the bar) and the spell is gone. Else flame. The gets-zapped effect 0x70's
+ * handler (78e4:1b39, a melee hit on the holder) is cited: part 36. */
+static bool fire_shield(cok_adventure *game)
+{
+    static const char *const flames[] = {"Hot", "Cold"};
+    for (;;) {
+        uint8_t *caster = NULL;
+        if (game->vm.mode == 5) {
+            caster = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 26b4)");
+            if (caster == NULL) return false;
+        }
+        int choice;
+        if (caster != NULL && caster[0x18c] != 0) {
+            choice = (int)cok_dice(&game->vm.seed, 1, 2) - 1;
+        } else {
+            choice = queen_bar_menu(game, "Flame type: ", flames, 2, false);
+            if (choice < 0) return true; /* the keys ran out: the turn not ended */
+        }
+        if (choice == 0 || choice == 1) {
+            if (choice == 0 && cok_ecl_var(&game->vm, COK_VAR_RECORD_EFFECT) != 0) {
+                queen_bar_message(game, "That has no effect underwater!");
+                return true;
+            }
+            return flame(game, choice == 0 ? 0x32 : 0x36);
+        }
+        int answer = queen_yes_no(game, "Abort Spell");
+        if (answer < 0) return true; /* the keys ran out: the turn not ended */
+        if (answer == 1) return true;
+    }
+}
+
 queen_spell_fn *queen_band_c_handler(uint8_t id)
 {
     switch (id) {
@@ -713,6 +862,10 @@ queen_spell_fn *queen_band_c_handler(uint8_t id)
     case 0x4c: return slay_living;
 
     /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
+    case 0x29:
+    case 0x2e: return dispel_magic;
+    case 0x53: return dimension_door;
+    case 0x55: return fire_shield;
 
     default: return NULL;
     }
