@@ -2488,11 +2488,11 @@ static void test_dark_queen_item_opcodes(void)
     CHECK(run_code(&game, &s, cursed, sizeof cursed, "") == COK_ECL_OK);
     CHECK(a->item_count == 1 && strstr(s.log, "It's Cursed!") != NULL);
 
-    /* A readied item with a power: its power's routine (86b8:16f7) is not ported. */
+    /* A readied item with a power: its power's routine (86b8:16f7) is not ported (power 1; power 0 is, part 32e). */
     memset(item, 0, sizeof item);
     item[0x28] = 0x16;
     item[0x32] = 1;
-    item[0x38] = 0x80;
+    item[0x38] = 0x81;
     CHECK(cok_character_insert_item(a, 1, item));
     const uint8_t powered[] = {DQK_DESTROY_ITEMS, 0, 0x16, DQK_EXIT};
     CHECK(run_code(&game, &s, powered, sizeof powered, "") == COK_ECL_UNPORTED);
@@ -2513,13 +2513,13 @@ static void test_dark_queen_item_opcodes(void)
     vm->character = a->record;
     CHECK(run_code(&game, &s, rob, sizeof rob, "") == COK_ECL_OK);
     CHECK(a->record[0x4c] == 53 && a->record[0x4d] == 0 && a->item_count == 1);
-    /* A readied item of power, alone: the chance 100 takes it, and its power's
+    /* A readied item of power 1, alone: the chance 100 takes it, and its power's
      * routine stops the run. */
     while (a->item_count > 0) cok_character_remove_item(a, 0);
     memset(item, 0, sizeof item);
     item[0x28] = 0x18;
     item[0x32] = 1;
-    item[0x38] = 0x80;
+    item[0x38] = 0x81;
     CHECK(cok_character_insert_item(a, 0, item));
     const uint8_t rob_all[] = {DQK_ROB, 0, 0, 0, 0, 0, 100, DQK_EXIT};
     CHECK(run_code(&game, &s, rob_all, sizeof rob_all, "") == COK_ECL_UNPORTED);

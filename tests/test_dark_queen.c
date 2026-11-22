@@ -988,6 +988,12 @@ static void test_magic_ids(void)
         /* Band a3's texts (7fd8:0001's "is %s" with "Blessed" and "Cursed", 13b7, 0957, 36d6). */
         {0x8798, "is %s"},         {0x693f, "Blessed"},           {0x6947, "Cursed"},
         {0x88fb, "is praying"},    {0x8882, "is duplicated"},     {0x8ab3, "is covered in flame"},
+        /* Band c2's texts (7fd8:05c4's "falls asleep", 22f5's, 243f's, 257a's; 257a's "is unaffected" 87e8 is band c1's). */
+        {0x8836, "falls asleep"},  {0x89c8, "is entangled"},      {0x89e4, "is confused"},
+        {0x89fa, "flees in terror"},
+        /* Band c3's texts (7fd8:27ef's "is clumsy" and "is slowed", 2a48's and 06f6's "loses intellect", 06f6's "lost a spell"). */
+        {0x8a17, "is clumsy"},     {0x8a21, "is slowed"},         {0x86f2, "loses intellect"},
+        {0x8702, "lost a spell"},
         /* Effects-4's texts (7e76:012c's "is %s" with "Silenced", 033f's, 0b3c's runs). */
         {0x8674, "is %s"},         {0x6a42, "Silenced"},          {0x86a7, "runs away"},
         {0x86b1, "is confused"},   {0x86bd, "goes berserk"},      {0x86ca, "is enraged"},
@@ -995,6 +1001,21 @@ static void test_magic_ids(void)
         {0x8341, "lost an image"}, {0x834f, "ages"},              {0x8354, "Avoids it"},
         /* Effects-5's drain (78e4:08ba's "is weakened", the same text as the Ray's at 8890). */
         {0x835e, "is weakened"},
+        /* Band c1's texts (7fd8:022a's "is unaffected", 87f6's "is charmed", 1e0d's "is held" 8843, 2396's "is highlighted",
+         * 2b3a's "is not %s" 8a38 and "Charmed" through DS:6550). */
+        {0x87e8, "is unaffected"}, {0x87f6, "is charmed"},   {0x8843, "is held"},
+        {0x89d5, "is highlighted"}, {0x8a38, "is not %s"},   {0x69d2, "Charmed"},
+        /* Band c4's texts (7fd8:175a's "is Hasted", 1b11's "is Slowed", 02e8's "is stronger", 0438's "has been reduced"). */
+        {0x8946, "is Hasted"},     {0x8950, "is Slowed"},         {0x8801, "is stronger"},
+        {0x880d, "has been reduced"},
+        /* Band c6's texts (7fd8:0e9f's "is no longer diseased", 88b2 "is cured", 88bb, 88ce, 88e0; 1fcb's "smashes them
+         * flat" 89a3; 223e's "is slain" 89bf; 1b5c's "Diseased" 6abc, which "is %s" 8798 takes). */
+        {0x889c, "is no longer diseased"}, {0x88b2, "is cured"}, {0x88bb, "is no longer blind"},
+        {0x88ce, "regains intellect"},     {0x88e0, "is Healed"}, {0x89a3, "smashes them flat"},
+        {0x89bf, "is slain"},              {0x6abc, "Diseased"},
+        /* Band c7's texts (7fd8:24f0's "teleports", 26b4's "Flame type: " 4db9 and "Hot Cold" 4f36, and "is Protected" 8a0a). */
+        {0x89f0, "teleports"},     {0x4db9, "Flame type: "},      {0x4f36, "Hot Cold"},
+        {0x8a0a, "is Protected"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
@@ -1076,19 +1097,23 @@ static void test_magic_ids(void)
      * (1334, 1355, 13df), and effects band a's rows (part 34a, effects-1; 0x06 is the own hook's first
      * kind, queen_effect.c), each with the routine it runs (7e76 for 0x1a); effects-3's six (0x1c, 0x27, 0x29,
      * 0x2a, 0x31, 0x38: the own hook's kinds, queen_effect.c's images, haste, missiles, slow, prayer and
-     * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting). The list is in id order. */
+     * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting); band c1's 0x47 (Faerie Fire's armour,
+     * a descriptor row); band c3's 0x44 (feeblemind) and 0x4d (berserk); band c5's 0x17 (the spiritual hammer); band c6's 0x03 (Sticks to Snakes' snakes, h_snakes
+     * through the row). The list is in id order. */
     static const struct { uint8_t id; uint16_t seg, off; } ported_effects[] = {
-        {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x04, 0x78e4, 0x0168}, {0x06, 0x78e4, 0x0184},
+        {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x03, 0x7e76, 0x0009}, {0x04, 0x78e4, 0x0168},
+        {0x06, 0x78e4, 0x0184},
         {0x08, 0x78e4, 0x0198}, {0x09, 0x78e4, 0x01c6}, {0x0a, 0x78e4, 0x01f4}, {0x0b, 0x7e76, 0x007a},
         {0x0d, 0x78e4, 0x021d}, {0x0f, 0x78e4, 0x023d}, {0x11, 0x78e4, 0x02b9}, {0x12, 0x78e4, 0x02e6},
-        {0x14, 0x78e4, 0x0313}, {0x15, 0x7e76, 0x012c}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
+        {0x14, 0x78e4, 0x0313}, {0x15, 0x7e76, 0x012c}, {0x17, 0x78e4, 0x0397}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
         {0x1b, 0x78e4, 0x010d}, {0x1c, 0x78e4, 0x0580}, {0x1d, 0x78e4, 0x0654}, {0x1f, 0x78e4, 0x010d},
         {0x21, 0x78e4, 0x0672}, {0x22, 0x78e4, 0x0696}, {0x23, 0x7e76, 0x033f}, {0x24, 0x78e4, 0x06d3},
         {0x27, 0x78e4, 0x06e8}, {0x28, 0x78e4, 0x073b}, {0x29, 0x78e4, 0x0832}, {0x2a, 0x78e4, 0x0877},
         {0x2b, 0x78e4, 0x08ba}, {0x2c, 0x78e4, 0x0920}, {0x2d, 0x78e4, 0x0198}, {0x2e, 0x78e4, 0x01c6},
         {0x2f, 0x78e4, 0x09b2}, {0x31, 0x78e4, 0x09d3}, {0x32, 0x78e4, 0x0a22}, {0x33, 0x78e4, 0x010d},
         {0x34, 0x78e4, 0x010d}, {0x35, 0x78e4, 0x010d}, {0x36, 0x78e4, 0x0a7e}, {0x38, 0x78e4, 0x0acf},
-        {0x39, 0x78e4, 0x0b11}, {0x5c, 0x78e4, 0x1334}, {0x5e, 0x78e4, 0x1355}, {0x5f, 0x78e4, 0x13df},
+        {0x39, 0x78e4, 0x0b11}, {0x44, 0x7e76, 0x06f6}, {0x47, 0x78e4, 0x10a6}, {0x4d, 0x7e76, 0x081f},
+        {0x5c, 0x78e4, 0x1334}, {0x5e, 0x78e4, 0x1355}, {0x5f, 0x78e4, 0x13df},
         {0x64, 0x78e4, 0x14d1}, {0x69, 0x78e4, 0x1aa2}, {0x6f, 0x7e76, 0x0b3c}, {0xc3, 0x78e4, 0x4949}
     };
     for (unsigned id = 0; id < R->effects.count; ++id) {
@@ -1125,7 +1150,7 @@ static void test_magic_ids(void)
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
      * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, the
      * use-up's HAMMER (52db:1b26), the resist-charm's ASLEEP (78e4:13df), and 054a's test its
-     * SEES_INVISIBLE; every other name is 0. */
+     * SEES_INVISIBLE, and band c6's SNAKES (0x03); every other name is 0. */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c &&
           R->effects.ids[COK_EFFECT_HAMMER] == 0x17);
@@ -1133,11 +1158,11 @@ static void test_magic_ids(void)
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19 && R->effects.ids[COK_EFFECT_SEES_INVISIBLE] == 0x18);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
-    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
+    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26 && R->effects.ids[COK_EFFECT_SNAKES] == 0x03);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
             n != COK_EFFECT_SEES_INVISIBLE && n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
-            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP)
+            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP && n != COK_EFFECT_SNAKES)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the
@@ -4257,14 +4282,14 @@ static void test_cast_targets(void)
     cast_keys("ENEY");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
     CHECK(cast_said("Spell Aborted"));
-    /* The dispatch: an unported spell (0x1c Spiritual Hammer, kind 0, no Aim; Shield is a plain apply now)
-     * runs its flight and forgets it, then stops at its cited routine (7fd8:08e3). The byte is marked (0x9c). */
+    /* The dispatch: an unported spell (0x7e Monster Summoning, kind 0, no Aim; Shield is a plain apply now)
+     * runs its flight and forgets it, then stops at its cited routine (7fd8:3fa4). The byte is marked (0xfe). */
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cast_keys("");
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
-    CHECK(menu_c->record[0xce] == 0x9c);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
+    CHECK(menu_c->record[0xce] == 0xfe);
     /* A ported handler runs: CLW on herself (the Aim's T), the spell marked, the cast over. */
     cast_open(false);
     cast_keys("T");
@@ -4383,38 +4408,38 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 }
 
 /* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
- * own cell), read where Spiritual Hammer (0x1c, unported: its stop is 7fd8:08e3, after the flight, no burst) stops. Lightning
+ * own cell), read where Monster Summoning (0x7e, unported: its stop is 7fd8:3fa4, after the flight, no burst) stops. Lightning
  * (0x33) is ported (band b3): it runs its handler at the own cell, so it no longer stops before its draws. */
 static uint32_t own_cell_flight(uint32_t start)
 {
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
 }
 
 /* The same at a foe's cell (9, 5), the caster's aim by N then T: the missile to the foe draws (its flight is not the own
- * cell's), so a foe's burst base is read the same way, where Spiritual Hammer stops. */
+ * cell's), so a foe's burst base is read the same way, where Monster Summoning stops. */
 static uint32_t foe_flight(uint32_t start)
 {
     cast_open(false);
     aim_foe(9, 5, 1);
-    menu_c->record[0xce] = 0x1c;
+    menu_c->record[0xce] = 0x7e;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("NT");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x1c, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
@@ -4925,12 +4950,12 @@ static void test_cast_kinds(void)
     menu_c->combat->facing = 2;
     cast_keys("T");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_c->combat->facing == 0);
-    /* A pending spell is cleared before its cast: one that stops (Spiritual Hammer's handler, 7fd8:08e3)
+    /* A pending spell is cleared before its cast: one that stops (Monster Summoning's handler, 7fd8:3fa4)
      * leaves none pending. */
     cast_open(false);
-    menu_c->record[0xce] = 0x1c;
-    menu_c->combat->spell = 0x1c;
-    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:08e3") != NULL);
+    menu_c->record[0xce] = 0x7e;
+    menu_c->combat->spell = 0x7e;
+    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:3fa4") != NULL);
     CHECK(menu_c->combat->spell == 0);
     menu_close();
 }

@@ -389,6 +389,9 @@ typedef enum {
     COK_FX_QUEEN_DISEASE,           /* 0x22 (78e4:0696): cause disease, the strength and wasting effects */
     COK_FX_QUEEN_DRAIN,             /* 0x2b (78e4:08ba): the strength drained */
     COK_FX_QUEEN_WASTING,           /* 0x2c (78e4:0920): wasting, the damage and the drain */
+    COK_FX_QUEEN_FEEBLEMIND,        /* 0x44 (7e76:06f6) */
+    COK_FX_QUEEN_BERSERK,           /* 0x4d (7e76:081f) */
+    COK_FX_QUEEN_HAMMER,            /* 0x17 (78e4:0397): c5's */
     COK_FX_HANDLERS
 } cok_effect_handler;
 

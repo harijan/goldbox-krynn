@@ -176,8 +176,37 @@ static cok_character *which_member(cok_adventure *game, const char *prompt, cok_
     }
 }
 
+/* 86b8:16f7's power 0 (+0x38 0x80): put on and taken off through queen_item_power. Powers 1 to 9 and the others stay
+ * cited (part 50), and so does the 0x8c cast on ready (its power 0, +0x37 0x8c). */
+static bool power_zero(const uint8_t *item)
+{
+    return (item[0x38] & 0x7f) == 0;
+}
+
+/* The selected member (vm.character, DS:ad67: 16f7's caster), NULL where none is (undefined). */
+static cok_character *selected(cok_adventure *game)
+{
+    size_t i = game->vm.character == NULL ? game->party.count : cok_party_index(&game->party, game->vm.character);
+    if (i >= game->party.count) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "an item's power is read through the selected member, none "
+                                                    "is (DS:ad67, 86b8:16f7)");
+        return NULL;
+    }
+    return game->party.members[i];
+}
+
+/* 78e4:4f34 (effect 0x7f, the item's power on or off; its effect is item[0x37]): removing takes the first effect of that
+ * id off c (017d, no node); else the id is added for 0 minutes, value 0xff, on remove unless it is 0x96 (19c2). Readying
+ * the spiritual hammer, Remove Curse's unready and 86b8:16f7's power 0 go through it. */
+bool queen_item_power(cok_adventure *game, cok_character *c, uint8_t *item, bool removing)
+{
+    uint8_t id = item[0x37];
+    if (removing) return cok_effects_remove(&game->effects, c, NULL, id) || cok_adventure_effect_failed(game);
+    return queen_add_raw(game, c, id, 0, 0xff, id != 0x96);
+}
+
 /* 86b8:1965's readied branch: an item readied is unreadied, unless it is
- * cursed ("It's Cursed!"); one with a power takes it off (16f7, not ported). */
+ * cursed ("It's Cursed!"); one with a power takes it off (16f7's power 0 through the selected member). */
 bool queen_item_unready(cok_adventure *game, uint8_t *item)
 {
     if (item[ITEM_FLAG] != 0) {
@@ -185,8 +214,12 @@ bool queen_item_unready(cok_adventure *game, uint8_t *item)
         return true;
     }
     item[ITEM_READIED] = 0;
-    if ((item[0x38] & 0x80) != 0)
-        return cok_adventure_not_yet(game, "an item's power taken off", "dqk 86b8:16f7");
+    if ((item[0x38] & 0x80) != 0) {
+        if (!power_zero(item))
+            return cok_adventure_not_yet(game, "an item's power taken off", "dqk 86b8:16f7");
+        cok_character *c = selected(game);
+        return c != NULL && queen_item_power(game, c, item, true);
+    }
     return true;
 }
 
@@ -231,7 +264,9 @@ bool queen_item_ready(cok_adventure *game, cok_character *character, size_t inde
     switch (code) {
     case 0:
         item[ITEM_READIED] = 1;
-        if (power) return cok_adventure_not_yet(game, "an item's power put on", "dqk 86b8:16f7");
+        if (power && (!power_zero(item) || item[0x37] == 0x8c))
+            return cok_adventure_not_yet(game, "an item's power put on", "dqk 86b8:16f7");
+        if (power) return queen_item_power(game, character, item, false);
         break;
     case 1: queen_bar_message(game, "Wrong Class"); break;
     case 2:

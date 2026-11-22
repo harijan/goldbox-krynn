@@ -5854,7 +5854,7 @@ static bool heal(cok_adventure *game)
         "dqk 7825:0193 (148f:1968, 148f:25f7, 148f:017d, 148f:1dfc)",
         "dqk 7825:0394 (148f:017d)",
         "dqk 7825:02c0 (849a:21b5)",
-        "dqk 7825:0479 (7fd8:13ef)",
+        "dqk 7825:0479 (its spell 7fd8:13ef is ported, part 32e)",
         NULL, /* Stone to Flesh (0524): stone_to_flesh */
         "dqk 7825:059e (849a:21b5)",
     };

@@ -305,9 +305,29 @@ bool queen_burst(cok_adventure *game, uint8_t radius, uint8_t slot, uint8_t soun
  * cell with radius (5d71:07d7, the targets 1 to the count), for queen_area.c. False where the run stopped. */
 bool queen_spell_level(cok_adventure *game, uint8_t spell, bool capped, uint8_t *level);
 bool queen_area_targets(cok_adventure *game, uint16_t radius);
-/* The band b handlers (queen_area.c's switch): the handler of a spell id it carries out, NULL for any other. The
- * cast takes it before the plain table (queen_spell_handler). */
+/* The band b and c2 handlers (queen_area.c's switch: Fireball, Flame Strike, Ice Storm, the bolts, Cone of Cold, Meteor
+ * Swarm, Sleep, Entangle, Confusion, Fear): the handler of a spell id it carries out, NULL for any other. The cast takes
+ * it before the plain table (queen_spell_handler). */
 queen_spell_fn *queen_area_handler(uint8_t id);
+/* The band c handlers (queen_band_c.c's switch): the handler of a spell id it carries out, NULL for any other. queen_spell_handler
+ * takes it after queen_area_handler and before the plain table. */
+queen_spell_fn *queen_band_c_handler(uint8_t id);
+/* The first target of the spell (spell_targets[1], DS:c5e3) for the handlers that read it: NULL (undefined, the run stopped)
+ * where none is, and where it is freed since a battle. */
+cok_character *queen_first_target(cok_adventure *game);
+/* The memorised spells' cast bits (bit 7 of +0xce to +0x156, 0x89 bytes) cleared, as 7e76:06f6 and 7fd8:2a48 do
+ * (queen_effect.c). */
+void queen_clear_cast_spells(const cok_character_layout *L, uint8_t *record);
+/* 148f:1bc6 (c, id, &cured): the first effect id on c is said "is Cured" (row 10, waited) and removed; cured is whether
+ * one was found (queen_cast.c). Haste and Slow (queen_band_c.c) take it; band c5 and c6 do too. False where the run stopped. */
+bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured);
+/* 148f:19c2 (c, id, minutes, value, flag), the raw add of an effect (queen_effect.c's: a full pool stops, cited). Enlarge
+ * (queen_band_c.c) adds its 0x0c this way. False where the run stopped. */
+bool queen_add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes, uint8_t value, bool on_remove);
+/* 78e4:4f34 (queen_view.c): the item's power on (removing false: its effect item[0x37] added for 0 minutes, value 0xff, on
+ * remove unless it is 0x96) or off (removing: the first such effect removed). The spiritual hammer's readying, Remove Curse
+ * (queen_band_c.c) and 86b8:16f7's power 0 use it. False where the run stopped. */
+bool queen_item_power(cok_adventure *game, cok_character *c, uint8_t *item, bool removing);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);

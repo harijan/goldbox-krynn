@@ -366,7 +366,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x00] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x01] = {0x0132, COK_FX_BLESS, .applied_only = true}, /* 78e4:0132: morale and attack roll */
     [0x02] = {0x0146, COK_FX_CURSE, .applied_only = true}, /* 78e4:0146: morale and attack roll */
-    [0x03] = {0x0009, COK_FX_MISSING, "dqk 7e76:0009"},
+    [0x03] = {0x0009, COK_FX_SNAKES}, /* 7e76:0009: the snakes' count (effect.c's h_snakes, flag 0; flag 1 stops, cited there) */
     [0x04] = {0x0168, COK_FX_EVIL_AVOID, .applied_only = true}, /* 78e4:0168: attacker of flag 1, -7 */
     [0x05] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x06] = {0x0184, COK_FX_QUEEN_TYPE_CANCEL, .value = 4, .applied_only = true}, /* 78e4:0184: 00f7(4) */
@@ -386,7 +386,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x14] = {0x0313, COK_FX_QUEEN_RESIST, .value = 1, .applied_only = true}, /* 78e4:0313: fire halved, save +3 */
     [0x15] = {0x012c, COK_FX_QUEEN_SILENCE, .applied_only = true}, /* 7e76:012c: silence in battle */
     [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
-    [0x17] = {0x0397, COK_FX_MISSING, "dqk 78e4:0397"},
+    [0x17] = {0x0397, COK_FX_QUEEN_HAMMER}, /* 78e4:0397: the spiritual hammer (queen_effect.c); event 0x13 */
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x19] = {0x054a, COK_FX_INVISIBLE}, /* 78e4:054a: tests the removing flag itself */
     [0x1a] = {0x01c7, COK_FX_TARGET_BONUS, .battle = true, .applied_only = true}, /* 7e76:01c7 */
@@ -431,16 +431,16 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x41] = {0x069f, COK_FX_MISSING, "dqk 7e76:069f"},
     [0x42] = {0x0e98, COK_FX_MISSING, "dqk 78e4:0e98"},
     [0x43] = {0x0eeb, COK_FX_MISSING, "dqk 78e4:0eeb"},
-    [0x44] = {0x06f6, COK_FX_MISSING, "dqk 7e76:06f6"},
+    [0x44] = {0x06f6, COK_FX_QUEEN_FEEBLEMIND, .applied_only = true}, /* 7e76:06f6: intelligence and wisdom 3, the spells forgotten */
     [0x45] = {0x0f33, COK_FX_MISSING, "dqk 78e4:0f33"},
     [0x46] = {0x0f6b, COK_FX_MISSING, "dqk 78e4:0f6b"},
-    [0x47] = {0x10a6, COK_FX_MISSING, "dqk 78e4:10a6"},
+    [0x47] = {0x10a6, COK_FX_ARMOUR, .value = 0xfe, .applied_only = true}, /* 78e4:10a6: AC and AC behind 2 worse */
     [0x48] = {0x10c0, COK_FX_NOTHING}, /* does nothing: retf */
     [0x49] = {0x10c5, COK_FX_MISSING, "dqk 78e4:10c5"},
     [0x4a] = {0x10e0, COK_FX_MISSING, "dqk 78e4:10e0"},
     [0x4b] = {0x07c8, COK_FX_MISSING, "dqk 7e76:07c8"},
     [0x4c] = {0x10f3, COK_FX_MISSING, "dqk 78e4:10f3"},
-    [0x4d] = {0x081f, COK_FX_MISSING, "dqk 7e76:081f"},
+    [0x4d] = {0x081f, COK_FX_QUEEN_BERSERK}, /* 7e76:081f: the berserk turn at the listed[2] combatant */
     [0x4e] = {0x1106, COK_FX_MISSING, "dqk 78e4:1106"},
     [0x4f] = {0x1115, COK_FX_MISSING, "dqk 78e4:1115"},
     [0x50] = {0x11d1, COK_FX_MISSING, "dqk 78e4:11d1"},
@@ -622,6 +622,8 @@ const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_HAMMER] = 0x17,
     /* 78e4:13df's cancel (0x5f): the sleep, as in Champions (rules.c). */
     [COK_EFFECT_ASLEEP] = 0x35,
+    /* 7e76:0009, Sticks to Snakes' effect (the row 0x03 above; h_snakes finds it by this id). */
+    [COK_EFFECT_SNAKES] = 0x03,
 };
 
 /* The event lists (148f:0512, a0512.txt): by event, the ids its handlers run, 0-ended, in

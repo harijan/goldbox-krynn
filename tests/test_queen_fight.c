@@ -11,6 +11,7 @@
 #include "ecl.h"
 #include "party.h"
 #include "queen.h"
+#include "queen_view.h"
 #include "round.h"
 #include "rules.h"
 #include "step.h"
@@ -653,7 +654,8 @@ static void test_forget(void)
 
 /* A swing's attacker: one party record with slot 1's two attacks, 1d4 with no bonus, thac0 10, and
  * a target beside it, a monster of 10 hit points, both up (record() leaves ACTIVE 0). Var 0x12 (the
- * speed) is 0, so the waits draw nothing. */
+ * speed) is 0, so the swing's waits (1a62:0949, 100 ms times var 0x12) draw nothing; a wait for the
+ * speed's time (1a62:0960, DS:1cd8's 10 ms at speed 0) still draws its random(1000). */
 static void duel_at(cok_character **a, cok_character **t, int8_t tx, int8_t ty)
 {
     battle_clear();
@@ -2096,10 +2098,19 @@ static void test_plain_apply(void)
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
         bool b3 = id == 0x33 || id == 0x81; /* queen_area.c's band b3 */
+        bool c1 = id == 0x17 || id == 0x31 || id == 0x5e || id == 0x6c || id == 0x4f || id == 0x51 || id == 0x0a ||
+                  id == 0x3f || id == 0x60 || id == 0x1b; /* queen_band_c.c's c1 */
+        bool c2 = id == 0x15 || id == 0x4e || id == 0x52 || id == 0x54; /* queen_area.c's band c2 */
+        bool c3 = id == 0x56 || id == 0x5d; /* queen_band_c.c's c3 */
+        bool c4 = id == 0x30 || id == 0x37 || id == 0x0c || id == 0x0d; /* queen_band_c.c's c4 */
+        bool c5 = id == 0x1c || id == 0x2b || id == 0x3d || id == 0x59; /* queen_band_c.c's c5 */
+        bool c6 = id == 0x24 || id == 0x46 || id == 0x28 || id == 0x44 || id == 0x38 || id == 0x4c; /* queen_band_c.c's c6 */
+        bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
+               c4 || c5 || c6 || c7)); /* 0x5c: band b4, 0x7c: b5 */
     }
-    CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
+    CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
     duel(&a, &t);
     game.vm.character = a->record;
@@ -2129,7 +2140,7 @@ static bool swap_slot(cok_effects *fx, void *context)
 }
 
 /* The touch reads the slot again after its event 0x0b (dqk 849a:10f9 1247-133e) and the count each
- * pass (1347). No ported Dark Queen handler swaps a slot (0x47's turning is a cited stop), so a copy of
+ * pass (1347). No ported Dark Queen handler swaps a slot (its 0x47 is Faerie Fire's armour, a row of its own), so a copy of
  * the rules puts effect 0x22 (in no list) on event 0x0b alone with Champions' 0x4a handler (3f44:26a5:
  * a d20 of 1 calls fx->dispel), whose hook here swaps the slot or cuts the count. The swap: the hit
  * roll (against its armour class, not recomputed), the damage and the effect go to the record put in
@@ -2858,9 +2869,9 @@ static uint32_t confusion_seed(unsigned low, unsigned high, unsigned save)
 
 /* 7e76:033f (0x23, confusion; ev 0x15, applied_only): one d100 by the original's table. 1-10 runs away: the 0x23
  * removed, the block forced and computer controlled, its target NULL, and 0x6f added for ten minutes. 11-60 "is
- * confused" and the turn ends. 61-80 0x4d is added and run: its cited stop (7e76:081f) stops the run, before the
- * save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps it; a d20 of 10
- * leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
+ * confused" and the turn ends. 61-80 0x4d is added and run (berserk, band c3: the target is listed[2], the sides
+ * flipped), then the save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps
+ * it; a d20 of 10 leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
 static void test_effects_four_confusion(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -2903,19 +2914,24 @@ static void test_effects_four_confusion(void)
           (uint8_t)(cok_field_s8(R->character, t->record, COK_FIELD_SAVE_BONUS) + 10 + 0xfe));
     CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x23), 0x23) &&
           game.vm.status == COK_ECL_OK);
-    /* 61-80: 0x4d added, run, and its cited stop ends the run before the save. */
+    /* 61-80: 0x4d added and run (berserk: the target is a, the other listed; t's side becomes a's side ^ 1), then the
+     * save, made here (20), removes the 0x23. */
+    cr->forced = 0;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = a->record;
     CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
     game.vm.seed = confusion_seed(61, 80, 20);
     log_text[0] = '\0';
-    game.effects.error[0] = '\0';
-    CHECK(!cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_EFFECT_FAILED);
-    CHECK(strstr(game.effects.error, "7e76:081f") != NULL && LOGGED("goes berserk"));
-    CHECK(cok_character_find_effect(t, 0x4d) != NULL && cok_character_find_effect(t, 0x23) != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.effects.failed = false;
-    game.effects.error[0] = '\0';
-    game.error[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("goes berserk") && cok_character_find_effect(t, 0x23) == NULL);
+    CHECK(cok_character_find_effect(t, 0x4d) != NULL && computer(t) == 1 && npc_of(t) == 0xb3);
+    CHECK(cr->target == a->record && cr->may_cast == 0 && side_of(t) == 1);
+    CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x4d), 0x4d) &&
+          game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && side_of(t) == 0);
     /* 81-100: "is enraged" and the save: made removes it. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
     game.vm.seed = confusion_seed(81, 100, 20);
     log_text[0] = '\0';
     CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
@@ -4769,6 +4785,296 @@ static unsigned spell_of_level(unsigned level)
     return 0;
 }
 
+/* c2 (part 32b): Sleep (7fd8:05c4), Entangle (22f5), Confusion (243f), Fear (257a), in queen_area.c. The allowance and the
+ * saves are the seed's: seed_for_dice and seed_from pick the seed; the draws are counted after the handler. */
+
+/* The first seed whose count d sides sum to want (from 1 on). */
+static uint32_t seed_for_dice(unsigned count, uint8_t sides, unsigned want)
+{
+    for (uint32_t start = 1;; ++start) {
+        uint32_t seed = start;
+        if (cok_dice(&seed, (uint8_t)count, sides) == want) return start;
+    }
+}
+
+/* A record in the battle at x, y (combat record and cell), its saving throw of type 4 at 21 (it saves on a 20 only). */
+static cok_character *c2_target(char name, uint8_t npc, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, npc);
+    place(t, x, y);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    return t;
+}
+
+/* Sleep's target: a record of highest level lv (+0x91), at x, y, with the race word's low byte race (+0x58). */
+static cok_character *sleeper(char name, uint8_t lv, uint8_t race, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, lv);
+    cok_field_set8(R->character, t->record, COK_FIELD_RACE, race);
+    return t;
+}
+
+/* The caster for the c2 spells: a record at x, y (the selected member), the battle's mode 5, the spell's cell 6, 5. */
+static cok_character *c2_caster(int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, x, y);
+    game.vm.character = a->record;
+    game.vm.status = COK_ECL_OK;
+    game.vm.mode = 5;
+    game.spell_x = 6;
+    game.spell_y = 5;
+    game.effects.rolls.images = 0;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    return a;
+}
+
+/* Sleep (7fd8:05c4): the allowance 4d4 and the weights by highest level (+0x91, read unsigned: 1 1, 2 2, 3 4, 4 6, 5 10 for race
+ * 7 and 20 otherwise, 0 and 6 and up 20), the status 1 and the 0x35 held dropped. The allowance is spent in list order: 10 at the
+ * start goes 1, 6, 2 (9, 3, 1 left) and a 10 is dropped. The images flag stays set; no draw but the allowance's. */
+static void test_band_c2_sleep(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *w1 = sleeper('a', 1, 0, 20, 20), *w6 = sleeper('b', 4, 0, 21, 20), *w2 = sleeper('c', 2, 0, 22, 20);
+    cok_character *w10 = sleeper('d', 5, 7, 23, 20);
+    cok_character *list[4] = {w1, w6, w2, w10};
+    for (unsigned i = 0; i < 4; ++i) game.spell_targets[i + 1] = list[i];
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x15;
+    uint32_t seed0 = seed_for_dice(4, 4, 10);
+    game.vm.seed = seed0;
+    CHECK(run_handler(0x15) && game.vm.character == a->record);
+    CHECK(game.spell_targets[1] == w1 && game.spell_targets[2] == w6 && game.spell_targets[3] == w2 &&
+          game.spell_targets[4] == NULL);
+    CHECK(cok_character_find_effect(w1, 0x35) != NULL && cok_character_find_effect(w6, 0x35) != NULL &&
+          cok_character_find_effect(w2, 0x35) != NULL && cok_character_find_effect(w10, 0x35) == NULL);
+    CHECK(game.effects.rolls.images == 1 && LOGGED("falls asleep"));
+    /* One target at a time, each on a fresh record: the boundaries of the weight and the drops. */
+    struct {
+        uint8_t lv, race;
+        uint16_t race_word; /* 0 for the byte alone */
+        bool status, held;
+        unsigned allowance;
+        bool kept;
+    } cases[] = {
+        {0, 0, 0, false, false, 16, false},  /* level 0 weighs 20 (unsigned): dropped */
+        {5, 7, 0x107, false, false, 16, false}, /* race word 0x107 is not 7: weighs 20, dropped */
+        {5, 7, 0, false, false, 10, true},   /* 10 against 10: kept, the allowance 0 after */
+        {5, 7, 0, false, false, 9, false},   /* 10 against 9: dropped */
+        {1, 0, 0, true, false, 16, false},   /* status word 1 (asleep): dropped */
+        {1, 0, 0, false, true, 16, false},   /* holds 0x35 already: dropped */
+    };
+    for (unsigned i = 0; i < sizeof cases / sizeof *cases; ++i) {
+        c2_caster(5, 5);
+        cok_character *s = sleeper('s', cases[i].lv, cases[i].race, 20, 20);
+        if (cases[i].race_word != 0) {
+            s->record[0x58] = (uint8_t)cases[i].race_word;
+            s->record[0x59] = (uint8_t)(cases[i].race_word >> 8);
+        }
+        if (cases[i].status) cok_field_set8(R->character, s->record, COK_FIELD_STATUS, 1);
+        if (cases[i].held) CHECK(cok_character_add_effect(s, 0x35, 0, 0, false) != NULL);
+        game.spell_targets[1] = s;
+        game.spell_target_count = 1;
+        game.effects.rolls.spell = 0x15;
+        uint32_t allowance_seed = seed_for_dice(4, 4, cases[i].allowance);
+        game.vm.seed = allowance_seed;
+        CHECK(run_handler(0x15));
+        bool kept = game.spell_targets[1] != NULL;
+        CHECK(kept == cases[i].kept);
+        /* Dropped: the allowance's four draws and nothing more (a kept target's add draws too). */
+        if (!kept) CHECK(game.vm.seed == after_draws(allowance_seed, 4, 4));
+    }
+    /* The weights of levels 1 to 4 (1, 2, 4, 6), each before a race-7 level 5 (10): an allowance of the weight + 10 keeps both,
+     * one less drops the second. Then a dropped target (holding 0x35, level 1) spends nothing: 10 keeps the 10 after it. */
+    static const uint8_t weights[] = {1, 2, 4, 6};
+    for (unsigned lv = 1; lv <= 4; ++lv) {
+        for (unsigned less = 0; less <= 1; ++less) {
+            c2_caster(5, 5);
+            cok_character *s = sleeper('s', (uint8_t)lv, 0, 20, 20), *u = sleeper('u', 5, 7, 21, 20);
+            game.spell_targets[1] = s;
+            game.spell_targets[2] = u;
+            game.spell_target_count = 2;
+            game.effects.rolls.spell = 0x15;
+            game.vm.seed = seed_for_dice(4, 4, weights[lv - 1] + 10u - less);
+            CHECK(run_handler(0x15));
+            CHECK(game.spell_targets[1] == s && (game.spell_targets[2] == u) == (less == 0));
+        }
+    }
+    c2_caster(5, 5);
+    cok_character *h = sleeper('h', 1, 0, 20, 20), *k = sleeper('k', 5, 7, 21, 20);
+    CHECK(cok_character_add_effect(h, 0x35, 0, 0, false) != NULL);
+    game.spell_targets[1] = h;
+    game.spell_targets[2] = k;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = 0x15;
+    game.vm.seed = seed_for_dice(4, 4, 10);
+    CHECK(run_handler(0x15) && game.spell_targets[1] == NULL && game.spell_targets[2] == k);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Entangle (7fd8:22f5): nothing with var 0x22 set (the seed kept, no text, the image cleared). Else each target saves by type 4
+ * (its own d20), and unless it saved "is entangled" (0x1b, the duration of 0x4e). */
+static void test_band_c2_entangle(void)
+{
+    c2_caster(5, 5);
+    cok_character *t1 = c2_target('e', 0, 20, 20), *t2 = c2_target('f', 0, 21, 20);
+    game.spell_targets[1] = t1;
+    game.spell_targets[2] = t2;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = 0x4e;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    game.vm.seed = 9;
+    CHECK(run_handler(0x4e));
+    CHECK(game.vm.seed == 9 && cok_character_find_effect(t1, 0x1b) == NULL && cok_character_find_effect(t2, 0x1b) == NULL);
+    CHECK(game.effects.rolls.images == 0 && !LOGGED("is entangled"));
+    /* Var 0x22 clear: the first target's d20 is 20 (saved), the second's 2 to 19 (not saved). */
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x4e));
+    CHECK(cok_character_find_effect(t1, 0x1b) == NULL);
+    const cok_effect *e = cok_character_find_effect(t2, 0x1b);
+    uint16_t minutes = 0;
+    CHECK(e != NULL && queen_spell_duration(&game, 0x4e, &minutes) && e->duration == minutes);
+    CHECK(game.effects.rolls.images == 0 && LOGGED("is entangled"));
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Confusion (7fd8:243f): the count 2d8 is drawn first and the targets past it dropped (DS:c6f4 is the count kept); then each
+ * target's d20 save and "is confused" (0x23, the duration of 0x52) unless it saved. The seed: 2d8 is 2, the first target saves
+ * (20), the second and the two past the count do not (2 to 19): a cap after the saves would confuse the last two. */
+static void test_band_c2_confusion(void)
+{
+    c2_caster(5, 5);
+    cok_character *t[4];
+    for (unsigned i = 0; i < 4; ++i) t[i] = c2_target('g', 0, (int8_t)(20 + i), 20);
+    for (unsigned i = 0; i < 4; ++i) game.spell_targets[i + 1] = t[i];
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x52;
+    uint32_t seed0 = 1;
+    for (;; ++seed0) {
+        uint32_t s = seed0;
+        if (cok_dice(&s, 2, 8) != 2) continue;
+        uint8_t r1 = cok_dice(&s, 1, 20);
+        bool fail = true;
+        for (unsigned k = 0; k < 3; ++k) {
+            uint8_t r = cok_dice(&s, 1, 20);
+            fail = fail && r >= 2 && r <= 19;
+        }
+        if (r1 == 20 && fail) break;
+    }
+    game.vm.seed = seed0;
+    CHECK(run_handler(0x52));
+    CHECK(game.spell_target_count == 2);
+    CHECK(cok_character_find_effect(t[0], 0x23) == NULL && cok_character_find_effect(t[1], 0x23) != NULL);
+    CHECK(cok_character_find_effect(t[2], 0x23) == NULL && cok_character_find_effect(t[3], 0x23) == NULL);
+    /* The two past the count are not rolled: their saves would have failed (the seed), so no draw of theirs ran. */
+    uint16_t minutes = 0;
+    const cok_effect *e = cok_character_find_effect(t[1], 0x23);
+    CHECK(e != NULL && queen_spell_duration(&game, 0x52, &minutes) && e->duration == minutes);
+    CHECK(game.effects.rolls.images == 0 && LOGGED("is confused"));
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Fear (7fd8:257a): the cone of width 3 and length 6 from the caster (10, 10) at the spell's cell (11, 10), the centre line's
+ * end 16, 10. A target on the centre line (11, 10, M) saves or not; one on the left line (16, 9, L; the side is east, 2, so
+ * the left end is 0 and -1 from the end) is reached by width 3 only. A failed save adds 0x6f and makes the combat record run:
+ * forced, computer, NPC 0xb3 (M's NPC kept at 0x80: bit 7), target NULL. A made save says "is unaffected" and writes nothing. */
+static void fear_battle(cok_character **m, cok_character **l)
+{
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    *m = record('M', 1, 1);
+    place(*m, 11, 10);
+    cok_field_set8_at(R->character, (*m)->record, COK_FIELD_SAVING_THROW, 4, 21);
+    *l = c2_target('L', 0, 16, 9);
+}
+
+static void test_band_c2_fear(void)
+{
+    static uint8_t dummy;
+    cok_character *m, *l, *p;
+    uint16_t minutes = 0;
+    /* Both fail (rolls 2 to 19): the centre's and the left line's targets, in the cone's order (the centre line first). F at 17,
+     * 10, one past the centre line's end (length 6), is not reached. */
+    fear_battle(&m, &l);
+    m->combat->target = &dummy;
+    cok_character *f = c2_target('F', 0, 17, 10);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 2, 19, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(game.spell_target_count == 2 && cok_character_find_effect(f, 0x6f) == NULL);
+    CHECK(game.effects.rolls.images == 0 && LOGGED("flees in terror") && !LOGGED("is unaffected"));
+    CHECK(queen_spell_duration(&game, 0x54, &minutes));
+    const cok_effect *e = cok_character_find_effect(m, 0x6f);
+    CHECK(e != NULL && e->on_remove && e->duration == minutes);
+    CHECK(m->combat->forced == 1 && computer(m) == 1 && cok_field_u8(R->character, m->record, COK_FIELD_NPC) == 0x80 &&
+          m->combat->target == NULL);
+    CHECK(cok_character_find_effect(l, 0x6f) != NULL && l->combat->forced == 1 && computer(l) == 1 &&
+          cok_field_u8(R->character, l->record, COK_FIELD_NPC) == 0xb3 && l->combat->target == NULL);
+    battle_clear();
+    /* The centre's target saves (20) and the left line's fails: M untouched, "is unaffected" said, L's block written. */
+    fear_battle(&m, &l);
+    m->combat->target = &dummy;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(cok_character_find_effect(m, 0x6f) == NULL && m->combat->forced == 0 && computer(m) == 0 &&
+          m->combat->target == &dummy && LOGGED("is unaffected"));
+    CHECK(cok_character_find_effect(l, 0x6f) != NULL && l->combat->forced == 1 && computer(l) == 1);
+    battle_clear();
+    /* The made save alone (M, no one else in the cone): its d20 and the say's wait (one draw), nothing more. */
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    m = record('M', 1, 1);
+    place(m, 11, 10);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_SAVING_THROW, 4, 21);
+    uint32_t want = seed_from(1, (const unsigned[]){20, 20, 20});
+    game.vm.seed = want;
+    CHECK(run_handler(0x54) && LOGGED("is unaffected"));
+    (void)cok_dice(&want, 1, 20);
+    cok_tp_random(&want, 1000);
+    CHECK(game.vm.seed == want);
+    battle_clear();
+    /* A failed save whose 0x6f is refused (the racial 0x5c cancels it at event 9): no effect, so the block is not written. */
+    fear_battle(&m, &l);
+    l->combat->target = &dummy;
+    CHECK(cok_character_add_effect(l, 0x5c, 0, 0, false) != NULL);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(cok_character_find_effect(l, 0x6f) == NULL && l->combat->forced == 0 && computer(l) == 0 &&
+          l->combat->target == &dummy);
+    battle_clear();
+    /* A cone whose centre line meets no one (side 0xff): the left line's end is 49, 10 (x 16 + 0x63, clamped) and the target
+     * at 30, 10 is on it: reached by the 0xff side's left line alone. */
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    p = c2_target('P', 0, 30, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(run_handler(0x54) && game.spell_target_count == 1 && game.spell_targets[1] == p);
+    CHECK(cok_character_find_effect(p, 0x6f) != NULL && p->combat->forced == 1);
+    battle_clear();
+    /* Outside the battle (mode 4): nothing, the image flag still set, no draw. */
+    fear_battle(&m, &l);
+    game.vm.mode = 4;
+    game.vm.seed = 5;
+    CHECK(run_handler(0x54) && game.vm.seed == 5 && game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(m, 0x6f) == NULL && cok_character_find_effect(l, 0x6f) == NULL);
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 static void set_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
 {
     game.effects.rolls.amount16 = amount;
@@ -5297,6 +5603,1978 @@ static void test_effects3_pool(void)
     battle_clear();
 }
 
+/* c1: the holds and charms (queen_band_c.c: 849a:1e0d, and 7fd8's 06e9, 2fd4, 2396, 23c5, 022a, 2b3a, 0813). A hold
+ * takes one roll of the d20 per target (the last listed first; a missile from the caster before each target but the
+ * first handled, whose waits draw too), so a single target's roll is the first d20 of the seed, and a second target's
+ * is only seen in its outcome where it is the last listed. A save of 10 is made by a roll of 10 or more, a save of 21 by a
+ * natural 20 only. */
+static cok_character *hold_target(char name, int8_t x, int8_t y, uint8_t save)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, save);
+    return t;
+}
+
+/* The caster for a hold or charm: a battle's caster at 5, 5, selected (vm.character), with the icon of the missile (slot
+ * 0x13). */
+static cok_character *holds_caster(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SAVING_THROW, 4, 10);
+    game.vm.character = a->record;
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x13));
+    return a;
+}
+
+static void set_targets(cok_character *a, uint8_t spell, cok_character *const *list, unsigned n)
+{
+    game.vm.character = a->record;
+    for (unsigned i = 0; i < n; ++i) game.spell_targets[i + 1] = list[i];
+    game.spell_target_count = (uint8_t)n;
+    game.effects.rolls.spell = spell;
+}
+
+static bool c1_run(uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    return handler != NULL && handler(&game) && game.vm.status == COK_ECL_OK;
+}
+
+static unsigned count_of(const char *text)
+{
+    unsigned n = 0;
+    for (const char *p = log_text; (p = strstr(p, text)) != NULL; p += strlen(text)) ++n;
+    return n;
+}
+
+/* The effect a spell's hold adds (0x5e, 0x17 and 0x31: 0x34; Hold Animal and Hold Person are the same). */
+static cok_effect *held(const cok_character *t)
+{
+    return cok_character_find_effect(t, 0x34);
+}
+
+/* 849a:1e0d's order and missiles: the last listed target is handled first and gets no missile. Three targets under 0x17 with
+ * the last one of race 7 (forced saved, whatever its roll): "is Unaffected" comes before the first missile, and the two
+ * others each take one (two "sound: 3"), with their rolls (a save of 21: only a natural 20 saves them). Mutants: a missile
+ * for every target (three "sound: 3"); the first listed handled first (its missile before the "is Unaffected"). */
+static void test_band_c1_order(void)
+{
+    cok_character *a = holds_caster(), *t, *u, *v;
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    v = hold_target('V', 8, 5, 21);
+    cok_combat_set_field_word(R, v->record, COK_FIELD_RACE, 7);
+    cok_character *list[3] = {t, u, v};
+    set_targets(a, 0x17, list, 3);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x17));
+    CHECK(count_of("sound: 3;") == 2);
+    CHECK(LOGGED("is Unaffected"));
+    CHECK(strstr(log_text, "is Unaffected") < strstr(log_text, "sound: 3;"));
+    CHECK(held(v) == NULL && held(u) != NULL && held(t) != NULL);
+    battle_clear();
+}
+
+/* The one-target save: a single target is the first handled and roll the first d20 (no missile before it). Hold Person
+ * 0x17 takes a bonus of 0xfe (-2) and 0x31 one of 0xfd (-3): a roll of 12 saves against 10 under 0x17 only. */
+static void test_band_c1_bonus(void)
+{
+    cok_character *a, *t;
+    for (unsigned k = 0; k < 2; ++k) {
+        uint8_t spell = k == 0 ? 0x17 : 0x31;
+        a = holds_caster();
+        t = hold_target('T', 6, 5, 10);
+        set_targets(a, spell, (cok_character *[]){t}, 1);
+        uint32_t seed = seed_from(1, (const unsigned[]){20, 12, 12});
+        game.vm.seed = seed;
+        CHECK(c1_run(spell));
+        CHECK((held(t) == NULL) == (k == 0)); /* saved under 0x17 (12 - 2 = 10), not under 0x31 (12 - 3 = 9) */
+        CHECK((LOGGED("is Unaffected")) == (k == 0));
+        battle_clear();
+    }
+    /* The bonus per count: the last listed target is the first handled, so its roll is the seed's first d20. A roll of 10
+     * under Hold Person (0x17) with two targets is 9 (bonus 0xff): held; with three it is 10 (bonus 0): saved. */
+    for (unsigned n = 2; n <= 3; ++n) {
+        a = holds_caster();
+        cok_character *ts[3];
+        for (unsigned i = 0; i < n; ++i) ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+        set_targets(a, 0x17, ts, n);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x17));
+        CHECK((held(ts[n - 1]) == NULL) == (n == 3));
+        battle_clear();
+    }
+    /* Five or more: the bonus is a local never written (06e9): undefined, the run stopped. */
+    a = holds_caster();
+    cok_character *ts[5];
+    for (unsigned i = 0; i < 5; ++i) ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+    set_targets(a, 0x17, ts, 5);
+    CHECK(!c1_run(0x17) && game.vm.status == COK_ECL_UNDEFINED);
+    battle_clear();
+}
+
+/* The race 7 forces the Hold Person's saves (0x17) but not Hold Monsters' (0x5e); a roll of 2 fails any save of 10 but a
+ * forced one. An animal (flag 0x40) is not forced under Hold Animal (0x6c), and its roll of 12 less 4 (0xfc) fails 10. */
+static void test_band_c1_forced(void)
+{
+    cok_character *a = holds_caster(), *t;
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x17, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    CHECK(c1_run(0x17) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+
+    /* Hold Person's other id (0x31) forces the race 7 too: 12 - 3 = 9 would hold it. */
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x31, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x31) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x5e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x5e) && held(t) != NULL); /* 12 - 3 (one target's 0xfd) = 9 < 10: held, race 7 or not */
+    battle_clear();
+
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40); /* an animal: not forced */
+    set_targets(a, 0x6c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x6c) && held(t) != NULL); /* 12 - 4 = 8 < 10: not saved, held (bonus 0 would save it) */
+    battle_clear();
+}
+
+/* A creature without flag 0x40 is forced under Hold Animal (0x6c): saved outright, though its roll of 12 less 4 (0xfc) fails
+ * 10. (A roll of 2 would not show it: 2 + 0xfc wraps to 0xfe as a byte, 148f:1923, and saves.) Then Hold Animal's bonus by
+ * the count on animals (2: 0xfe, 3: 0xff, 4: 0): the last listed target's roll (the seed's first d20) at the bonus's
+ * threshold saves it and one below holds it. */
+static void test_band_c1_animal_forced(void)
+{
+    cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 10);
+    set_targets(a, 0x6c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x6c) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+
+    for (unsigned n = 2; n <= 4; ++n)
+        for (unsigned below = 0; below < 2; ++below) {
+            unsigned roll = 10 + (4 - n) - below; /* 10 less the bonus (2, 1, 0), less one */
+            a = holds_caster();
+            cok_character *ts[4];
+            for (unsigned i = 0; i < n; ++i) {
+                ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+                cok_field_set8_at(R->character, ts[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40);
+            }
+            set_targets(a, 0x6c, ts, n);
+            game.vm.seed = seed_from(1, (const unsigned[]){20, roll, roll});
+            CHECK(c1_run(0x6c));
+            CHECK((held(ts[n - 1]) != NULL) == (below == 1));
+            battle_clear();
+        }
+}
+
+/* A holder of effect 0x96 saves against the holds (849a:1e0d's test: 0x17, 0x31 and 0x5e), whatever its roll; not against
+ * Hold Animal (0x6c, on an animal). A save of 21 and a roll of 5 to 19 hold it unforced (no byte wrap: 5 - 4 is 1). */
+static void test_band_c1_effect_96(void)
+{
+    static const uint8_t spells[4] = {0x17, 0x31, 0x5e, 0x6c};
+    for (unsigned k = 0; k < 4; ++k) {
+        cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 21);
+        if (spells[k] == 0x6c) cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40);
+        CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+        set_targets(a, spells[k], (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 5, 19});
+        CHECK(c1_run(spells[k]));
+        CHECK((held(t) == NULL) == (spells[k] != 0x6c));
+        battle_clear();
+    }
+}
+
+/* 7fd8:2396 (Faerie Fire 0x4f): the last listed target is "is Unaffected" with no roll, though the first d20 of the seed (2
+ * to 19) would not save it against 21; the first target takes its roll and, not saved, the AC effect 0x47 ("is highlighted").
+ * Mutant: the last listed rolled (it gets the effect). */
+static void test_band_c1_faerie_last(void)
+{
+    cok_character *a = holds_caster(), *t, *u;
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list[2] = {t, u};
+    set_targets(a, 0x4f, list, 2);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x4f));
+    CHECK(LOGGED("is Unaffected") && cok_character_find_effect(u, 0x47) == NULL);
+    CHECK(cok_character_find_effect(t, 0x47) != NULL && LOGGED("is highlighted"));
+    battle_clear();
+}
+
+/* 0x51 (Charm Monsters): the last listed "is Unaffected" with no roll (as 0x4f); the first handled takes its roll, and the
+ * value is the caster level with the caster's side in bit 7 and on remove. Charm's run (0x0b) gives the held NPC 0xb3 and
+ * the computer's 1. */
+static void test_band_c1_charm_monsters(void)
+{
+    cok_character *a = holds_caster(), *t, *u;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list[2] = {t, u};
+    set_targets(a, 0x51, list, 2);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x51, true, &lv) && lv == 5);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x51));
+    CHECK(LOGGED("is Unaffected") && cok_character_find_effect(u, 0x0b) == NULL);
+    cok_effect *e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x1f) == lv && e->on_remove && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(LOGGED("is charmed"));
+    battle_clear();
+
+    /* The caster's side (+0x66 1) in bit 7 of the holds' value: side 1 after the run. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 1);
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list2[2] = {t, u};
+    set_targets(a, 0x51, list2, 2);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x51));
+    e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x80) != 0 && side_of(t) == 1);
+    battle_clear();
+}
+
+/* 7fd8:022a (Charm Person 0x0a): race 7 with no flag 2, or a size above 1, is "is unaffected" (lower case) and no charm;
+ * else the charm: value the caster level (5, the caster's side 0), on remove, the 0x0b run (NPC 0xb3, computer 1). The
+ * roll is the first d20 of the seed (the apply's single target, no waits before it). */
+static void test_band_c1_charm_person(void)
+{
+    cok_character *a = holds_caster(), *t;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    uint32_t before = game.vm.seed;
+    CHECK(c1_run(0x0a) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    cok_tp_random(&before, 1000); /* the say's wait (the speed's 10 ms): one random(1000) */
+    CHECK(game.vm.seed == before);
+    battle_clear();
+
+    /* Race 8 with no flag 2: not refused (the test is race 7 alone, not 2b3a's 7 or more). */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 8);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x0a) && !LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) != NULL);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_field_set8(R->character, t->record, COK_FIELD_SIZE, 2);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    CHECK(c1_run(0x0a) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    battle_clear();
+
+    /* Race 7 with flag 2 (a creature of the flag): charmed, its roll of 2 not a save. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x0a, true, &lv) && lv == 5);
+    CHECK(c1_run(0x0a) && LOGGED("is charmed") && !LOGGED("is unaffected"));
+    cok_effect *e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x1f) == lv && e->on_remove && npc_of(t) == 0xb3 && computer(t) == 1);
+    battle_clear();
+
+    /* The caster's side (+0x66 1) in bit 7 of the value: side 1 after the run. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 1);
+    t = hold_target('T', 6, 5, 21);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x0a));
+    e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x80) != 0 && side_of(t) == 1);
+    battle_clear();
+}
+
+/* 7fd8:2b3a (Charm Person or Mammal 0x60): race 7 with no flag 2 is "is not Charmed" (a flag 0x10, the Death Knights'
+ * mammal flag, does not count here); race 7 with flag 2 and any race below 7 are charmed. */
+static void test_band_c1_charm_mammal(void)
+{
+    cok_character *a = holds_caster(), *t;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    uint32_t before = game.vm.seed;
+    CHECK(c1_run(0x60) && LOGGED("is not Charmed") && cok_character_find_effect(t, 0x0b) == NULL);
+    cok_tp_random(&before, 1000); /* the say's wait: one random(1000) */
+    CHECK(game.vm.seed == before);
+    battle_clear();
+
+    /* Race 8 with no flag 2: refused too (7 or more, signed). */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 8);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    CHECK(c1_run(0x60) && LOGGED("is not Charmed") && cok_character_find_effect(t, 0x0b) == NULL);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x60) && LOGGED("is Charmed") && cok_character_find_effect(t, 0x0b) != NULL);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 6);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x60) && cok_character_find_effect(t, 0x0b) != NULL);
+    battle_clear();
+}
+
+/* 7fd8:0813 (Snake Charm 0x1b): the snakes (flag 0x10, active, not held) in list order while their hit points fit in
+ * what is left of the caster's (10). A snake of 4, one of 9 (too big after 4: left 6), one of 6 (left 0), one of 1 (none
+ * left): the first and third are held. A snake caster is the first listed: its 10 takes all the allowance. */
+static void test_band_c1_snakes(void)
+{
+    cok_character *a = holds_caster(), *s[4];
+    static const unsigned hp[4] = {4, 9, 6, 1};
+    for (unsigned i = 0; i < 4; ++i) {
+        s[i] = hold_target((char)('S' + i), (int8_t)(8 + i), 5, 21);
+        cok_field_set8_at(R->character, s[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+        cok_field_set8(R->character, s[i]->record, COK_FIELD_HIT_POINTS, (uint8_t)hp[i]);
+    }
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == s[0] && game.spell_targets[2] == s[2]);
+    CHECK(cok_character_find_effect(s[0], 0x33) != NULL && cok_character_find_effect(s[1], 0x33) == NULL);
+    CHECK(cok_character_find_effect(s[2], 0x33) != NULL && cok_character_find_effect(s[3], 0x33) == NULL);
+    CHECK(LOGGED("is Charmed"));
+    battle_clear();
+
+    /* The caster is a snake: listed first, its 10 hit points take all the allowance. */
+    a = holds_caster();
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    s[0] = hold_target('S', 8, 5, 21);
+    cok_field_set8_at(R->character, s[0]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    cok_field_set8(R->character, s[0]->record, COK_FIELD_HIT_POINTS, 4);
+    game.vm.character = a->record;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == a);
+    CHECK(cok_character_find_effect(a, 0x33) != NULL && cok_character_find_effect(s[0], 0x33) == NULL);
+    battle_clear();
+
+    /* A snake not active (+0x18b 0) and one already held (0x33) are skipped: only the third (1 hit point each) is listed. */
+    holds_caster();
+    for (unsigned i = 0; i < 3; ++i) {
+        s[i] = hold_target((char)('S' + i), (int8_t)(8 + i), 5, 21);
+        cok_field_set8_at(R->character, s[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+        cok_field_set8(R->character, s[i]->record, COK_FIELD_HIT_POINTS, 1);
+    }
+    cok_field_set8(R->character, s[0]->record, COK_FIELD_ACTIVE, 0);
+    CHECK(cok_character_add_effect(s[1], 0x33, 0, 0, false) != NULL);
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == s[2]);
+    battle_clear();
+}
+
+/* 0x47 (Faerie Fire's effect, 78e4:10a6): its applied flag only: applied, AC and AC behind 2 worse (raw bytes +0x18e and
+ * +0x18f), and removing it (flag 1) leaves them. Event 0x0b runs it. */
+static void test_band_c1_row_47(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    t->record[0x18e] = 50;
+    t->record[0x18f] = 60;
+    cok_effect *e = cok_character_add_effect(t, 0x47, 0, 0xfe, true); /* on remove: the removal runs it, flag 1 */
+    CHECK(e != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(t->record[0x18e] == 48 && t->record[0x18f] == 58);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x47) && game.vm.status == COK_ECL_OK);
+    CHECK(t->record[0x18e] == 48 && t->record[0x18f] == 58);
+    battle_clear();
+}
+
+/* c3: Fumble (0x56, queen_band_c.c: 7fd8:27ef) and Feeblemind (0x5d, 2a48), and their effects: 0x44 (feeblemind, 7e76:06f6)
+ * and 0x4d (berserk, 7e76:081f). A save of 21 is made by a natural 20 only; a save of 17 by 17 and up. The caster is c2_caster's
+ * (5, 5, the battle's mode 5); the target stands at 6, 5 with side 1 and no save bonus. */
+static cok_character *c3_target(char name, uint8_t save, uint8_t klass)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, 6, 5);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, save);
+    cok_field_set8(R->character, t->record, COK_FIELD_CLASS, klass);
+    return t;
+}
+
+static void c3_set_target(cok_character *a, cok_character *t, uint8_t spell)
+{
+    set_target(a, t, spell);
+    game.spell_x = 6;
+    game.spell_y = 5;
+}
+
+/* Fumble: a failed save (roll 2) holds the target ("is clumsy", 0x1b, the duration of 0x56, run in battle: a held ends the
+ * turn); a saved one (roll 20) is slowed ("is slowed", 0x2a). The damage type 0x40 stays set. A holder of 0x96 is passed over:
+ * no draw, no text. Mutant: a trailing apply (Death Knights' cast.c) would say "is clumsy" twice and roll the save again. */
+static void test_band_c3_fumble(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *t = c3_target('F', 21, 0);
+    c3_set_target(a, t, 0x56);
+    uint16_t minutes = 0;
+    CHECK(queen_spell_duration(&game, 0x56, &minutes));
+    uint32_t seed0 = seed_from(1, (const unsigned[]){20, 2, 19});
+    game.vm.seed = seed0;
+    game.effects.rolls.damage_type = 0;
+    t->combat->initiative = 3;
+    game.effects.in_battle = true; /* the held effect ends the turn in battle (3f44:00f7) */
+    CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
+    const cok_effect *e = cok_character_find_effect(t, 0x1b);
+    CHECK(e != NULL && e->duration == minutes && e->value == 0 && !e->on_remove && cok_character_find_effect(t, 0x2a) == NULL);
+    CHECK(LOGGED("is clumsy") && !LOGGED("is slowed") && count_of("is clumsy") == 1);
+    CHECK(game.effects.rolls.damage_type == 0x40 && t->combat->initiative == 0);
+    game.effects.in_battle = false;
+    /* A saved one: the slow (0x2a) for the same duration, "is slowed" once. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 21, 0);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    log_text[0] = '\0';
+    game.effects.rolls.movement = 8;
+    game.effects.rolls.rate = 6;
+    CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.movement == 4 && game.effects.rolls.rate == 3); /* the slow's run (78e4:0877) */
+    e = cok_character_find_effect(t, 0x2a);
+    CHECK(e != NULL && e->duration == minutes && e->value == 0 && !e->on_remove && cok_character_find_effect(t, 0x1b) == NULL);
+    CHECK(LOGGED("is slowed") && !LOGGED("is clumsy") && count_of("is slowed") == 1);
+    /* The save's bonus is 0: save 17, roll 16 fails. With barkskin (0x0d: the save 1 better unless the damage type has 8) and
+     * the damage type 8 before the cast, the same roll saves: the save's event sees 0x40. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 17, 0);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    game.effects.in_battle = true; /* the held run ends the turn */
+    CHECK(run_handler(0x56) && cok_character_find_effect(t, 0x1b) != NULL && cok_character_find_effect(t, 0x2a) == NULL);
+    game.effects.in_battle = false;
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 17, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0, true) != NULL);
+    c3_set_target(a, t, 0x56);
+    game.effects.rolls.damage_type = 8;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    CHECK(run_handler(0x56) && cok_character_find_effect(t, 0x2a) != NULL && cok_character_find_effect(t, 0x1b) == NULL);
+    /* A holder of 0x96: passed over, nothing drawn or said. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 21, 0);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = 7;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x56) && game.vm.seed == 7);
+    CHECK(cok_character_find_effect(t, 0x1b) == NULL && cok_character_find_effect(t, 0x2a) == NULL && log_text[0] == '\0');
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Feeblemind: the save of type 4 is made against the byte shifted by the class (0 takes 1 off, 5 adds 4, else 2), the byte
+ * put back after. Save 17 with roll 16: class 0 (16) saves, a shift of 0 (17) would not; class 5 (21) fails a roll of 18, which
+ * a 17 would save; class 3 (19) fails 18. A failed save adds 0x44 by the apply, whose run says "loses intellect", sets the
+ * intelligence and wisdom to 3 and clears the cast spells' bits (+0xce, bit 7); the spell's byte is kept. Mutant: the byte not
+ * put back, or the shift left out. */
+static void test_band_c3_feeblemind_shift(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *t = c3_target('G', 17, 0);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x44) == NULL && !LOGGED("loses intellect"));
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 5);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x44) != NULL && cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 3);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* The shifts' sizes: class 3 (19) saves a roll of 19, which 21 would not; class 5 (21) fails it, which 19 would save. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 3);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 19, 19});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) == NULL);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 5);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 19, 19});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* The class is a word (2a60's mov ax): 0x0100 is neither 0 nor 5, so +2 (19) and a roll of 18 fails, which class 0 (16)
+     * would save. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    t->record[cok_field_offset(R->character, COK_FIELD_CLASS) + 1] = 1;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* A target with no block: 0x44's run does nothing (06f6's block test), so 2a48's own loop clears the cast bits (the last of
+     * the 0x89 bytes too), the scores kept and nothing said. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    cok_combat_record *kept = t->combat;
+    t->combat = NULL;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] = 0x95;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x88] = 0x80;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x89] = 0x80;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL && !LOGGED("loses intellect"));
+    CHECK(t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x88] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x89] == 0x80);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 10);
+    t->combat = kept;
+    battle_clear();
+    /* A failed save (roll 2): 0x44 added and run in place; the cast bits of the memorised spells cleared, the others kept. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] = 0x95;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 1] = 0x0c;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    const cok_effect *e = cok_character_find_effect(t, 0x44);
+    CHECK(e != NULL && LOGGED("loses intellect") && count_of("loses intellect") == 1);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 3);
+    CHECK(t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 1] == 0x0c);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Effect 0x44 (feeblemind, 7e76:06f6), run on a record: with no block nothing (the scores and the bytes kept); with one, the
+ * scores 3 and "loses intellect" (outside a battle too), the cast bits cleared. In a battle the block's may cast is 0 and its
+ * pending spell (0x0c) is forgotten and said "lost a spell" (its byte, forgotten as 0x8c, then cleared with the cast bits:
+ * 0), the memorised 0x2a kept. Outside a battle the pending spell and may cast stay. Mutant: the cast bits not cleared. */
+static void test_effects_feeblemind(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    uint8_t *memo = t->record + cok_field_offset(R->character, COK_FIELD_MEMORIZED);
+    cok_combat_record *cr = t->combat;
+    memo[0] = 0x0c;
+    memo[1] = 0x95;
+    memo[2] = 0x2a;
+    cr->spell = 0x0c;
+    cr->may_cast = 1;
+    cok_effect *e = cok_character_add_effect(t, 0x44, 0, 0, false);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("loses intellect") && LOGGED("lost a spell") && cr->may_cast == 0 && cr->spell == 0);
+    CHECK(memo[0] == 0 && memo[1] == 0 && memo[2] == 0x2a);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 3);
+    /* Outside a battle: the scores and the cast bits, but no pending spell is touched. */
+    game.vm.mode = 0;
+    memo[1] = 0x95;
+    memo[0] = 0x0c;
+    cr->spell = 0x0c;
+    cr->may_cast = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("loses intellect") && !LOGGED("lost a spell"));
+    CHECK(cr->may_cast == 1 && cr->spell == 0x0c && memo[0] == 0x0c && memo[1] == 0);
+    /* No block: nothing. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    memo[1] = 0x95;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM, 9);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(!LOGGED("loses intellect") && memo[1] == 0x95);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 9);
+    t->combat = saved;
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Effect 0x4d (berserk, 7e76:081f). Removal with a block: an NPC 0xb3 goes back to a player (computer 0) and the side is 0; with
+ * no block the removal does nothing (the block test is first). Not removing, outside a battle: computer 1, the NPC 0xb3 (0xb2 for
+ * bit 7 set and not 0xb3), and the target and side kept. In a battle: the target is the listed[2] (the other, nearest one: a),
+ * may cast 0, the side the target's ^ 1 and "goes berserk". A list of one reads the stale listed[2] (here the holder itself);
+ * an entry past the combatants, or with no record, is undefined. Mutant: the removal's test before the block test. */
+static void test_effects_berserk(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    /* Removal with a block. */
+    cok_effect *e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    CHECK(e != NULL);
+    set_npc(t, 0xb3, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && side_of(t) == 0);
+    /* Removal with an NPC not 0xb3 (0xb2): the side is 0 all the same; the NPC and the computer are kept. */
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    set_npc(t, 0xb2, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb2 && computer(t) == 1 && side_of(t) == 0);
+    /* Removal with no block: nothing. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    set_npc(t, 0xb3, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1 && side_of(t) == 1);
+    t->combat = saved;
+    /* Outside a battle: the computer and the NPC, the target and the side kept. */
+    game.vm.mode = 0;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = a->record;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(computer(t) == 1 && npc_of(t) == 0xb3 && cr->target == a->record && side_of(t) == 0 && !LOGGED("goes berserk"));
+    /* Bit 7 set and not 0xb3 becomes 0xb2; 0xb3 stays. */
+    set_npc(t, 0x80, 0);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && npc_of(t) == 0xb2);
+    set_npc(t, 0xb3, 0);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && npc_of(t) == 0xb3);
+    /* In a battle: a is listed[2] (the list is t, then a at distance 2), so the target is a, may cast 0, the side a's ^ 1 (a
+     * is side 0, so t's becomes 1) and "goes berserk". */
+    game.vm.mode = 5;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = NULL;
+    cr->may_cast = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cr->target == a->record && cr->may_cast == 0 && side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(LOGGED("goes berserk") && count_of("goes berserk") == 1);
+    battle_clear();
+    /* A list of one: t alone (the list's first), so listed[2] is the stale entry left in the list: here 1 (t itself). */
+    t = record('M', 0, 0);
+    place(t, 6, 5);
+    t->combat->target = NULL;
+    game.combat.listed[2].index = 1;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(t->combat->target == t->record && game.combat.listed_count == 1);
+    /* A stale entry past the combatants: undefined (the target is read at 0x0b of the list's index 0xff). */
+    game.combat.listed[2].index = 0xff;
+    CHECK(!cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* c4 (part 32d): Haste and Slow (queen_band_c.c: 163f, 175a, 1b11), Enlarge (02e8) and Reduce (0438). The caster is the
+ * battle's A at 5, 5, of the mage's kind (2): its level is class 5 (c4_level), and class 4 at 8 keeps the non-caster
+ * rule off, so a level of 0 is 0. Targets are placed records of a side (c4_target). Each save is the seed's d20. */
+
+static cok_character *c4_target(char name, int8_t x, int8_t y, uint8_t hostile)
+{
+    cok_character *t = record(name, hostile, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+    return t;
+}
+
+static void c4_level(cok_character *a, uint8_t lv)
+{
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, lv);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 8);
+}
+
+static bool c4_run(uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    return handler != NULL && handler(&game) && game.vm.status == COK_ECL_OK;
+}
+
+static unsigned c4_count(const cok_character *t, uint8_t id)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = t->effects; e != NULL; e = e->next) n += e->id == id;
+    return n;
+}
+
+/* 163f's order, side and count: the caster's level (2) is the count of targets on its side that take the effect; those
+ * past it, and those on the other side, are dropped. Each hasted one is said "is Hasted" once, and gets event 0x12: the
+ * haste's first run ages it a year and sets 0x20 in its value (effects-3's haste). Mutants: the side filter ignored (T4
+ * hasted), n read as 3 (T3 hasted), the event 0x12 left out (no 0x20, no age). */
+static void test_band_c4_hasten(void)
+{
+    cok_character *a = holds_caster(), *t1, *t2, *t3, *t4;
+    c4_level(a, 2);
+    t1 = c4_target('T', 6, 5, 0);
+    t2 = c4_target('U', 7, 5, 0);
+    t3 = c4_target('V', 8, 5, 0);
+    t4 = c4_target('W', 9, 5, 1);
+    cok_field_set16(R->character, t1->record, COK_FIELD_AGE, 40);
+    cok_character *list[4] = {t1, t2, t3, t4};
+    set_targets(a, 0x30, list, 4);
+    game.effects.rolls.images = 0;
+    CHECK(c4_run(0x30));
+    CHECK(game.effects.rolls.images == 1); /* 7fd8:1645 */
+    CHECK(c4_count(t1, 0x27) == 1 && c4_count(t2, 0x27) == 1);
+    CHECK(c4_count(t3, 0x27) == 0 && c4_count(t4, 0x27) == 0);
+    CHECK(game.spell_targets[3] == NULL && game.spell_targets[4] == NULL);
+    CHECK(count_of("is Hasted") == 2);
+    cok_effect *e = cok_character_find_effect(t1, 0x27);
+    CHECK(e != NULL && (e->value & 0x20) != 0 && LOGGED("ages"));
+    e = cok_character_find_effect(t2, 0x27); /* event 0x12 on each slot left, not the first only */
+    CHECK(e != NULL && (e->value & 0x20) != 0 && count_of("ages") == 2);
+    CHECK(cok_field_u16(R->character, t1->record, COK_FIELD_AGE) == 41);
+    battle_clear();
+
+    /* The cure: a holder of 0x2a (Slow) on T1 is cured ("is Cured") and dropped, and its count spent: T2 takes the second
+     * count (0x27 on T2 only), and T3 finds none left and is dropped. */
+    a = holds_caster();
+    c4_level(a, 2);
+    t1 = c4_target('T', 6, 5, 0);
+    t2 = c4_target('U', 7, 5, 0);
+    t3 = c4_target('V', 8, 5, 0);
+    CHECK(cok_character_add_effect(t1, 0x2a, 0, 0, true) != NULL); /* applied_only: its removal runs only when on remove */
+    cok_character *list2[3] = {t1, t2, t3};
+    set_targets(a, 0x30, list2, 3);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(t1, 0x2a) == 0 && c4_count(t1, 0x27) == 0 && LOGGED("is Cured"));
+    CHECK(c4_count(t2, 0x27) == 1 && c4_count(t3, 0x27) == 0);
+    battle_clear();
+
+    /* A globe 0x39 holder on the caster's side: the event 9 pass (level 3, magic) cancels the pending 0x2a, so the entry
+     * is kept and no count is spent: G and U (the next, with the last count of 1) are both hasted. Mutant: the count spent
+     * before the event (U dropped). */
+    a = holds_caster();
+    c4_level(a, 1);
+    cok_character *g = c4_target('G', 6, 5, 0), *u = c4_target('U', 7, 5, 0);
+    CHECK(cok_character_add_effect(g, 0x39, 0, 0, false) != NULL);
+    cok_character *list3[2] = {g, u};
+    set_targets(a, 0x30, list3, 2);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(g, 0x27) == 1 && c4_count(g, 0x39) == 1 && c4_count(u, 0x27) == 1);
+    CHECK(count_of("is Hasted") == 2);
+    battle_clear();
+
+    /* The event comes before the cure: a globe holder that also holds Slow (0x2a) is cancelled at event 9, so it is not
+     * cured, keeps its 0x2a and is hasted (both nodes). Mutant: the cure before the event (G cured and dropped). */
+    a = holds_caster();
+    c4_level(a, 1);
+    g = c4_target('G', 6, 5, 0);
+    CHECK(cok_character_add_effect(g, 0x39, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(g, 0x2a, 0, 0, true) != NULL);
+    set_targets(a, 0x30, (cok_character *[]){g}, 1);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(g, 0x2a) == 1 && c4_count(g, 0x27) == 1 && !LOGGED("is Cured") && game.spell_targets[1] == g);
+    battle_clear();
+
+    /* A count of 0 (the caster's level 0): nothing on the targets is hasted, and the spell's apply adds nothing. */
+    a = holds_caster();
+    c4_level(a, 0);
+    t1 = c4_target('T', 6, 5, 0);
+    set_targets(a, 0x30, (cok_character *[]){t1}, 1);
+    CHECK(c4_run(0x30) && c4_count(t1, 0x27) == 0 && !LOGGED("is Hasted"));
+    battle_clear();
+}
+
+/* 7fd8:1b11, Slow: the target t[1] holding 0x96 (kept whatever the count, here 0) stops it with no draw; else the other side
+ * (the caster's 0 gives side 1) is slowed, the others dropped. A NULL or freed t[1] stops (queen_first_target). Mutant: t[1]
+ * not read when the count is 0 (the 0x96 test skipped: the slow would run on nothing and say nothing: "is Slowed" is
+ * logged on a 0x96 holder). */
+static void test_band_c4_slow(void)
+{
+    cok_character *a = holds_caster(), *s = c4_target('S', 6, 5, 1), *f = c4_target('F', 7, 5, 0);
+    c4_level(a, 2);
+    cok_character *list[2] = {s, f};
+    set_targets(a, 0x37, list, 2);
+    CHECK(c4_run(0x37));
+    CHECK(c4_count(s, 0x2a) == 1 && c4_count(f, 0x2a) == 0 && game.spell_targets[2] == NULL);
+    CHECK(LOGGED("is Slowed") && count_of("is Slowed") == 1);
+    battle_clear();
+
+    /* A holder of 0x96 in t[1] with an empty count: nothing, no text. */
+    a = holds_caster();
+    s = c4_target('S', 6, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x96, 0, 0, false) != NULL);
+    game.vm.character = a->record;
+    game.spell_targets[1] = s;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x37;
+    CHECK(c4_run(0x37) && game.vm.status == COK_ECL_OK && !LOGGED("is Slowed") && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* The same with a count of 2: 1b11 returns before 163f, so the second target (on the slowed side) is not slowed, the
+     * images flag is left as it was and nothing is drawn. Mutant: the 0x96 test left out. */
+    a = holds_caster();
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    cok_character *s2 = c4_target('R', 7, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x96, 0, 0, false) != NULL);
+    set_targets(a, 0x37, (cok_character *[]){s, s2}, 2);
+    game.effects.rolls.images = 0;
+    game.vm.seed = 7;
+    CHECK(c4_run(0x37) && c4_count(s2, 0x2a) == 0 && !LOGGED("is Slowed"));
+    CHECK(game.effects.rolls.images == 0 && game.vm.seed == 7);
+    battle_clear();
+
+    /* An empty count with t[1] (kept) holding no 0x96: 163f runs on nothing, but its images flag is set. Mutant: the
+     * empty count returning before 163f. */
+    a = holds_caster();
+    s = c4_target('S', 6, 5, 1);
+    game.vm.character = a->record;
+    game.spell_targets[1] = s;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x37;
+    game.effects.rolls.images = 0;
+    CHECK(c4_run(0x37) && game.effects.rolls.images == 1 && !LOGGED("is Slowed") && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* Slow cures Haste (0x27, 1b11's id): a hasted holder on the slowed side is "is Cured" and dropped, not slowed.
+     * Mutant: Slow passing Haste's 0x2a. */
+    a = holds_caster();
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x27, 0, 0, true) != NULL);
+    set_targets(a, 0x37, (cok_character *[]){s}, 1);
+    CHECK(c4_run(0x37) && LOGGED("is Cured") && c4_count(s, 0x27) == 0 && c4_count(s, 0x2a) == 0);
+    CHECK(game.spell_targets[1] == NULL && !LOGGED("is Slowed"));
+    battle_clear();
+
+    /* The caster on side 1: the other side is 0, so the side 0 holder is slowed and the side 1 one dropped. */
+    a = holds_caster();
+    cok_field_set8(R->character, a->record, COK_FIELD_HOSTILE, 1);
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    f = c4_target('F', 7, 5, 0);
+    cok_character *list2[2] = {f, s};
+    set_targets(a, 0x37, list2, 2);
+    CHECK(c4_run(0x37));
+    CHECK(c4_count(f, 0x2a) == 1 && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* A NULL first target stops (undefined). */
+    a = holds_caster();
+    game.spell_target_count = 0;
+    game.spell_targets[1] = NULL;
+    game.effects.rolls.spell = 0x37;
+    CHECK(!c4_run(0x37) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* 7fd8:02e8, Enlarge: the strength value added by the level (uncapped): 1 to 6 are 18 with exceptional 0, 1, 0x33, 0x4c,
+ * 0x5b, 0x64 (value exc + 1); 7 to 9 are 19 to 21 (value str + 100); 0 and 10 and up are 22. The effect 0x0c lasts lv * 10
+ * minutes, on remove, and says "is stronger". Mutant: level 0 as level 1 (value 1, not 0x7a). */
+static void test_band_c4_enlarge(void)
+{
+    static const uint8_t want[11] = {0x7a, 1, 2, 0x34, 0x4d, 0x5c, 0x65, 0x77, 0x78, 0x79, 0x7a};
+    for (unsigned lv = 0; lv <= 10; ++lv) {
+        cok_character *a = holds_caster();
+        c4_level(a, (uint8_t)lv);
+        cok_character *t = c4_target('T', 6, 5, 0);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c));
+        cok_effect *e = cok_character_find_effect(t, 0x0c);
+        CHECK(e != NULL && e->value == want[lv] && e->duration == lv * 10 && e->on_remove && LOGGED("is stronger"));
+        battle_clear();
+    }
+
+    /* A base 19 holder: 18 does not raise it (19 is not below 18), 18/xx does when its base exceptional is below the
+     * value's (level 2: 1); 19 (level 7) does not, 20 (level 8) does with 120. Its exceptional at 1 is not below 1. */
+    cok_character *a = holds_caster(), *t;
+    c4_level(a, 2);
+    t = c4_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+    cok_field_set8(R->character, t->record, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, 0);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    CHECK(c4_run(0x0c) && cok_character_find_effect(t, 0x0c)->value == 2);
+    battle_clear();
+    for (unsigned k = 0; k < 3; ++k) {
+        uint8_t lv = k == 0 ? 2 : k == 1 ? 7 : 1; /* 18 with exceptional 1 (not below 1); 19; 18 with 0 (not below 0) */
+        a = holds_caster();
+        c4_level(a, lv);
+        t = c4_target('T', 6, 5, 0);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+        cok_field_set8(R->character, t->record, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, k == 0 ? 1 : 0);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 0 && LOGGED("is unaffected"));
+        battle_clear();
+    }
+    a = holds_caster();
+    c4_level(a, 8);
+    t = c4_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, 0, 19);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    game.vm.seed = 7;
+    CHECK(c4_run(0x0c) && cok_character_find_effect(t, 0x0c)->value == 120);
+    /* 148f:1dfc (02e8's last call): the strength is 20 now; "is stronger"'s wait is the one draw. */
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, 0) == 20 && game.vm.seed == after_draws(7, 1, 20));
+    battle_clear();
+
+    /* A holder of a globe (0x39 or 0x3f) is "is unaffected": no effect added. */
+    for (unsigned k = 0; k < 2; ++k) {
+        a = holds_caster();
+        c4_level(a, 2);
+        t = c4_target('T', 6, 5, 0);
+        CHECK(cok_character_add_effect(t, k == 0 ? 0x39 : 0x3f, 0, 0, false) != NULL);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 0 && LOGGED("is unaffected"));
+        battle_clear();
+    }
+
+    /* A second node: a holder of 0x0c keeps its own and gets another (the raw add). */
+    a = holds_caster();
+    c4_level(a, 2);
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 2);
+    battle_clear();
+
+    /* A NULL first target stops. */
+    a = holds_caster();
+    game.spell_target_count = 0;
+    game.spell_targets[1] = NULL;
+    game.effects.rolls.spell = 0x0c;
+    CHECK(!c4_run(0x0c) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* 7fd8:0438, Reduce: a save of type 4 (a roll of 12 saves a 10; 9 does not, and 20 saves outright) is silent; with no 0x0c
+ * the target is silent; else the first 0x0c goes and "has been reduced" is said. A count of 0 or no target: no draw. */
+static void test_band_c4_reduce(void)
+{
+    cok_character *a = holds_caster(), *t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c4_run(0x0d) && c4_count(t, 0x0c) == 2 && !LOGGED("has been reduced"));
+    battle_clear();
+
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    uint32_t seed = seed_from(1, (const unsigned[]){20, 9, 9});
+    game.vm.seed = seed;
+    CHECK(c4_run(0x0d) && c4_count(t, 0x0c) == 1 && LOGGED("has been reduced"));
+    CHECK(game.vm.seed == after_draws(seed, 2, 20)); /* the save's d20 and the say's wait */
+    battle_clear();
+
+    /* No 0x0c: silent (the save's one draw is the only one). */
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed;
+    CHECK(c4_run(0x0d) && !LOGGED("has been reduced") && c4_count(t, 0x0c) == 0);
+    CHECK(game.vm.seed == after_draws(seed, 1, 20)); /* the save comes first (0x0464), then 1734 */
+    battle_clear();
+
+    /* No target (the count 0) and a NULL first one: nothing, no draw. */
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 0);
+    game.spell_targets[1] = t;
+    game.vm.seed = 7;
+    CHECK(c4_run(0x0d) && game.vm.seed == 7 && c4_count(t, 0x0c) == 1);
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 1;
+    CHECK(c4_run(0x0d) && game.vm.seed == 7 && c4_count(t, 0x0c) == 1);
+    battle_clear();
+}
+
+/* c5 (part 32e): Spiritual Hammer (0x1c, queen_band_c.c: 08e3) and its effect 0x17 (78e4:0397, queen_effect.c): the hammer
+ * item (type 6, name 0x79, power 0x80) made and readied when the first hand is free, the permanent 0x17 that readying adds
+ * (queen_item_power: 78e4:4f34), the round's-end run (event 0x13) and the removal; Remove Curse (0x2b, 13ef); queen_item_power
+ * both ways. The caster is c2_caster(5, 5), with every class's items usable. */
+
+static cok_character *c5_caster(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_USABLE_CLASSES, 0xff);
+    return a;
+}
+
+/* An item (63 bytes): its type, readied, cursed flag, effect and power byte. */
+static void c5_item(cok_character *c, uint8_t type, uint8_t readied, uint8_t cursed, uint8_t effect, uint8_t power)
+{
+    uint8_t item[COK_ITEM_SIZE];
+    memset(item, 0, sizeof item);
+    item[0x28] = type;
+    item[0x32] = readied;
+    item[0x34] = cursed;
+    item[0x37] = effect;
+    item[0x38] = power;
+    CHECK(cok_character_insert_item(c, c->item_count, item));
+}
+
+/* The hammer as made: type 6 and name 0x79 (the first such item in the list), NULL for none. */
+static const uint8_t *c5_hammer(const cok_character *c)
+{
+    for (size_t i = 0; i < c->item_count; ++i)
+        if (c->items[i][0x28] == 6 && c->items[i][0x2b] == 0x79) return c->items[i];
+    return NULL;
+}
+
+/* The permanent 0x17 that the readying adds (0 minutes, value 0xff). */
+static unsigned c5_permanent(const cok_character *c)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = c->effects; e != NULL; e = e->next)
+        n += e->id == 0x17 && e->duration == 0 && e->value == 0xff;
+    return n;
+}
+
+/* 0be2 on c: the record's item count (+0xc9) is what the hammer's limit reads, as last counted by the stats. */
+static void c5_stats(cok_character *c)
+{
+    char error[300];
+    CHECK(cok_character_stats(c, R, &game.item_types, error, sizeof error));
+}
+
+static bool c5_effect(cok_character *c)
+{
+    return cok_effects_run(&game.effects, c, 0x17, NULL) && game.vm.status == COK_ECL_OK;
+}
+
+/* 08e3 with a decoy unreadied first: the hammer is made after it (index 1), readied (its slot 0 is the hammer's), with the
+ * permanent 0x17 beside the spell's own; "Gains an item". Mutants: the readied flag not forced (hammer +0x32 0), the hammer
+ * inserted first (index 0), no permanent node (the readying's 4f34 left out). */
+static void test_band_c5_hammer(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 0x14, 0, 0, 0, 0);
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Gains an item"));
+    const uint8_t *h = c5_hammer(a);
+    CHECK(a->item_count == 2 && h == a->items[1] && a->items[0][0x28] == 0x14);
+    CHECK(h[0x2a] == 6 && h[0x30] == 1 && h[0x37] == 0x17 && h[0x38] == 0x80 && h[0x32] == 1);
+    CHECK(a->slots[0] == 2 && c5_permanent(a) == 1 && c4_count(a, 0x17) == 2);
+    /* The spell's own 0x17 (timed) runs 0397 when it goes (08e3's apply: on remove 1). */
+    for (const cok_effect *e = a->effects; e != NULL; e = e->next)
+        if (e->id == 0x17 && e->duration != 0) CHECK(e->on_remove);
+    battle_clear();
+
+    /* A class that cannot use the hammer: 86b8:1965 refuses ("Wrong Class"), yet 0397 forces the readied flag (+0x32 1) with no
+     * power's effect, so no permanent node. */
+    a = c2_caster(5, 5);
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Wrong Class") && LOGGED("Gains an item"));
+    h = c5_hammer(a);
+    CHECK(h != NULL && h[0x32] == 1 && c5_permanent(a) == 0);
+    battle_clear();
+
+    /* A weapon readied in the first hand: the hammer is made but not readied, no permanent node ("Gains an item" still). */
+    a = c5_caster();
+    c5_item(a, 0x14, 1, 0, 0, 0);
+    a->slots[0] = 1;
+    set_target(a, a, 0x1c);
+    CHECK(c4_run(0x1c) && LOGGED("Gains an item"));
+    h = c5_hammer(a);
+    CHECK(a->item_count == 2 && h == a->items[1] && h[0x32] == 0 && a->slots[0] == 1);
+    CHECK(c5_permanent(a) == 0 && c4_count(a, 0x17) == 1);
+    battle_clear();
+}
+
+/* The hammer is not made while one is held, nor with 16 items (the record's count +0xc9), and is made with 15. */
+static void test_band_c5_hammer_limits(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 6, 1, 0, 0x17, 0x80);
+    a->items[0][0x2b] = 0x79;
+    a->items[0][0x30] = 1;
+    a->slots[0] = 1;
+    game.vm.seed = 9;
+    cok_field_set8(R->character, a->record, COK_FIELD_HANDS, 2);
+    CHECK(c5_effect(a) && a->item_count == 1 && !LOGGED("Gains an item") && game.vm.seed == 9);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_HANDS) < 2); /* 0be2 on the found path too */
+    battle_clear();
+
+    /* The limit reads the record's count (+0xc9, as last counted), not the list: 16 counted with none held, no hammer. */
+    a = c5_caster();
+    cok_field_set8(R->character, a->record, COK_FIELD_ITEM_COUNT, 16);
+    CHECK(c5_effect(a) && a->item_count == 0 && !LOGGED("Gains an item"));
+    battle_clear();
+
+    a = c5_caster();
+    for (unsigned i = 0; i < 15; ++i) c5_item(a, 0x14, 0, 0, 0, 0);
+    c5_stats(a);
+    CHECK(c5_effect(a) && a->item_count == 16 && c5_hammer(a) != NULL);
+    battle_clear();
+
+    a = c5_caster();
+    for (unsigned i = 0; i < 16; ++i) c5_item(a, 0x14, 0, 0, 0, 0);
+    c5_stats(a);
+    CHECK(c5_effect(a) && a->item_count == 16 && c5_hammer(a) == NULL && !LOGGED("Gains an item"));
+    battle_clear();
+}
+
+/* The round's end (event 0x13 runs 0x17 on each holder): a hammer gone is made again ("Gains an item"); a held one is kept. */
+static void test_band_c5_round_end(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
+    cok_character *t = a;
+    cok_character *other = record('B', 0, 0);
+    game.vm.character = other->record; /* another selected: 0397 sets DS:ad67 to the holder and puts it back */
+    CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
+    CHECK(c5_hammer(a) != NULL && LOGGED("Gains an item") && c5_hammer(a)[0x32] == 1);
+    CHECK(game.vm.character == other->record);
+    log_text[0] = '\0';
+    t = a;
+    CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
+    CHECK(a->item_count == 1 && !LOGGED("Gains an item"));
+    battle_clear();
+}
+
+/* The removal frees the hammer without unreadying it first: the 0x17 removed is the permanent one, and the timed one stays
+ * (an unready first would take the first 0x17, the timed one). */
+static void test_band_c5_remove(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x17, 5, 3, true) != NULL);
+    CHECK(c5_effect(a) && c5_hammer(a) != NULL && c5_permanent(a) == 1);
+    cok_effect *perm = NULL;
+    for (cok_effect *e = a->effects; e != NULL; e = e->next)
+        if (e->id == 0x17 && e->duration == 0) perm = e;
+    CHECK(perm != NULL && cok_effects_remove(&game.effects, a, perm, 0x17) && game.vm.status == COK_ECL_OK);
+    CHECK(c5_hammer(a) == NULL && a->item_count == 0 && a->slots[0] == 0 && c4_count(a, 0x17) == 1);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_HANDS) == 0); /* 0be2 after the free */
+    battle_clear();
+}
+
+/* 86b8:16f7's power 0 through the readying (the hammer, the permanent 0x17) and the unready (removed); powers 1 and 0x8c with
+ * power 0 stop cited. */
+static void test_band_c5_power(void)
+{
+    cok_character *a = c5_caster();
+    c5_item(a, 0x14, 0, 0, 0x17, 0x81);
+    CHECK(!queen_item_ready(&game, a, 0) && game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "16f7") != NULL);
+    a->items[0][0x32] = 0;
+    a->items[0][0x38] = 0x80;
+    a->items[0][0x37] = 0x8c;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!queen_item_ready(&game, a, 0) && game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "16f7") != NULL);
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 6, 0, 0, 0x17, 0x80);
+    a->items[0][0x2b] = 0x79;
+    a->items[0][0x30] = 1;
+    CHECK(queen_item_ready(&game, a, 0) && a->items[0][0x32] == 1 && c5_permanent(a) == 1);
+    CHECK(queen_item_ready(&game, a, 0) && a->items[0][0x32] == 0 && c5_permanent(a) == 0);
+    battle_clear();
+}
+
+/* queen_item_power (78e4:4f34): on adds the id for 0 minutes at 0xff, on remove unless it is 0x96 (flag 0); off removes the
+ * first such effect. Mutant: the 0x96 flag inverted (on remove set for it). */
+static void test_band_c5_power_flag(void)
+{
+    cok_character *a = c5_caster();
+    uint8_t item[COK_ITEM_SIZE];
+    memset(item, 0, sizeof item);
+    item[0x37] = 0x96;
+    CHECK(queen_item_power(&game, a, item, false));
+    cok_effect *e = cok_character_find_effect(a, 0x96);
+    CHECK(e != NULL && e->duration == 0 && e->value == 0xff && !e->on_remove);
+    item[0x37] = 0x17;
+    CHECK(queen_item_power(&game, a, item, false));
+    e = cok_character_find_effect(a, 0x17);
+    CHECK(e != NULL && e->duration == 0 && e->value == 0xff && e->on_remove);
+    CHECK(queen_item_power(&game, a, item, true) && c4_count(a, 0x17) == 0 && c4_count(a, 0x96) == 1);
+    battle_clear();
+}
+
+/* 13ef, Remove Curse (0x2b): the strength drain cured ("is Cured", "is un-cursed"), the cursed item left readied; a 0x24 (Bestow
+ * Curse's) is not cured (the mutant that cures it unreadies the item instead). A readied cursed item is unreadied (still
+ * cursed), with "has an item un-cursed"; a powered one's 0x17 is removed too. Nothing cursed: silent, no draw. */
+static void test_band_c5_remove_curse(void)
+{
+    cok_character *a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x2b, 0, 0, false) != NULL);
+    c5_item(a, 0x14, 1, 1, 0, 0);
+    set_target(a, a, 0x2b);
+    CHECK(c4_run(0x2b) && LOGGED("is Cured") && LOGGED("is un-cursed") && !LOGGED("has an item un-cursed"));
+    CHECK(c4_count(a, 0x2b) == 0 && a->items[0][0x32] == 1 && a->items[0][0x34] == 1);
+    battle_clear();
+
+    a = c5_caster();
+    CHECK(cok_character_add_effect(a, 0x24, 0, 0, false) != NULL);
+    c5_item(a, 0x14, 1, 1, 0, 0);
+    set_target(a, a, 0x2b);
+    CHECK(c4_run(0x2b) && !LOGGED("is un-cursed") && LOGGED("has an item un-cursed"));
+    CHECK(c4_count(a, 0x24) == 1 && a->items[0][0x32] == 0 && a->items[0][0x34] == 1);
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 0x14, 1, 1, 0x17, 0x80);
+    c5_item(a, 0x14, 1, 1, 0, 0);
+    CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SCORE_BASE, 5, 12);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SCORE, 5, 3);
+    set_target(a, a, 0x3d);
+    CHECK(c4_run(0x3d) && LOGGED("has an item un-cursed") && a->items[0][0x32] == 0);
+    CHECK(c4_count(a, 0x17) == 0);
+    CHECK(a->items[1][0x32] == 1); /* the first found only (the loop ends at it) */
+    CHECK(cok_field_u8_at(R->character, a->record, COK_FIELD_SCORE, 5) == 12); /* 1dfc for 0 to 5: charisma recomputed */
+    battle_clear();
+
+    a = c5_caster();
+    c5_item(a, 0x14, 0, 1, 0, 0);
+    game.vm.seed = 7;
+    set_target(a, a, 0x59);
+    CHECK(c4_run(0x59) && game.vm.seed == 7 && !LOGGED("un-cursed") && a->items[0][0x32] == 0);
+    battle_clear();
+}
+
+/* c6 (part 32f): the cures (7fd8:0e9f with 0dc0), Sticks to Snakes (1fcb, its effect 0x03 through the row), the
+ * computer-only Cause Disease (1068), Poison (1f41), Harm (1b5c) and Slay Living (223e), in queen_band_c.c. A
+ * caster with no class levels is the non-caster of level 6 (177e:1900). The waits and the touches draw too, so
+ * the tests take their rolls from seed_from's ranges or from a draw of the same seed. */
+static void no_classes(cok_character *c)
+{
+    for (unsigned i = 0; i < 7; ++i) cok_field_set8_at(R->character, c->record, COK_FIELD_CLASS_LEVEL, i, 0);
+}
+
+static cok_character *c6_target(char name, int8_t x, int8_t y, uint8_t hostile)
+{
+    cok_character *t = record(name, hostile, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    return t;
+}
+
+static void c6_reset(void)
+{
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+}
+
+/* Heal's order and cures: 0xb9 ("is no longer diseased" after its "is Cured"), the disease's (0x22, with its drain 0x2b,
+ * its 0x2c and 0x1f), blindness 0x21 ("is no longer blind"), then "is Healed". The nodes are all gone, and the hit
+ * points are the maximum less d4 (20 to a maximum of 30: 26 to 29). Mutant: the cures in another order (the texts
+ * out of order). */
+static void test_band_c6_heal_cures(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 20);
+    CHECK(cok_character_add_effect(t, 0xb9, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x21, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x2b, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x2c, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x1f, 0, 0, false) != NULL);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24));
+    const char *a1 = strstr(log_text, "is no longer diseased"), *a2 = strstr(log_text, "is cured"),
+               *a3 = strstr(log_text, "is no longer blind"), *a4 = strstr(log_text, "is Healed");
+    CHECK(a1 != NULL && a2 != NULL && a3 != NULL && a4 != NULL);
+    CHECK(a1 < a2 && a2 < a3 && a3 < a4);
+    CHECK(count_of("is Cured") == 4); /* 0xb9, 0x22, 0x2b, 0x21 */
+    CHECK(cok_character_find_effect(t, 0xb9) == NULL && cok_character_find_effect(t, 0x22) == NULL && cok_character_find_effect(t, 0x21) == NULL);
+    CHECK(cok_character_find_effect(t, 0x2b) == NULL && cok_character_find_effect(t, 0x2c) == NULL &&
+          cok_character_find_effect(t, 0x1f) == NULL);
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp >= 26 && hp <= 29);
+    battle_clear();
+}
+
+/* Heal's d4, drawn always: a target at its maximum takes it (the seed is one d4 on), gets 0 and is still "is Healed". One
+ * below the maximum gets 0 too (any d4 reaches it). Mutant: d4 skipped when the target is full (the seed unmoved). */
+static void test_band_c6_heal_full(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24));
+    uint32_t want = 1;
+    (void)cok_dice(&want, 1, 4);
+    CHECK(game.vm.seed == want && LOGGED("is Healed") && !LOGGED("is cured"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 29);
+    c6_reset();
+    game.vm.seed = 1;
+    CHECK(c1_run(0x24) && LOGGED("is Healed"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 29);
+    /* Camp (mode 2): the camp's Heal is part 46's, a cited stop before any draw. */
+    game.vm.mode = 2;
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    c6_reset();
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x24) && strstr(game.error, "0e9f") != NULL && game.vm.seed == 1);
+    game.vm.mode = 5;
+    battle_clear();
+}
+
+/* Sticks to Snakes: a highest level of 6 or more smashes them flat (row 10, waited) with no effect; the level is an
+ * unsigned byte, so 0x80 (negative as a signed byte) smashes too. A helpless target (held, 0x33) gets nothing at all:
+ * no text, no effect. Mutant: the level as a signed byte (0x80 applies). */
+static void test_band_c6_sticks_smash(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    set_targets(a, 0x46, (cok_character *[]){t}, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 6);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    cok_tp_random(&want, 1000); /* the smash's wait, its only draw */
+    CHECK(c1_run(0x46) && LOGGED("smashes them flat") && cok_character_find_effect(t, 0x03) == NULL && game.vm.seed == want);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0x80);
+    log_text[0] = '\0';
+    CHECK(c1_run(0x46) && LOGGED("smashes them flat") && cok_character_find_effect(t, 0x03) == NULL);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 18);
+    CHECK(cok_character_add_effect(t, 0x33, 0, 0, false) != NULL);
+    log_text[0] = '\0';
+    CHECK(c1_run(0x46) && !LOGGED("smashes") && cok_character_find_effect(t, 0x03) == NULL && log_text[0] == '\0');
+    battle_clear();
+}
+
+/* Sticks to Snakes' apply: a level below 6 gets the spell's effect 0x03 for the caster's level (capped), silently (no
+ * save, no touch). Then 0x03 through event 7 (the holder's turn): the attacks left of its target (+0x190 and +0x191,
+ * 1) counts its value down and "is fighting with snakes" is flashed; the value at or below the attacks ends it (the
+ * first 0x03 removed). Mutant: 0x03 without its row (COK_FX_MISSING: the event stops). */
+static void test_band_c6_sticks_snakes(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 0, 40); /* capped: 0x1f (177e:1900's cap) */
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 5);
+    set_targets(a, 0x46, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint8_t lv = 0, uncapped = 0;
+    CHECK(queen_spell_level(&game, 0x46, true, &lv) && lv >= 2);
+    CHECK(queen_spell_level(&game, 0x46, false, &uncapped) && uncapped != lv);
+    CHECK(c1_run(0x46));
+    cok_effect *e = cok_character_find_effect(t, 0x03);
+    CHECK(e != NULL && e->value == lv && !e->on_remove);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_ATTACKS_LEFT, 1, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_ATTACKS_LEFT, 2, 0);
+    cok_character *slot = t;
+    game.spell_targets[1] = t;
+    CHECK(cok_effects_dispatch_at(&game.effects, &slot, 7) && slot == t);
+    CHECK(e->value == lv - 1 && LOGGED("is fighting with snakes") && cok_character_find_effect(t, 0x03) == e);
+    e->value = 1;
+    CHECK(cok_effects_dispatch_at(&game.effects, &slot, 7));
+    CHECK(cok_character_find_effect(t, 0x03) == NULL);
+    battle_clear();
+}
+
+/* Cause Disease on a target that saved (its type 4 save: a roll of 2 to 20 saves a 0) and held 0x22 from before: "is
+ * Unaffected" is said, and the old node's handler runs anyway (1734 finds it): the drain 0x2b is added. Mutant: the run
+ * skipped when the target saved (no drain). */
+static void test_band_c6_cause_disease(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    no_classes(a);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 0);
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, true) != NULL);
+    set_targets(a, 0x28, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 20});
+    CHECK(c1_run(0x28) && LOGGED("is Unaffected"));
+    CHECK(cok_character_find_effect(t, 0x22) != NULL && cok_character_find_effect(t, 0x2b) != NULL);
+    battle_clear();
+}
+
+/* Harm: the damage type 8 and the disease added for good (0x22, no text); "is Diseased" is said; above 4 hit points the
+ * damage from magic is the hit points less a d4, so d4 is left (1 to 4). At 4 or fewer hit points nothing is damaged and
+ * the disease is still added. Mutant: the damage to 4 or fewer. */
+static void test_band_c6_harm(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    game.effects.rolls.damage_type = 0x40; /* a stale type: Harm's own 8 gives "from Magic" */
+    CHECK(c1_run(0x38) && LOGGED("is Diseased") && LOGGED("from Magic"));
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp >= 1 && hp <= 4 && cok_character_find_effect(t, 0x22) != NULL); /* the damage is hp - d4: d4 is left */
+    battle_clear();
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 4);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    cok_tp_random(&want, 1000); /* "is Diseased"'s wait; no d4 at 4 hit points */
+    CHECK(c1_run(0x38) && LOGGED("is Diseased") && !LOGGED("from Magic") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 4);
+    CHECK(cok_character_find_effect(t, 0x22) != NULL);
+    battle_clear();
+    /* 5 hit points (above 4, unsigned): damaged to d4. */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 5);
+    set_targets(a, 0x38, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    uint8_t d = cok_dice(&want, 1, 4);
+    CHECK(c1_run(0x38) && LOGGED("from Magic") && cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == d);
+    battle_clear();
+}
+
+/* Slay Living. The stale pending (a 0x6f left in rolls.pending: 223e does not set it) reaches a 0x5c holder's cancel:
+ * the amount is 0 and "is unaffected" is said, the target untouched. A failed save of type 4 kills (cok_combat_kill:
+ * status 6, "is slain", no hit points). A failed save against a creature with the quiet bit (8 in +0xc8) is not killed:
+ * the damage from magic (2d8 + 1, 3 to 17) is taken. Mutants: the pending 0x4c (the 0x5c cancel misses: no "is
+ * unaffected"); the quiet bit ignored (killed). */
+static void test_band_c6_slay(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t waited = 1;
+    cok_tp_random(&waited, 1000); /* "is unaffected"'s wait, the only draw */
+    CHECK(c1_run(0x4c) && LOGGED("is unaffected") && !LOGGED("is slain") && game.vm.seed == waited);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 10);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x4c) && LOGGED("is slain"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS) == 0 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    set_targets(a, 0x4c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 1, 20); /* the save */
+    uint8_t d = cok_dice(&want, 2, 8);
+    CHECK(c1_run(0x4c) && !LOGGED("is slain"));
+    unsigned hp = cok_field_u8(R->character, t->record, COK_FIELD_HIT_POINTS);
+    CHECK(hp == 30u - (d + 1u) && cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 1);
+    battle_clear();
+}
+
+/* Poison. The caster's combat record NULL (outside combat): nothing at all, no draw. In combat the spell's apply rolls
+ * its targets' saves, then event 9 runs on the caster's target (its combat record's), not the spell's target, with the
+ * pending 0x40; with no handler to cancel it, 0x40 runs on the caster and stops, cited (78e4:0e7d, part 35). The seed
+ * after shows the event 9 went to the caster's target: a 0x5f holder there draws its d100 once more; the spell's
+ * target holding 0x5f draws nothing. */
+static void test_band_c6_poison(void)
+{
+    cok_character *a, *t, *x;
+    duel(&a, &t);
+    no_classes(a);
+    cok_combat_record *keep = a->combat;
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    a->combat = NULL;
+    game.vm.seed = 1;
+    CHECK(c1_run(0x44) && game.vm.seed == 1);
+    a->combat = keep;
+    battle_clear();
+
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL);
+    uint32_t control = game.vm.seed, one = 1;
+    cok_dice(&one, 1, 20); /* the apply's save of the spell's target, its only draw before the stop */
+    CHECK(control == one);
+    c6_reset();
+
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    c6_reset();
+    CHECK(cok_character_add_effect(x, 0x5f, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL);
+    uint32_t want = control;
+    (void)cok_dice(&want, 1, 100);
+    CHECK(game.vm.seed == want);
+    battle_clear();
+
+    /* The spell's target holds 0x5f and the caster's target does not: no event 9 on the spell's target, no draw. */
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    CHECK(cok_character_add_effect(t, 0x5f, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x44) && strstr(game.error, "78e4:0e7d") != NULL && game.vm.seed == control);
+    battle_clear();
+
+    /* The caster's target holds a minor globe (0x28: a spell below level 8 cancelled, the pending effect too): 0x40 is not
+     * run, no stop. */
+    duel(&a, &t);
+    no_classes(a);
+    x = record('X', 1, 0);
+    place(x, 4, 5);
+    cok_field_set8(R->character, x->record, COK_FIELD_ACTIVE, 1);
+    a->combat->target = x->record;
+    c6_reset();
+    CHECK(cok_character_add_effect(x, 0x28, 0, 0, false) != NULL);
+    set_targets(a, 0x44, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x44) && game.effects.rolls.pending != 0x40);
+    battle_clear();
+}
+
+/* Heal's cures in full: 0xb9, the cure of disease's four (0x22; the drain 0x2b and the wasting 0x2c with flag 1, as
+ * again() adds them, and 0x1f; 0xd7 with its 0xac), blindness 0x21 and the mind 0x44. The curing flag keeps the drain's
+ * and the wasting's removals from adding again (no "is weakened", no new node); 0xd7 (25f7's guard) is cured before the
+ * heal, so the target is healed; the strength and the mind scores are recomputed from their bases. Six "is Cured" waits
+ * (a draw each), then the d4: Heal's own texts do not wait. Mutants: no curing flag; 0xd7, 0xac or 0x44 left; no
+ * recompute; a Heal text waited. */
+static void test_band_c6_heal_all(void)
+{
+    const cok_character_layout *L = R->character;
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    cok_field_set8(L, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    cok_field_set8(L, t->record, COK_FIELD_HIT_POINTS, 10);
+    static const uint8_t base[3] = {16, 15, 14}, now[3] = {12, 3, 3};
+    for (unsigned s = 0; s < 3; ++s) {
+        cok_field_set8_at(L, t->record, COK_FIELD_SCORE_BASE, s, base[s]);
+        cok_field_set8_at(L, t->record, COK_FIELD_SCORE, s, now[s]);
+    }
+    static const struct { uint8_t id; bool flag; } held_ids[] = {
+        {0xb9, false}, {0x22, true}, {0x2b, true}, {0x2c, true}, {0x1f, false},
+        {0xd7, false}, {0xac, false}, {0x21, true}, {0x44, false},
+    };
+    for (size_t i = 0; i < sizeof held_ids / sizeof *held_ids; ++i)
+        CHECK(cok_character_add_effect(t, held_ids[i].id, 0, 5, held_ids[i].flag) != NULL);
+    set_targets(a, 0x24, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    for (unsigned k = 0; k < 6; ++k) cok_tp_random(&want, 1000); /* the six "is Cured" waits */
+    uint8_t d = cok_dice(&want, 1, 4);
+    CHECK(c1_run(0x24) && game.vm.seed == want && count_of("is Cured") == 6);
+    const char *p1 = strstr(log_text, "is no longer diseased"), *p2 = strstr(log_text, "is cured"),
+               *p3 = strstr(log_text, "is no longer blind"), *p4 = strstr(log_text, "regains intellect"),
+               *p5 = strstr(log_text, "is Healed");
+    CHECK(p1 != NULL && p2 != NULL && p3 != NULL && p4 != NULL && p5 != NULL);
+    CHECK(p1 < p2 && p2 < p3 && p3 < p4 && p4 < p5 && !LOGGED("is weakened"));
+    for (size_t i = 0; i < sizeof held_ids / sizeof *held_ids; ++i)
+        CHECK(cok_character_find_effect(t, held_ids[i].id) == NULL);
+    CHECK(cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS) == 30 - d);
+    for (unsigned s = 0; s < 3; ++s) CHECK(cok_field_u8_at(L, t->record, COK_FIELD_SCORE, s) == base[s]);
+    /* 0xd7 alone is a cure of disease too: "is cured". */
+    CHECK(cok_character_add_effect(t, 0xd7, 0, 5, false) != NULL);
+    c6_reset();
+    CHECK(c1_run(0x24) && LOGGED("is cured") && cok_character_find_effect(t, 0xd7) == NULL);
+    battle_clear();
+}
+
+/* Cause Disease on a target whose save fails (a throw of 21: a roll below 20 fails) and whose touch hits (20): "is
+ * Diseased" is flashed and the disease 0x22 added for good with the non-caster's level (6) and flag 1 (on remove); its
+ * handler then runs on the new node: the drain 0x2b and the wasting 0x2c are added. Mutants: flag 0; no text; another
+ * value. */
+static void test_band_c6_cause_disease_fails(void)
+{
+    cok_character *a = holds_caster(), *t = c6_target('T', 6, 5, 0);
+    no_classes(a);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x28, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 19, 20, 20, 20});
+    CHECK(c1_run(0x28) && LOGGED("is Diseased") && !LOGGED("is Unaffected"));
+    cok_effect *e = cok_character_find_effect(t, 0x22);
+    CHECK(e != NULL && e->value == 6 && e->on_remove && e->duration == 0);
+    CHECK(cok_character_find_effect(t, 0x2b) != NULL && cok_character_find_effect(t, 0x2c) != NULL);
+    battle_clear();
+}
+
+/* The keys the bar's menus read in the next tests: the string's bytes in order, then -1 (the keys ran out). */
+static const char *c7_keys = "";
+static size_t c7_at;
+
+static int c7_read(void *context)
+{
+    (void)context;
+    if (c7_keys[c7_at] == '\0') return -1;
+    return (unsigned char)c7_keys[c7_at++];
+}
+
+static void c7_script(const char *keys)
+{
+    c7_keys = keys;
+    c7_at = 0;
+    game.keys.read = c7_read;
+}
+
+/* 7fd8:114e's chance and removal: the caster a (its level set by the test) and a new target at x, y holding a removable
+ * effect (0x0d) of value. Dispel Magic (0x2e) at seed: whether the node is gone. The caller clears the battle; each
+ * target's cell is its own (x 6 to 9, y 6 to 9). */
+static bool c7_dispelled(cok_character *a, int8_t x, int8_t y, uint8_t value, uint32_t seed)
+{
+    cok_character *t = c4_target((char)('A' + (y - 6) * 4 + (x - 6)), x, y, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, value, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed;
+    CHECK(c4_run(0x2e));
+    return c4_count(t, 0x0d) == 0;
+}
+
+/* 7fd8:114e (Dispel Magic, 0x2e) with the caster at level 10 (the spell's level read back): the chance is 50 at a level equal,
+ * 5 a level above (lv - lev) with 50 over and 2 a level below with 50 under (lev - lv), a byte: a level 26 below is always
+ * taken (the subtraction wraps to 0xfe), 25 below never (a chance of 0). A d100 at or under the chance removes the node. The
+ * value's low five bits are the level (0x1a is 26; Death Knights' & 0x0f would make it 10: a d100 of 30 removes it there and
+ * keeps it here). */
+static void test_band_c7_dispel_chance(void)
+{
+    cok_character *a = holds_caster();
+    c4_level(a, 10);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x2e, false, &lv) && lv == 10);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    CHECK(c7_dispelled(a, 6, 6, 10, seed_from(1, (const unsigned[]){100, 50, 50})));  /* equal: 50 */
+    CHECK(!c7_dispelled(a, 7, 6, 10, seed_from(1, (const unsigned[]){100, 51, 100}))); /* 51 is kept */
+    CHECK(c7_dispelled(a, 8, 6, 15, seed_from(1, (const unsigned[]){100, 40, 40})));  /* 5 below: 50 - 10 = 40 */
+    CHECK(!c7_dispelled(a, 9, 6, 15, seed_from(1, (const unsigned[]){100, 41, 100})));
+    CHECK(c7_dispelled(a, 6, 7, 5, seed_from(1, (const unsigned[]){100, 75, 75})));  /* 5 above: 50 + 25 = 75 */
+    CHECK(!c7_dispelled(a, 7, 7, 5, seed_from(1, (const unsigned[]){100, 76, 100})));
+    CHECK(c7_dispelled(a, 8, 7, 0x1a, seed_from(1, (const unsigned[]){100, 18, 18}))); /* 16 below: 50 - 32 = 18 */
+    CHECK(!c7_dispelled(a, 9, 7, 0x1a, seed_from(1, (const unsigned[]){100, 30, 100}))); /* & 0x0f's 10 would take 30 */
+    battle_clear();
+
+    /* The byte wrap: at level 5, a level 25 above is 0 (never taken: 1 is kept); a level 26 above is 0xfe (always: 100). */
+    a = holds_caster();
+    c4_level(a, 5);
+    CHECK(queen_spell_level(&game, 0x2e, false, &lv) && lv == 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    CHECK(!c7_dispelled(a, 6, 6, 30, seed_from(1, (const unsigned[]){100, 1, 1})));
+    CHECK(c7_dispelled(a, 7, 6, 31, seed_from(1, (const unsigned[]){100, 100, 100})));
+    battle_clear();
+
+    /* A value of 0xff: skipped with no draw, kept. */
+    a = holds_caster();
+    c4_level(a, 10);
+    cok_character *t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0xff, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    game.vm.seed = 9;
+    CHECK(c4_run(0x2e) && game.vm.seed == 9 && c4_count(t, 0x0d) == 1);
+    battle_clear();
+}
+
+/* Dispel Magic's targets: each target t[i] (not t[1] on each pass) and the flash "is affected" once, for a target with a
+ * removal only. The first target holds only a 0xff effect (skipped, no draw); the second's d100 (level 5 at 5: 50) takes its
+ * node; the third's chance is 0 (level 30 against 5: 25 below), never taken whatever the draw. */
+static void test_band_c7_dispel_targets(void)
+{
+    cok_character *a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    cok_character *t1 = c4_target('T', 6, 6, 0), *t2 = c4_target('U', 7, 6, 0), *t3 = c4_target('V', 8, 6, 0);
+    CHECK(cok_character_add_effect(t1, 0x0d, 0, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(t2, 0x0d, 0, 5, false) != NULL);
+    CHECK(cok_character_add_effect(t3, 0x0d, 0, 30, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t1, t2, t3}, 3);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(c4_run(0x2e));
+    CHECK(c4_count(t1, 0x0d) == 1 && c4_count(t2, 0x0d) == 0 && c4_count(t3, 0x0d) == 1);
+    CHECK(count_of("is affected") == 1);
+    battle_clear();
+
+    /* No removal: no flash. */
+    a = holds_caster();
+    c4_level(a, 10);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    t1 = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t1, 0x0d, 0, 10, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t1}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 51, 100});
+    CHECK(c4_run(0x2e) && c4_count(t1, 0x0d) == 1 && count_of("is affected") == 0);
+    battle_clear();
+}
+
+/* Dispel Magic's removal: the node taken is the one tried (not the first of its id: a 0xff node of the same id before it
+ * is kept), and a node added on remove runs its removal handler (0x38's, in battle: the first 0x19 goes, here the one
+ * before it). A removal handler that frees the next node (0x38 followed by its 0x19) stops: 7fd8:1232 reads the next
+ * node from freed memory. */
+static void test_band_c7_dispel_removal(void)
+{
+    cok_character *a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    cok_character *t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 5, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(c4_run(0x2e) && c4_count(t, 0x0d) == 1 && t->effects != NULL && t->effects->value == 0xff);
+    battle_clear();
+
+    a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 5, true) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(c4_run(0x2e) && c4_count(t, 0x38) == 0 && c4_count(t, 0x19) == 0);
+    battle_clear();
+
+    a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 5, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0xff, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(!c4_run(0x2e) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "7fd8:1232") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* Dispel Magic's clouds (mode 5): a cloud terrain (0x1d or 0x1c) among the 9 cells round the spell's cell with no cloud on
+ * the map is centred on the spell's cell (the view moves; no stop). With a cloud (combat.clouds) it stops (part 39). Other
+ * terrain: nothing. */
+static void test_band_c7_dispel_clouds(void)
+{
+    cok_character *a = holds_caster();
+    c4_level(a, 10);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    game.combat.cells[20][20] = 0x1d;
+    game.combat.view_x = 0;
+    game.combat.view_y = 0;
+    set_targets(a, 0x2e, NULL, 0);
+    CHECK(c4_run(0x2e) && game.combat.view_x == 17 && game.combat.view_y == 17); /* centred: spell cell less 3 */
+    game.combat.view_x = 15; /* the view's centre (18, 18) within 3 of the spell's cell: margin 3 keeps it */
+    game.combat.view_y = 15;
+    CHECK(c4_run(0x2e) && game.combat.view_x == 15 && game.combat.view_y == 15);
+    cok_combat_cloud node;
+    memset(&node, 0, sizeof node);
+    game.combat.clouds = &node;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    CHECK(!c4_run(0x2e) && game.vm.status == COK_ECL_UNPORTED && strstr(game.error, "Dispel Magic's clouds") != NULL);
+    game.combat.clouds = NULL;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.combat.cells[20][20] = 0x1a;
+    game.combat.cells[20][21] = 0x1c; /* not the spell's cell: still a cloud terrain among the 9 */
+    game.combat.clouds = &node;
+    CHECK(!c4_run(0x2e) && game.vm.status == COK_ECL_UNPORTED);
+    game.combat.clouds = NULL;
+    game.vm.status = COK_ECL_OK;
+    game.combat.cells[20][21] = COK_COMBAT_FLOOR;
+    game.combat.cells[20][20] = COK_COMBAT_FLOOR;
+    battle_clear();
+}
+
+/* 7fd8:24f0, Dimension Door (0x53): the caster is erased and placed at the aimed cell (here 9, 5, empty), the screen centred
+ * on it (margin 0: the view's corner 3 less), "teleports" said, and no draw. */
+static void test_band_c7_door(void)
+{
+    cok_character *a = holds_caster();
+    game.spell_x = 9;
+    game.spell_y = 5;
+    game.combat.view_x = 0;
+    game.combat.view_y = 0;
+    set_targets(a, 0x53, NULL, 0);
+    game.vm.seed = 7;
+    uint32_t want = 7;
+    cok_tp_random(&want, 1000); /* the say's speed wait (speed 0: one draw) */
+    CHECK(c4_run(0x53) && game.vm.seed == want);
+    CHECK(cok_combat_x(&game.combat, a->record) == 9 && cok_combat_y(&game.combat, a->record) == 5);
+    CHECK(game.combat.view_x == 6 && game.combat.view_y == 2); /* centred on 9, 5 */
+    CHECK(LOGGED("teleports") && count_of("teleports") == 1);
+    battle_clear();
+
+    /* A placement past its tables (a size past the footprints' table: 5837:10bd reads beyond it) is undefined, as
+     * queen_commands' undo: no "teleports". */
+    a = holds_caster();
+    game.spell_x = 9;
+    game.spell_y = 5;
+    set_targets(a, 0x53, NULL, 0);
+    cok_field_set8(R->character, a->record, COK_FIELD_SIZE, 0x7f);
+    CHECK(!c4_run(0x53) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "5837:10bd") != NULL);
+    CHECK(!LOGGED("teleports"));
+    battle_clear();
+}
+
+/* 7fd8:26b4, Fire Shield (0x55) for a computer member in battle (+0x18c): a d2 chooses (1 Hot, 2 Cold), no menu. */
+static void test_band_c7_shield_computer(void)
+{
+    cok_character *a = holds_caster();
+    a->record[0x18c] = 1;
+    c7_script(""); /* a menu would read -1 and add nothing */
+    game.vm.seed = seed_from(1, (const unsigned[]){2, 1, 1});
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x32) != NULL && cok_character_find_effect(a, 0x70) != NULL);
+    CHECK(cok_character_find_effect(a, 0x36) == NULL && count_of("is Protected") == 1);
+    battle_clear();
+
+    a = holds_caster();
+    a->record[0x18c] = 1;
+    c7_script("");
+    game.vm.seed = seed_from(1, (const unsigned[]){2, 2, 2});
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x36) != NULL && cok_character_find_effect(a, 0x32) == NULL);
+    CHECK(cok_character_find_effect(a, 0x70) != NULL && count_of("is Protected") == 1);
+    battle_clear();
+}
+
+/* 7fd8:26b4's menu (not a computer member): "Flame type: " with Hot and Cold by their first letters; Escape asks "Abort Spell"
+ * (Yes ends the spell silently, No asks the flame again); the keys running out ends the run with nothing added. Cold says "is
+ * Protected" too (a mutant that is silent fails). */
+static void test_band_c7_shield_menu(void)
+{
+    cok_character *a = holds_caster();
+    c7_script("H");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x32) != NULL && cok_character_find_effect(a, 0x70) != NULL);
+    CHECK(count_of("is Protected") == 1 && c7_at == 1);
+    battle_clear();
+
+    a = holds_caster();
+    c7_script("C");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x36) != NULL && cok_character_find_effect(a, 0x70) != NULL);
+    CHECK(LOGGED("is Protected") && cok_character_find_effect(a, 0x32) == NULL);
+    battle_clear();
+
+    /* Escape, then Yes: the spell is gone; nothing added, nothing said, and the H after it is not read (the menu not
+     * asked again). */
+    a = holds_caster();
+    c7_script("\x1b" "YH");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x32) == NULL && cok_character_find_effect(a, 0x36) == NULL);
+    CHECK(cok_character_find_effect(a, 0x70) == NULL && !LOGGED("is Protected") && c7_at == 2);
+    battle_clear();
+
+    /* Escape, then No: the flame menu again, and Cold. */
+    a = holds_caster();
+    c7_script("\x1b" "NC");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x36) != NULL && c7_at == 3);
+    battle_clear();
+
+    /* The keys run out at the menu: the run ends with nothing added. */
+    a = holds_caster();
+    c7_script("");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x70) == NULL && cok_character_find_effect(a, 0x32) == NULL);
+    battle_clear();
+    game.keys.read = no_key;
+}
+
+/* 7fd8:26b4's Hot underwater (var 0x3c): refused, "That has no effect underwater!" on the bar, and the spell is gone; Cold is
+ * not refused. */
+static void test_band_c7_shield_underwater(void)
+{
+    cok_character *a = holds_caster();
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 1);
+    c7_script("H");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x32) == NULL && cok_character_find_effect(a, 0x70) == NULL);
+    CHECK(LOGGED("That has no effect underwater!") && c7_at == 1);
+    c7_script("C");
+    CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x36) != NULL);
+    cok_ecl_set_var(&game.vm, COK_VAR_RECORD_EFFECT, 0);
+    battle_clear();
+    game.keys.read = no_key;
+}
+
 int main(void)
 {
     struct stat st;
@@ -5396,6 +7674,10 @@ int main(void)
     test_cone_of_cold();
     test_meteor_try();
     test_meteor_swarm();
+    test_band_c2_sleep();
+    test_band_c2_entangle();
+    test_band_c2_confusion();
+    test_band_c2_fear();
     test_effects2_resist();
     test_effects2_shield();
     test_effects2_barkskin_ray();
@@ -5409,6 +7691,50 @@ int main(void)
     test_effects3_missiles();
     test_effects3_add_invisible();
     test_effects3_pool();
+    test_band_c1_order();
+    test_band_c1_bonus();
+    test_band_c1_forced();
+    test_band_c1_animal_forced();
+    test_band_c1_effect_96();
+    test_band_c1_faerie_last();
+    test_band_c1_charm_monsters();
+    test_band_c1_charm_person();
+    test_band_c1_charm_mammal();
+    test_band_c1_snakes();
+    test_band_c1_row_47();
+    test_band_c3_fumble();
+    test_band_c3_feeblemind_shift();
+    test_effects_feeblemind();
+    test_effects_berserk();
+    test_band_c4_hasten();
+    test_band_c4_slow();
+    test_band_c4_enlarge();
+    test_band_c4_reduce();
+    test_band_c5_hammer();
+    test_band_c5_hammer_limits();
+    test_band_c5_round_end();
+    test_band_c5_remove();
+    test_band_c5_power();
+    test_band_c5_power_flag();
+    test_band_c5_remove_curse();
+    test_band_c6_heal_cures();
+    test_band_c6_heal_full();
+    test_band_c6_sticks_smash();
+    test_band_c6_sticks_snakes();
+    test_band_c6_cause_disease();
+    test_band_c6_harm();
+    test_band_c6_slay();
+    test_band_c6_poison();
+    test_band_c6_heal_all();
+    test_band_c6_cause_disease_fails();
+    test_band_c7_dispel_chance();
+    test_band_c7_dispel_targets();
+    test_band_c7_dispel_removal();
+    test_band_c7_dispel_clouds();
+    test_band_c7_door();
+    test_band_c7_shield_computer();
+    test_band_c7_shield_menu();
+    test_band_c7_shield_underwater();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
