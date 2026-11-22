@@ -240,8 +240,8 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "effects_1", "effects_2", "effects_4",
-                 "effects_3")
+                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "effects_1", "effects_2",
+                 "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -2587,7 +2587,7 @@ AUTO_RETURN = "(out of keys in block 1 at 8031)"    # the same run with one more
 AUTO_LOG_AT = ("static void log_line(cok_adventure *game, const char *kind, const char *text, "
                "void *context)\n{\n    (void)game;\n    (void)context;\n")
 AUTO_LOG_CODE = r"""    /* tools/dosbox/checks/dqk_fight.py's auto flow: at each round's end (round.c's mark, "dqk"),
-     * the screen and the state as NN.bmp, .records, .blocks, .field and .turns in COK_DQK_ROUNDS. */
+     * the screen and the state as NN.bmp, .records, .blocks, .field, .turns, .effects and .items in COK_DQK_ROUNDS. */
     if (strcmp(kind, "dqk") == 0) {
         player *pp = context;
         static unsigned rounds;
@@ -2607,6 +2607,8 @@ AUTO_LOG_CODE = r"""    /* tools/dosbox/checks/dqk_fight.py's auto flow: at each
         save_turns(pp->game, path);
         snprintf(path, sizeof path, "%s.effects", base);
         save_effects(pp->game, path);
+        snprintf(path, sizeof path, "%s.items", base);
+        save_items(pp->game, path);
         return;
     }
 """
@@ -6423,6 +6425,95 @@ def band_c4(v, work, opts):
     band_c4_enlarge(v, work, wild, opts)
 
 
+# Band c5's Spiritual Hammer (step 4, part 32e, queen_band_c.c: 08e3; the effect 0x17, queen_effect.c: 0397). Saved game A
+# with BALTHIR memorising Spiritual Hammer (+0xce 0x1c, time 1) and nothing else: C, C (WALKER's menu), E (WALKER's End:
+# his tail, then BALTHIR's pending cast, kind 0, no Aim, and its tail; band_c5_run). The original, after BALTHIR's tail and
+# before SHARKMAN 2's computer turn: 5 draws past the menu (b1457e83); BALTHIR's node [0x17, 10, 10, 1] is his last and his
+# only 0x17 (not readied: no permanent 0x17); the hammer is made last in his list, not readied (his slot 0 holds a weapon);
+# his byte forgotten (+0xce 0x9c). eclplay's turn mark 03 agrees (RandSeed, records, blocks, turns, effect chains and the
+# item lists).
+BAND_C5_HAMMER = 0x1C
+BAND_C5_TAIL = (5, 0xB1457E83)          # the tail after E: 5 draws past the menu
+BAND_C5_NODE = (0x17, 10, 10, 1)        # BALTHIR's node: the hammer's effect for 10 minutes, value 10, on remove
+BAND_C5_MEMO = BAND_C5_HAMMER | CAST_FORGOTTEN  # BALTHIR's +0xce after the hammer (0x9c)
+BAND_C5_MARK = "03"                     # eclplay's turn mark of the hammer's tail
+ITEM_TYPE, ITEM_NAME, ITEM_BONUS, ITEM_READIED, ITEM_EFFECT, ITEM_POWER = 0, 3, 8, 10, 15, 16  # from +0x28 (17 bytes)
+
+
+def band_c5_save():
+    """Saved game A with BALTHIR memorising Spiritual Hammer (+0xce 0x1c) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C5_HAMMER}})
+
+
+def band_c5_run(box, menu, work, tag):
+    """C, C (Begins Casting: WALKER's menu), then E: WALKER's End and his tail (066a, the trap); BALTHIR's turn then runs his
+    pending cast (5045:08e3: kind 0, no Aim) to its own tail, and the next combatant is SHARKMAN 2 (record 7, the turn list
+    at turn mark 03), so the computer's dispatch (5045:0891) is the stop after BALTHIR's tail, with no draws between. Both
+    traps are armed in one call (the second before the first is given back). The item lists are read there (drop_list)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["walker"], out["after"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "E", None),
+                                                                 (COMPUTER, "5045:0891", None, None)])
+    out["after"].update(items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+    return out
+
+
+def band_c5_hammer(v, work, wild, opts):
+    """Spiritual Hammer at BALTHIR's pending cast (the flow band_c5): the tail (5 draws past the menu, b1457e83), BALTHIR's
+    one node, the hammer last and unreadied in his items, his byte forgotten; eclplay's turn mark 03 agrees."""
+    save = band_c5_save()
+    o = cast_original(work, wild, save, "band-c5-hammer", opts.verbose, band_c5_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c5-hammer-save", save)
+    tail = o["after"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C5_TAIL, f"the original's RandSeed after E (Spiritual Hammer, no Aim, its tail) is "
+            f"{BAND_C5_TAIL[0]} draws past BALTHIR's menu, at {BAND_C5_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    nodes = [tuple(n) for n in tail["chains"][CAST_BALTHIR]]
+    v.check(nodes[-1:] == [BAND_C5_NODE] and [n for n in nodes if n[0] == 0x17] == [BAND_C5_NODE],
+            f"BALTHIR's hammer node {BAND_C5_NODE} is his last, and his only 0x17 (no permanent one: he is not readied; "
+            "his 0x5f and 0x69 are the battle's)", f"nodes {nodes}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C5_MEMO, f"at the tail BALTHIR's Spiritual Hammer is forgotten (+0xce {BAND_C5_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    items = tail["items"][CAST_BALTHIR]
+    raw = [bytes.fromhex(it) for it in items]
+    hammers = [i for i, it in enumerate(raw) if it[ITEM_TYPE] == 6 and it[ITEM_NAME] == 0x79]
+    v.check(len(hammers) == 1 and hammers[0] == len(raw) - 1 and raw[-1][ITEM_BONUS] == 1 and raw[-1][ITEM_EFFECT] == 0x17
+            and raw[-1][ITEM_POWER] == 0x80, "the original makes one hammer, last in BALTHIR's items (bonus 1, effect 0x17, "
+            "power 0x80)", f"{items}")
+    readied = [i for i, it in enumerate(raw) if it[ITEM_READIED] != 0]
+    v.check(readied and hammers[0] not in readied, "the hammer is not readied (his weapon in the first hand stays readied)",
+            f"readied items {readied}")
+    p = turn_port(work, wild, "band-c5-hammer", "CCE", entry=entry)
+    mark = cast_mark(p, BAND_C5_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C5_MARK}) after C, C and E", p["last"])
+        return
+    command_state(v, "the hammer's tail (the turn's tail, 03)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (the hammer's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_C5_MEMO,
+            f"eclplay's tail after the hammer: BALTHIR's byte forgotten (+0xce {BAND_C5_MEMO:#x})",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    ported = []
+    path = mark["base"].with_suffix(".items")
+    if path.exists():
+        for line in path.read_text().splitlines():
+            fields = line.split()
+            if fields and fields[0] != "pool":
+                ported.append(fields[1:])
+    v.check(ported == tail["items"], "every member's items agree at the tail (eclplay's --items, the 17 bytes each)",
+            f"original {tail['items']}, eclplay {ported}")
+
+
+def band_c5(v, work, opts):
+    """Band c5's Spiritual Hammer (part 32e), the flow band_c5: the hammer made by BALTHIR's pending cast, against the
+    original's tail and eclplay's turn mark (band_c5_hammer). Remove Curse and the item power are repo tests here."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c5_hammer(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -6786,6 +6877,8 @@ def main():
         band_c3(v, work, opts)
     if "band_c4" in flows:
         band_c4(v, work, opts)
+    if "band_c5" in flows:
+        band_c5(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
