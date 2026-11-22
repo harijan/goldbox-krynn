@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c4", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c4", "band_c6", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6362,6 +6362,127 @@ def band_c4(v, work, opts):
     band_c4_enlarge(v, work, wild, opts)
 
 
+# Band c6's Heal and Sticks to Snakes (step 4, part 32f: 7fd8:0e9f and 1fcb, queen_band_c.c). Heal (time 0): saved game A with
+# BALTHIR memorising Heal (+0xce 0x24) and nothing else: C, C (the Aim at once: BALTHIR's own cell), then T: the tail, which
+# draws d4 only (no cure is held, so no "is Cured" wait): his hit points are the maximum less d4. Sticks to Snakes (time 2):
+# BALTHIR memorising it (+0xce 0x46): the flame's keys C, C, E, E, N (SHARKMAN 2 at 29,15), then T: SHARKMAN 2's level (18) is
+# 6 or more, so the spell smashes them flat (no effect, no draws past its wait).
+BAND_C6_HEAL = 0x24
+BAND_C6_STICKS = 0x46
+BAND_C6_HEAL_AIM = (1, 0xEB831397)      # C, C: Heal at once, one draw past the menu (the Enlarge's Aim: the same keys)
+BAND_C6_HEAL_TAIL = (2, 0xD9491FD4)     # T: the tail, two draws past the menu (the d4, and the Aim's one)
+BAND_C6_HEAL_MEMO = BAND_C6_HEAL | CAST_FORGOTTEN   # BALTHIR's +0xce after Heal (0xa4)
+BAND_C6_HEAL_HP = 0x50                  # BALTHIR's hit points in the save (full at 0x6a: the heal would be 0): below max - 4
+BAND_C6_HEAL_MARK = "01"                # eclplay's turn mark of Heal's tail (it is the turn's first)
+BAND_C6_STICKS_TAIL = (21, 0x8EED26B3)  # the tail after T: 21 draws past the menu (the smash's wait)
+BAND_C6_STICKS_MEMO = BAND_C6_STICKS | CAST_FORGOTTEN   # BALTHIR's +0xce after Sticks to Snakes (0xc6)
+BAND_C6_STICKS_NAMES = "CCEENT"         # the keys of the flame's path (eclplay; the same as band_b2's flame)
+BAND_C6_STICKS_MARK = "05"              # eclplay's turn mark of the tail (as the flame's: the fifth turn)
+MAX_HIT_POINTS = 0x89                   # a record's maximum hit points (dqk_fight_lib's layout)
+SNAKES_EFFECT = 0x03                    # Sticks to Snakes' effect (7e76:0009)
+
+
+def band_c6_heal_save():
+    """Saved game A with BALTHIR memorising Heal (+0xce 0x24) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C6_HEAL, HIT_POINTS: BAND_C6_HEAL_HP}})
+
+
+def band_c6_sticks_save():
+    """Saved game A with BALTHIR memorising Sticks to Snakes (+0xce 0x46) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C6_STICKS}})
+
+
+def cast_run_sticks(box, menu, work, tag):
+    """C, C (WALKER's menu), E (WALKER's End), E (TIMASALIN's End: BALTHIR's pending Aim), N (SHARKMAN 2 under the cursor), then
+    T: the tail (the flame's keys; no trap on the spell's routine: 849a:21b5 crashed the box when armed)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_c6_heal(v, work, wild, opts):
+    """Heal on BALTHIR himself (the flow band_c6, Heal): the draw at the Aim, the tail (2 draws past the menu, d9491fd4), his
+    hit points (lowered to 0x50 in the save, BAND_C6_HEAL_HP) the maximum less d4 (read at the menu and the tail), the byte forgotten. eclplay's turn mark 01 agrees with the
+    original's chains and RandSeed."""
+    save = band_c6_heal_save()
+    o = cast_original(work, wild, save, "band-c6-heal", opts.verbose, band_c4_enlarge_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c6-heal-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_C6_HEAL_AIM, f"the original's RandSeed at BALTHIR's Heal at its Aim (C, C) is "
+            f"{BAND_C6_HEAL_AIM[0]} draw past the menu, at {BAND_C6_HEAL_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C6_HEAL_TAIL, f"the original's tail after T (Heal) is {BAND_C6_HEAL_TAIL[0]} draws "
+            f"past the menu, at {BAND_C6_HEAL_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hp0 = rec_byte(o["menu"]["records"][CAST_BALTHIR], HIT_POINTS)
+    mx = rec_byte(o["menu"]["records"][CAST_BALTHIR], MAX_HIT_POINTS)
+    hp1 = rec_byte(tail["records"][CAST_BALTHIR], HIT_POINTS)
+    v.check(hp0 + 4 < mx and 1 <= mx - hp1 <= 4, f"BALTHIR's hit points go from {hp0:#x} to the maximum {mx:#x} less d4 "
+            "(the heal to max - d4)", f"{hp0:#x} -> {hp1:#x}, max {mx:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C6_HEAL_MEMO, f"at the tail BALTHIR's Heal is forgotten (+0xce {BAND_C6_HEAL_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c6-heal", "CCT", entry=entry)
+    mark = cast_mark(p, BAND_C6_HEAL_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C6_HEAL_MARK}) after C, C and T", p["last"])
+        return
+    command_state(v, "Heal's tail (the turn's tail, 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Heal's tail, turn mark 01)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], HIT_POINTS) == hp1, f"eclplay's tail after Heal: BALTHIR at {hp1:#x}",
+            f"{rec_byte(marked[CAST_BALTHIR], HIT_POINTS):#x}")
+    print(f"eclplay (band c6, heal) ends {p['last']!r}", flush=True)
+
+
+def band_c6_sticks(v, work, wild, opts):
+    """Sticks to Snakes on SHARKMAN 2 (the flow band_c6, Sticks): the tail (21 draws, 8eed26b3; the dispatch's RandSeed is
+    not checked: no trap on 849a:21b5); SHARKMAN 2 holds no snakes node (smashed flat at 18); the byte forgotten. eclplay's turn mark 05
+    is the one with the original's RandSeed (found, its number checked): its records and effect chains agree."""
+    save = band_c6_sticks_save()
+    o = cast_original(work, wild, save, "band-c6-sticks", opts.verbose, cast_run_sticks)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c6-sticks-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C6_STICKS_TAIL, f"the original's tail after T (Sticks to Snakes) is "
+            f"{BAND_C6_STICKS_TAIL[0]} draws past the menu, at {BAND_C6_STICKS_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(not any(n[0] == SNAKES_EFFECT for n in tail["chains"][CAST_SHARKMAN_2]),
+            "SHARKMAN 2 holds no snakes node at the tail (smashed flat: his level is 6 or more)",
+            f"{tail['chains'][CAST_SHARKMAN_2]}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C6_STICKS_MEMO, f"at the tail BALTHIR's Sticks to Snakes is forgotten (+0xce {BAND_C6_STICKS_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c6-sticks", BAND_C6_STICKS_NAMES, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's tail ({tail['seed']:#x}) after "
+                f"{BAND_C6_STICKS_NAMES}", p["last"])
+        return
+    v.check(mark["number"] == BAND_C6_STICKS_MARK, f"the turn mark with the original's tail is {BAND_C6_STICKS_MARK} (as the "
+            "flame's: the fifth turn)", mark["number"])
+    command_state(v, f"Sticks to Snakes' tail (the turn's tail, {mark['number']})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Sticks' tail, turn mark {mark['number']})")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_C6_STICKS_MEMO,
+            f"eclplay's tail after Sticks to Snakes: BALTHIR's byte {BAND_C6_STICKS_MEMO:#x}",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+    print(f"eclplay (band c6, sticks) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+def band_c6(v, work, opts):
+    """Band c6's Heal and Sticks to Snakes (part 32f), the flow band_c6: Heal on BALTHIR and Sticks to Snakes on SHARKMAN 2,
+    each against the original's RandSeed and eclplay's turn mark (band_c6_heal, band_c6_sticks)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c6_heal(v, work, wild, opts)
+    band_c6_sticks(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -6723,6 +6844,8 @@ def main():
         band_c2(v, work, opts)
     if "band_c4" in flows:
         band_c4(v, work, opts)
+    if "band_c6" in flows:
+        band_c6(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
