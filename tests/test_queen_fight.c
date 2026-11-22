@@ -6723,6 +6723,9 @@ static void test_band_c5_hammer(void)
     CHECK(a->item_count == 2 && h == a->items[1] && a->items[0][0x28] == 0x14);
     CHECK(h[0x2a] == 6 && h[0x30] == 1 && h[0x37] == 0x17 && h[0x38] == 0x80 && h[0x32] == 1);
     CHECK(a->slots[0] == 2 && c5_permanent(a) == 1 && c4_count(a, 0x17) == 2);
+    /* The spell's own 0x17 (timed) runs 0397 when it goes (08e3's apply: on remove 1). */
+    for (const cok_effect *e = a->effects; e != NULL; e = e->next)
+        if (e->id == 0x17 && e->duration != 0) CHECK(e->on_remove);
     battle_clear();
 
     /* A class that cannot use the hammer: 86b8:1965 refuses ("Wrong Class"), yet 0397 forces the readied flag (+0x32 1) with no
@@ -6755,7 +6758,15 @@ static void test_band_c5_hammer_limits(void)
     a->items[0][0x30] = 1;
     a->slots[0] = 1;
     game.vm.seed = 9;
+    cok_field_set8(R->character, a->record, COK_FIELD_HANDS, 2);
     CHECK(c5_effect(a) && a->item_count == 1 && !LOGGED("Gains an item") && game.vm.seed == 9);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_HANDS) < 2); /* 0be2 on the found path too */
+    battle_clear();
+
+    /* The limit reads the record's count (+0xc9, as last counted), not the list: 16 counted with none held, no hammer. */
+    a = c5_caster();
+    cok_field_set8(R->character, a->record, COK_FIELD_ITEM_COUNT, 16);
+    CHECK(c5_effect(a) && a->item_count == 0 && !LOGGED("Gains an item"));
     battle_clear();
 
     a = c5_caster();
@@ -6777,8 +6788,11 @@ static void test_band_c5_round_end(void)
     cok_character *a = c5_caster();
     CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
     cok_character *t = a;
+    cok_character *other = record('B', 0, 0);
+    game.vm.character = other->record; /* another selected: 0397 sets DS:ad67 to the holder and puts it back */
     CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
     CHECK(c5_hammer(a) != NULL && LOGGED("Gains an item") && c5_hammer(a)[0x32] == 1);
+    CHECK(game.vm.character == other->record);
     log_text[0] = '\0';
     t = a;
     CHECK(cok_effects_dispatch_at(&game.effects, &t, 0x13) && game.vm.status == COK_ECL_OK);
@@ -6798,6 +6812,7 @@ static void test_band_c5_remove(void)
         if (e->id == 0x17 && e->duration == 0) perm = e;
     CHECK(perm != NULL && cok_effects_remove(&game.effects, a, perm, 0x17) && game.vm.status == COK_ECL_OK);
     CHECK(c5_hammer(a) == NULL && a->item_count == 0 && a->slots[0] == 0 && c4_count(a, 0x17) == 1);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_HANDS) == 0); /* 0be2 after the free */
     battle_clear();
 }
 
@@ -6867,10 +6882,15 @@ static void test_band_c5_remove_curse(void)
 
     a = c5_caster();
     c5_item(a, 0x14, 1, 1, 0x17, 0x80);
+    c5_item(a, 0x14, 1, 1, 0, 0);
     CHECK(cok_character_add_effect(a, 0x17, 0, 0xff, true) != NULL);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SCORE_BASE, 5, 12);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SCORE, 5, 3);
     set_target(a, a, 0x3d);
     CHECK(c4_run(0x3d) && LOGGED("has an item un-cursed") && a->items[0][0x32] == 0);
     CHECK(c4_count(a, 0x17) == 0);
+    CHECK(a->items[1][0x32] == 1); /* the first found only (the loop ends at it) */
+    CHECK(cok_field_u8_at(R->character, a->record, COK_FIELD_SCORE, 5) == 12); /* 1dfc for 0 to 5: charisma recomputed */
     battle_clear();
 
     a = c5_caster();
