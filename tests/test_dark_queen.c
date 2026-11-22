@@ -1005,6 +1005,11 @@ static void test_magic_ids(void)
         /* Band c4's texts (7fd8:175a's "is Hasted", 1b11's "is Slowed", 02e8's "is stronger", 0438's "has been reduced"). */
         {0x8946, "is Hasted"},     {0x8950, "is Slowed"},         {0x8801, "is stronger"},
         {0x880d, "has been reduced"},
+        /* Band c6's texts (7fd8:0e9f's "is no longer diseased", 88b2 "is cured", 88bb, 88ce, 88e0; 1fcb's "smashes them
+         * flat" 89a3; 223e's "is slain" 89bf; 1b5c's "Diseased" 6abc, which "is %s" 8798 takes). */
+        {0x889c, "is no longer diseased"}, {0x88b2, "is cured"}, {0x88bb, "is no longer blind"},
+        {0x88ce, "regains intellect"},     {0x88e0, "is Healed"}, {0x89a3, "smashes them flat"},
+        {0x89bf, "is slain"},              {0x6abc, "Diseased"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
@@ -1087,9 +1092,10 @@ static void test_magic_ids(void)
      * kind, queen_effect.c), each with the routine it runs (7e76 for 0x1a); effects-3's six (0x1c, 0x27, 0x29,
      * 0x2a, 0x31, 0x38: the own hook's kinds, queen_effect.c's images, haste, missiles, slow, prayer and
      * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting); band c1's 0x47 (Faerie Fire's armour,
-     * a descriptor row). The list is in id order. */
+     * a descriptor row); band c6's 0x03 (Sticks to Snakes' snakes, h_snakes through the row). The list is in id order. */
     static const struct { uint8_t id; uint16_t seg, off; } ported_effects[] = {
-        {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x04, 0x78e4, 0x0168}, {0x06, 0x78e4, 0x0184},
+        {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x03, 0x7e76, 0x0009}, {0x04, 0x78e4, 0x0168},
+        {0x06, 0x78e4, 0x0184},
         {0x08, 0x78e4, 0x0198}, {0x09, 0x78e4, 0x01c6}, {0x0a, 0x78e4, 0x01f4}, {0x0b, 0x7e76, 0x007a},
         {0x0d, 0x78e4, 0x021d}, {0x0f, 0x78e4, 0x023d}, {0x11, 0x78e4, 0x02b9}, {0x12, 0x78e4, 0x02e6},
         {0x14, 0x78e4, 0x0313}, {0x15, 0x7e76, 0x012c}, {0x19, 0x78e4, 0x054a}, {0x1a, 0x7e76, 0x01c7},
@@ -1136,7 +1142,7 @@ static void test_magic_ids(void)
     /* The effect names the code uses (rules_dark_queen_magic.c): CHARMED, INVISIBLE, BERSERK,
      * and 017d's FRIENDLY, ENLARGED and STRENGTH have their ids, the yell's YELLED_AT, the
      * use-up's HAMMER (52db:1b26), the resist-charm's ASLEEP (78e4:13df), and 054a's test its
-     * SEES_INVISIBLE; every other name is 0. */
+     * SEES_INVISIBLE, and band c6's SNAKES (0x03); every other name is 0. */
     CHECK(R->effects.ids == cok_dark_queen_effect_ids);
     CHECK(R->effects.ids[COK_EFFECT_YELLED_AT] == 0x8c &&
           R->effects.ids[COK_EFFECT_HAMMER] == 0x17);
@@ -1144,11 +1150,11 @@ static void test_magic_ids(void)
     CHECK(R->effects.ids[COK_EFFECT_CHARMED] == 0x0b && R->effects.ids[COK_EFFECT_BERSERK] == 0x4d);
     CHECK(R->effects.ids[COK_EFFECT_INVISIBLE] == 0x19 && R->effects.ids[COK_EFFECT_SEES_INVISIBLE] == 0x18);
     CHECK(R->effects.ids[COK_EFFECT_FRIENDLY] == 0x0e && R->effects.ids[COK_EFFECT_ENLARGED] == 0x0c);
-    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26);
+    CHECK(R->effects.ids[COK_EFFECT_STRENGTH] == 0x26 && R->effects.ids[COK_EFFECT_SNAKES] == 0x03);
     for (unsigned n = 0; n < COK_EFFECT_NAMES; ++n)
         if (n != COK_EFFECT_CHARMED && n != COK_EFFECT_BERSERK && n != COK_EFFECT_INVISIBLE &&
             n != COK_EFFECT_SEES_INVISIBLE && n != COK_EFFECT_FRIENDLY && n != COK_EFFECT_ENLARGED && n != COK_EFFECT_STRENGTH &&
-            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP)
+            n != COK_EFFECT_YELLED_AT && n != COK_EFFECT_HAMMER && n != COK_EFFECT_ASLEEP && n != COK_EFFECT_SNAKES)
             CHECK(R->effects.ids[n] == 0);
 
     /* The named spell ids: the Dark Queen names of the Champions spells the

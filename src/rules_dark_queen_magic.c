@@ -366,7 +366,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x00] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x01] = {0x0132, COK_FX_BLESS, .applied_only = true}, /* 78e4:0132: morale and attack roll */
     [0x02] = {0x0146, COK_FX_CURSE, .applied_only = true}, /* 78e4:0146: morale and attack roll */
-    [0x03] = {0x0009, COK_FX_MISSING, "dqk 7e76:0009"},
+    [0x03] = {0x0009, COK_FX_SNAKES}, /* 7e76:0009: the snakes' count (effect.c's h_snakes, flag 0; flag 1 stops, cited there) */
     [0x04] = {0x0168, COK_FX_EVIL_AVOID, .applied_only = true}, /* 78e4:0168: attacker of flag 1, -7 */
     [0x05] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x06] = {0x0184, COK_FX_QUEEN_TYPE_CANCEL, .value = 4, .applied_only = true}, /* 78e4:0184: 00f7(4) */
@@ -622,6 +622,8 @@ const uint8_t cok_dark_queen_effect_ids[COK_EFFECT_NAMES] = {
     [COK_EFFECT_HAMMER] = 0x17,
     /* 78e4:13df's cancel (0x5f): the sleep, as in Champions (rules.c). */
     [COK_EFFECT_ASLEEP] = 0x35,
+    /* 7e76:0009, Sticks to Snakes' effect (the row 0x03 above; h_snakes finds it by this id). */
+    [COK_EFFECT_SNAKES] = 0x03,
 };
 
 /* The event lists (148f:0512, a0512.txt): by event, the ids its handlers run, 0-ended, in
