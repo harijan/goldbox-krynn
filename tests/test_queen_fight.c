@@ -4873,6 +4873,31 @@ static void test_band_c2_sleep(void)
         /* Dropped: the allowance's four draws and nothing more (a kept target's add draws too). */
         if (!kept) CHECK(game.vm.seed == after_draws(allowance_seed, 4, 4));
     }
+    /* The weights of levels 1 to 4 (1, 2, 4, 6), each before a race-7 level 5 (10): an allowance of the weight + 10 keeps both,
+     * one less drops the second. Then a dropped target (holding 0x35, level 1) spends nothing: 10 keeps the 10 after it. */
+    static const uint8_t weights[] = {1, 2, 4, 6};
+    for (unsigned lv = 1; lv <= 4; ++lv) {
+        for (unsigned less = 0; less <= 1; ++less) {
+            c2_caster(5, 5);
+            cok_character *s = sleeper('s', (uint8_t)lv, 0, 20, 20), *u = sleeper('u', 5, 7, 21, 20);
+            game.spell_targets[1] = s;
+            game.spell_targets[2] = u;
+            game.spell_target_count = 2;
+            game.effects.rolls.spell = 0x15;
+            game.vm.seed = seed_for_dice(4, 4, weights[lv - 1] + 10u - less);
+            CHECK(run_handler(0x15));
+            CHECK(game.spell_targets[1] == s && (game.spell_targets[2] == u) == (less == 0));
+        }
+    }
+    c2_caster(5, 5);
+    cok_character *h = sleeper('h', 1, 0, 20, 20), *k = sleeper('k', 5, 7, 21, 20);
+    CHECK(cok_character_add_effect(h, 0x35, 0, 0, false) != NULL);
+    game.spell_targets[1] = h;
+    game.spell_targets[2] = k;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = 0x15;
+    game.vm.seed = seed_for_dice(4, 4, 10);
+    CHECK(run_handler(0x15) && game.spell_targets[1] == NULL && game.spell_targets[2] == k);
     game.vm.character = NULL;
     battle_clear();
 }
@@ -4963,11 +4988,14 @@ static void test_band_c2_fear(void)
     static uint8_t dummy;
     cok_character *m, *l, *p;
     uint16_t minutes = 0;
-    /* Both fail (rolls 2 to 19): the centre's and the left line's targets, in the cone's order (the centre line first). */
+    /* Both fail (rolls 2 to 19): the centre's and the left line's targets, in the cone's order (the centre line first). F at 17,
+     * 10, one past the centre line's end (length 6), is not reached. */
     fear_battle(&m, &l);
     m->combat->target = &dummy;
+    cok_character *f = c2_target('F', 0, 17, 10);
     game.vm.seed = seed_from(2, (const unsigned[]){20, 2, 19, 20, 2, 19});
     CHECK(run_handler(0x54));
+    CHECK(game.spell_target_count == 2 && cok_character_find_effect(f, 0x6f) == NULL);
     CHECK(game.effects.rolls.images == 0 && LOGGED("flees in terror") && !LOGGED("is unaffected"));
     CHECK(queen_spell_duration(&game, 0x54, &minutes));
     const cok_effect *e = cok_character_find_effect(m, 0x6f);
@@ -4985,6 +5013,30 @@ static void test_band_c2_fear(void)
     CHECK(cok_character_find_effect(m, 0x6f) == NULL && m->combat->forced == 0 && computer(m) == 0 &&
           m->combat->target == &dummy && LOGGED("is unaffected"));
     CHECK(cok_character_find_effect(l, 0x6f) != NULL && l->combat->forced == 1 && computer(l) == 1);
+    battle_clear();
+    /* The made save alone (M, no one else in the cone): its d20 and the say's wait (one draw), nothing more. */
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    m = record('M', 1, 1);
+    place(m, 11, 10);
+    cok_field_set8_at(R->character, m->record, COK_FIELD_SAVING_THROW, 4, 21);
+    uint32_t want = seed_from(1, (const unsigned[]){20, 20, 20});
+    game.vm.seed = want;
+    CHECK(run_handler(0x54) && LOGGED("is unaffected"));
+    (void)cok_dice(&want, 1, 20);
+    cok_tp_random(&want, 1000);
+    CHECK(game.vm.seed == want);
+    battle_clear();
+    /* A failed save whose 0x6f is refused (the racial 0x5c cancels it at event 9): no effect, so the block is not written. */
+    fear_battle(&m, &l);
+    l->combat->target = &dummy;
+    CHECK(cok_character_add_effect(l, 0x5c, 0, 0, false) != NULL);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(cok_character_find_effect(l, 0x6f) == NULL && l->combat->forced == 0 && computer(l) == 0 &&
+          l->combat->target == &dummy);
     battle_clear();
     /* A cone whose centre line meets no one (side 0xff): the left line's end is 49, 10 (x 16 + 0x63, clamped) and the target
      * at 30, 10 is on it: reached by the 0xff side's left line alone. */
