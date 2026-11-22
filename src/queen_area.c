@@ -1,6 +1,7 @@
 #include "queen.h"
 
 #include "arena.h"
+#include "cast.h"
 #include "combat.h"
 #include "data.h"
 #include "ecl.h"
@@ -10,12 +11,13 @@
 
 #include <assert.h>
 
-/* The Dark Queen of Krynn's area and line spells (band b, part 31): the area damage of 7fd8's band b
+/* The Dark Queen of Krynn's area and line spells (band b, part 31; band c2, part 32b, below): the area damage of 7fd8's band b
  * (dqk 7fd8:1519 the Fireball family, 1772 and its hit 1a54 with the Lightning Bolt 1ac3, the Javelin 1d20,
  * Flame Strike 2157, Ice Storm 28fb, Cone of Cold 299c and its cone 19ff, Meteor Swarm 3b99 and its try 3a73).
  * The flight and the bursts of a spell are queen_cast.c's (51c2:0fc8 and 51c2:0def: queen_direction_picture and
  * queen_burst), run before each handler here. queen_area_handler is the table: a spell with no handler yet is
- * NULL, and queen_spell_handler then takes the plain table or stops at the descriptor's citation. */
+ * NULL, and queen_spell_handler then takes the plain table or stops at the descriptor's citation.
+ * Band c2 (part 32b: Sleep, Entangle, Confusion and Fear, the last section) is in the same table. */
 
 /* b2: the Fireball family 0x2f 0x73 0x85 (7fd8:1519), Flame Strike 0x4a (2157), Ice Storm 0x57 (28fb). */
 
@@ -518,6 +520,145 @@ static bool meteor_swarm(cok_adventure *game)
     return true;
 }
 
+/* c2: Sleep 0x15 (7fd8:05c4), Entangle 0x4e (22f5), Confusion 0x52 (243f), Fear 0x54 (257a) */
+
+/* The words of the c2 handlers (DS:8836, 89c8, 89e4, 89fa, 87e8, the port's own strings: the say of 177e:156e is lower case). */
+static const char falls_asleep[] = "falls asleep";
+static const char is_entangled[] = "is entangled";
+static const char is_confused[] = "is confused";
+static const char flees_in_terror[] = "flees in terror";
+static const char is_unaffected[] = "is unaffected";
+
+/* The race word at +0x58 (a word in Dark Queen's records, read as one by 7fd8:05c4: 7 weighs 10 at level 5). */
+static bool race_seven(const cok_character *t)
+{
+    return (uint16_t)(t->record[0x58] | t->record[0x59] << 8) == 7;
+}
+
+/* 7fd8:05c4's weight of a target by its highest level (+0x91, read unsigned: 0 and 6 and up weigh 20, as does 5 unless
+ * the race word is 7, which weighs 10). */
+static uint8_t sleep_weight(cok_adventure *game, const cok_character *t)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    switch (cok_field_u8(L, t->record, COK_FIELD_HIGHEST_LEVEL)) {
+    case 1: return 1;
+    case 2: return 2;
+    case 3: return 4;
+    case 4: return 6;
+    case 5: return race_seven(t) ? 10 : 20;
+    default: return 20;
+    }
+}
+
+/* 7fd8:05c4 Sleep (0x15): the image flag set (and left set: never cleared here); the allowance is 4d4, and each target in turn
+ * (the count read again each time) is dropped (NULL) when it is asleep already (status 1), holds 0x35, or the allowance is
+ * under its weight; else its weight comes off the allowance. Then the apply (no save, "falls asleep"). A NULL target is read
+ * through by the original (+0x91 at 7fd8:05f5): undefined here (queen_area_targets never lists one). */
+static bool sleep_spell(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    const cok_rules *rules = cok_game_rules(game);
+    r->images = 1;
+    uint8_t left = cok_dice(&game->vm.seed, 4, 4);
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "Sleep reads a target's highest level through NULL (DS:c5df, 7fd8:05f5)");
+        uint8_t w = sleep_weight(game, t);
+        if (cok_combat_field_word(rules, t->record, COK_FIELD_STATUS) == 1 || cok_character_find_effect(t, 0x35) != NULL ||
+            left < w)
+            game->spell_targets[i] = NULL;
+        else
+            left = (uint8_t)(left - w);
+    }
+    return queen_spell_apply(game, r->spell, 0, false, 0, 0, falls_asleep);
+}
+
+/* 7fd8:22f5 Entangle (0x4e): the image flag set, and cleared at the end. With var 0x22 set (not in the battle's ground: the
+ * 3D view or the dungeon) nothing else is done, not even the text. Else each target (NULL skipped) saves by type 4 (bonus 0),
+ * and unless it saved "is entangled" (0x1b, kind 1, the duration of 0x4e, rolled for each target). */
+static bool entangle(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    r->images = 1;
+    if (cok_ecl_load_var(&game->vm, 0x22) == 0) {
+        for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+            cok_character *t = game->spell_targets[i];
+            if (t == NULL) continue;
+            bool saved = false;
+            if (!queen_save(game, t, 4, 0, &saved)) return false;
+            uint16_t minutes;
+            if (!queen_spell_duration(game, 0x4e, &minutes)) return false;
+            if (!cok_cast_add_effect(game, t, 0x1b, minutes, 0, false, 1, saved, is_entangled)) return false;
+        }
+    }
+    r->images = 0;
+    return true;
+}
+
+/* 7fd8:243f Confusion (0x52): the image flag set, and cleared at the end. The count is 2d8, drawn first; the targets past it
+ * are dropped (the list's nearest kept). Each target (NULL skipped) saves by type 4 (bonus 0) and, unless it saved, "is
+ * confused" (0x23, kind 1, the duration of 0x52). */
+static bool confusion(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    r->images = 1;
+    uint8_t n = cok_dice(&game->vm.seed, 2, 8);
+    if (game->spell_target_count > n) game->spell_target_count = n;
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) continue;
+        bool saved = false;
+        if (!queen_save(game, t, 4, 0, &saved)) return false;
+        uint16_t minutes;
+        if (!queen_spell_duration(game, 0x52, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, 0x23, minutes, 0, false, 1, saved, is_confused)) return false;
+    }
+    r->images = 0;
+    return true;
+}
+
+/* 7fd8:257a Fear (0x54): the image flag set. Fear is combat-only: outside the battle (mode 5 tested) it returns with the flag
+ * still set. Else the cone from the caster's cell to the spell's cell, width 3 and length 6 (queen_cone: the left line too).
+ * Each target saves by type 4 (bonus 0): a save says "is unaffected" (row 10, waited). Otherwise "flees in terror" (0x6f,
+ * kind 1, on removal, the duration of 0x54) and, if the effect is on the target, its combat record is made to run: forced
+ * 1, computer-controlled, an NPC (0xb3 unless bit 7 of the NPC byte), and target NULL (the block writes of queen_effect.c's
+ * confused()). A target with no combat record is read through (7fd8:264e): undefined. */
+static bool fear(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    r->images = 1;
+    if (game->vm.mode != 5) return true;
+    if (game->vm.character == NULL)
+        return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 7fd8:257a)");
+    const uint8_t *caster = game->vm.character;
+    if (!queen_cone(game, cok_combat_x(&game->combat, caster), cok_combat_y(&game->combat, caster), game->spell_x,
+                    game->spell_y, 3, 6))
+        return false;
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "Fear reads a target's saving throw through NULL (DS:c5df, 7fd8:25f0)");
+        bool saved = false;
+        if (!queen_save(game, t, 4, 0, &saved)) return false;
+        if (saved) {
+            if (!cok_arena_say(game, t, is_unaffected, 10, true)) return false;
+            continue;
+        }
+        uint16_t minutes;
+        if (!queen_spell_duration(game, 0x54, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, 0x6f, minutes, 0, true, 1, false, flees_in_terror)) return false;
+        if (cok_character_find_effect(t, 0x6f) == NULL) continue;
+        cok_combat_record *cr = t->combat;
+        if (cr == NULL) return undefined(game, "Fear's block is read through NULL (7fd8:264e: a target out of combat)");
+        cr->forced = 1;
+        cok_field_set8(L, t->record, COK_FIELD_COMPUTER, 1);
+        if ((cok_field_u8(L, t->record, COK_FIELD_NPC) & 0x80) == 0) cok_field_set8(L, t->record, COK_FIELD_NPC, 0xb3);
+        cr->target = NULL;
+    }
+    r->images = 0;
+    return true;
+}
+
 queen_spell_fn *queen_area_handler(uint8_t id)
 {
     switch (id) {
@@ -537,6 +678,12 @@ queen_spell_fn *queen_area_handler(uint8_t id)
 
     /* b5: Meteor Swarm 0x7c (7fd8:3b99) */
     case 0x7c: return meteor_swarm;
+
+    /* c2: Sleep 0x15 (7fd8:05c4), Entangle 0x4e (22f5), Confusion 0x52 (243f), Fear 0x54 (257a) */
+    case 0x15: return sleep_spell;
+    case 0x4e: return entangle;
+    case 0x52: return confusion;
+    case 0x54: return fear;
 
     default: return NULL;
     }

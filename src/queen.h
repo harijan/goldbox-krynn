@@ -305,8 +305,9 @@ bool queen_burst(cok_adventure *game, uint8_t radius, uint8_t slot, uint8_t soun
  * cell with radius (5d71:07d7, the targets 1 to the count), for queen_area.c. False where the run stopped. */
 bool queen_spell_level(cok_adventure *game, uint8_t spell, bool capped, uint8_t *level);
 bool queen_area_targets(cok_adventure *game, uint16_t radius);
-/* The band b handlers (queen_area.c's switch): the handler of a spell id it carries out, NULL for any other. The
- * cast takes it before the plain table (queen_spell_handler). */
+/* The band b and c2 handlers (queen_area.c's switch: Fireball, Flame Strike, Ice Storm, the bolts, Cone of Cold, Meteor
+ * Swarm, Sleep, Entangle, Confusion, Fear): the handler of a spell id it carries out, NULL for any other. The cast takes
+ * it before the plain table (queen_spell_handler). */
 queen_spell_fn *queen_area_handler(uint8_t id);
 /* The band c handlers (queen_band_c.c's switch): the handler of a spell id it carries out, NULL for any other. queen_spell_handler
  * takes it after queen_area_handler and before the plain table. */

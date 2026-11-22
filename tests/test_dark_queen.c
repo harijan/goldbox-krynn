@@ -988,6 +988,9 @@ static void test_magic_ids(void)
         /* Band a3's texts (7fd8:0001's "is %s" with "Blessed" and "Cursed", 13b7, 0957, 36d6). */
         {0x8798, "is %s"},         {0x693f, "Blessed"},           {0x6947, "Cursed"},
         {0x88fb, "is praying"},    {0x8882, "is duplicated"},     {0x8ab3, "is covered in flame"},
+        /* Band c2's texts (7fd8:05c4's "falls asleep", 22f5's, 243f's, 257a's; 257a's "is unaffected" 87e8 is band c1's). */
+        {0x8836, "falls asleep"},  {0x89c8, "is entangled"},      {0x89e4, "is confused"},
+        {0x89fa, "flees in terror"},
         /* Effects-4's texts (7e76:012c's "is %s" with "Silenced", 033f's, 0b3c's runs). */
         {0x8674, "is %s"},         {0x6a42, "Silenced"},          {0x86a7, "runs away"},
         {0x86b1, "is confused"},   {0x86bd, "goes berserk"},      {0x86ca, "is enraged"},
