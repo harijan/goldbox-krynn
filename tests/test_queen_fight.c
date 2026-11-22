@@ -2100,8 +2100,9 @@ static void test_plain_apply(void)
         bool c1 = id == 0x17 || id == 0x31 || id == 0x5e || id == 0x6c || id == 0x4f || id == 0x51 || id == 0x0a ||
                   id == 0x3f || id == 0x60 || id == 0x1b; /* queen_band_c.c's c1 */
         bool c2 = id == 0x15 || id == 0x4e || id == 0x52 || id == 0x54; /* queen_area.c's band c2 */
+        bool c3 = id == 0x56 || id == 0x5d; /* queen_band_c.c's c3 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2862,9 +2863,9 @@ static uint32_t confusion_seed(unsigned low, unsigned high, unsigned save)
 
 /* 7e76:033f (0x23, confusion; ev 0x15, applied_only): one d100 by the original's table. 1-10 runs away: the 0x23
  * removed, the block forced and computer controlled, its target NULL, and 0x6f added for ten minutes. 11-60 "is
- * confused" and the turn ends. 61-80 0x4d is added and run: its cited stop (7e76:081f) stops the run, before the
- * save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps it; a d20 of 10
- * leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
+ * confused" and the turn ends. 61-80 0x4d is added and run (berserk, band c3: the target is listed[2], the sides
+ * flipped), then the save. 81-100 "is enraged". Then the save (type 4, bonus -2): made removes the 0x23, failed keeps
+ * it; a d20 of 10 leaves the save roll at the save bonus + 10 - 2 (the bonus is -2). */
 static void test_effects_four_confusion(void)
 {
     game.vm.mode = 5; /* the battle */
@@ -2907,19 +2908,24 @@ static void test_effects_four_confusion(void)
           (uint8_t)(cok_field_s8(R->character, t->record, COK_FIELD_SAVE_BONUS) + 10 + 0xfe));
     CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x23), 0x23) &&
           game.vm.status == COK_ECL_OK);
-    /* 61-80: 0x4d added, run, and its cited stop ends the run before the save. */
+    /* 61-80: 0x4d added and run (berserk: the target is a, the other listed; t's side becomes a's side ^ 1), then the
+     * save, made here (20), removes the 0x23. */
+    cr->forced = 0;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = a->record;
     CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
     game.vm.seed = confusion_seed(61, 80, 20);
     log_text[0] = '\0';
-    game.effects.error[0] = '\0';
-    CHECK(!cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_EFFECT_FAILED);
-    CHECK(strstr(game.effects.error, "7e76:081f") != NULL && LOGGED("goes berserk"));
-    CHECK(cok_character_find_effect(t, 0x4d) != NULL && cok_character_find_effect(t, 0x23) != NULL);
-    game.vm.status = COK_ECL_OK;
-    game.effects.failed = false;
-    game.effects.error[0] = '\0';
-    game.error[0] = '\0';
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("goes berserk") && cok_character_find_effect(t, 0x23) == NULL);
+    CHECK(cok_character_find_effect(t, 0x4d) != NULL && computer(t) == 1 && npc_of(t) == 0xb3);
+    CHECK(cr->target == a->record && cr->may_cast == 0 && side_of(t) == 1);
+    CHECK(cok_effects_remove(&game.effects, t, cok_character_find_effect(t, 0x4d), 0x4d) &&
+          game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && side_of(t) == 0);
     /* 81-100: "is enraged" and the save: made removes it. */
+    CHECK(cok_character_add_effect(t, 0x23, 0, 0, false) != NULL);
     game.vm.seed = confusion_seed(81, 100, 20);
     log_text[0] = '\0';
     CHECK(cok_effects_dispatch(&game.effects, t, 0x15) && game.vm.status == COK_ECL_OK);
@@ -6024,6 +6030,237 @@ static void test_band_c1_row_47(void)
     battle_clear();
 }
 
+/* c3: Fumble (0x56, queen_band_c.c: 7fd8:27ef) and Feeblemind (0x5d, 2a48), and their effects: 0x44 (feeblemind, 7e76:06f6)
+ * and 0x4d (berserk, 7e76:081f). A save of 21 is made by a natural 20 only; a save of 17 by 17 and up. The caster is c2_caster's
+ * (5, 5, the battle's mode 5); the target stands at 6, 5 with side 1 and no save bonus. */
+static cok_character *c3_target(char name, uint8_t save, uint8_t klass)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, 6, 5);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, save);
+    cok_field_set8(R->character, t->record, COK_FIELD_CLASS, klass);
+    return t;
+}
+
+static void c3_set_target(cok_character *a, cok_character *t, uint8_t spell)
+{
+    set_target(a, t, spell);
+    game.spell_x = 6;
+    game.spell_y = 5;
+}
+
+/* Fumble: a failed save (roll 2) holds the target ("is clumsy", 0x1b, the duration of 0x56, run in battle: a held ends the
+ * turn); a saved one (roll 20) is slowed ("is slowed", 0x2a). The damage type 0x40 stays set. A holder of 0x96 is passed over:
+ * no draw, no text. Mutant: a trailing apply (Death Knights' cast.c) would say "is clumsy" twice and roll the save again. */
+static void test_band_c3_fumble(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *t = c3_target('F', 21, 0);
+    c3_set_target(a, t, 0x56);
+    uint16_t minutes = 0;
+    CHECK(queen_spell_duration(&game, 0x56, &minutes));
+    uint32_t seed0 = seed_from(1, (const unsigned[]){20, 2, 19});
+    game.vm.seed = seed0;
+    game.effects.rolls.damage_type = 0;
+    t->combat->initiative = 3;
+    game.effects.in_battle = true; /* the held effect ends the turn in battle (3f44:00f7) */
+    CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
+    const cok_effect *e = cok_character_find_effect(t, 0x1b);
+    CHECK(e != NULL && e->duration == minutes && cok_character_find_effect(t, 0x2a) == NULL);
+    CHECK(LOGGED("is clumsy") && !LOGGED("is slowed") && count_of("is clumsy") == 1);
+    CHECK(game.effects.rolls.damage_type == 0x40 && t->combat->initiative == 0);
+    game.effects.in_battle = false;
+    /* A saved one: the slow (0x2a) for the same duration, "is slowed" once. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 21, 0);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
+    e = cok_character_find_effect(t, 0x2a);
+    CHECK(e != NULL && e->duration == minutes && cok_character_find_effect(t, 0x1b) == NULL);
+    CHECK(LOGGED("is slowed") && !LOGGED("is clumsy") && count_of("is slowed") == 1);
+    /* A holder of 0x96: passed over, nothing drawn or said. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 21, 0);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = 7;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x56) && game.vm.seed == 7);
+    CHECK(cok_character_find_effect(t, 0x1b) == NULL && cok_character_find_effect(t, 0x2a) == NULL && log_text[0] == '\0');
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Feeblemind: the save of type 4 is made against the byte shifted by the class (0 takes 1 off, 5 adds 4, else 2), the byte
+ * put back after. Save 17 with roll 16: class 0 (16) saves, a shift of 0 (17) would not; class 5 (21) fails a roll of 18, which
+ * a 17 would save; class 3 (19) fails 18. A failed save adds 0x44 by the apply, whose run says "loses intellect", sets the
+ * intelligence and wisdom to 3 and clears the cast spells' bits (+0xce, bit 7); the spell's byte is kept. Mutant: the byte not
+ * put back, or the shift left out. */
+static void test_band_c3_feeblemind_shift(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *t = c3_target('G', 17, 0);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x44) == NULL && !LOGGED("loses intellect"));
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 5);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x44) != NULL && cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 3);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* A failed save (roll 2): 0x44 added and run in place; the cast bits of the memorised spells cleared, the others kept. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] = 0x95;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 1] = 0x0c;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x5d) && game.vm.status == COK_ECL_OK);
+    const cok_effect *e = cok_character_find_effect(t, 0x44);
+    CHECK(e != NULL && LOGGED("loses intellect") && count_of("loses intellect") == 1);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 3);
+    CHECK(t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 1] == 0x0c);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4) == 17);
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Effect 0x44 (feeblemind, 7e76:06f6), run on a record: with no block nothing (the scores and the bytes kept); with one, the
+ * scores 3 and "loses intellect" (outside a battle too), the cast bits cleared. In a battle the block's may cast is 0 and its
+ * pending spell (0x0c) is forgotten and said "lost a spell" (its byte, forgotten as 0x8c, then cleared with the cast bits:
+ * 0), the memorised 0x2a kept. Outside a battle the pending spell and may cast stay. Mutant: the cast bits not cleared. */
+static void test_effects_feeblemind(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    uint8_t *memo = t->record + cok_field_offset(R->character, COK_FIELD_MEMORIZED);
+    cok_combat_record *cr = t->combat;
+    memo[0] = 0x0c;
+    memo[1] = 0x95;
+    memo[2] = 0x2a;
+    cr->spell = 0x0c;
+    cr->may_cast = 1;
+    cok_effect *e = cok_character_add_effect(t, 0x44, 0, 0, false);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("loses intellect") && LOGGED("lost a spell") && cr->may_cast == 0 && cr->spell == 0);
+    CHECK(memo[0] == 0 && memo[1] == 0 && memo[2] == 0x2a);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 3);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 3);
+    /* Outside a battle: the scores and the cast bits, but no pending spell is touched. */
+    game.vm.mode = 0;
+    memo[1] = 0x95;
+    memo[0] = 0x0c;
+    cr->spell = 0x0c;
+    cr->may_cast = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(LOGGED("loses intellect") && !LOGGED("lost a spell"));
+    CHECK(cr->may_cast == 1 && cr->spell == 0x0c && memo[0] == 0x0c && memo[1] == 0);
+    /* No block: nothing. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    memo[1] = 0x95;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM, 9);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x44, e) && game.vm.status == COK_ECL_OK);
+    CHECK(!LOGGED("loses intellect") && memo[1] == 0x95);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_WISDOM) == 9);
+    t->combat = saved;
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Effect 0x4d (berserk, 7e76:081f). Removal with a block: an NPC 0xb3 goes back to a player (computer 0) and the side is 0; with
+ * no block the removal does nothing (the block test is first). Not removing, outside a battle: computer 1, the NPC 0xb3 (0xb2 for
+ * bit 7 set and not 0xb3), and the target and side kept. In a battle: the target is the listed[2] (the other, nearest one: a),
+ * may cast 0, the side the target's ^ 1 and "goes berserk". A list of one reads the stale listed[2] (here the holder itself);
+ * an entry past the combatants, or with no record, is undefined. Mutant: the removal's test before the block test. */
+static void test_effects_berserk(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_combat_record *cr = t->combat;
+    /* Removal with a block. */
+    cok_effect *e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    CHECK(e != NULL);
+    set_npc(t, 0xb3, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0 && computer(t) == 0 && side_of(t) == 0);
+    /* Removal with no block: nothing. */
+    cok_combat_record *saved = cr;
+    t->combat = NULL;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    set_npc(t, 0xb3, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1 && side_of(t) == 1);
+    t->combat = saved;
+    /* Outside a battle: the computer and the NPC, the target and the side kept. */
+    game.vm.mode = 0;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = a->record;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(computer(t) == 1 && npc_of(t) == 0xb3 && cr->target == a->record && side_of(t) == 0 && !LOGGED("goes berserk"));
+    /* Bit 7 set and not 0xb3 becomes 0xb2; 0xb3 stays. */
+    set_npc(t, 0x80, 0);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && npc_of(t) == 0xb2);
+    set_npc(t, 0xb3, 0);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && npc_of(t) == 0xb3);
+    /* In a battle: a is listed[2] (the list is t, then a at distance 2), so the target is a, may cast 0, the side a's ^ 1 (a
+     * is side 0, so t's becomes 1) and "goes berserk". */
+    game.vm.mode = 5;
+    set_npc(t, 0, 0);
+    set_side(t, 0);
+    cr->target = NULL;
+    cr->may_cast = 1;
+    log_text[0] = '\0';
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cr->target == a->record && cr->may_cast == 0 && side_of(t) == 1 && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(LOGGED("goes berserk") && count_of("goes berserk") == 1);
+    battle_clear();
+    /* A list of one: t alone (the list's first), so listed[2] is the stale entry left in the list: here 1 (t itself). */
+    t = record('M', 0, 0);
+    place(t, 6, 5);
+    t->combat->target = NULL;
+    game.combat.listed[2].index = 1;
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    CHECK(cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_OK);
+    CHECK(t->combat->target == t->record && game.combat.listed_count == 1);
+    /* A stale entry past the combatants: undefined (the target is read at 0x0b of the list's index 0xff). */
+    game.combat.listed[2].index = 0xff;
+    CHECK(!cok_effects_run(&game.effects, t, 0x4d, e) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.effects.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -6151,6 +6388,10 @@ int main(void)
     test_band_c1_charm_mammal();
     test_band_c1_snakes();
     test_band_c1_row_47();
+    test_band_c3_fumble();
+    test_band_c3_feeblemind_shift();
+    test_effects_feeblemind();
+    test_effects_berserk();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

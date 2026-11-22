@@ -315,6 +315,9 @@ queen_spell_fn *queen_band_c_handler(uint8_t id);
 /* The first target of the spell (spell_targets[1], DS:c5e3) for the handlers that read it: NULL (undefined, the run stopped)
  * where none is, and where it is freed since a battle. */
 cok_character *queen_first_target(cok_adventure *game);
+/* The memorised spells' cast bits (bit 7 of +0xce to +0x156, 0x89 bytes) cleared, as 7e76:06f6 and 7fd8:2a48 do
+ * (queen_effect.c). */
+void queen_clear_cast_spells(const cok_character_layout *L, uint8_t *record);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);
