@@ -2096,8 +2096,10 @@ static void test_plain_apply(void)
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
         bool b3 = id == 0x33 || id == 0x81; /* queen_area.c's band b3 */
+        bool c1 = id == 0x17 || id == 0x31 || id == 0x5e || id == 0x6c || id == 0x4f || id == 0x51 || id == 0x0a ||
+                  id == 0x3f || id == 0x60 || id == 0x1b; /* queen_band_c.c's c1 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -2129,7 +2131,7 @@ static bool swap_slot(cok_effects *fx, void *context)
 }
 
 /* The touch reads the slot again after its event 0x0b (dqk 849a:10f9 1247-133e) and the count each
- * pass (1347). No ported Dark Queen handler swaps a slot (0x47's turning is a cited stop), so a copy of
+ * pass (1347). No ported Dark Queen handler swaps a slot (its 0x47 is Faerie Fire's armour, a row of its own), so a copy of
  * the rules puts effect 0x22 (in no list) on event 0x0b alone with Champions' 0x4a handler (3f44:26a5:
  * a d20 of 1 calls fx->dispel), whose hook here swaps the slot or cuts the count. The swap: the hit
  * roll (against its armour class, not recomputed), the damage and the effect go to the record put in
@@ -5297,6 +5299,351 @@ static void test_effects3_pool(void)
     battle_clear();
 }
 
+/* c1: the holds and charms (queen_band_c.c: 849a:1e0d, and 7fd8's 06e9, 2fd4, 2396, 23c5, 022a, 2b3a, 0813). A hold
+ * takes one roll of the d20 per target (the last listed first; a missile from the caster before each target but the
+ * first handled, whose waits draw too), so a single target's roll is the first d20 of the seed, and a second target's
+ * is only seen in its outcome where it is the last listed. A save of 10 is made by a roll of 10 or more, a save of 21 by a
+ * natural 20 only. */
+static cok_character *hold_target(char name, int8_t x, int8_t y, uint8_t save)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, save);
+    return t;
+}
+
+/* The caster for a hold or charm: a battle's caster at 5, 5, selected (vm.character), with the icon of the missile (slot
+ * 0x13). */
+static cok_character *holds_caster(void)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SAVING_THROW, 4, 10);
+    game.vm.character = a->record;
+    game.vm.mode = 5;
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0);
+    CHECK(cok_adventure_drawing(&game)->arena_load_icon(&game, "CPIC.TLB", 64, 0x13));
+    return a;
+}
+
+static void set_targets(cok_character *a, uint8_t spell, cok_character *const *list, unsigned n)
+{
+    game.vm.character = a->record;
+    for (unsigned i = 0; i < n; ++i) game.spell_targets[i + 1] = list[i];
+    game.spell_target_count = (uint8_t)n;
+    game.effects.rolls.spell = spell;
+}
+
+static bool c1_run(uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    return handler != NULL && handler(&game) && game.vm.status == COK_ECL_OK;
+}
+
+static unsigned count_of(const char *text)
+{
+    unsigned n = 0;
+    for (const char *p = log_text; (p = strstr(p, text)) != NULL; p += strlen(text)) ++n;
+    return n;
+}
+
+/* The effect a spell's hold adds (0x5e, 0x17 and 0x31: 0x34; Hold Animal and Hold Person are the same). */
+static cok_effect *held(const cok_character *t)
+{
+    return cok_character_find_effect(t, 0x34);
+}
+
+/* 849a:1e0d's order and missiles: the last listed target is handled first and gets no missile. Three targets under 0x17 with
+ * the last one of race 7 (forced saved, whatever its roll): "is Unaffected" comes before the first missile, and the two
+ * others each take one (two "sound: 3"), with their rolls (a save of 21: only a natural 20 saves them). Mutants: a missile
+ * for every target (three "sound: 3"); the first listed handled first (its missile before the "is Unaffected"). */
+static void test_band_c1_order(void)
+{
+    cok_character *a = holds_caster(), *t, *u, *v;
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    v = hold_target('V', 8, 5, 21);
+    cok_combat_set_field_word(R, v->record, COK_FIELD_RACE, 7);
+    cok_character *list[3] = {t, u, v};
+    set_targets(a, 0x17, list, 3);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x17));
+    CHECK(count_of("sound: 3;") == 2);
+    CHECK(LOGGED("is Unaffected"));
+    CHECK(strstr(log_text, "is Unaffected") < strstr(log_text, "sound: 3;"));
+    CHECK(held(v) == NULL && held(u) != NULL && held(t) != NULL);
+    battle_clear();
+}
+
+/* The one-target save: a single target is the first handled and roll the first d20 (no missile before it). Hold Person
+ * 0x17 takes a bonus of 0xfe (-2) and 0x31 one of 0xfd (-3): a roll of 12 saves against 10 under 0x17 only. */
+static void test_band_c1_bonus(void)
+{
+    cok_character *a, *t;
+    for (unsigned k = 0; k < 2; ++k) {
+        uint8_t spell = k == 0 ? 0x17 : 0x31;
+        a = holds_caster();
+        t = hold_target('T', 6, 5, 10);
+        set_targets(a, spell, (cok_character *[]){t}, 1);
+        uint32_t seed = seed_from(1, (const unsigned[]){20, 12, 12});
+        game.vm.seed = seed;
+        CHECK(c1_run(spell));
+        CHECK((held(t) == NULL) == (k == 0)); /* saved under 0x17 (12 - 2 = 10), not under 0x31 (12 - 3 = 9) */
+        CHECK((LOGGED("is Unaffected")) == (k == 0));
+        battle_clear();
+    }
+    /* The bonus per count: the last listed target is the first handled, so its roll is the seed's first d20. A roll of 10
+     * under Hold Person (0x17) with two targets is 9 (bonus 0xff): held; with three it is 10 (bonus 0): saved. */
+    for (unsigned n = 2; n <= 3; ++n) {
+        a = holds_caster();
+        cok_character *ts[3];
+        for (unsigned i = 0; i < n; ++i) ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+        set_targets(a, 0x17, ts, n);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x17));
+        CHECK((held(ts[n - 1]) == NULL) == (n == 3));
+        battle_clear();
+    }
+    /* Five or more: the bonus is a local never written (06e9): undefined, the run stopped. */
+    a = holds_caster();
+    cok_character *ts[5];
+    for (unsigned i = 0; i < 5; ++i) ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+    set_targets(a, 0x17, ts, 5);
+    CHECK(!c1_run(0x17) && game.vm.status == COK_ECL_UNDEFINED);
+    battle_clear();
+}
+
+/* The race 7 forces the Hold Person's saves (0x17) but not Hold Monsters' (0x5e); a roll of 2 fails any save of 10 but a
+ * forced one. An animal (flag 0x40) is not forced under Hold Animal (0x6c), and its roll of 12 less 4 (0xfc) fails 10. */
+static void test_band_c1_forced(void)
+{
+    cok_character *a = holds_caster(), *t;
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x17, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    CHECK(c1_run(0x17) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x5e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x5e) && held(t) != NULL); /* 12 - 3 (one target's 0xfd) = 9 < 10: held, race 7 or not */
+    battle_clear();
+
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40); /* an animal: not forced */
+    set_targets(a, 0x6c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x6c) && held(t) != NULL); /* 12 - 4 = 8 < 10: not saved, held (bonus 0 would save it) */
+    battle_clear();
+}
+
+/* A creature without flag 0x40 is forced under Hold Animal (0x6c): saved outright. */
+static void test_band_c1_animal_forced(void)
+{
+    cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 10);
+    set_targets(a, 0x6c, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    CHECK(c1_run(0x6c) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+}
+
+/* A holder of effect 0x96 saves against the holds (849a:1e0d's test), whatever its roll. */
+static void test_band_c1_effect_96(void)
+{
+    cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 10);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    set_targets(a, 0x5e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x5e) && held(t) == NULL); /* 12 - 3 = 9 would hold: the 0x96 holder is saved */
+    battle_clear();
+}
+
+/* 7fd8:2396 (Faerie Fire 0x4f): the last listed target is "is Unaffected" with no roll, though the first d20 of the seed (2
+ * to 19) would not save it against 21; the first target takes its roll and, not saved, the AC effect 0x47 ("is highlighted").
+ * Mutant: the last listed rolled (it gets the effect). */
+static void test_band_c1_faerie_last(void)
+{
+    cok_character *a = holds_caster(), *t, *u;
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list[2] = {t, u};
+    set_targets(a, 0x4f, list, 2);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x4f));
+    CHECK(LOGGED("is Unaffected") && cok_character_find_effect(u, 0x47) == NULL);
+    CHECK(cok_character_find_effect(t, 0x47) != NULL && LOGGED("is highlighted"));
+    battle_clear();
+}
+
+/* 0x51 (Charm Monsters): the last listed "is Unaffected" with no roll (as 0x4f); the first handled takes its roll, and the
+ * value is the caster level with the caster's side in bit 7 and on remove. Charm's run (0x0b) gives the held NPC 0xb3 and
+ * the computer's 1. */
+static void test_band_c1_charm_monsters(void)
+{
+    cok_character *a = holds_caster(), *t, *u;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list[2] = {t, u};
+    set_targets(a, 0x51, list, 2);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x51, true, &lv) && lv == 5);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x51));
+    CHECK(LOGGED("is Unaffected") && cok_character_find_effect(u, 0x0b) == NULL);
+    cok_effect *e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x1f) == lv && e->on_remove && npc_of(t) == 0xb3 && computer(t) == 1);
+    CHECK(LOGGED("is charmed"));
+    battle_clear();
+}
+
+/* 7fd8:022a (Charm Person 0x0a): race 7 with no flag 2, or a size above 1, is "is unaffected" (lower case) and no charm;
+ * else the charm: value the caster level (5, the caster's side 0), on remove, the 0x0b run (NPC 0xb3, computer 1). The
+ * roll is the first d20 of the seed (the apply's single target, no waits before it). */
+static void test_band_c1_charm_person(void)
+{
+    cok_character *a = holds_caster(), *t;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    CHECK(c1_run(0x0a) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_field_set8(R->character, t->record, COK_FIELD_SIZE, 2);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    CHECK(c1_run(0x0a) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    battle_clear();
+
+    /* Race 7 with flag 2 (a creature of the flag): charmed, its roll of 2 not a save. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x0a, true, &lv) && lv == 5);
+    CHECK(c1_run(0x0a) && LOGGED("is charmed") && !LOGGED("is unaffected"));
+    cok_effect *e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x1f) == lv && e->on_remove && npc_of(t) == 0xb3 && computer(t) == 1);
+    battle_clear();
+
+    /* The caster's side (+0x66 1) in bit 7 of the value: side 1 after the run. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 1);
+    t = hold_target('T', 6, 5, 21);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x0a));
+    e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x80) != 0 && side_of(t) == 1);
+    battle_clear();
+}
+
+/* 7fd8:2b3a (Charm Person or Mammal 0x60): race 7 with no flag 2 is "is not Charmed" (a flag 0x10, the Death Knights'
+ * mammal flag, does not count here); race 7 with flag 2 and any race below 7 are charmed. */
+static void test_band_c1_charm_mammal(void)
+{
+    cok_character *a = holds_caster(), *t;
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    CHECK(c1_run(0x60) && LOGGED("is not Charmed") && cok_character_find_effect(t, 0x0b) == NULL);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x60) && LOGGED("is Charmed") && cok_character_find_effect(t, 0x0b) != NULL);
+    CHECK(npc_of(t) == 0xb3 && computer(t) == 1);
+    battle_clear();
+
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 6);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x60) && cok_character_find_effect(t, 0x0b) != NULL);
+    battle_clear();
+}
+
+/* 7fd8:0813 (Snake Charm 0x1b): the snakes (flag 0x10, active, not held) in list order while their hit points fit in
+ * what is left of the caster's (10). A snake of 4, one of 9 (too big after 4: left 6), one of 6 (left 0), one of 1 (none
+ * left): the first and third are held. A snake caster is the first listed: its 10 takes all the allowance. */
+static void test_band_c1_snakes(void)
+{
+    cok_character *a = holds_caster(), *s[4];
+    static const unsigned hp[4] = {4, 9, 6, 1};
+    for (unsigned i = 0; i < 4; ++i) {
+        s[i] = hold_target((char)('S' + i), (int8_t)(8 + i), 5, 21);
+        cok_field_set8_at(R->character, s[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+        cok_field_set8(R->character, s[i]->record, COK_FIELD_HIT_POINTS, (uint8_t)hp[i]);
+    }
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 2 && game.spell_targets[1] == s[0] && game.spell_targets[2] == s[2]);
+    CHECK(cok_character_find_effect(s[0], 0x33) != NULL && cok_character_find_effect(s[1], 0x33) == NULL);
+    CHECK(cok_character_find_effect(s[2], 0x33) != NULL && cok_character_find_effect(s[3], 0x33) == NULL);
+    CHECK(LOGGED("is Charmed"));
+    battle_clear();
+
+    /* The caster is a snake: listed first, its 10 hit points take all the allowance. */
+    a = holds_caster();
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    s[0] = hold_target('S', 8, 5, 21);
+    cok_field_set8_at(R->character, s[0]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    cok_field_set8(R->character, s[0]->record, COK_FIELD_HIT_POINTS, 4);
+    game.vm.character = a->record;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == a);
+    CHECK(cok_character_find_effect(a, 0x33) != NULL && cok_character_find_effect(s[0], 0x33) == NULL);
+    battle_clear();
+}
+
+/* 0x47 (Faerie Fire's effect, 78e4:10a6): its applied flag only: applied, AC and AC behind 2 worse (raw bytes +0x18e and
+ * +0x18f), and removing it (flag 1) leaves them. Event 0x0b runs it. */
+static void test_band_c1_row_47(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    t->record[0x18e] = 50;
+    t->record[0x18f] = 60;
+    cok_effect *e = cok_character_add_effect(t, 0x47, 0, 0xfe, false);
+    CHECK(e != NULL);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(t->record[0x18e] == 48 && t->record[0x18f] == 58);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x47) && game.vm.status == COK_ECL_OK);
+    CHECK(t->record[0x18e] == 48 && t->record[0x18f] == 58);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -5409,6 +5756,17 @@ int main(void)
     test_effects3_missiles();
     test_effects3_add_invisible();
     test_effects3_pool();
+    test_band_c1_order();
+    test_band_c1_bonus();
+    test_band_c1_forced();
+    test_band_c1_animal_forced();
+    test_band_c1_effect_96();
+    test_band_c1_faerie_last();
+    test_band_c1_charm_monsters();
+    test_band_c1_charm_person();
+    test_band_c1_charm_mammal();
+    test_band_c1_snakes();
+    test_band_c1_row_47();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

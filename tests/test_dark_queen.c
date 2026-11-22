@@ -995,6 +995,10 @@ static void test_magic_ids(void)
         {0x8341, "lost an image"}, {0x834f, "ages"},              {0x8354, "Avoids it"},
         /* Effects-5's drain (78e4:08ba's "is weakened", the same text as the Ray's at 8890). */
         {0x835e, "is weakened"},
+        /* Band c1's texts (7fd8:022a's "is unaffected", 87f6's "is charmed", 1e0d's "is held" 8843, 2396's "is highlighted",
+         * 2b3a's "is not %s" 8a38 and "Charmed" through DS:6550). */
+        {0x87e8, "is unaffected"}, {0x87f6, "is charmed"},   {0x8843, "is held"},
+        {0x89d5, "is highlighted"}, {0x8a38, "is not %s"},   {0x69d2, "Charmed"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);
@@ -1076,7 +1080,8 @@ static void test_magic_ids(void)
      * (1334, 1355, 13df), and effects band a's rows (part 34a, effects-1; 0x06 is the own hook's first
      * kind, queen_effect.c), each with the routine it runs (7e76 for 0x1a); effects-3's six (0x1c, 0x27, 0x29,
      * 0x2a, 0x31, 0x38: the own hook's kinds, queen_effect.c's images, haste, missiles, slow, prayer and
-     * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting). The list is in id order. */
+     * add_invisible); effects-5's three (0x22, 0x2b, 0x2c: disease, drain, wasting); band c1's 0x47 (Faerie Fire's armour,
+     * a descriptor row). The list is in id order. */
     static const struct { uint8_t id; uint16_t seg, off; } ported_effects[] = {
         {0x01, 0x78e4, 0x0132}, {0x02, 0x78e4, 0x0146}, {0x04, 0x78e4, 0x0168}, {0x06, 0x78e4, 0x0184},
         {0x08, 0x78e4, 0x0198}, {0x09, 0x78e4, 0x01c6}, {0x0a, 0x78e4, 0x01f4}, {0x0b, 0x7e76, 0x007a},
@@ -1088,7 +1093,7 @@ static void test_magic_ids(void)
         {0x2b, 0x78e4, 0x08ba}, {0x2c, 0x78e4, 0x0920}, {0x2d, 0x78e4, 0x0198}, {0x2e, 0x78e4, 0x01c6},
         {0x2f, 0x78e4, 0x09b2}, {0x31, 0x78e4, 0x09d3}, {0x32, 0x78e4, 0x0a22}, {0x33, 0x78e4, 0x010d},
         {0x34, 0x78e4, 0x010d}, {0x35, 0x78e4, 0x010d}, {0x36, 0x78e4, 0x0a7e}, {0x38, 0x78e4, 0x0acf},
-        {0x39, 0x78e4, 0x0b11}, {0x5c, 0x78e4, 0x1334}, {0x5e, 0x78e4, 0x1355}, {0x5f, 0x78e4, 0x13df},
+        {0x39, 0x78e4, 0x0b11}, {0x47, 0x78e4, 0x10a6}, {0x5c, 0x78e4, 0x1334}, {0x5e, 0x78e4, 0x1355}, {0x5f, 0x78e4, 0x13df},
         {0x64, 0x78e4, 0x14d1}, {0x69, 0x78e4, 0x1aa2}, {0x6f, 0x7e76, 0x0b3c}, {0xc3, 0x78e4, 0x4949}
     };
     for (unsigned id = 0; id < R->effects.count; ++id) {

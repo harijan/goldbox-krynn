@@ -1,0 +1,269 @@
+#include "queen.h"
+
+#include "arena.h"
+#include "cast.h"
+#include "combat.h"
+#include "ecl.h"
+#include "effect.h"
+#include "field.h"
+#include "party.h"
+#include "round.h"
+
+/* The Dark Queen of Krynn's band c spells (part 32): the 7fd8 handlers with code of their own, the holds and charms
+ * (c1), then the rest of 7fd8 below 2cae as the briefs add them. Each handler reads the spell's record and the
+ * targets as queen_cast.c does, and shares the spell engine's routines (queen_save, queen_spell_apply, the add of an
+ * effect, the run of an effect's handler). queen_band_c_handler is the table: a spell with no handler here is NULL, and
+ * queen_spell_handler then takes the plain table or stops at the descriptor's citation. */
+
+/* The spell record's offsets (DS:27e9 + 0x16 * id): the save kind word, the saving throw's type word and the effect byte.
+ * The effects the holds and charms add or test: the charm (0x0b, 7e76:007a), held (0x33, 78e4:010d) and 0x96 (a holder
+ * is saved against the holds, 849a:1e0d). The target list has room for 0x44 targets (DS:c5df to c6f2): past that undefined. */
+enum {
+    SPELL_SAVE_KIND = 0x0a,
+    SPELL_TYPE = 0x0c,
+    SPELL_EFFECT = 0x0e,
+    EFFECT_CHARMED = 0x0b,
+    EFFECT_HELD = 0x33,
+    EFFECT_96 = 0x96,
+    SNAKE_TARGETS_LIMIT = 0x44,
+};
+
+/* An undefined stop (the original reads unset memory, a NULL or a freed record): cok_adventure_fail. */
+static bool undefined(cok_adventure *game, const char *what)
+{
+    cok_adventure_fail(game, COK_ECL_UNDEFINED, "%s", what);
+    return false;
+}
+
+/* c1: the holds and charms (849a:1e0d; 7fd8:06e9, 2fd4, 2396, 23c5, 022a, 2b3a, 0813) */
+
+/* 849a:1e0d (bonus, text): the holds and charms of the battle's spells over the targets from the count down to 1 (the
+ * count read once, its targets read at each pass). Every target but the first one handled (i below the count) takes a
+ * missile from the caster (sound 3, the flight's frames 0x13 and 4 frames at delay 0x1e). Then a saving throw of the
+ * spell's type with bonus (148f:1886) is made, except that the first handled one of 0x4f (Faerie Fire) and 0x51
+ * (Charm Monsters) is saved without a roll, kind 1 ("is Unaffected"). A save is forced for a race 7 under Hold
+ * Person (0x17, 0x31), for Hold Animal (0x6c) on a creature without flag 0x40, and for Hold Person, Hold Monsters
+ * (0x5e), on a holder of effect 0x96. The value is the caster level (capped), and
+ * Charm Monsters' is with the caster's side in bit 7 and on remove. The effect (the spell's byte +0xe) is added for the
+ * spell's duration with text (148f:252c). Returns false where the run stopped. */
+static bool holds(cok_adventure *game, uint8_t bonus, const char *text)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    cok_combat *combat = &game->combat;
+    uint8_t spell = game->effects.rolls.spell;
+    uint8_t count = game->spell_target_count;
+    bool on_remove = false;
+    for (unsigned i = count; i >= 1; --i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) continue;
+        if (i < count) {
+            uint8_t *caster = game->vm.character;
+            if (caster == NULL)
+                return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 849a:1e0d)");
+            cok_arena_sound(game, 3);
+            if (!cok_arena_missile_frames(game, 0x13)) return false;
+            if (!cok_arena_missile(game, cok_combat_x(combat, caster), cok_combat_y(combat, caster),
+                                   cok_combat_x(combat, t->record), cok_combat_y(combat, t->record), 4, 0x1e))
+                return false;
+        }
+        bool saved = false;
+        uint8_t kind = 0;
+        if ((spell == 0x4f || spell == 0x51) && i == count) {
+            saved = true;
+            kind = 1;
+        } else {
+            if (!queen_save(game, t, (uint8_t)queen_spell_word(game, spell, SPELL_TYPE), bonus, &saved))
+                return false;
+            kind = (uint8_t)queen_spell_word(game, spell, SPELL_SAVE_KIND);
+        }
+        if ((int16_t)cok_combat_field_word(R, t->record, COK_FIELD_RACE) == 7 && (spell == 0x17 || spell == 0x31))
+            saved = true;
+        if ((cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 0x40) == 0 && spell == 0x6c)
+            saved = true;
+        if (cok_character_find_effect(t, EFFECT_96) != NULL && (spell == 0x31 || spell == 0x17 || spell == 0x5e))
+            saved = true;
+        uint8_t lv = 0, value;
+        if (!queen_spell_level(game, spell, true, &lv)) return false;
+        if (spell == 0x51) {
+            value = (uint8_t)(lv + (uint8_t)(cok_field_u8(L, game->vm.character, COK_FIELD_HOSTILE) << 7));
+            on_remove = true;
+        } else {
+            value = lv;
+        }
+        uint16_t minutes = 0;
+        if (!queen_spell_duration(game, spell, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, queen_spell_byte(game, spell, SPELL_EFFECT), minutes, value, on_remove,
+                                 kind, saved, text))
+            return false;
+    }
+    return true;
+}
+
+/* The run of the charm on t (cast.c's charm_person's shape): the effect 0x0b's handler on the holder's node, if t holds
+ * it. */
+static bool run_charmed(cok_adventure *game, cok_character *t)
+{
+    cok_effect *node = cok_character_find_effect(t, EFFECT_CHARMED);
+    if (node == NULL) return true;
+    return cok_effects_run(&game->effects, t, EFFECT_CHARMED, node) || cok_adventure_effect_failed(game);
+}
+
+/* The charm's apply of spell to t (queen_spell_apply, value the caster level (capped) with the caster's side in bit 7,
+ * on remove, kind 1 and the record's type), with text, then the run of 0x0b. */
+static bool charm_apply(cok_adventure *game, cok_character *t, const char *text)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, game->effects.rolls.spell, true, &lv)) return false;
+    uint8_t value = (uint8_t)(lv + (uint8_t)(cok_field_u8(L, game->vm.character, COK_FIELD_HOSTILE) << 7));
+    if (!queen_spell_apply(game, game->effects.rolls.spell, value, true, 0, 0, text)) return false;
+    return run_charmed(game, t);
+}
+
+/* 7fd8:06e9, Hold Person (0x17, 0x31) and Hold Monsters (0x5e): the bonus by the count (1: 0xfe for 0x17, else 0xfd; 2:
+ * 0xff; 3 and 4: 0), "is held". No target: nothing. Five or more leave the bonus unset (a local never written, 06e9's
+ * bp-1): undefined. */
+static bool hold(cok_adventure *game)
+{
+    uint8_t bonus = 0;
+    switch (game->spell_target_count) {
+    case 0: return true;
+    case 1: bonus = game->effects.rolls.spell == 0x17 ? 0xfe : 0xfd; break;
+    case 2: bonus = 0xff; break;
+    case 3:
+    case 4: bonus = 0; break;
+    default: return undefined(game, "dqk 7fd8:06e9's bonus for 5 or more targets is a local never written (bp-1)");
+    }
+    return holds(game, bonus, "is held");
+}
+
+/* 7fd8:2fd4, Hold Animal (0x6c): the bonus by the count (1: 0xfc, 2: 0xfe, 3: 0xff, else 0), "is held". */
+static bool hold_animal(cok_adventure *game)
+{
+    uint8_t bonus = 0;
+    switch (game->spell_target_count) {
+    case 1: bonus = 0xfc; break;
+    case 2: bonus = 0xfe; break;
+    case 3: bonus = 0xff; break;
+    default: bonus = 0; break;
+    }
+    return holds(game, bonus, "is held");
+}
+
+/* 7fd8:2396, Faerie Fire (0x4f): no bonus, "is highlighted" (the AC effect 0x47 is the descriptor's row). */
+static bool faerie_fire(cok_adventure *game)
+{
+    return holds(game, 0, "is highlighted");
+}
+
+/* 7fd8:23c5, Charm Monsters (0x51): no bonus, "is charmed" (the holds' value and side), then the run of 0x0b on each
+ * target that holds it (the count re-read at each pass; a NULL target is read through NULL: undefined). */
+static bool charm_monsters(cok_adventure *game)
+{
+    if (!holds(game, 0, "is charmed")) return false;
+    for (unsigned k = 1; k <= game->spell_target_count; ++k) {
+        cok_character *t = game->spell_targets[k];
+        if (t == NULL) return undefined(game, "dqk 7fd8:23fc reads a NULL target's effects (DS:c5df)");
+        cok_effect *node = cok_character_find_effect(t, EFFECT_CHARMED);
+        if (node != NULL && !cok_effects_run(&game->effects, t, EFFECT_CHARMED, node))
+            return cok_adventure_effect_failed(game);
+    }
+    return true;
+}
+
+/* 7fd8:022a, Charm Person (0x0a, 0x3f): the first target (NULL: nothing). A race 7 with no flag 2, or a size above 1,
+ * is "is unaffected" on row 10 with a wait (lower case: DS:87e8); else the charm of 0x0b, "is charmed". */
+static bool charm_person(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL) return true;
+    bool race7 = (int16_t)cok_combat_field_word(R, t->record, COK_FIELD_RACE) == 7 &&
+                 (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 2) == 0;
+    if (race7 || cok_field_u8(L, t->record, COK_FIELD_SIZE) > 1)
+        return cok_arena_say(game, t, "is unaffected", 10, true);
+    return charm_apply(game, t, "is charmed");
+}
+
+/* 7fd8:2b3a, Charm Person or Mammal (0x60): the first target (NULL: nothing). A race of 7 or more with no flag 2 (not
+ * 0x10: that is Death Knights') is "is not Charmed" on row 10 with a wait; else the charm, "is Charmed". */
+static bool charm_mammal(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL) return true;
+    if ((int16_t)cok_combat_field_word(R, t->record, COK_FIELD_RACE) >= 7 &&
+        (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, 0) & 2) == 0)
+        return cok_arena_say(game, t, "is not Charmed", 10, true);
+    return charm_apply(game, t, "is Charmed");
+}
+
+/* 7fd8:0813, Snake Charm (0x1b): the targets are every party member (the monsters after the party) with the snake flag
+ * 0x10 that is active, not held (effect 0x33) and whose hit points are within what is left of the caster's, taken in
+ * list order (the caster's hit points, read once, are the allowance; each target takes its hit points off it). The apply
+ * of the spell with no save and text "is Charmed"; no target: nothing. */
+static bool snake_charm(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t *caster = game->vm.character;
+    if (caster == NULL)
+        return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 0813)");
+    uint8_t left = cok_field_u8(L, caster, COK_FIELD_HIT_POINTS);
+    game->spell_target_count = 0;
+    for (size_t i = 0; i < game->party.count; ++i) {
+        cok_character *m = game->party.members[i];
+        const uint8_t *r = m->record;
+        if ((cok_field_u8_at(L, r, COK_FIELD_CREATURE_FLAGS, 0) & 0x10) == 0 ||
+            cok_field_u8(L, r, COK_FIELD_ACTIVE) == 0 || cok_character_find_effect(m, EFFECT_HELD) != NULL)
+            continue;
+        uint8_t hp = cok_field_u8(L, r, COK_FIELD_HIT_POINTS);
+        if (hp > left) continue;
+        if (game->spell_target_count == SNAKE_TARGETS_LIMIT)
+            return undefined(game, "dqk 7fd8:0813 lists a target past DS:c6f2 (the 0x44 targets' room)");
+        left = (uint8_t)(left - hp);
+        game->spell_targets[++game->spell_target_count] = m;
+    }
+    return queen_spell_apply(game, game->effects.rolls.spell, 0, false, 0, 0, "is Charmed");
+}
+
+/* c3: Fumble 0x56 (7fd8:27ef), Feeblemind 0x5d (2a48) */
+
+/* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
+
+/* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
+
+/* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
+
+/* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
+
+queen_spell_fn *queen_band_c_handler(uint8_t id)
+{
+    switch (id) {
+    /* c1: the holds and charms (849a:1e0d; 7fd8:06e9, 2fd4, 2396, 23c5, 022a, 2b3a, 0813) */
+    case 0x17:
+    case 0x31:
+    case 0x5e: return hold;
+    case 0x6c: return hold_animal;
+    case 0x4f: return faerie_fire;
+    case 0x51: return charm_monsters;
+    case 0x0a:
+    case 0x3f: return charm_person;
+    case 0x60: return charm_mammal;
+    case 0x1b: return snake_charm;
+
+    /* c3: Fumble 0x56 (7fd8:27ef), Feeblemind 0x5d (2a48) */
+
+    /* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
+
+    /* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
+
+    /* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
+
+    /* c7: Dispel Magic 0x29 0x2e (114e, 10d9); Dimension Door 0x53 (24f0); Fire Shield 0x55 (26b4) */
+
+    default: return NULL;
+    }
+}

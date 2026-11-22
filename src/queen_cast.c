@@ -276,7 +276,7 @@ bool queen_spell_duration(cok_adventure *game, uint8_t spell, uint16_t *minutes)
 
 /* The first target (DS:c5e3), which the handlers read; none, or one freed since a battle, is the
  * original's read through the table or the heap. */
-static cok_character *first_target(cok_adventure *game)
+cok_character *queen_first_target(cok_adventure *game)
 {
     cok_character *t = game->spell_targets[1];
     if (t == NULL) {
@@ -533,7 +533,7 @@ static bool deity_four(const uint8_t *caster)
  * every heal here. */
 static bool heal_first(cok_adventure *game, uint8_t amount)
 {
-    cok_character *t = first_target(game);
+    cok_character *t = queen_first_target(game);
     if (t == NULL) return false;
     bool healed = false;
     if (!cok_effects_heal(&game->effects, t, amount, false, &healed)) return effect_failed(game);
@@ -662,7 +662,7 @@ static bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *
  * (kind 1) if it was. */
 static bool queen_cure_blindness(cok_adventure *game)
 {
-    cok_character *t = first_target(game);
+    cok_character *t = queen_first_target(game);
     if (t == NULL) return false;
     bool cured = false;
     if (!queen_cure(game, t, EFFECT_BLIND, &cured)) return false;
@@ -876,6 +876,8 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     default: {
         queen_spell_fn *area_handler = queen_area_handler(id);
         if (area_handler != NULL) return area_handler;
+        queen_spell_fn *band_c_handler = queen_band_c_handler(id);
+        if (band_c_handler != NULL) return band_c_handler;
         return plain_of(id) != NULL ? queen_plain_apply : NULL;
     }
     }

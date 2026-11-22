@@ -308,6 +308,12 @@ bool queen_area_targets(cok_adventure *game, uint16_t radius);
 /* The band b handlers (queen_area.c's switch): the handler of a spell id it carries out, NULL for any other. The
  * cast takes it before the plain table (queen_spell_handler). */
 queen_spell_fn *queen_area_handler(uint8_t id);
+/* The band c handlers (queen_band_c.c's switch): the handler of a spell id it carries out, NULL for any other. queen_spell_handler
+ * takes it after queen_area_handler and before the plain table. */
+queen_spell_fn *queen_band_c_handler(uint8_t id);
+/* The first target of the spell (spell_targets[1], DS:c5e3) for the handlers that read it: NULL (undefined, the run stopped)
+ * where none is, and where it is freed since a battle. */
+cok_character *queen_first_target(cok_adventure *game);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);

@@ -434,7 +434,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x44] = {0x06f6, COK_FX_MISSING, "dqk 7e76:06f6"},
     [0x45] = {0x0f33, COK_FX_MISSING, "dqk 78e4:0f33"},
     [0x46] = {0x0f6b, COK_FX_MISSING, "dqk 78e4:0f6b"},
-    [0x47] = {0x10a6, COK_FX_MISSING, "dqk 78e4:10a6"},
+    [0x47] = {0x10a6, COK_FX_ARMOUR, .value = 0xfe, .applied_only = true}, /* 78e4:10a6: AC and AC behind 2 worse */
     [0x48] = {0x10c0, COK_FX_NOTHING}, /* does nothing: retf */
     [0x49] = {0x10c5, COK_FX_MISSING, "dqk 78e4:10c5"},
     [0x4a] = {0x10e0, COK_FX_MISSING, "dqk 78e4:10e0"},
