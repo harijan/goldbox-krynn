@@ -6089,7 +6089,7 @@ static void test_band_c4_hasten(void)
     t1 = c4_target('T', 6, 5, 0);
     t2 = c4_target('U', 7, 5, 0);
     t3 = c4_target('V', 8, 5, 0);
-    CHECK(cok_character_add_effect(t1, 0x2a, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t1, 0x2a, 0, 0, true) != NULL); /* applied_only: its removal runs only when on remove */
     cok_character *list2[3] = {t1, t2, t3};
     set_targets(a, 0x30, list2, 3);
     CHECK(c4_run(0x30));
