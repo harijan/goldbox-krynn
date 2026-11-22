@@ -315,6 +315,9 @@ queen_spell_fn *queen_band_c_handler(uint8_t id);
 /* The first target of the spell (spell_targets[1], DS:c5e3) for the handlers that read it: NULL (undefined, the run stopped)
  * where none is, and where it is freed since a battle. */
 cok_character *queen_first_target(cok_adventure *game);
+/* The memorised spells' cast bits (bit 7 of +0xce to +0x156, 0x89 bytes) cleared, as 7e76:06f6 and 7fd8:2a48 do
+ * (queen_effect.c). */
+void queen_clear_cast_spells(const cok_character_layout *L, uint8_t *record);
 /* 148f:1bc6 (c, id, &cured): the first effect id on c is said "is Cured" (row 10, waited) and removed; cured is whether
  * one was found (queen_cast.c). Haste and Slow (queen_band_c.c) take it; band c5 and c6 do too. False where the run stopped. */
 bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured);

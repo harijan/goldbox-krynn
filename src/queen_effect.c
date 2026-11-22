@@ -310,7 +310,7 @@ static bool silence(cok_adventure *game, cok_character *c)
 /* 7e76:033f (0x23, confusion; ev 0x15, applied_only). One d100 by 7e76:0385's table: 1-10 runs away (the
  * effect 0x23 removed, the block forced and computer controlled, its target NULL, and 0x6f added for
  * ten minutes, "runs away"); 11-60 "is confused" and the turn ends; 61-80 berserk: 0x4d added, "goes
- * berserk", and 0x4d run (7e76:081f, its cited stop here); 81-100 "is enraged". Then the save (type 4,
+ * berserk", and 0x4d run (7e76:081f, berserk); 81-100 "is enraged". Then the save (type 4,
  * bonus -2) made removes the 0x23. */
 static bool confused(cok_adventure *game, cok_character *c)
 {
@@ -442,6 +442,89 @@ static bool wasting(cok_adventure *game, cok_character *c, cok_effect *effect)
     return add_raw(game, c, 0x1f, 0, 0xff, false);
 }
 
+/* part 32 (band c): feeblemind 0x44, berserk 0x4d */
+
+/* The memorised spells' bytes (+0xce to +0x156: 0x89 of them, past the field's 0x4a) with bit 7 (cast) cleared:
+ * 7e76:06f6's loop, also run by 7fd8:2a48 (queen_band_c.c). */
+void queen_clear_cast_spells(const cok_character_layout *L, uint8_t *record)
+{
+    enum { MEMORIZED_BYTES = 0x89 };
+    size_t at = cok_field_offset(L, COK_FIELD_MEMORIZED);
+    for (unsigned i = 0; i < MEMORIZED_BYTES; ++i)
+        if ((record[at + i] & 0x80) != 0) record[at + i] = 0;
+}
+
+/* 7e76:06f6 (0x44, feeblemind; applied_only, so a removal never reaches it: its own test is the same). With no block,
+ * nothing. Else intelligence and wisdom are 3 (scores 1 and 2, the bytes at +0x7b and +0x7d), "loses intellect" (row
+ * 10, waited). In a battle the block's may cast is 0 and a pending spell is forgotten, "lost a spell" (row 12, waited;
+ * cok_combat_forget, as silence's), and the spell is 0. The memorised bytes' cast bits are cleared (outside a battle too). */
+static bool feeblemind(cok_adventure *game, cok_character *c, bool removing)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_combat_record *cr = block(c);
+    if (cr == NULL || removing) return true;
+    cok_field_set8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE, 3);
+    cok_field_set8_at(L, c->record, COK_FIELD_SCORE, COK_SCORE_WISDOM, 3);
+    if (!cok_arena_say(game, c, "loses intellect", 10, true)) return false;
+    if (game->vm.mode == 5) {
+        cr->may_cast = 0;
+        if (cr->spell > 0) {
+            if (!cok_arena_say(game, c, "lost a spell", 12, true)) return false;
+            cok_combat_forget(cok_game_rules(game), c->record, cr->spell);
+            cr->spell = 0;
+        }
+    }
+    queen_clear_cast_spells(L, c->record);
+    return true;
+}
+
+/* 7e76:081f (0x4d, berserk; not applied_only). With no block, nothing, removing or not (the block test is first). A
+ * removal: an NPC 0xb3 goes back to a player (computer 0, NPC 0) and the side word (+0x66) is 0. Else the holder is
+ * computer controlled (+0x18c 1) and its NPC is 0xb3 (0xb2 when bit 7 is set and it is not 0xb3); outside a battle that
+ * is all. In a battle its target is NULL, the combatants are listed around it (cok_combat_list at range and direction
+ * 0xff, its size), and its target is listed[2] (the nearest other: the list's stale entry when fewer are listed; past
+ * the combatants, or with no character there, undefined). Its may cast is 0, its side word the target's side ^ 1, and
+ * "goes berserk" (row 10, waited). */
+static bool berserk(cok_adventure *game, cok_character *c, bool removing)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_combat_record *cr = block(c);
+    if (cr == NULL) return true;
+    if (removing) {
+        if (cok_field_u8(L, c->record, COK_FIELD_NPC) == 0xb3) {
+            cok_field_set8(L, c->record, COK_FIELD_NPC, 0);
+            cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 0);
+        }
+        cok_combat_set_field_word(rules, c->record, COK_FIELD_HOSTILE, 0);
+        return true;
+    }
+    cok_field_set8(L, c->record, COK_FIELD_COMPUTER, 1);
+    uint8_t npc = cok_field_u8(L, c->record, COK_FIELD_NPC);
+    cok_field_set8(L, c->record, COK_FIELD_NPC, (npc & 0x80) == 0 || npc == 0xb3 ? 0xb3 : 0xb2);
+    if (game->vm.mode != 5) return true;
+    cok_combat *combat = &game->combat;
+    cr->target = NULL;
+    if (!cok_combat_list(combat, rules, cok_combat_x(combat, c->record), cok_combat_y(combat, c->record), 0xff, 0xff,
+                         cok_combat_size(combat, c->record))) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "the list of combatants around a berserk one (dqk 7e76:081f) "
+                                                    "reads past its tables");
+        return false;
+    }
+    uint8_t n = combat->listed[2].index;
+    if (n > COK_COMBATANTS || combat->combatant[n].character == NULL) {
+        cok_adventure_fail(game, COK_ECL_UNDEFINED, "a berserk one's target is listed[2] (DS:c2f9), past the "
+                                                    "combatants or with no record (dqk 7e76:08c5)");
+        return false;
+    }
+    cok_character *tgt = combat->combatant[n].character;
+    cr->target = tgt->record;
+    cr->may_cast = 0;
+    cok_combat_set_field_word(rules, c->record, COK_FIELD_HOSTILE,
+                              cok_combat_field_word(rules, tgt->record, COK_FIELD_HOSTILE) ^ 1);
+    return cok_arena_say(game, c, "goes berserk", 10, true);
+}
+
 bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
                            cok_character *c)
 {
@@ -537,6 +620,12 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
         return drain(game, c, effect);
     case COK_FX_QUEEN_WASTING:
         return wasting(game, c, effect);
+    /* part 32 (band c): feeblemind 0x44, berserk 0x4d */
+    case COK_FX_QUEEN_FEEBLEMIND:
+        return feeblemind(game, c, removing);
+    case COK_FX_QUEEN_BERSERK:
+        return berserk(game, c, removing);
+    /* c5: hammer */
     default:
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "effect kind %u (dqk %04x) has no Dark Queen routine", kind, h->address);

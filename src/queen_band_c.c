@@ -232,6 +232,66 @@ static bool snake_charm(cok_adventure *game)
 
 /* c3: Fumble 0x56 (7fd8:27ef), Feeblemind 0x5d (2a48) */
 
+/* c3's spell and effect ids: Fumble's held (0x1b) or slowed (0x2a) effect, Feeblemind's effect 0x44. */
+enum {
+    SPELL_FUMBLE = 0x56,
+    SPELL_FEEBLEMIND = 0x5d,
+    EFFECT_FUMBLE_HELD = 0x1b,
+    EFFECT_SLOW = 0x2a,
+    EFFECT_FEEBLEMIND = 0x44,
+    SAVE_TYPE_FUMBLE = 4,
+};
+
+/* 7fd8:27ef, Fumble (0x56): the first target (queen_first_target's stop). A target with effect 0x96 (177e:1734) is passed
+ * over, with nothing said and no draw. Else the damage type is 0x40 for the save's events (it stays set, as the original
+ * leaves it), and a saving throw of type 4 (bonus 0) is made: failed, 0x1b ("is clumsy", held) is added for the spell's
+ * duration and run; saved, 0x2a ("is slowed") likewise. Both with value 0, on remove 0, kind 0, saved 0. There is no apply
+ * after the save (Death Knights' cast.c has one). */
+static bool fumble(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (cok_character_find_effect(t, EFFECT_96) != NULL) return true;
+    game->effects.rolls.damage_type = 0x40;
+    bool made = false;
+    if (!queen_save(game, t, SAVE_TYPE_FUMBLE, 0, &made)) return false;
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, SPELL_FUMBLE, &minutes)) return false;
+    uint8_t id = made ? EFFECT_SLOW : EFFECT_FUMBLE_HELD;
+    if (!cok_cast_add_effect(game, t, id, minutes, 0, false, 0, false, made ? "is slowed" : "is clumsy"))
+        return false;
+    if (cok_character_find_effect(t, id) != NULL && !cok_effects_run(&game->effects, t, id, NULL))
+        return cok_adventure_effect_failed(game);
+    return true;
+}
+
+/* 7fd8:2a48, Feeblemind (0x5d): the first target (queen_first_target's stop). Its saving throw of type 4 (+0x8f) is shifted
+ * by its class (the word at +0x5a) for the apply: class 0 takes 1 off, class 5 adds 4, any other adds 2 (byte arithmetic). The apply
+ * of 0x5d (value 0, no damage, no text) makes the save with the shifted byte and the spell's effect 0x44 for its duration.
+ * Then a holder of 0x44 has its memorised cast bits cleared and its effect run (node NULL). The byte is put back always. */
+static bool feeblemind(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    uint8_t was = cok_field_u8_at(L, t->record, COK_FIELD_SAVING_THROW, 4);
+    uint8_t shifted;
+    size_t klass = cok_field_offset(L, COK_FIELD_CLASS);
+    switch (t->record[klass] | t->record[klass + 1] << 8) { /* 2a60: the class as a word */
+    case 0: shifted = (uint8_t)(was - 1); break;
+    case 5: shifted = (uint8_t)(was + 4); break;
+    default: shifted = (uint8_t)(was + 2); break;
+    }
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, 4, shifted);
+    bool ok = queen_spell_apply(game, SPELL_FEEBLEMIND, 0, false, 0, 0, "");
+    if (ok && cok_character_find_effect(t, EFFECT_FEEBLEMIND) != NULL) {
+        queen_clear_cast_spells(L, t->record);
+        ok = cok_effects_run(&game->effects, t, EFFECT_FEEBLEMIND, NULL) || cok_adventure_effect_failed(game);
+    }
+    cok_field_set8_at(L, t->record, COK_FIELD_SAVING_THROW, 4, was);
+    return ok;
+}
+
 /* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
 
 /* The caster's record (DS:ad67): none is read through NULL, undefined. */
@@ -580,6 +640,8 @@ queen_spell_fn *queen_band_c_handler(uint8_t id)
     case 0x1b: return snake_charm;
 
     /* c3: Fumble 0x56 (7fd8:27ef), Feeblemind 0x5d (2a48) */
+    case 0x56: return fumble;
+    case 0x5d: return feeblemind;
 
     /* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
     case 0x30: return haste;

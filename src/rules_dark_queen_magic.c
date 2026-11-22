@@ -431,7 +431,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x41] = {0x069f, COK_FX_MISSING, "dqk 7e76:069f"},
     [0x42] = {0x0e98, COK_FX_MISSING, "dqk 78e4:0e98"},
     [0x43] = {0x0eeb, COK_FX_MISSING, "dqk 78e4:0eeb"},
-    [0x44] = {0x06f6, COK_FX_MISSING, "dqk 7e76:06f6"},
+    [0x44] = {0x06f6, COK_FX_QUEEN_FEEBLEMIND, .applied_only = true}, /* 7e76:06f6: intelligence and wisdom 3, the spells forgotten */
     [0x45] = {0x0f33, COK_FX_MISSING, "dqk 78e4:0f33"},
     [0x46] = {0x0f6b, COK_FX_MISSING, "dqk 78e4:0f6b"},
     [0x47] = {0x10a6, COK_FX_ARMOUR, .value = 0xfe, .applied_only = true}, /* 78e4:10a6: AC and AC behind 2 worse */
@@ -440,7 +440,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x4a] = {0x10e0, COK_FX_MISSING, "dqk 78e4:10e0"},
     [0x4b] = {0x07c8, COK_FX_MISSING, "dqk 7e76:07c8"},
     [0x4c] = {0x10f3, COK_FX_MISSING, "dqk 78e4:10f3"},
-    [0x4d] = {0x081f, COK_FX_MISSING, "dqk 7e76:081f"},
+    [0x4d] = {0x081f, COK_FX_QUEEN_BERSERK}, /* 7e76:081f: the berserk turn at the listed[2] combatant */
     [0x4e] = {0x1106, COK_FX_MISSING, "dqk 78e4:1106"},
     [0x4f] = {0x1115, COK_FX_MISSING, "dqk 78e4:1115"},
     [0x50] = {0x11d1, COK_FX_MISSING, "dqk 78e4:11d1"},
