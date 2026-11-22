@@ -6765,6 +6765,51 @@ static void test_band_c7_dispel_targets(void)
     battle_clear();
 }
 
+/* Dispel Magic's removal: the node taken is the one tried (not the first of its id: a 0xff node of the same id before it
+ * is kept), and a node added on remove runs its removal handler (0x38's, in battle: the first 0x19 goes, here the one
+ * before it). A removal handler that frees the next node (0x38 followed by its 0x19) stops: 7fd8:1232 reads the next
+ * node from freed memory. */
+static void test_band_c7_dispel_removal(void)
+{
+    cok_character *a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    cok_character *t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 5, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(c4_run(0x2e) && c4_count(t, 0x0d) == 1 && t->effects != NULL && t->effects->value == 0xff);
+    battle_clear();
+
+    a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0xff, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 5, true) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(c4_run(0x2e) && c4_count(t, 0x38) == 0 && c4_count(t, 0x19) == 0);
+    battle_clear();
+
+    a = holds_caster();
+    c4_level(a, 5);
+    game.spell_x = 20;
+    game.spell_y = 20;
+    t = c4_target('T', 6, 6, 0);
+    CHECK(cok_character_add_effect(t, 0x38, 0, 5, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x19, 1, 0xff, false) != NULL);
+    set_targets(a, 0x2e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){100, 1, 50});
+    CHECK(!c4_run(0x2e) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "7fd8:1232") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
 /* Dispel Magic's clouds (mode 5): a cloud terrain (0x1d or 0x1c) among the 9 cells round the spell's cell with no cloud on
  * the map is centred on the spell's cell (the view moves; no stop). With a cloud (combat.clouds) it stops (part 39). Other
  * terrain: nothing. */
@@ -6779,6 +6824,9 @@ static void test_band_c7_dispel_clouds(void)
     game.combat.view_y = 0;
     set_targets(a, 0x2e, NULL, 0);
     CHECK(c4_run(0x2e) && game.combat.view_x == 17 && game.combat.view_y == 17); /* centred: spell cell less 3 */
+    game.combat.view_x = 15; /* the view's centre (18, 18) within 3 of the spell's cell: margin 3 keeps it */
+    game.combat.view_y = 15;
+    CHECK(c4_run(0x2e) && game.combat.view_x == 15 && game.combat.view_y == 15);
     cok_combat_cloud node;
     memset(&node, 0, sizeof node);
     game.combat.clouds = &node;
@@ -6809,10 +6857,24 @@ static void test_band_c7_door(void)
     game.combat.view_x = 0;
     game.combat.view_y = 0;
     set_targets(a, 0x53, NULL, 0);
-    CHECK(c4_run(0x53));
+    game.vm.seed = 7;
+    uint32_t want = 7;
+    cok_tp_random(&want, 1000); /* the say's speed wait (speed 0: one draw) */
+    CHECK(c4_run(0x53) && game.vm.seed == want);
     CHECK(cok_combat_x(&game.combat, a->record) == 9 && cok_combat_y(&game.combat, a->record) == 5);
     CHECK(game.combat.view_x == 6 && game.combat.view_y == 2); /* centred on 9, 5 */
     CHECK(LOGGED("teleports") && count_of("teleports") == 1);
+    battle_clear();
+
+    /* A placement past its tables (a size past the footprints' table: 5837:10bd reads beyond it) is undefined, as
+     * queen_commands' undo: no "teleports". */
+    a = holds_caster();
+    game.spell_x = 9;
+    game.spell_y = 5;
+    set_targets(a, 0x53, NULL, 0);
+    cok_field_set8(R->character, a->record, COK_FIELD_SIZE, 0x7f);
+    CHECK(!c4_run(0x53) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "5837:10bd") != NULL);
+    CHECK(!LOGGED("teleports"));
     battle_clear();
 }
 
@@ -6853,9 +6915,10 @@ static void test_band_c7_shield_menu(void)
     CHECK(LOGGED("is Protected") && cok_character_find_effect(a, 0x32) == NULL);
     battle_clear();
 
-    /* Escape, then Yes: the spell is gone; nothing added, nothing said. */
+    /* Escape, then Yes: the spell is gone; nothing added, nothing said, and the H after it is not read (the menu not
+     * asked again). */
     a = holds_caster();
-    c7_script("\x1b" "Y");
+    c7_script("\x1b" "YH");
     CHECK(c4_run(0x55) && cok_character_find_effect(a, 0x32) == NULL && cok_character_find_effect(a, 0x36) == NULL);
     CHECK(cok_character_find_effect(a, 0x70) == NULL && !LOGGED("is Protected") && c7_at == 2);
     battle_clear();
@@ -7027,6 +7090,7 @@ int main(void)
     test_band_c4_reduce();
     test_band_c7_dispel_chance();
     test_band_c7_dispel_targets();
+    test_band_c7_dispel_removal();
     test_band_c7_dispel_clouds();
     test_band_c7_door();
     test_band_c7_shield_computer();

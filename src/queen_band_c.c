@@ -513,8 +513,9 @@ static bool dispel_magic(cok_adventure *game)
 
 /* 7fd8:24f0, Dimension Door (0x53): the caster is erased from its cell and placed at the aimed cell (spell_x, spell_y).
  * The placement's result is ignored, as the original's: where another stands there the caster is left off the map
- * (queen_commands' undo does the same). The screen is centred on the caster's cell (margin 0, dir 8), and "teleports" is
- * said on row 10, waited. No draw, no effect, no save. */
+ * (queen_commands' undo does the same). A placement that reads or writes outside its tables (cok_combat_place false:
+ * the footprints or the terrain past their tables) is undefined, as queen_commands' undo stops there. The screen is
+ * centred on the caster's cell (margin 0, dir 8), and "teleports" is said on row 10, waited (one draw). No effect, no save. */
 static bool dimension_door(cok_adventure *game)
 {
     cok_combat *combat = &game->combat;
@@ -522,8 +523,9 @@ static bool dimension_door(cok_adventure *game)
     if (c == NULL) return undefined(game, "the caster is read through NULL with no character selected (DS:ad67, 24f0)");
     if (!cok_arena_erase(game, 0, 0, cok_combat_index(combat, c->record))) return false;
     bool placed = false;
-    (void)cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game), (uint8_t)game->spell_x,
-                           (uint8_t)game->spell_y, false, &placed);
+    if (!cok_combat_place(combat, game->vm.mode, c, cok_game_rules(game), (uint8_t)game->spell_x, (uint8_t)game->spell_y,
+                          false, &placed))
+        return undefined(game, "a combatant put at the spell's cell reads or writes outside its tables (dqk 5837:10bd, 24f0)");
     if (!cok_arena_centre(game, cok_combat_x(combat, c->record), cok_combat_y(combat, c->record), 0, 8)) return false;
     return cok_arena_say(game, c, "teleports", 10, true);
 }
