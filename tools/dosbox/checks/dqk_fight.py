@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_b3", "band_b4", "band_b5", "band_c1", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6002,6 +6002,116 @@ def commands(v, work, patched, opts):
     view_check(v, work, patched, opts)
 
 
+# Band c1's holds and charms (step 4, part 32a, queen_band_c.c: 849a:1e0d's loop and 7fd8's 022a, 2b3a, 0813, 06e9 and 2396).
+# Two runs, BALTHIR memorising one spell each (+0xce, no other memo): Charm Person (0x0a, time 1: the Aim at once) by band
+# b1's keys, C, C, N (SHARKMAN 2 under the cursor), then T: SHARKMAN 2 saves (d20 9 against its save 6), "is Unaffected",
+# no node; BALTHIR's Charm Person forgotten (+0xce 0x8a), facing 3. Hold Person (0x17, time 1, one pick): C, C (WALKER's
+# menu), E (WALKER's End: his pending Aim), \> (Manual one east, onto WALKER), T (the first pick), then E (Exit the second):
+# WALKER fails (d20 3) and holds ("is held": node [0x34, 14, 10, 0]); BALTHIR's Hold Person forgotten (+0xce 0x97).
+# The handler's dispatch (849a:21b5) is not armed: arm() spins the 5045 overlay's copies only, so the Aims (before the
+# flight) and the tails stand for it. eclplay's turn mark at each original's tail agrees on RandSeed, records, blocks and
+# effect chains (the marks' numbers differ: mark_of_seed finds the one whose RandSeed is the original's).
+BAND_C1_CHARM = 0x0A
+BAND_C1_HOLD = 0x17
+BAND_C1_AIM = (1, 0xEB831397)           # C, C, N: the charm's Aim at once, one draw past the menu, N none
+BAND_C1_CHARM_TAIL = (15, 0xE3A9DB89)   # T: the tail, 15 draws past the menu (the dispatch's 13 and the flight's)
+BAND_C1_CHARM_FACING = 3
+BAND_C1_HOLD_AIM = CAST_CLW_AIM         # C, C, E: the hold's pending Aim at WALKER's End, 3 draws past the menu
+BAND_C1_HOLD_TAIL = (27, 0x719026AD)    # the tail after E: 27 draws past the menu (the Aim's 3 and the holds' d20 and flashes)
+BAND_C1_HOLD_NODE = [0x34, 14, 10, 0]   # WALKER's node after the hold: effect 0x34 (HELD), 14 minutes, value 10, flag 0
+BAND_C1_HOLD_KEYS = "CCE\\>TE"         # the keys of the hold flow (eclplay)
+BAND_C1_CHARM_KEYS = "CCNT"              # the keys of the charm flow (eclplay)
+
+
+def band_c1_save(spell):
+    """Saved game A with BALTHIR memorising SPELL (+0xce) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: spell}})
+
+
+def band_c1_hold_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (WALKER's End: BALTHIR's pending Aim), \\> (Manual one east, onto WALKER),
+    T (the first pick), then E (Exit the second pick): the tail (5045:066a)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["manual"] = cast_key(box, work, f"{tag}-manual", "\\>")
+    out["pick"] = cast_key(box, work, f"{tag}-pick", "T")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "E", None)])[0]
+    return out
+
+
+def band_c1_charm(v, work, wild, opts):
+    """Charm Person on SHARKMAN 2 (band b1's keys): the Aim, the tail (15 draws), SHARKMAN 2 with no charm node, BALTHIR's byte
+    forgotten (0x8a) and facing 3; eclplay's tail (turn mark 01) agrees."""
+    save = band_c1_save(BAND_C1_CHARM)
+    o = cast_original(work, wild, save, "band-c1-charm", opts.verbose, band_b1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c1-charm-save", save)
+    aim, n, tail = o["aim"], o["n"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_C1_AIM, f"the original's RandSeed at Charm Person's Aim (C, C) is "
+            f"{BAND_C1_AIM[0]} draw past BALTHIR's menu, at {BAND_C1_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(aim["seed"], n["seed"])
+    v.check(draws == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is unchanged", f"{draws} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C1_CHARM_TAIL, f"the original's RandSeed at the tail after T is "
+            f"{BAND_C1_CHARM_TAIL[0]} draws past the menu, at {BAND_C1_CHARM_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    charmed = any(node[0] == 0x0B for node in tail["chains"][CAST_SHARKMAN_2])
+    v.check(not charmed, "at the tail SHARKMAN 2 holds no charm (d20 9 saves him: \"is Unaffected\", no node)",
+            f"nodes {tail['chains'][CAST_SHARKMAN_2]}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_C1_CHARM | CAST_FORGOTTEN and facing == BAND_C1_CHARM_FACING,
+            f"at the tail BALTHIR's Charm Person is forgotten (+0xce 0x8a) and he faces {BAND_C1_CHARM_FACING}",
+            f"+0xce {forgotten:#x}, facing {facing}")
+    p = turn_port(work, wild, "band-c1-charm", BAND_C1_CHARM_KEYS, entry=entry)
+    mark = cast_mark(p, "01")
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, "eclplay writes BALTHIR's turn mark (01) after C, C, N and T", p["last"])
+        return
+    command_state(v, "Charm Person's tail (the turn's tail, 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Charm Person's tail, turn mark 01)")
+    print(f"eclplay (band c1, charm) ends {p['last']!r}", flush=True)
+
+
+def band_c1_hold(v, work, wild, opts):
+    """Hold Person on WALKER (the first pick, one target; d20 3 fails): the pending Aim after C, C, E, the tail after E
+    (27 draws), WALKER's node [0x34, 14, 10, 0] and BALTHIR's byte 0x97; eclplay's turn mark at the same RandSeed agrees."""
+    save = band_c1_save(BAND_C1_HOLD)
+    o = cast_original(work, wild, save, "band-c1-hold", opts.verbose, band_c1_hold_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c1-hold-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_C1_HOLD_AIM, f"the original's RandSeed at Hold Person's pending Aim (C, C, E) is "
+            f"{BAND_C1_HOLD_AIM[0]} draws past BALTHIR's menu, at {BAND_C1_HOLD_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C1_HOLD_TAIL, f"the original's RandSeed at the tail after E is "
+            f"{BAND_C1_HOLD_TAIL[0]} draws past the menu, at {BAND_C1_HOLD_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    walker = [list(node) for node in tail["chains"][CAST_WALKER]]
+    v.check(BAND_C1_HOLD_NODE in walker, f"at the tail WALKER holds Hold Person's node {BAND_C1_HOLD_NODE} (d20 3 fails it)",
+            f"nodes {walker}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C1_HOLD | CAST_FORGOTTEN, f"at the tail BALTHIR's Hold Person is forgotten (+0xce 0x97)",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c1-hold", BAND_C1_HOLD_KEYS, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, "eclplay writes a turn mark at the original's tail after C, C, E, \\>, T and E", p["last"])
+        return
+    command_state(v, "Hold Person's tail (the turn's tail)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Hold Person's tail, turn mark {mark['number']})")
+    print(f"eclplay (band c1, hold) turn mark {mark['number']} after {p['last']!r}", flush=True)
+
+
+def band_c1(v, work, opts):
+    """Band c1 (step 4, part 32a): Charm Person (0x0a) on SHARKMAN 2 and Hold Person (0x17) on WALKER, on BALTHIR's own casts
+    against eclplay's turns (the flow band_c1)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c1_charm(v, work, wild, opts)
+    band_c1_hold(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -6357,6 +6467,8 @@ def main():
         band_b4(v, work, opts)
     if "band_b5" in flows:
         band_b5(v, work, opts)
+    if "band_c1" in flows:
+        band_c1(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
