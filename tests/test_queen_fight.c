@@ -2096,8 +2096,9 @@ static void test_plain_apply(void)
                   id == 0x76;
         bool b2 = id == 0x2f || id == 0x73 || id == 0x85 || id == 0x4a || id == 0x57; /* queen_area.c's band b2 */
         bool b3 = id == 0x33 || id == 0x81; /* queen_area.c's band b3 */
+        bool c2 = id == 0x15 || id == 0x4e || id == 0x52 || id == 0x54; /* queen_area.c's band c2 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c2)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -4769,6 +4770,244 @@ static unsigned spell_of_level(unsigned level)
     return 0;
 }
 
+/* c2 (part 32b): Sleep (7fd8:05c4), Entangle (22f5), Confusion (243f), Fear (257a), in queen_area.c. The allowance and the
+ * saves are the seed's: seed_for_dice and seed_from pick the seed; the draws are counted after the handler. */
+
+/* The first seed whose count d sides sum to want (from 1 on). */
+static uint32_t seed_for_dice(unsigned count, uint8_t sides, unsigned want)
+{
+    for (uint32_t start = 1;; ++start) {
+        uint32_t seed = start;
+        if (cok_dice(&seed, (uint8_t)count, sides) == want) return start;
+    }
+}
+
+/* A record in the battle at x, y (combat record and cell), its saving throw of type 4 at 21 (it saves on a 20 only). */
+static cok_character *c2_target(char name, uint8_t npc, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, npc);
+    place(t, x, y);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    return t;
+}
+
+/* Sleep's target: a record of highest level lv (+0x91), at x, y, with the race word's low byte race (+0x58). */
+static cok_character *sleeper(char name, uint8_t lv, uint8_t race, int8_t x, int8_t y)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, lv);
+    cok_field_set8(R->character, t->record, COK_FIELD_RACE, race);
+    return t;
+}
+
+/* The caster for the c2 spells: a record at x, y (the selected member), the battle's mode 5, the spell's cell 6, 5. */
+static cok_character *c2_caster(int8_t x, int8_t y)
+{
+    battle_clear();
+    cok_character *a = record('A', 0, 0);
+    place(a, x, y);
+    game.vm.character = a->record;
+    game.vm.status = COK_ECL_OK;
+    game.vm.mode = 5;
+    game.spell_x = 6;
+    game.spell_y = 5;
+    game.effects.rolls.images = 0;
+    game.error[0] = '\0';
+    log_text[0] = '\0';
+    return a;
+}
+
+/* Sleep (7fd8:05c4): the allowance 4d4 and the weights by highest level (+0x91, read unsigned: 1 1, 2 2, 3 4, 4 6, 5 10 for race
+ * 7 and 20 otherwise, 0 and 6 and up 20), the status 1 and the 0x35 held dropped. The allowance is spent in list order: 10 at the
+ * start goes 1, 6, 2 (9, 3, 1 left) and a 10 is dropped. The images flag stays set; no draw but the allowance's. */
+static void test_band_c2_sleep(void)
+{
+    cok_character *a = c2_caster(5, 5);
+    cok_character *w1 = sleeper('a', 1, 0, 20, 20), *w6 = sleeper('b', 4, 0, 21, 20), *w2 = sleeper('c', 2, 0, 22, 20);
+    cok_character *w10 = sleeper('d', 5, 7, 23, 20);
+    cok_character *list[4] = {w1, w6, w2, w10};
+    for (unsigned i = 0; i < 4; ++i) game.spell_targets[i + 1] = list[i];
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x15;
+    uint32_t seed0 = seed_for_dice(4, 4, 10);
+    game.vm.seed = seed0;
+    CHECK(run_handler(0x15) && game.vm.character == a->record);
+    CHECK(game.spell_targets[1] == w1 && game.spell_targets[2] == w6 && game.spell_targets[3] == w2 &&
+          game.spell_targets[4] == NULL);
+    CHECK(cok_character_find_effect(w1, 0x35) != NULL && cok_character_find_effect(w6, 0x35) != NULL &&
+          cok_character_find_effect(w2, 0x35) != NULL && cok_character_find_effect(w10, 0x35) == NULL);
+    CHECK(game.effects.rolls.images == 1 && LOGGED("falls asleep"));
+    /* One target at a time, each on a fresh record: the boundaries of the weight and the drops. */
+    struct {
+        uint8_t lv, race;
+        uint16_t race_word; /* 0 for the byte alone */
+        bool status, held;
+        unsigned allowance;
+        bool kept;
+    } cases[] = {
+        {0, 0, 0, false, false, 16, false},  /* level 0 weighs 20 (unsigned): dropped */
+        {5, 7, 0x107, false, false, 16, false}, /* race word 0x107 is not 7: weighs 20, dropped */
+        {5, 7, 0, false, false, 10, true},   /* 10 against 10: kept, the allowance 0 after */
+        {5, 7, 0, false, false, 9, false},   /* 10 against 9: dropped */
+        {1, 0, 0, true, false, 16, false},   /* status word 1 (asleep): dropped */
+        {1, 0, 0, false, true, 16, false},   /* holds 0x35 already: dropped */
+    };
+    for (unsigned i = 0; i < sizeof cases / sizeof *cases; ++i) {
+        c2_caster(5, 5);
+        cok_character *s = sleeper('s', cases[i].lv, cases[i].race, 20, 20);
+        if (cases[i].race_word != 0) {
+            s->record[0x58] = (uint8_t)cases[i].race_word;
+            s->record[0x59] = (uint8_t)(cases[i].race_word >> 8);
+        }
+        if (cases[i].status) cok_field_set8(R->character, s->record, COK_FIELD_STATUS, 1);
+        if (cases[i].held) CHECK(cok_character_add_effect(s, 0x35, 0, 0, false) != NULL);
+        game.spell_targets[1] = s;
+        game.spell_target_count = 1;
+        game.effects.rolls.spell = 0x15;
+        uint32_t allowance_seed = seed_for_dice(4, 4, cases[i].allowance);
+        game.vm.seed = allowance_seed;
+        CHECK(run_handler(0x15));
+        bool kept = game.spell_targets[1] != NULL;
+        CHECK(kept == cases[i].kept);
+        /* Dropped: the allowance's four draws and nothing more (a kept target's add draws too). */
+        if (!kept) CHECK(game.vm.seed == after_draws(allowance_seed, 4, 4));
+    }
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Entangle (7fd8:22f5): nothing with var 0x22 set (the seed kept, no text, the image cleared). Else each target saves by type 4
+ * (its own d20), and unless it saved "is entangled" (0x1b, the duration of 0x4e). */
+static void test_band_c2_entangle(void)
+{
+    c2_caster(5, 5);
+    cok_character *t1 = c2_target('e', 0, 20, 20), *t2 = c2_target('f', 0, 21, 20);
+    game.spell_targets[1] = t1;
+    game.spell_targets[2] = t2;
+    game.spell_target_count = 2;
+    game.effects.rolls.spell = 0x4e;
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 1);
+    game.vm.seed = 9;
+    CHECK(run_handler(0x4e));
+    CHECK(game.vm.seed == 9 && cok_character_find_effect(t1, 0x1b) == NULL && cok_character_find_effect(t2, 0x1b) == NULL);
+    CHECK(game.effects.rolls.images == 0 && !LOGGED("is entangled"));
+    /* Var 0x22 clear: the first target's d20 is 20 (saved), the second's 2 to 19 (not saved). */
+    cok_ecl_set_var(&game.vm, COK_VAR_3D, 0);
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x4e));
+    CHECK(cok_character_find_effect(t1, 0x1b) == NULL);
+    const cok_effect *e = cok_character_find_effect(t2, 0x1b);
+    uint16_t minutes = 0;
+    CHECK(e != NULL && queen_spell_duration(&game, 0x4e, &minutes) && e->duration == minutes);
+    CHECK(game.effects.rolls.images == 0 && LOGGED("is entangled"));
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Confusion (7fd8:243f): the count 2d8 is drawn first and the targets past it dropped (DS:c6f4 is the count kept); then each
+ * target's d20 save and "is confused" (0x23, the duration of 0x52) unless it saved. The seed: 2d8 is 2, the first target saves
+ * (20), the second and the two past the count do not (2 to 19): a cap after the saves would confuse the last two. */
+static void test_band_c2_confusion(void)
+{
+    c2_caster(5, 5);
+    cok_character *t[4];
+    for (unsigned i = 0; i < 4; ++i) t[i] = c2_target('g', 0, (int8_t)(20 + i), 20);
+    for (unsigned i = 0; i < 4; ++i) game.spell_targets[i + 1] = t[i];
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x52;
+    uint32_t seed0 = 1;
+    for (;; ++seed0) {
+        uint32_t s = seed0;
+        if (cok_dice(&s, 2, 8) != 2) continue;
+        uint8_t r1 = cok_dice(&s, 1, 20);
+        bool fail = true;
+        for (unsigned k = 0; k < 3; ++k) {
+            uint8_t r = cok_dice(&s, 1, 20);
+            fail = fail && r >= 2 && r <= 19;
+        }
+        if (r1 == 20 && fail) break;
+    }
+    game.vm.seed = seed0;
+    CHECK(run_handler(0x52));
+    CHECK(game.spell_target_count == 2);
+    CHECK(cok_character_find_effect(t[0], 0x23) == NULL && cok_character_find_effect(t[1], 0x23) != NULL);
+    CHECK(cok_character_find_effect(t[2], 0x23) == NULL && cok_character_find_effect(t[3], 0x23) == NULL);
+    /* The two past the count are not rolled: their saves would have failed (the seed), so no draw of theirs ran. */
+    uint16_t minutes = 0;
+    const cok_effect *e = cok_character_find_effect(t[1], 0x23);
+    CHECK(e != NULL && queen_spell_duration(&game, 0x52, &minutes) && e->duration == minutes);
+    CHECK(game.effects.rolls.images == 0 && LOGGED("is confused"));
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* Fear (7fd8:257a): the cone of width 3 and length 6 from the caster (10, 10) at the spell's cell (11, 10), the centre line's
+ * end 16, 10. A target on the centre line (11, 10, M) saves or not; one on the left line (16, 9, L; the side is east, 2, so
+ * the left end is 0 and -1 from the end) is reached by width 3 only. A failed save adds 0x6f and makes the combat record run:
+ * forced, computer, NPC 0xb3 (M's NPC kept at 0x80: bit 7), target NULL. A made save says "is unaffected" and writes nothing. */
+static void fear_battle(cok_character **m, cok_character **l)
+{
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    *m = record('M', 1, 1);
+    place(*m, 11, 10);
+    cok_field_set8_at(R->character, (*m)->record, COK_FIELD_SAVING_THROW, 4, 21);
+    *l = c2_target('L', 0, 16, 9);
+}
+
+static void test_band_c2_fear(void)
+{
+    static uint8_t dummy;
+    cok_character *m, *l, *p;
+    uint16_t minutes = 0;
+    /* Both fail (rolls 2 to 19): the centre's and the left line's targets, in the cone's order (the centre line first). */
+    fear_battle(&m, &l);
+    m->combat->target = &dummy;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 2, 19, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(game.effects.rolls.images == 0 && LOGGED("flees in terror") && !LOGGED("is unaffected"));
+    CHECK(queen_spell_duration(&game, 0x54, &minutes));
+    const cok_effect *e = cok_character_find_effect(m, 0x6f);
+    CHECK(e != NULL && e->on_remove && e->duration == minutes);
+    CHECK(m->combat->forced == 1 && computer(m) == 1 && cok_field_u8(R->character, m->record, COK_FIELD_NPC) == 0x80 &&
+          m->combat->target == NULL);
+    CHECK(cok_character_find_effect(l, 0x6f) != NULL && l->combat->forced == 1 && computer(l) == 1 &&
+          cok_field_u8(R->character, l->record, COK_FIELD_NPC) == 0xb3 && l->combat->target == NULL);
+    battle_clear();
+    /* The centre's target saves (20) and the left line's fails: M untouched, "is unaffected" said, L's block written. */
+    fear_battle(&m, &l);
+    m->combat->target = &dummy;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 20, 20, 20, 2, 19});
+    CHECK(run_handler(0x54));
+    CHECK(cok_character_find_effect(m, 0x6f) == NULL && m->combat->forced == 0 && computer(m) == 0 &&
+          m->combat->target == &dummy && LOGGED("is unaffected"));
+    CHECK(cok_character_find_effect(l, 0x6f) != NULL && l->combat->forced == 1 && computer(l) == 1);
+    battle_clear();
+    /* A cone whose centre line meets no one (side 0xff): the left line's end is 49, 10 (x 16 + 0x63, clamped) and the target
+     * at 30, 10 is on it: reached by the 0xff side's left line alone. */
+    c2_caster(10, 10);
+    game.spell_x = 11;
+    game.spell_y = 10;
+    game.effects.rolls.spell = 0x54;
+    p = c2_target('P', 0, 30, 10);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(run_handler(0x54) && game.spell_target_count == 1 && game.spell_targets[1] == p);
+    CHECK(cok_character_find_effect(p, 0x6f) != NULL && p->combat->forced == 1);
+    battle_clear();
+    /* Outside the battle (mode 4): nothing, the image flag still set, no draw. */
+    fear_battle(&m, &l);
+    game.vm.mode = 4;
+    game.vm.seed = 5;
+    CHECK(run_handler(0x54) && game.vm.seed == 5 && game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(m, 0x6f) == NULL && cok_character_find_effect(l, 0x6f) == NULL);
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 static void set_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
 {
     game.effects.rolls.amount16 = amount;
@@ -5396,6 +5635,10 @@ int main(void)
     test_cone_of_cold();
     test_meteor_try();
     test_meteor_swarm();
+    test_band_c2_sleep();
+    test_band_c2_entangle();
+    test_band_c2_confusion();
+    test_band_c2_fear();
     test_effects2_resist();
     test_effects2_shield();
     test_effects2_barkskin_ray();
