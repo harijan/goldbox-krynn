@@ -202,3 +202,48 @@ The user chose on 2026-10-26:
    and the speaker; no MT-32.
 4. Copy protection: logged and skipped, as for Champions' camp Save; the
    DOSBox-X box answers or patches it.
+
+## Open findings
+
+Things the step 4 reviews found that no part has taken yet, each with the part
+that should pick it up. Planned stops (cited in the code) are not repeated
+here; search for their `dqk SEG:OFF`.
+
+From part 32 (spell band c, 2026-11-22):
+
+- **Slow Poison's effect 0x16 is unblocked** (part 33 or 46). Its handler
+  (`78e4:0337`) waited on the kill `148f:00d4`, which is already ported as
+  attack.c's `cok_combat_kill`.
+- **Cure Disease 0x27/0x6a** (part 46) needs `cure_disease` (`7fd8:0dc0`),
+  static in `queen_band_c.c` today: export it. Heal outside a battle still
+  stops at `7fd8:0e9f` (camp Heal).
+- **Item powers** (part 50): in `86b8:16f7` powers 2, 4, 6, 7 and 8 do nothing
+  and 3 and 5 only recompute strength; power 0 is ported (part 32e).
+- **Berserk at a battle's end** (a fixture with confusion's 61-80 roll): 0x4d
+  is removed with its handler at the battle's end; the original's order there
+  (`5045:0001`, removal before or after the combat blocks are freed) is not
+  measured, and it decides which side a berserk monster ends on.
+- **Dispel Magic's freed-next guard** (`7fd8:1232`, an undefined stop) can be
+  reached in real play: 0x38 appends its 0x19 at the end of the chain, so
+  Dispel on a holder whose chain ends [.., 0x38, 0x19] stops. If a play-through
+  meets it, measure the original before changing the stop.
+- **Dispel Magic's clouds** (part 39): besides the cited `7fd8:12cc`, `10d9`
+  reads `DS:c7e5` stale (Enlarge `02e8` writes it); `queen_band_c.c` keeps it
+  as an unused local `stale`.
+- **Event 9's list** lacks 0x3f 0x4c 0x4f 0x7b 0x9e 0xa5 0x5d 0x8d 0x8f 0x8a
+  0x8e (parts 35-38): a Haste, Slow or other event-9 target holding one stops.
+- **Saved game A's ZOMBIEs** carry the undead effects 0x8d 0x8e 0x8f 0x9e,
+  which sit in the effect-added and saving-throw event lists (parts 37/38):
+  until those are ported, a spell or save on a ZOMBIE stops, so the band c
+  flows use the SHARKMEN and the party only.
+- **Unreachable today, guard if that changes:** ROB with "all" on a readied
+  hammer frees it twice in the original (`6c70:293c`); in the port it would
+  remove the next item. The AI's weapon swap (`queen_ai.c`, `chosen`) could
+  shift if a readied hammer before it were freed. Both need the hammer to
+  outlive a battle, which it does not (0x17 is battle-only).
+- **Repo tests only, no DOSBox-X flow yet:** Slow (eclplay agrees with the
+  scoping probe), Reduce, Entangle, Confusion, a kept sleeper, Fear's failed
+  save, Feeblemind's effect 0x44, berserk 0x4d, Cause Disease, Poison, Slay
+  Living and Harm (computer-only), Remove Curse, the hammer's readying, Dispel
+  Magic. Dispel's flow is cheap: `dqk_modify` can write BALTHIR's chain nodes
+  as `effects_1_case` does, then C, C, E, Aim at his own cell, T (~40 lines).
