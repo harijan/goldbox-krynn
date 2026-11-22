@@ -6066,7 +6066,7 @@ static void test_band_c3_fumble(void)
     game.effects.in_battle = true; /* the held effect ends the turn in battle (3f44:00f7) */
     CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
     const cok_effect *e = cok_character_find_effect(t, 0x1b);
-    CHECK(e != NULL && e->duration == minutes && cok_character_find_effect(t, 0x2a) == NULL);
+    CHECK(e != NULL && e->duration == minutes && e->value == 0 && !e->on_remove && cok_character_find_effect(t, 0x2a) == NULL);
     CHECK(LOGGED("is clumsy") && !LOGGED("is slowed") && count_of("is clumsy") == 1);
     CHECK(game.effects.rolls.damage_type == 0x40 && t->combat->initiative == 0);
     game.effects.in_battle = false;
@@ -6077,10 +6077,31 @@ static void test_band_c3_fumble(void)
     c3_set_target(a, t, 0x56);
     game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
     log_text[0] = '\0';
+    game.effects.rolls.movement = 8;
+    game.effects.rolls.rate = 6;
     CHECK(run_handler(0x56) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.movement == 4 && game.effects.rolls.rate == 3); /* the slow's run (78e4:0877) */
     e = cok_character_find_effect(t, 0x2a);
-    CHECK(e != NULL && e->duration == minutes && cok_character_find_effect(t, 0x1b) == NULL);
+    CHECK(e != NULL && e->duration == minutes && e->value == 0 && !e->on_remove && cok_character_find_effect(t, 0x1b) == NULL);
     CHECK(LOGGED("is slowed") && !LOGGED("is clumsy") && count_of("is slowed") == 1);
+    /* The save's bonus is 0: save 17, roll 16 fails. With barkskin (0x0d: the save 1 better unless the damage type has 8) and
+     * the damage type 8 before the cast, the same roll saves: the save's event sees 0x40. */
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 17, 0);
+    c3_set_target(a, t, 0x56);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    game.effects.in_battle = true; /* the held run ends the turn */
+    CHECK(run_handler(0x56) && cok_character_find_effect(t, 0x1b) != NULL && cok_character_find_effect(t, 0x2a) == NULL);
+    game.effects.in_battle = false;
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('F', 17, 0);
+    CHECK(cok_character_add_effect(t, 0x0d, 0, 0, true) != NULL);
+    c3_set_target(a, t, 0x56);
+    game.effects.rolls.damage_type = 8;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 16, 16});
+    CHECK(run_handler(0x56) && cok_character_find_effect(t, 0x2a) != NULL && cok_character_find_effect(t, 0x1b) == NULL);
     /* A holder of 0x96: passed over, nothing drawn or said. */
     battle_clear();
     a = c2_caster(5, 5);
@@ -6122,6 +6143,47 @@ static void test_band_c3_feeblemind_shift(void)
     c3_set_target(a, t, 0x5d);
     game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
     CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* The shifts' sizes: class 3 (19) saves a roll of 19, which 21 would not; class 5 (21) fails it, which 19 would save. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 3);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 19, 19});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) == NULL);
+    battle_clear();
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 5);
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 19, 19});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* The class is a word (2a60's mov ax): 0x0100 is neither 0 nor 5, so +2 (19) and a roll of 18 fails, which class 0 (16)
+     * would save. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    t->record[cok_field_offset(R->character, COK_FIELD_CLASS) + 1] = 1;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 18, 18});
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL);
+    battle_clear();
+    /* A target with no block: 0x44's run does nothing (06f6's block test), so 2a48's own loop clears the cast bits (the last of
+     * the 0x89 bytes too), the scores kept and nothing said. */
+    a = c2_caster(5, 5);
+    t = c3_target('G', 17, 0);
+    cok_combat_record *kept = t->combat;
+    t->combat = NULL;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] = 0x95;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x88] = 0x80;
+    t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x89] = 0x80;
+    c3_set_target(a, t, 0x5d);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x5d) && cok_character_find_effect(t, 0x44) != NULL && !LOGGED("loses intellect"));
+    CHECK(t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED)] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x88] == 0 &&
+          t->record[cok_field_offset(R->character, COK_FIELD_MEMORIZED) + 0x89] == 0x80);
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, COK_SCORE_INTELLIGENCE) == 10);
+    t->combat = kept;
     battle_clear();
     /* A failed save (roll 2): 0x44 added and run in place; the cast bits of the memorised spells cleared, the others kept. */
     a = c2_caster(5, 5);
@@ -6208,6 +6270,12 @@ static void test_effects_berserk(void)
     set_side(t, 1);
     CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
     CHECK(npc_of(t) == 0 && computer(t) == 0 && side_of(t) == 0);
+    /* Removal with an NPC not 0xb3 (0xb2): the side is 0 all the same; the NPC and the computer are kept. */
+    e = cok_character_add_effect(t, 0x4d, 1, 0, true);
+    set_npc(t, 0xb2, 1);
+    set_side(t, 1);
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x4d) && game.vm.status == COK_ECL_OK);
+    CHECK(npc_of(t) == 0xb2 && computer(t) == 1 && side_of(t) == 0);
     /* Removal with no block: nothing. */
     cok_combat_record *saved = cr;
     t->combat = NULL;

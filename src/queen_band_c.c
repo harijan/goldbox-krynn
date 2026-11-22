@@ -265,7 +265,7 @@ static bool fumble(cok_adventure *game)
 }
 
 /* 7fd8:2a48, Feeblemind (0x5d): the first target (queen_first_target's stop). Its saving throw of type 4 (+0x8f) is shifted
- * by its class (+0x5a) for the apply: class 0 takes 1 off, class 5 adds 4, any other adds 2 (byte arithmetic). The apply
+ * by its class (the word at +0x5a) for the apply: class 0 takes 1 off, class 5 adds 4, any other adds 2 (byte arithmetic). The apply
  * of 0x5d (value 0, no damage, no text) makes the save with the shifted byte and the spell's effect 0x44 for its duration.
  * Then a holder of 0x44 has its memorised cast bits cleared and its effect run (node NULL). The byte is put back always. */
 static bool feeblemind(cok_adventure *game)
@@ -275,7 +275,8 @@ static bool feeblemind(cok_adventure *game)
     if (t == NULL) return false;
     uint8_t was = cok_field_u8_at(L, t->record, COK_FIELD_SAVING_THROW, 4);
     uint8_t shifted;
-    switch (cok_field_u8(L, t->record, COK_FIELD_CLASS)) {
+    size_t klass = cok_field_offset(L, COK_FIELD_CLASS);
+    switch (t->record[klass] | t->record[klass + 1] << 8) { /* 2a60: the class as a word */
     case 0: shifted = (uint8_t)(was - 1); break;
     case 5: shifted = (uint8_t)(was + 4); break;
     default: shifted = (uint8_t)(was + 2); break;

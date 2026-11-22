@@ -304,7 +304,7 @@ static bool silence(cok_adventure *game, cok_character *c)
 /* 7e76:033f (0x23, confusion; ev 0x15, applied_only). One d100 by 7e76:0385's table: 1-10 runs away (the
  * effect 0x23 removed, the block forced and computer controlled, its target NULL, and 0x6f added for
  * ten minutes, "runs away"); 11-60 "is confused" and the turn ends; 61-80 berserk: 0x4d added, "goes
- * berserk", and 0x4d run (7e76:081f, its cited stop here); 81-100 "is enraged". Then the save (type 4,
+ * berserk", and 0x4d run (7e76:081f, berserk); 81-100 "is enraged". Then the save (type 4,
  * bonus -2) made removes the 0x23. */
 static bool confused(cok_adventure *game, cok_character *c)
 {
