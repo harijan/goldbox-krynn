@@ -240,7 +240,8 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "effects_1", "effects_2", "effects_4",
+                 "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6236,6 +6237,68 @@ def band_c2(v, work, opts):
     band_c2_sleep(v, work, wild, opts)
 
 
+# Band c3's Fumble (step 4, part 32c, 7fd8:27ef): saved game A with BALTHIR memorising Fumble (+0xce 0x56) and nothing else, then
+# C, C, E, N (SHARKMAN 2 under the cursor), T: the save of type 4 against SHARKMAN 2's 6 is made by a d20 of 19, so Fumble adds
+# effect 0x2a (slowed, two minutes, "is slowed") and runs it; no held 0x1b. The dispatch (849a:21b5) is at 15 draws past the menu
+# (RandSeed e3a9db89, as band c2's); the tail is 36 draws past it (RandSeed 02901eba: the probe's tail trap caught only this one,
+# later than the Fumble's flashes, and the flow measures it with cast_traps as the other band flows do).
+BAND_C3_FUMBLE = 0x56
+BAND_C3_FUMBLE_TAIL = (36, 0x02901EBA)  # the tail after T: 36 draws past BALTHIR's menu
+BAND_C3_FUMBLE_MEMO = BAND_C3_FUMBLE | CAST_FORGOTTEN  # BALTHIR's +0xce after Fumble (0xd6)
+BAND_C3_FUMBLE_NODE = [0x2A, 2, 0, 0]   # SHARKMAN 2's node after the save: effect 0x2a, two minutes, value 0, flag 0
+BAND_C3_FUMBLE_MARK = "03"              # eclplay's turn mark of the tail (the marks of the turns before it: 01, 02)
+
+
+def fumble_save():
+    """Saved game A with BALTHIR memorising Fumble (+0xce 0x56) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C3_FUMBLE}})
+
+
+def band_c3_fumble(v, work, wild, opts):
+    """Fumble at SHARKMAN 2 (the flow band_c3, Fumble): the keys are band_a1_run's (C, C, E, N, T). The original: RandSeed at
+    the tail 36 draws past the menu (02901eba), the cell 32, 18 with DS:c6f4 1, SHARKMAN 2 (record 7) holding the node
+    [0x2a, 2, 0, 0] (it saved; no held 0x1b), BALTHIR's +0xce 0xd6 and facing 3. eclplay runs the same keys and its turn mark 03
+    (the tail) agrees on RandSeed, records, blocks, effect chains."""
+    save = fumble_save()
+    o = cast_original(work, wild, save, "band-c3-fumble", opts.verbose, band_a1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c3-fumble-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C3_FUMBLE_TAIL, f"the original's tail after T (Fumble) is {BAND_C3_FUMBLE_TAIL[0]} draws "
+            f"past BALTHIR's menu, at {BAND_C3_FUMBLE_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is "
+            "unchanged", f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    v.check(tail["cell"] == BAND_C2_CELL and tail["targets"] == 1, f"at the tail Fumble's cell is {BAND_C2_CELL} and DS:c6f4 "
+            f"is 1", f"cell {tail['cell']}, DS:c6f4 {tail['targets']}")
+    node = [list(n) for n in tail["chains"][CAST_AUTO_SHARKMAN]]
+    v.check(node == [BAND_C3_FUMBLE_NODE], f"SHARKMAN 2 holds Fumble's slow node {BAND_C3_FUMBLE_NODE} (its save of 19 "
+            "made: \"is slowed\", no held 0x1b)", f"nodes {node}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    facing = rec_byte(tail["blocks"][CAST_BALTHIR], COMBAT_BLOCK_FACING)
+    v.check(forgotten == BAND_C3_FUMBLE_MEMO and facing == BAND_C2_FEAR_FACING,
+            "at the tail BALTHIR's Fumble is forgotten (+0xce 0xd6) and he faces 3", f"+0xce {forgotten:#x}, facing {facing}")
+    p = turn_port(work, wild, "band-c3-fumble", "CCENT", entry=entry)
+    mark = cast_mark(p, BAND_C3_FUMBLE_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C3_FUMBLE_MARK}) after C, C, E, N and T", p["last"])
+        return
+    command_state(v, "Fumble's tail (the turn's tail, 03)", tail, mark, aim["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Fumble's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_C3_FUMBLE_MEMO,
+            f"eclplay's tail after Fumble: BALTHIR's Fumble forgotten (+0xce {BAND_C3_FUMBLE_MEMO:#x})",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_c3(v, work, opts):
+    """Band c3's Fumble (part 32c), the flow band_c3: Fumble at SHARKMAN 2 by BALTHIR, against the original's tail and
+    eclplay's turn mark (band_c3_fumble). Feeblemind and berserk are repo tests (no fixture for them here)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c3_fumble(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -6595,6 +6658,8 @@ def main():
         band_c1(v, work, opts)
     if "band_c2" in flows:
         band_c2(v, work, opts)
+    if "band_c3" in flows:
+        band_c3(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
