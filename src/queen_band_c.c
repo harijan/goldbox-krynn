@@ -293,6 +293,135 @@ static bool feeblemind(cok_adventure *game)
 
 /* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
 
+/* The caster's record (DS:ad67): none is read through NULL, undefined. */
+static uint8_t *caster_record(cok_adventure *game, const char *what)
+{
+    if (game->vm.character == NULL) undefined(game, what);
+    return game->vm.character;
+}
+
+/* The event's run on target slot i (148f:0512 on &targets[i]: the handlers may change the slot). */
+static bool dispatch_slot(cok_adventure *game, unsigned i, uint8_t event)
+{
+    return cok_effects_dispatch_at(&game->effects, &game->spell_targets[i], event) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:163f (id, side, text): the Haste and Slow helper. Each target on side (its word +0x66) gets the opposite effect id
+ * while the caster's level (uncapped, n) lasts: event 9 with id pending and the magic type 8 first, then, if no handler
+ * cancelled id, the cure of id (queen_cure) and one n spent; a holder of id is dropped, and so is any target not on side.
+ * A target a handler cancelled (a globe 0x39 on a magic spell) keeps its slot and spends no n. Then the spell's apply
+ * with text, and event 0x12 on each target left. The count is read again at every pass; a NULL target is read through
+ * NULL: undefined (7fd8:1671). */
+static bool hasten(cok_adventure *game, uint8_t id, unsigned side, const char *text)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_rolls *r = &game->effects.rolls;
+    uint8_t spell = r->spell;
+    uint8_t n = 0;
+    if (!queen_spell_level(game, spell, false, &n)) return false;
+    r->images = 1;
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "dqk 7fd8:1671 reads a NULL target's side through NULL (DS:c5df)");
+        if (cok_combat_field_word(R, t->record, COK_FIELD_HOSTILE) != side || n == 0) {
+            game->spell_targets[i] = NULL;
+            continue;
+        }
+        r->pending = id;
+        r->damage_type = 8;
+        if (!dispatch_slot(game, i, 9)) return false;
+        if (r->pending != id) continue;
+        --n;
+        t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "dqk 7fd8:16be reads the cure's target through NULL (DS:c5df)");
+        bool cured = false;
+        if (!queen_cure(game, t, id, &cured)) return false;
+        if (cured) game->spell_targets[i] = NULL;
+    }
+    if (!queen_spell_apply(game, spell, 0, false, 0, 0, text)) return false;
+    for (unsigned i = 1; i <= game->spell_target_count; ++i)
+        if (game->spell_targets[i] != NULL && !dispatch_slot(game, i, 0x12)) return false;
+    return true;
+}
+
+/* 7fd8:175a, Haste (0x30): the caster's side (word +0x66), "is Hasted"; Slow's effect 0x2a is cured. */
+static bool haste(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    uint8_t *caster = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 175a)");
+    if (caster == NULL) return false;
+    return hasten(game, 0x2a, cok_combat_field_word(R, caster, COK_FIELD_HOSTILE), "is Hasted");
+}
+
+/* 7fd8:1b11, Slow (0x37): the first target, kept whatever the count, holding effect 0x96 is left alone (no draws). Else
+ * the other side (51c2:08fd: 1 where the caster's word +0x66 is 0, else 0), "is Slowed"; Haste's effect 0x27 is cured.
+ * The first target NULL or freed stops (queen_first_target, cited 7fd8:1b2d). */
+static bool slow(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_character *t1 = queen_first_target(game);
+    if (t1 == NULL) return false;
+    if (cok_character_find_effect(t1, EFFECT_96) != NULL) return true;
+    uint8_t *caster = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 1b11)");
+    if (caster == NULL) return false;
+    unsigned other = cok_combat_field_word(R, caster, COK_FIELD_HOSTILE) == 0 ? 1 : 0;
+    return hasten(game, 0x27, other, "is Slowed");
+}
+
+/* 148f:1c87 and 1c24 (rec, str, exc): rec's base strength (+0x78) below str, or str 18 with its base exceptional (+0x85)
+ * below exc, is raised: out is 18 with exc + 1 (str 18), else str + 100 (a byte). False where it is not raised. */
+static bool enlarges(cok_adventure *game, const cok_character *c, uint8_t str, uint8_t exc, uint8_t *out)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    uint8_t base = cok_field_u8_at(L, c->record, COK_FIELD_SCORE_BASE, COK_SCORE_STRENGTH);
+    if (base >= str && !(str == 0x12 && cok_field_u8(L, c->record, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE) < exc))
+        return false;
+    *out = str == 0x12 ? (uint8_t)(exc + 1) : (uint8_t)(str + 100);
+    return true;
+}
+
+/* 7fd8:02e8, Enlarge (0x0c): the first target (queen_first_target), with the strength and exceptional strength by the
+ * caster's level (uncapped): 1 to 6 keep 18 with exceptional 0, 1, 0x33, 0x4c, 0x5b and 0x64; 7 to 9 are 19 to 21; 0 and
+ * 10 and up are 22. A target not raised, or holding a globe (0x39 or 0x3f), is "is unaffected" (row 10, waited). Else
+ * "is stronger", then effect 0x0c added raw (148f:19c2: no event 9, a second node if one is held) for the spell's
+ * duration, its value the raised strength, on remove, and the strength recomputed (1dfc). */
+static bool enlarge(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    uint8_t spell = game->effects.rolls.spell, lv = 0;
+    uint8_t str = 0x12, exc = 0;
+    if (!queen_spell_level(game, spell, false, &lv)) return false;
+    static const uint8_t exceptional[6] = {0, 1, 0x33, 0x4c, 0x5b, 0x64};
+    if (lv >= 1 && lv <= 6) exc = exceptional[lv - 1];
+    else if (lv >= 7 && lv <= 9) str = (uint8_t)(0x13 + lv - 7);
+    else str = 0x16;
+    uint8_t value = 0;
+    if (!enlarges(game, t, str, exc, &value) || cok_character_find_effect(t, 0x39) != NULL ||
+        cok_character_find_effect(t, 0x3f) != NULL)
+        return cok_arena_say(game, t, "is unaffected", 10, true);
+    if (!cok_arena_say(game, t, "is stronger", 10, true)) return false;
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, spell, &minutes)) return false;
+    if (!queen_add_raw(game, t, 0x0c, minutes, value, true)) return false;
+    return cok_effects_ability(&game->effects, t, 0) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:0438, Reduce (0x0d): the first target (none, or a NULL one: nothing). A save of type 4 (bonus 0) is silent, and so
+ * is a target without effect 0x0c. Else the first 0x0c removed (cok_effects_remove with NULL, its handler run), the
+ * strength recomputed (1dfc), and "has been reduced" (row 10, waited). */
+static bool reduce(cok_adventure *game)
+{
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL || game->spell_target_count == 0) return true;
+    bool saved = false;
+    if (!queen_save(game, t, 4, 0, &saved)) return false;
+    if (saved || cok_character_find_effect(t, 0x0c) == NULL) return true;
+    if (!cok_effects_remove(&game->effects, t, NULL, 0x0c)) return cok_adventure_effect_failed(game);
+    if (!cok_effects_ability(&game->effects, t, 0)) return cok_adventure_effect_failed(game);
+    return cok_arena_say(game, t, "has been reduced", 10, true);
+}
+
 /* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
 
 /* c6: Heal 0x24 (0e9f, 0dc0); Sticks to Snakes 0x46 (1fcb); Cause Disease 0x28 (1068); Poison 0x44 (1f41); Harm 0x38 (1b5c); Slay Living 0x4c (223e) */
@@ -319,6 +448,10 @@ queen_spell_fn *queen_band_c_handler(uint8_t id)
     case 0x5d: return feeblemind;
 
     /* c4: Haste 0x30 (175a), Slow 0x37 (1b11) and 163f; Enlarge 0x0c (02e8); Reduce 0x0d (0438) */
+    case 0x30: return haste;
+    case 0x37: return slow;
+    case 0x0c: return enlarge;
+    case 0x0d: return reduce;
 
     /* c5: Spiritual Hammer 0x1c (08e3); Remove Curse 0x2b 0x3d 0x59 (13ef) */
 

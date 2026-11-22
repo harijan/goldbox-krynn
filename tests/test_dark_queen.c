@@ -1005,6 +1005,9 @@ static void test_magic_ids(void)
          * 2b3a's "is not %s" 8a38 and "Charmed" through DS:6550). */
         {0x87e8, "is unaffected"}, {0x87f6, "is charmed"},   {0x8843, "is held"},
         {0x89d5, "is highlighted"}, {0x8a38, "is not %s"},   {0x69d2, "Charmed"},
+        /* Band c4's texts (7fd8:175a's "is Hasted", 1b11's "is Slowed", 02e8's "is stronger", 0438's "has been reduced"). */
+        {0x8946, "is Hasted"},     {0x8950, "is Slowed"},         {0x8801, "is stronger"},
+        {0x880d, "has been reduced"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);

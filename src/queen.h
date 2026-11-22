@@ -318,6 +318,12 @@ cok_character *queen_first_target(cok_adventure *game);
 /* The memorised spells' cast bits (bit 7 of +0xce to +0x156, 0x89 bytes) cleared, as 7e76:06f6 and 7fd8:2a48 do
  * (queen_effect.c). */
 void queen_clear_cast_spells(const cok_character_layout *L, uint8_t *record);
+/* 148f:1bc6 (c, id, &cured): the first effect id on c is said "is Cured" (row 10, waited) and removed; cured is whether
+ * one was found (queen_cast.c). Haste and Slow (queen_band_c.c) take it; band c5 and c6 do too. False where the run stopped. */
+bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured);
+/* 148f:19c2 (c, id, minutes, value, flag), the raw add of an effect (queen_effect.c's: a full pool stops, cited). Enlarge
+ * (queen_band_c.c) adds its 0x0c this way. False where the run stopped. */
+bool queen_add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes, uint8_t value, bool on_remove);
 /* The Fireball family's routine (dqk 7fd8:1519: Fireball 0x2f, Delayed Blast Fireball 0x73, Necklace of Missiles 0x85;
  * the underwater Lightning 0x33's area is band b3's call of it), for queen_area.c's table and its tests. */
 bool queen_fireball(cok_adventure *game);

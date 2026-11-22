@@ -240,7 +240,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "effects_1", "effects_2", "effects_4",
+                 "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "effects_1", "effects_2", "effects_4",
                  "effects_3")
 
 
@@ -6297,6 +6297,130 @@ def band_c3(v, work, opts):
     glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
     wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
     band_c3_fumble(v, work, wild, opts)
+# Band c4's Haste and Enlarge (step 4, part 32d: 7fd8:175a and 02e8, queen_band_c.c). Haste (time 1): saved game A with
+# BALTHIR memorising Haste (+0xce 0x30) and nothing else: C, C (WALKER's menu), E (WALKER's End: his pending Haste at its Aim),
+# then T on his own cell: the list of 4 (BALTHIR, WALKER, TIMASALIN, ROLAND; the Ice Storm's area) with the count 2 (his mage
+# level, class 4 ranger 10 less 8): the first two take 0x27 (5 minutes, value 0x22: the level and 0x20 from the event 0x12's
+# first run), the other two are dropped with no node. Enlarge (time 0): BALTHIR memorising Enlarge (+0xce 0x0c): C, C (the Aim
+# at once), then T: "is unaffected" (no node): his base strength at +0x78 and exceptional at +0x85 refuse it (148f:1c87 with
+# strength 18 and level 2's exceptional 1: refused when +0x78 is 18 or more and +0x85 is 1 or more).
+BAND_C4_HASTE = 0x30
+BAND_C4_ENLARGE = 0x0C
+BAND_C4_HASTE_TAIL = (47, 0xB84994E9)   # the tail after T: 47 draws past the menu (the Aim's 3, the event 9 draws, the flashes)
+BAND_C4_HASTE_NODE = (0x27, 5, 0x22, 0) # BALTHIR's and WALKER's new node: haste, 5 minutes, value 0x22, flag 0
+BAND_C4_HASTE_MEMO = BAND_C4_HASTE | CAST_FORGOTTEN     # BALTHIR's +0xce after Haste (0xb0)
+BAND_C4_HASTE_MARK = "03"               # eclplay's turn mark of Haste's tail (the turn's marks 01 and 02 come before it)
+BAND_C4_ENLARGE_AIM = (1, 0xEB831397)   # C, C: the Aim at once, one draw past the menu
+BAND_C4_ENLARGE_TAIL = (2, 0xD9491FD4)  # T: the tail, 2 draws past the menu
+BAND_C4_ENLARGE_MEMO = BAND_C4_ENLARGE | CAST_FORGOTTEN  # BALTHIR's +0xce after Enlarge (0x8c)
+BAND_C4_ENLARGE_MARK = "01"             # eclplay's turn mark of Enlarge's tail (it is the turn's first)
+BAND_C4_ENLARGE_NODE = BAND_C4_ENLARGE  # the effect Enlarge adds (0x0c)
+BAND_C4_STRENGTH = 0x78                 # BALTHIR's base strength (+0x78) and base exceptional strength (+0x85)
+BAND_C4_EXCEPTIONAL_BASE = 0x85
+
+
+def band_c4_haste_save():
+    """Saved game A with BALTHIR memorising Haste (+0xce 0x30) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C4_HASTE}})
+
+
+def band_c4_enlarge_save():
+    """Saved game A with BALTHIR memorising Enlarge (+0xce 0x0c) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_C4_ENLARGE}})
+
+
+def band_c4_enlarge_run(box, menu, work, tag):
+    """C, C (the Aim at once: BALTHIR's own Enlarge, one draw), then T: the tail (5045:066a)."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_c4_haste(v, work, wild, opts):
+    """Haste on the area (the flow band_c4, Haste): the draws at WALKER's menu and at BALTHIR's pending Haste, the tail (47
+    draws past the menu, b84994e9); BALTHIR and WALKER hold the new node, TIMASALIN and ROLAND none; the byte forgotten.
+    eclplay's turn mark 03 agrees with the original's on RandSeed, records, blocks and effect chains."""
+    save = band_c4_haste_save()
+    o = cast_original(work, wild, save, "band-c4-haste", opts.verbose, cast_run_clw)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c4-haste-save", save)
+    nxt, aim, tail = o["next"], o["aim"], o["tail"]
+    draws = L.draws(m0, nxt["seed"])
+    v.check((draws, nxt["seed"]) == CAST_CLW_NEXT, f"the original's RandSeed at WALKER's menu after C, C (Haste: Begins "
+            f"Casting) is {CAST_CLW_NEXT[0]} draws past BALTHIR's menu, at {CAST_CLW_NEXT[1]:#x}",
+            f"{draws} draws, {nxt['seed']:#x}")
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == CAST_CLW_AIM, f"the original's RandSeed at BALTHIR's pending Haste at its Aim (after "
+            f"WALKER's End) is {CAST_CLW_AIM[0]} draws past the menu, at {CAST_CLW_AIM[1]:#x}",
+            f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C4_HASTE_TAIL, f"the original's tail after T (Haste on the area) is "
+            f"{BAND_C4_HASTE_TAIL[0]} draws past the menu, at {BAND_C4_HASTE_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    hasted = {k: [n for n in tail["chains"][k] if n[0] == BAND_C4_HASTE_NODE[0]] for k in (CAST_BALTHIR, CAST_WALKER)}
+    v.check(all(len(hasted[k]) == 1 and tuple(hasted[k][0]) == BAND_C4_HASTE_NODE for k in hasted),
+            "BALTHIR and WALKER hold the haste node (0x27, 5 minutes, value 0x22, flag 0) at the tail",
+            f"{ {k: tail['chains'][k] for k in hasted} }")
+    dropped = (CAST_TIMASALIN, CAST_ROLAND)
+    v.check(all(not any(n[0] == BAND_C4_HASTE_NODE[0] for n in tail["chains"][k]) for k in dropped),
+            "TIMASALIN and ROLAND (the third and fourth listed) hold no haste node: the count of 2 is spent (TIMASALIN's "
+            "0x5f is his own)", f"{ {k: tail['chains'][k] for k in dropped} }")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C4_HASTE_MEMO, f"at the tail BALTHIR's Haste is forgotten (+0xce {BAND_C4_HASTE_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c4-haste", "CCET", entry=entry)
+    mark = cast_mark(p, BAND_C4_HASTE_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C4_HASTE_MARK}) after C, C, E and T", p["last"])
+        return
+    command_state(v, "Haste's tail (the turn's tail, 03)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Haste's tail, turn mark 03)")
+    marked = ported_records(mark)
+    v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_C4_HASTE_MEMO,
+            f"eclplay's tail after Haste: BALTHIR's Haste forgotten (+0xce {BAND_C4_HASTE_MEMO:#x})",
+            f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_c4_enlarge(v, work, wild, opts):
+    """Enlarge on BALTHIR himself (the flow band_c4, Enlarge): the draw at the Aim and the tail (2 draws past the menu,
+    d9491fd4), no node (148f:1c87 refuses: his base strength and exceptional strength read here, the test named), the
+    byte forgotten. eclplay's turn mark 01 agrees with the original's chains and RandSeed."""
+    save = band_c4_enlarge_save()
+    o = cast_original(work, wild, save, "band-c4-enlarge", opts.verbose, band_c4_enlarge_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-c4-enlarge-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_C4_ENLARGE_AIM, f"the original's RandSeed at BALTHIR's Enlarge at its Aim (C, C) is "
+            f"{BAND_C4_ENLARGE_AIM[0]} draw past the menu, at {BAND_C4_ENLARGE_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_C4_ENLARGE_TAIL, f"the original's tail after T (Enlarge) is "
+            f"{BAND_C4_ENLARGE_TAIL[0]} draws past the menu, at {BAND_C4_ENLARGE_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(not any(n[0] == BAND_C4_ENLARGE_NODE for n in tail["chains"][CAST_BALTHIR]),
+            "BALTHIR holds no strength node at the tail (\"is unaffected\")", f"{tail['chains'][CAST_BALTHIR]}")
+    base = rec_byte(tail["records"][CAST_BALTHIR], BAND_C4_STRENGTH)
+    exceptional = rec_byte(tail["records"][CAST_BALTHIR], BAND_C4_EXCEPTIONAL_BASE)
+    v.check(base >= 0x12 and exceptional >= 1, "148f:1c87 refuses at level 2 (strength 18): his base strength is 18 or "
+            "more and his base exceptional 1 or more (not below the value's 1)", f"+0x78 {base:#x}, +0x85 {exceptional:#x}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_C4_ENLARGE_MEMO, f"at the tail BALTHIR's Enlarge is forgotten (+0xce {BAND_C4_ENLARGE_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-c4-enlarge", "CCT", entry=entry)
+    mark = cast_mark(p, BAND_C4_ENLARGE_MARK)
+    if not mark["base"].with_suffix(".records").exists():
+        v.check(False, f"eclplay writes BALTHIR's turn mark ({BAND_C4_ENLARGE_MARK}) after C, C and T", p["last"])
+        return
+    command_state(v, "Enlarge's tail (the turn's tail, 01)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), " (Enlarge's tail, turn mark 01)")
+    print(f"eclplay (band c4, enlarge) ends {p['last']!r}", flush=True)
+
+
+def band_c4(v, work, opts):
+    """Band c4's Haste and Enlarge (part 32d), the flow band_c4: Haste on the area and Enlarge on BALTHIR, each against the
+    original's tail and eclplay's turn mark (band_c4_haste, band_c4_enlarge)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_c4_haste(v, work, wild, opts)
+    band_c4_enlarge(v, work, wild, opts)
 
 
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
@@ -6660,6 +6784,8 @@ def main():
         band_c2(v, work, opts)
     if "band_c3" in flows:
         band_c3(v, work, opts)
+    if "band_c4" in flows:
+        band_c4(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:

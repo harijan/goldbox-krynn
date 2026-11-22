@@ -2101,8 +2101,9 @@ static void test_plain_apply(void)
                   id == 0x3f || id == 0x60 || id == 0x1b; /* queen_band_c.c's c1 */
         bool c2 = id == 0x15 || id == 0x4e || id == 0x52 || id == 0x54; /* queen_area.c's band c2 */
         bool c3 = id == 0x56 || id == 0x5d; /* queen_band_c.c's c3 */
+        bool c4 = id == 0x30 || id == 0x37 || id == 0x0c || id == 0x0d; /* queen_band_c.c's c4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
-              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3)); /* 0x5c: band b4, 0x7c: b5 */
+              (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 || c4)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x1c) == NULL); /* Spiritual Hammer: 7fd8:08e3, unported */
     cok_character *a, *t;
@@ -6329,6 +6330,330 @@ static void test_effects_berserk(void)
     battle_clear();
 }
 
+/* c4 (part 32d): Haste and Slow (queen_band_c.c: 163f, 175a, 1b11), Enlarge (02e8) and Reduce (0438). The caster is the
+ * battle's A at 5, 5, of the mage's kind (2): its level is class 5 (c4_level), and class 4 at 8 keeps the non-caster
+ * rule off, so a level of 0 is 0. Targets are placed records of a side (c4_target). Each save is the seed's d20. */
+
+static cok_character *c4_target(char name, int8_t x, int8_t y, uint8_t hostile)
+{
+    cok_character *t = record(name, hostile, 0);
+    place(t, x, y);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+    return t;
+}
+
+static void c4_level(cok_character *a, uint8_t lv)
+{
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, lv);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 8);
+}
+
+static bool c4_run(uint8_t spell)
+{
+    queen_spell_fn *handler = queen_spell_handler(spell);
+    return handler != NULL && handler(&game) && game.vm.status == COK_ECL_OK;
+}
+
+static unsigned c4_count(const cok_character *t, uint8_t id)
+{
+    unsigned n = 0;
+    for (const cok_effect *e = t->effects; e != NULL; e = e->next) n += e->id == id;
+    return n;
+}
+
+/* 163f's order, side and count: the caster's level (2) is the count of targets on its side that take the effect; those
+ * past it, and those on the other side, are dropped. Each hasted one is said "is Hasted" once, and gets event 0x12: the
+ * haste's first run ages it a year and sets 0x20 in its value (effects-3's haste). Mutants: the side filter ignored (T4
+ * hasted), n read as 3 (T3 hasted), the event 0x12 left out (no 0x20, no age). */
+static void test_band_c4_hasten(void)
+{
+    cok_character *a = holds_caster(), *t1, *t2, *t3, *t4;
+    c4_level(a, 2);
+    t1 = c4_target('T', 6, 5, 0);
+    t2 = c4_target('U', 7, 5, 0);
+    t3 = c4_target('V', 8, 5, 0);
+    t4 = c4_target('W', 9, 5, 1);
+    cok_field_set16(R->character, t1->record, COK_FIELD_AGE, 40);
+    cok_character *list[4] = {t1, t2, t3, t4};
+    set_targets(a, 0x30, list, 4);
+    game.effects.rolls.images = 0;
+    CHECK(c4_run(0x30));
+    CHECK(game.effects.rolls.images == 1); /* 7fd8:1645 */
+    CHECK(c4_count(t1, 0x27) == 1 && c4_count(t2, 0x27) == 1);
+    CHECK(c4_count(t3, 0x27) == 0 && c4_count(t4, 0x27) == 0);
+    CHECK(game.spell_targets[3] == NULL && game.spell_targets[4] == NULL);
+    CHECK(count_of("is Hasted") == 2);
+    cok_effect *e = cok_character_find_effect(t1, 0x27);
+    CHECK(e != NULL && (e->value & 0x20) != 0 && LOGGED("ages"));
+    e = cok_character_find_effect(t2, 0x27); /* event 0x12 on each slot left, not the first only */
+    CHECK(e != NULL && (e->value & 0x20) != 0 && count_of("ages") == 2);
+    CHECK(cok_field_u16(R->character, t1->record, COK_FIELD_AGE) == 41);
+    battle_clear();
+
+    /* The cure: a holder of 0x2a (Slow) on T1 is cured ("is Cured") and dropped, and its count spent: T2 takes the second
+     * count (0x27 on T2 only), and T3 finds none left and is dropped. */
+    a = holds_caster();
+    c4_level(a, 2);
+    t1 = c4_target('T', 6, 5, 0);
+    t2 = c4_target('U', 7, 5, 0);
+    t3 = c4_target('V', 8, 5, 0);
+    CHECK(cok_character_add_effect(t1, 0x2a, 0, 0, true) != NULL); /* applied_only: its removal runs only when on remove */
+    cok_character *list2[3] = {t1, t2, t3};
+    set_targets(a, 0x30, list2, 3);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(t1, 0x2a) == 0 && c4_count(t1, 0x27) == 0 && LOGGED("is Cured"));
+    CHECK(c4_count(t2, 0x27) == 1 && c4_count(t3, 0x27) == 0);
+    battle_clear();
+
+    /* A globe 0x39 holder on the caster's side: the event 9 pass (level 3, magic) cancels the pending 0x2a, so the entry
+     * is kept and no count is spent: G and U (the next, with the last count of 1) are both hasted. Mutant: the count spent
+     * before the event (U dropped). */
+    a = holds_caster();
+    c4_level(a, 1);
+    cok_character *g = c4_target('G', 6, 5, 0), *u = c4_target('U', 7, 5, 0);
+    CHECK(cok_character_add_effect(g, 0x39, 0, 0, false) != NULL);
+    cok_character *list3[2] = {g, u};
+    set_targets(a, 0x30, list3, 2);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(g, 0x27) == 1 && c4_count(g, 0x39) == 1 && c4_count(u, 0x27) == 1);
+    CHECK(count_of("is Hasted") == 2);
+    battle_clear();
+
+    /* The event comes before the cure: a globe holder that also holds Slow (0x2a) is cancelled at event 9, so it is not
+     * cured, keeps its 0x2a and is hasted (both nodes). Mutant: the cure before the event (G cured and dropped). */
+    a = holds_caster();
+    c4_level(a, 1);
+    g = c4_target('G', 6, 5, 0);
+    CHECK(cok_character_add_effect(g, 0x39, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(g, 0x2a, 0, 0, true) != NULL);
+    set_targets(a, 0x30, (cok_character *[]){g}, 1);
+    CHECK(c4_run(0x30));
+    CHECK(c4_count(g, 0x2a) == 1 && c4_count(g, 0x27) == 1 && !LOGGED("is Cured") && game.spell_targets[1] == g);
+    battle_clear();
+
+    /* A count of 0 (the caster's level 0): nothing on the targets is hasted, and the spell's apply adds nothing. */
+    a = holds_caster();
+    c4_level(a, 0);
+    t1 = c4_target('T', 6, 5, 0);
+    set_targets(a, 0x30, (cok_character *[]){t1}, 1);
+    CHECK(c4_run(0x30) && c4_count(t1, 0x27) == 0 && !LOGGED("is Hasted"));
+    battle_clear();
+}
+
+/* 7fd8:1b11, Slow: the target t[1] holding 0x96 (kept whatever the count, here 0) stops it with no draw; else the other side
+ * (the caster's 0 gives side 1) is slowed, the others dropped. A NULL or freed t[1] stops (queen_first_target). Mutant: t[1]
+ * not read when the count is 0 (the 0x96 test skipped: the slow would run on nothing and say nothing: "is Slowed" is
+ * logged on a 0x96 holder). */
+static void test_band_c4_slow(void)
+{
+    cok_character *a = holds_caster(), *s = c4_target('S', 6, 5, 1), *f = c4_target('F', 7, 5, 0);
+    c4_level(a, 2);
+    cok_character *list[2] = {s, f};
+    set_targets(a, 0x37, list, 2);
+    CHECK(c4_run(0x37));
+    CHECK(c4_count(s, 0x2a) == 1 && c4_count(f, 0x2a) == 0 && game.spell_targets[2] == NULL);
+    CHECK(LOGGED("is Slowed") && count_of("is Slowed") == 1);
+    battle_clear();
+
+    /* A holder of 0x96 in t[1] with an empty count: nothing, no text. */
+    a = holds_caster();
+    s = c4_target('S', 6, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x96, 0, 0, false) != NULL);
+    game.vm.character = a->record;
+    game.spell_targets[1] = s;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x37;
+    CHECK(c4_run(0x37) && game.vm.status == COK_ECL_OK && !LOGGED("is Slowed") && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* The same with a count of 2: 1b11 returns before 163f, so the second target (on the slowed side) is not slowed, the
+     * images flag is left as it was and nothing is drawn. Mutant: the 0x96 test left out. */
+    a = holds_caster();
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    cok_character *s2 = c4_target('R', 7, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x96, 0, 0, false) != NULL);
+    set_targets(a, 0x37, (cok_character *[]){s, s2}, 2);
+    game.effects.rolls.images = 0;
+    game.vm.seed = 7;
+    CHECK(c4_run(0x37) && c4_count(s2, 0x2a) == 0 && !LOGGED("is Slowed"));
+    CHECK(game.effects.rolls.images == 0 && game.vm.seed == 7);
+    battle_clear();
+
+    /* An empty count with t[1] (kept) holding no 0x96: 163f runs on nothing, but its images flag is set. Mutant: the
+     * empty count returning before 163f. */
+    a = holds_caster();
+    s = c4_target('S', 6, 5, 1);
+    game.vm.character = a->record;
+    game.spell_targets[1] = s;
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x37;
+    game.effects.rolls.images = 0;
+    CHECK(c4_run(0x37) && game.effects.rolls.images == 1 && !LOGGED("is Slowed") && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* Slow cures Haste (0x27, 1b11's id): a hasted holder on the slowed side is "is Cured" and dropped, not slowed.
+     * Mutant: Slow passing Haste's 0x2a. */
+    a = holds_caster();
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    CHECK(cok_character_add_effect(s, 0x27, 0, 0, true) != NULL);
+    set_targets(a, 0x37, (cok_character *[]){s}, 1);
+    CHECK(c4_run(0x37) && LOGGED("is Cured") && c4_count(s, 0x27) == 0 && c4_count(s, 0x2a) == 0);
+    CHECK(game.spell_targets[1] == NULL && !LOGGED("is Slowed"));
+    battle_clear();
+
+    /* The caster on side 1: the other side is 0, so the side 0 holder is slowed and the side 1 one dropped. */
+    a = holds_caster();
+    cok_field_set8(R->character, a->record, COK_FIELD_HOSTILE, 1);
+    c4_level(a, 2);
+    s = c4_target('S', 6, 5, 1);
+    f = c4_target('F', 7, 5, 0);
+    cok_character *list2[2] = {f, s};
+    set_targets(a, 0x37, list2, 2);
+    CHECK(c4_run(0x37));
+    CHECK(c4_count(f, 0x2a) == 1 && c4_count(s, 0x2a) == 0);
+    battle_clear();
+
+    /* A NULL first target stops (undefined). */
+    a = holds_caster();
+    game.spell_target_count = 0;
+    game.spell_targets[1] = NULL;
+    game.effects.rolls.spell = 0x37;
+    CHECK(!c4_run(0x37) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* 7fd8:02e8, Enlarge: the strength value added by the level (uncapped): 1 to 6 are 18 with exceptional 0, 1, 0x33, 0x4c,
+ * 0x5b, 0x64 (value exc + 1); 7 to 9 are 19 to 21 (value str + 100); 0 and 10 and up are 22. The effect 0x0c lasts lv * 10
+ * minutes, on remove, and says "is stronger". Mutant: level 0 as level 1 (value 1, not 0x7a). */
+static void test_band_c4_enlarge(void)
+{
+    static const uint8_t want[11] = {0x7a, 1, 2, 0x34, 0x4d, 0x5c, 0x65, 0x77, 0x78, 0x79, 0x7a};
+    for (unsigned lv = 0; lv <= 10; ++lv) {
+        cok_character *a = holds_caster();
+        c4_level(a, (uint8_t)lv);
+        cok_character *t = c4_target('T', 6, 5, 0);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c));
+        cok_effect *e = cok_character_find_effect(t, 0x0c);
+        CHECK(e != NULL && e->value == want[lv] && e->duration == lv * 10 && e->on_remove && LOGGED("is stronger"));
+        battle_clear();
+    }
+
+    /* A base 19 holder: 18 does not raise it (19 is not below 18), 18/xx does when its base exceptional is below the
+     * value's (level 2: 1); 19 (level 7) does not, 20 (level 8) does with 120. Its exceptional at 1 is not below 1. */
+    cok_character *a = holds_caster(), *t;
+    c4_level(a, 2);
+    t = c4_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+    cok_field_set8(R->character, t->record, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, 0);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    CHECK(c4_run(0x0c) && cok_character_find_effect(t, 0x0c)->value == 2);
+    battle_clear();
+    for (unsigned k = 0; k < 3; ++k) {
+        uint8_t lv = k == 0 ? 2 : k == 1 ? 7 : 1; /* 18 with exceptional 1 (not below 1); 19; 18 with 0 (not below 0) */
+        a = holds_caster();
+        c4_level(a, lv);
+        t = c4_target('T', 6, 5, 0);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+        cok_field_set8(R->character, t->record, COK_FIELD_STRENGTH_EXCEPTIONAL_BASE, k == 0 ? 1 : 0);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 0 && LOGGED("is unaffected"));
+        battle_clear();
+    }
+    a = holds_caster();
+    c4_level(a, 8);
+    t = c4_target('T', 6, 5, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE_BASE, 0, 19);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SCORE, 0, 19);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    game.vm.seed = 7;
+    CHECK(c4_run(0x0c) && cok_character_find_effect(t, 0x0c)->value == 120);
+    /* 148f:1dfc (02e8's last call): the strength is 20 now; "is stronger"'s wait is the one draw. */
+    CHECK(cok_field_u8_at(R->character, t->record, COK_FIELD_SCORE, 0) == 20 && game.vm.seed == after_draws(7, 1, 20));
+    battle_clear();
+
+    /* A holder of a globe (0x39 or 0x3f) is "is unaffected": no effect added. */
+    for (unsigned k = 0; k < 2; ++k) {
+        a = holds_caster();
+        c4_level(a, 2);
+        t = c4_target('T', 6, 5, 0);
+        CHECK(cok_character_add_effect(t, k == 0 ? 0x39 : 0x3f, 0, 0, false) != NULL);
+        set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+        CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 0 && LOGGED("is unaffected"));
+        battle_clear();
+    }
+
+    /* A second node: a holder of 0x0c keeps its own and gets another (the raw add). */
+    a = holds_caster();
+    c4_level(a, 2);
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0c, (cok_character *[]){t}, 1);
+    CHECK(c4_run(0x0c) && c4_count(t, 0x0c) == 2);
+    battle_clear();
+
+    /* A NULL first target stops. */
+    a = holds_caster();
+    game.spell_target_count = 0;
+    game.spell_targets[1] = NULL;
+    game.effects.rolls.spell = 0x0c;
+    CHECK(!c4_run(0x0c) && game.vm.status == COK_ECL_UNDEFINED);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    battle_clear();
+}
+
+/* 7fd8:0438, Reduce: a save of type 4 (a roll of 12 saves a 10; 9 does not, and 20 saves outright) is silent; with no 0x0c
+ * the target is silent; else the first 0x0c goes and "has been reduced" is said. A count of 0 or no target: no draw. */
+static void test_band_c4_reduce(void)
+{
+    cok_character *a = holds_caster(), *t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c4_run(0x0d) && c4_count(t, 0x0c) == 2 && !LOGGED("has been reduced"));
+    battle_clear();
+
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    uint32_t seed = seed_from(1, (const unsigned[]){20, 9, 9});
+    game.vm.seed = seed;
+    CHECK(c4_run(0x0d) && c4_count(t, 0x0c) == 1 && LOGGED("has been reduced"));
+    CHECK(game.vm.seed == after_draws(seed, 2, 20)); /* the save's d20 and the say's wait */
+    battle_clear();
+
+    /* No 0x0c: silent (the save's one draw is the only one). */
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed;
+    CHECK(c4_run(0x0d) && !LOGGED("has been reduced") && c4_count(t, 0x0c) == 0);
+    CHECK(game.vm.seed == after_draws(seed, 1, 20)); /* the save comes first (0x0464), then 1734 */
+    battle_clear();
+
+    /* No target (the count 0) and a NULL first one: nothing, no draw. */
+    a = holds_caster();
+    t = c4_target('T', 6, 5, 0);
+    CHECK(cok_character_add_effect(t, 0x0c, 0, 0, true) != NULL);
+    set_targets(a, 0x0d, (cok_character *[]){t}, 0);
+    game.spell_targets[1] = t;
+    game.vm.seed = 7;
+    CHECK(c4_run(0x0d) && game.vm.seed == 7 && c4_count(t, 0x0c) == 1);
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 1;
+    CHECK(c4_run(0x0d) && game.vm.seed == 7 && c4_count(t, 0x0c) == 1);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -6460,6 +6785,10 @@ int main(void)
     test_band_c3_feeblemind_shift();
     test_effects_feeblemind();
     test_effects_berserk();
+    test_band_c4_hasten();
+    test_band_c4_slow();
+    test_band_c4_enlarge();
+    test_band_c4_reduce();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

@@ -176,7 +176,7 @@ DQK_SPLIT = {
                   "icons", "dispatch", "keys", "altq_missile", "turns", "round", "melee", "melee-long",
                   "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                   "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
-                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "effects_1", "effects_2", "effects_4", "effects_3"],
+                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "effects_1", "effects_2", "effects_4", "effects_3"],
     "dqk_treasure": ["won", "fled", "lost", "pool", "bonus", "zero", "negative", "rest", "gentle",
                      "fledmix", "enemy", "enemyout", "enemyhigh", "take", "share", "gather", "overload",
                      "takeall", "items", "takeitems", "takeboth", "lost9"],
