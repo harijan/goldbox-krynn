@@ -649,7 +649,7 @@ static bool queen_cure_druid(cok_adventure *game)
 
 /* 148f:1bc6 (c, id, &cured): the first effect id on c (177e:1734) is said "is Cured" (row 10, waited) and removed
  * as cok_effects_remove does (its handler if the effect asks for one); cured is whether it was found. */
-static bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured)
+bool queen_cure(cok_adventure *game, cok_character *c, uint8_t id, bool *cured)
 {
     cok_effect *effect = cok_character_find_effect(c, id);
     *cured = effect != NULL;

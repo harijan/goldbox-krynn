@@ -68,6 +68,12 @@ static bool add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t 
     return false;
 }
 
+/* 148f:19c2 for band c's Enlarge (queen_band_c.c): add_raw. */
+bool queen_add_raw(cok_adventure *game, cok_character *c, uint8_t id, uint16_t minutes, uint8_t value, bool on_remove)
+{
+    return add_raw(game, c, id, minutes, value, on_remove);
+}
+
 /* 78e4:00bf (c, id, value, minutes), "again": while the curing flag (DS:b184) is set, nothing is added
  * (*added false); otherwise the effect is added with flag 1 (add_raw). */
 static bool __attribute__((unused)) again(cok_adventure *game, cok_character *c, uint8_t id,
