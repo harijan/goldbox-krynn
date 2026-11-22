@@ -653,7 +653,8 @@ static void test_forget(void)
 
 /* A swing's attacker: one party record with slot 1's two attacks, 1d4 with no bonus, thac0 10, and
  * a target beside it, a monster of 10 hit points, both up (record() leaves ACTIVE 0). Var 0x12 (the
- * speed) is 0, so the waits draw nothing. */
+ * speed) is 0, so the swing's waits (1a62:0949, 100 ms times var 0x12) draw nothing; a wait for the
+ * speed's time (1a62:0960, DS:1cd8's 10 ms at speed 0) still draws its random(1000). */
 static void duel_at(cok_character **a, cok_character **t, int8_t tx, int8_t ty)
 {
     battle_clear();
@@ -5431,6 +5432,15 @@ static void test_band_c1_forced(void)
     CHECK(c1_run(0x17) && held(t) == NULL && LOGGED("is Unaffected"));
     battle_clear();
 
+    /* Hold Person's other id (0x31) forces the race 7 too: 12 - 3 = 9 would hold it. */
+    a = holds_caster();
+    t = hold_target('T', 6, 5, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
+    set_targets(a, 0x31, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
+    CHECK(c1_run(0x31) && held(t) == NULL && LOGGED("is Unaffected"));
+    battle_clear();
+
     a = holds_caster();
     t = hold_target('T', 6, 5, 10);
     cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
@@ -5448,25 +5458,50 @@ static void test_band_c1_forced(void)
     battle_clear();
 }
 
-/* A creature without flag 0x40 is forced under Hold Animal (0x6c): saved outright. */
+/* A creature without flag 0x40 is forced under Hold Animal (0x6c): saved outright, though its roll of 12 less 4 (0xfc) fails
+ * 10. (A roll of 2 would not show it: 2 + 0xfc wraps to 0xfe as a byte, 148f:1923, and saves.) Then Hold Animal's bonus by
+ * the count on animals (2: 0xfe, 3: 0xff, 4: 0): the last listed target's roll (the seed's first d20) at the bonus's
+ * threshold saves it and one below holds it. */
 static void test_band_c1_animal_forced(void)
 {
     cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 10);
     set_targets(a, 0x6c, (cok_character *[]){t}, 1);
-    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 2});
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
     CHECK(c1_run(0x6c) && held(t) == NULL && LOGGED("is Unaffected"));
     battle_clear();
+
+    for (unsigned n = 2; n <= 4; ++n)
+        for (unsigned below = 0; below < 2; ++below) {
+            unsigned roll = 10 + (4 - n) - below; /* 10 less the bonus (2, 1, 0), less one */
+            a = holds_caster();
+            cok_character *ts[4];
+            for (unsigned i = 0; i < n; ++i) {
+                ts[i] = hold_target((char)('T' + i), (int8_t)(6 + i), 5, 10);
+                cok_field_set8_at(R->character, ts[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40);
+            }
+            set_targets(a, 0x6c, ts, n);
+            game.vm.seed = seed_from(1, (const unsigned[]){20, roll, roll});
+            CHECK(c1_run(0x6c));
+            CHECK((held(ts[n - 1]) != NULL) == (below == 1));
+            battle_clear();
+        }
 }
 
-/* A holder of effect 0x96 saves against the holds (849a:1e0d's test), whatever its roll. */
+/* A holder of effect 0x96 saves against the holds (849a:1e0d's test: 0x17, 0x31 and 0x5e), whatever its roll; not against
+ * Hold Animal (0x6c, on an animal). A save of 21 and a roll of 5 to 19 hold it unforced (no byte wrap: 5 - 4 is 1). */
 static void test_band_c1_effect_96(void)
 {
-    cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 10);
-    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
-    set_targets(a, 0x5e, (cok_character *[]){t}, 1);
-    game.vm.seed = seed_from(1, (const unsigned[]){20, 12, 12});
-    CHECK(c1_run(0x5e) && held(t) == NULL); /* 12 - 3 = 9 would hold: the 0x96 holder is saved */
-    battle_clear();
+    static const uint8_t spells[4] = {0x17, 0x31, 0x5e, 0x6c};
+    for (unsigned k = 0; k < 4; ++k) {
+        cok_character *a = holds_caster(), *t = hold_target('T', 6, 5, 21);
+        if (spells[k] == 0x6c) cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x40);
+        CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+        set_targets(a, spells[k], (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 5, 19});
+        CHECK(c1_run(spells[k]));
+        CHECK((held(t) == NULL) == (spells[k] != 0x6c));
+        battle_clear();
+    }
 }
 
 /* 7fd8:2396 (Faerie Fire 0x4f): the last listed target is "is Unaffected" with no roll, though the first d20 of the seed (2
@@ -5506,6 +5541,20 @@ static void test_band_c1_charm_monsters(void)
     CHECK(e != NULL && (e->value & 0x1f) == lv && e->on_remove && npc_of(t) == 0xb3 && computer(t) == 1);
     CHECK(LOGGED("is charmed"));
     battle_clear();
+
+    /* The caster's side (+0x66 1) in bit 7 of the holds' value: side 1 after the run. */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    cok_combat_set_field_word(R, a->record, COK_FIELD_HOSTILE, 1);
+    t = hold_target('T', 6, 5, 21);
+    u = hold_target('U', 7, 5, 21);
+    cok_character *list2[2] = {t, u};
+    set_targets(a, 0x51, list2, 2);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x51));
+    e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x80) != 0 && side_of(t) == 1);
+    battle_clear();
 }
 
 /* 7fd8:022a (Charm Person 0x0a): race 7 with no flag 2, or a size above 1, is "is unaffected" (lower case) and no charm;
@@ -5518,7 +5567,20 @@ static void test_band_c1_charm_person(void)
     t = hold_target('T', 6, 5, 21);
     cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
     set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    uint32_t before = game.vm.seed;
     CHECK(c1_run(0x0a) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    cok_tp_random(&before, 1000); /* the say's wait (the speed's 10 ms): one random(1000) */
+    CHECK(game.vm.seed == before);
+    battle_clear();
+
+    /* Race 8 with no flag 2: not refused (the test is race 7 alone, not 2b3a's 7 or more). */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 8);
+    set_targets(a, 0x0a, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 2, 19});
+    CHECK(c1_run(0x0a) && !LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) != NULL);
     battle_clear();
 
     a = holds_caster();
@@ -5566,6 +5628,18 @@ static void test_band_c1_charm_mammal(void)
     t = hold_target('T', 6, 5, 21);
     cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 7);
     cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+    set_targets(a, 0x60, (cok_character *[]){t}, 1);
+    uint32_t before = game.vm.seed;
+    CHECK(c1_run(0x60) && LOGGED("is not Charmed") && cok_character_find_effect(t, 0x0b) == NULL);
+    cok_tp_random(&before, 1000); /* the say's wait: one random(1000) */
+    CHECK(game.vm.seed == before);
+    battle_clear();
+
+    /* Race 8 with no flag 2: refused too (7 or more, signed). */
+    a = holds_caster();
+    set_class(a, 5, 5);
+    t = hold_target('T', 6, 5, 21);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_RACE, 8);
     set_targets(a, 0x60, (cok_character *[]){t}, 1);
     CHECK(c1_run(0x60) && LOGGED("is not Charmed") && cok_character_find_effect(t, 0x0b) == NULL);
     battle_clear();
@@ -5625,6 +5699,21 @@ static void test_band_c1_snakes(void)
     CHECK(game.spell_target_count == 1 && game.spell_targets[1] == a);
     CHECK(cok_character_find_effect(a, 0x33) != NULL && cok_character_find_effect(s[0], 0x33) == NULL);
     battle_clear();
+
+    /* A snake not active (+0x18b 0) and one already held (0x33) are skipped: only the third (1 hit point each) is listed. */
+    holds_caster();
+    for (unsigned i = 0; i < 3; ++i) {
+        s[i] = hold_target((char)('S' + i), (int8_t)(8 + i), 5, 21);
+        cok_field_set8_at(R->character, s[i]->record, COK_FIELD_CREATURE_FLAGS, 0, 0x10);
+        cok_field_set8(R->character, s[i]->record, COK_FIELD_HIT_POINTS, 1);
+    }
+    cok_field_set8(R->character, s[0]->record, COK_FIELD_ACTIVE, 0);
+    CHECK(cok_character_add_effect(s[1], 0x33, 0, 0, false) != NULL);
+    game.spell_target_count = 0;
+    game.effects.rolls.spell = 0x1b;
+    CHECK(c1_run(0x1b));
+    CHECK(game.spell_target_count == 1 && game.spell_targets[1] == s[2]);
+    battle_clear();
 }
 
 /* 0x47 (Faerie Fire's effect, 78e4:10a6): its applied flag only: applied, AC and AC behind 2 worse (raw bytes +0x18e and
@@ -5635,7 +5724,7 @@ static void test_band_c1_row_47(void)
     duel(&a, &t);
     t->record[0x18e] = 50;
     t->record[0x18f] = 60;
-    cok_effect *e = cok_character_add_effect(t, 0x47, 0, 0xfe, false);
+    cok_effect *e = cok_character_add_effect(t, 0x47, 0, 0xfe, true); /* on remove: the removal runs it, flag 1 */
     CHECK(e != NULL);
     CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.vm.status == COK_ECL_OK);
     CHECK(t->record[0x18e] == 48 && t->record[0x18f] == 58);
