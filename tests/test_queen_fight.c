@@ -4115,6 +4115,19 @@ static void test_band_d_fire_absorb(void)
     band_d_rolls(36, 1, 10);
     CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
     CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    /* Absorbed with less than 12 left (36 against 30: 6 / 12 is 0): nothing gets through and the node goes (2087 jne). */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(30, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    /* The compare is signed (205c jle): a damage word of -5 is below the absorb of 36, which takes it (41 / 12 is 3); an
+     * unsigned compare would take 36 from 0xfffb and remove the node. */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(-5, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && cok_character_find_effect(t, 0x77)->value == 3 &&
+          game.effects.rolls.amount16 == 0);
+    clear_effect(t, 0x77);
     /* Other types: the node stays and the damage is as it was. */
     CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
     band_d_rolls(40, 8, 10);
