@@ -241,7 +241,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "band_c7", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_c7", "band_d1", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6755,6 +6755,95 @@ def band_c7(v, work, opts):
     band_c7_shield(v, work, wild, opts)
 
 
+# Band d1's Disintegrate (step 4, part 33a, 7fd8:31cc, queen_band_d.c). Saved game A with BALTHIR memorising Disintegrate
+# (+0xce 0x6f, time 6: the cast's time is 6 / 3 = 2, which moves him up the turn list) and nothing else: C, C (WALKER's menu: BALTHIR's
+# turn ends), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim, "SPELL: DISINTEGRATE"), `\>` (Manual:
+# the cursor one east, onto WALKER), then T: one target, so no second pick, and the tail. WALKER's type 4 save (his save[4] of 11
+# against his d20) decides it: failed, "disintegrates", status 6 and his item list empty; saved, "is unaffected" and his items kept.
+# WALKER saves at the measured seed (his status stays 0 and his three items stay: "is unaffected", no kill and no removal; the
+# kill and the removal are repo tests). The values are measured in DOSBox-X.
+BAND_D1_DISINTEGRATE = 0x6F
+BAND_D1_KEYS = "CCEE\\>T"               # the keys of the flow (eclplay)
+BAND_D1_AIM = (17, 0xF79AFEC7)          # C, C, E, E: the pending Aim, 17 draws past BALTHIR's menu (RandSeed f79afec7)
+BAND_D1_TAIL = (22, 0xA1C0CEE0)         # T: the tail, 22 draws past BALTHIR's menu (RandSeed a1c0cee0)
+BAND_D1_WALKER = (0, 3)                 # WALKER's status and item count at the tail: he saves, so nothing is taken from him
+BAND_D1_MEMO = BAND_D1_DISINTEGRATE | CAST_FORGOTTEN   # BALTHIR's +0xce after Disintegrate (0xef)
+BAND_D1_MARK = "05"                     # eclplay's turn mark of the tail (the turns before it: 01 to 04)
+
+
+def band_d1_save():
+    """Saved game A with BALTHIR memorising Disintegrate (+0xce 0x6f) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D1_DISINTEGRATE}})
+
+
+def band_d1_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim),
+    `\\>` (Manual one east, onto WALKER), then T: the pick and the spell (one target), then the tail (5045:066a). The item lists
+    are read at the aim and after the tail (drop_list), as band_c5's."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["aim"].update(items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+    out["manual"] = cast_key(box, work, f"{tag}-manual", "\\>")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    out["tail"].update(items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+    return out
+
+
+def band_d1_disintegrate(v, work, wild, opts):
+    """Disintegrate on WALKER (the flow band_d1): the pending Aim and the tail's draws, WALKER's state at the tail (the status and
+    the items, with the outcome the original gives), BALTHIR's byte forgotten; eclplay's turn mark agrees with the original's
+    RandSeed, records, blocks, effect chains and the items of each record."""
+    save = band_d1_save()
+    o = cast_original(work, wild, save, "band-d1", opts.verbose, band_d1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d1-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_D1_AIM, f"the original's RandSeed at Disintegrate's pending Aim (C, C, E, E) is "
+            f"{BAND_D1_AIM[0]} draws past BALTHIR's menu, at {BAND_D1_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D1_TAIL, f"the original's RandSeed at the tail after T (Disintegrate) is "
+            f"{BAND_D1_TAIL[0]} draws past the menu, at {BAND_D1_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    before = len(aim["items"][CAST_WALKER])
+    after = tail["items"][CAST_WALKER]
+    status = rec_byte(tail["records"][CAST_WALKER], STATUS_AT)
+    v.check((status, len(after)) == BAND_D1_WALKER and before == len(after),
+            f"WALKER saves against Disintegrate at the tail: status {BAND_D1_WALKER[0]}, his {BAND_D1_WALKER[1]} items kept",
+            f"status {status}, items {before} -> {len(after)}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D1_MEMO, f"at the tail BALTHIR's Disintegrate is forgotten (+0xce {BAND_D1_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d1", BAND_D1_KEYS, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, "eclplay writes a turn mark at the original's tail after C, C, E, E, \\> and T", p["last"])
+        return
+    v.check(mark["number"] == BAND_D1_MARK, f"the turn mark with the original's tail is {BAND_D1_MARK}",
+            mark["number"])
+    command_state(v, "Disintegrate's tail (the turn's tail)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Disintegrate's tail, turn mark {mark['number']})")
+    ported = []
+    path = mark["base"].with_suffix(".items")
+    if path.exists():
+        for line in path.read_text().splitlines():
+            fields = line.split()
+            if fields and fields[0] != "pool":
+                ported.append(fields[1:])
+    v.check(ported == tail["items"], "every member's items agree at the tail (eclplay's --items, the 17 bytes each)",
+            f"original {tail['items']}, eclplay {ported}")
+    print(f"eclplay (band d1) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+def band_d1(v, work, opts):
+    """Band d1's Disintegrate (part 33a), the flow band_d1: Disintegrate on WALKER by BALTHIR, against the original's tail and
+    eclplay's turn mark (band_d1_disintegrate). Energy Drain (no fixture: computer only, stops at 093b), Destruction (computer
+    only), Flesh to Stone and the item power 0x8a are repo tests here."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_d1_disintegrate(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -7124,6 +7213,8 @@ def main():
         band_c6(v, work, opts)
     if "band_c7" in flows:
         band_c7(v, work, opts)
+    if "band_d1" in flows:
+        band_d1(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
