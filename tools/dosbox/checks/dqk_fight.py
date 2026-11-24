@@ -241,7 +241,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "band_c7", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_c7", "band_d1", "band_d2", "band_d3", "band_d4", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6755,6 +6755,407 @@ def band_c7(v, work, opts):
     band_c7_shield(v, work, wild, opts)
 
 
+# Band d1's Disintegrate (step 4, part 33a, 7fd8:31cc, queen_band_d.c). Saved game A with BALTHIR memorising Disintegrate
+# (+0xce 0x6f, time 6: the cast's time is 6 / 3 = 2, which moves him up the turn list) and nothing else: C, C (WALKER's menu: BALTHIR's
+# turn ends), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim, "SPELL: DISINTEGRATE"), `\>` (Manual:
+# the cursor one east, onto WALKER), then T: one target, so no second pick, and the tail. WALKER's type 4 save (his save[4] of 11
+# against his d20) decides it: failed, "disintegrates", status 6 and his item list empty; saved, "is unaffected" and his items kept.
+# WALKER saves at the measured seed (his status stays 0 and his three items stay: "is unaffected", no kill and no removal; the
+# kill and the removal are repo tests). The values are measured in DOSBox-X.
+BAND_D1_DISINTEGRATE = 0x6F
+BAND_D1_KEYS = "CCEE\\>T"               # the keys of the flow (eclplay)
+BAND_D1_AIM = (17, 0xF79AFEC7)          # C, C, E, E: the pending Aim, 17 draws past BALTHIR's menu (RandSeed f79afec7)
+BAND_D1_TAIL = (22, 0xA1C0CEE0)         # T: the tail, 22 draws past BALTHIR's menu (RandSeed a1c0cee0)
+BAND_D1_WALKER = (0, 3)                 # WALKER's status and item count at the tail: he saves, so nothing is taken from him
+BAND_D1_MEMO = BAND_D1_DISINTEGRATE | CAST_FORGOTTEN   # BALTHIR's +0xce after Disintegrate (0xef)
+BAND_D1_MARK = "05"                     # eclplay's turn mark of the tail (the turns before it: 01 to 04)
+
+
+def band_d1_save():
+    """Saved game A with BALTHIR memorising Disintegrate (+0xce 0x6f) and nothing else."""
+    return dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D1_DISINTEGRATE}})
+
+
+def band_d1_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim),
+    `\\>` (Manual one east, onto WALKER), then T: the pick and the spell (one target), then the tail (5045:066a). The item lists
+    are read at the aim and after the tail (drop_list), as band_c5's."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["aim"].update(items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+    out["manual"] = cast_key(box, work, f"{tag}-manual", "\\>")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    out["tail"].update(items=[drop_list(box, seg * 16 + off + 8) for (seg, off), _ in L.records(box)])
+    return out
+
+
+def band_d1_disintegrate(v, work, wild, opts):
+    """Disintegrate on WALKER (the flow band_d1): the pending Aim and the tail's draws, WALKER's state at the tail (the status and
+    the items, with the outcome the original gives), BALTHIR's byte forgotten; eclplay's turn mark agrees with the original's
+    RandSeed, records, blocks, effect chains and the items of each record."""
+    save = band_d1_save()
+    o = cast_original(work, wild, save, "band-d1", opts.verbose, band_d1_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d1-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_D1_AIM, f"the original's RandSeed at Disintegrate's pending Aim (C, C, E, E) is "
+            f"{BAND_D1_AIM[0]} draws past BALTHIR's menu, at {BAND_D1_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D1_TAIL, f"the original's RandSeed at the tail after T (Disintegrate) is "
+            f"{BAND_D1_TAIL[0]} draws past the menu, at {BAND_D1_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    before = len(aim["items"][CAST_WALKER])
+    after = tail["items"][CAST_WALKER]
+    status = rec_byte(tail["records"][CAST_WALKER], STATUS_AT)
+    v.check((status, len(after)) == BAND_D1_WALKER and before == len(after),
+            f"WALKER saves against Disintegrate at the tail: status {BAND_D1_WALKER[0]}, his {BAND_D1_WALKER[1]} items kept",
+            f"status {status}, items {before} -> {len(after)}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D1_MEMO, f"at the tail BALTHIR's Disintegrate is forgotten (+0xce {BAND_D1_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d1", BAND_D1_KEYS, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, "eclplay writes a turn mark at the original's tail after C, C, E, E, \\> and T", p["last"])
+        return
+    v.check(mark["number"] == BAND_D1_MARK, f"the turn mark with the original's tail is {BAND_D1_MARK}",
+            mark["number"])
+    command_state(v, "Disintegrate's tail (the turn's tail)", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Disintegrate's tail, turn mark {mark['number']})")
+    ported = []
+    path = mark["base"].with_suffix(".items")
+    if path.exists():
+        for line in path.read_text().splitlines():
+            fields = line.split()
+            if fields and fields[0] != "pool":
+                ported.append(fields[1:])
+    v.check(ported == tail["items"], "every member's items agree at the tail (eclplay's --items, the 17 bytes each)",
+            f"original {tail['items']}, eclplay {ported}")
+    print(f"eclplay (band d1) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+def band_d1(v, work, opts):
+    """Band d1's Disintegrate (part 33a), the flow band_d1: Disintegrate on WALKER by BALTHIR, against the original's tail and
+    eclplay's turn mark (band_d1_disintegrate). Energy Drain (no fixture: computer only, stops at 093b), Destruction (computer
+    only), Flesh to Stone and the item power 0x8a are repo tests here."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_d1_disintegrate(v, work, wild, opts)
+
+
+# Band d2's Mass Invisibility (step 4, part 33b, the flow band_d2): BALTHIR memorising it (+0xce 0x74, time 7), C, C (WALKER's
+# menu: his turn ends), E (his pending Aim), E (his own cell), then T: the tail (5045:066a). The original's tail (cast_traps,
+# the turn's tail, 58 draws past the menu, RandSeed 2bcad61c, eclplay's turn mark 05): SHARKMAN 2 (the other side) cleared,
+# BALTHIR and WALKER cleared (SHARKMAN 2 within 1), ROLAND and TIMASALIN [0x19, 0, 2, 0] (permanent, the caster level 2).
+# The probe's dispatch point (849a:21b5, 17 draws, f79afec7) cannot be armed here (arm() reaches the 5045 overlay only), so
+# the flow measures the later tail, as the probes' '!' did.
+BAND_D2_INVIS = 0x74
+BAND_D2_TAIL = (58, 0x2BCAD61C)         # RandSeed at the tail: 58 draws past the menu, 2bcad61c
+BAND_D2_NODE = [0x19, 0, 2, 0]          # the new node on ROLAND and TIMASALIN: Invisibility, permanent, value 2, flag 0
+BAND_D2_KEYS = "CCEET"                  # the keys of the flow (eclplay)
+
+
+def band_d2_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (his pending Aim), E (his own cell), then T: the tail (5045:066a)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["own"] = cast_key(box, work, f"{tag}-own", "E")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_d2(v, work, opts):
+    """Band d2's Mass Invisibility (part 33b), the flow band_d2: the original's tail (draws, RandSeed, the new nodes, the
+    clears, the memorised byte forgotten) and eclplay's turn mark at the same RandSeed (command_state, chains_agree).
+    Prot. from Fire, Slow Poison, Otto's armour and fire absorb are repo tests here; queen_touch is Otto's (d5)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D2_INVIS}})
+    o = cast_original(work, wild, save, "band-d2", opts.verbose, band_d2_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d2-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D2_TAIL, f"the original's RandSeed at the tail after T is "
+            f"{BAND_D2_TAIL[0]} draws past the menu, at {BAND_D2_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    for k in (CAST_ROLAND, CAST_TIMASALIN):
+        nodes = [list(n) for n in tail["chains"][k]]
+        v.check(BAND_D2_NODE in nodes, f"at the tail record {k} holds Invisibility {BAND_D2_NODE}", f"nodes {nodes}")
+    for k in (CAST_BALTHIR, CAST_WALKER, CAST_SHARKMAN_2):
+        nodes = [list(n) for n in tail["chains"][k]]
+        v.check(all(n[0] != 0x19 for n in nodes), f"at the tail record {k} gets no Invisibility (cleared as a target)",
+                f"nodes {nodes}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D2_INVIS | CAST_FORGOTTEN, f"at the tail BALTHIR's Mass Invisibility is forgotten "
+            f"(+0xce {BAND_D2_INVIS | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d2", BAND_D2_KEYS, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at the tail ({BAND_D2_TAIL[1]:#x}) after "
+                f"{BAND_D2_KEYS}", p["last"])
+        return
+    command_state(v, f"Mass Invisibility's tail (turn mark {mark['number']})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Mass Invisibility, turn mark {mark['number']})")
+    print(f"eclplay (band d2) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
+# Band d3's Death Spell and Power Word Kill (step 4, part 33c, the flow band_d3), each BALTHIR's own cast, memorised alone in
+# saved game A. Death Spell (+0xce 0x6e, time 6, range 4 a level: 48 at +0xaa 0x0c) is pending as Disintegrate (band_d1): C, C
+# (WALKER's menu), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim, 17 draws, f79afec7), N
+# (SHARKMAN 2 under the cursor; it has stepped beside BALTHIR, to 29, 15), then T: the area of 1 lists SHARKMAN 2, BALTHIR and
+# WALKER (DS:c6f4 3), the pool's four draws and event 9 on each; none dies and every slot is NULLed. The tail is 25 draws past
+# the menu (28390bdf; the dispatch at 849a:21b5 was 20, f74d124a, in the probe). Power Word Kill (+0xce 0x7d, immediate) has a
+# quarter of its range (849a:0f34: 1 a level, so 3 at +0xaa 0x0c, short of SHARKMAN 2's 5: no Target on the Aim, only
+# CENTER): at +0xaa 0x20 the range is 8. C, C (the Aim), N (SHARKMAN 2), T: SHARKMAN 2's 78 most hit points send it to the
+# group branch, and none of 10 or fewer: nothing happens, the tail is the dispatch's 13 draws (949f681b, as band d4's).
+# The values are measured in DOSBox-X.
+BAND_D3_DEATH = 0x6E
+BAND_D3_PW = 0x7D
+BAND_D3_DEATH_LEVEL = 0x0C              # +0xaa: BALTHIR's mage level 12, Death Spell's range 48 (as the scope's poke)
+BAND_D3_PW_LEVEL = 0x20                 # +0xaa: BALTHIR's mage level 32, PW Kill's range 32 / 4 = 8 (SHARKMAN 2 is at 5)
+BAND_D3_DEATH_KEYS = "CCEENT"           # the keys of the flows (eclplay)
+BAND_D3_PW_KEYS = "CCNT"
+BAND_D3_DEATH_AIM = (17, 0xF79AFEC7)    # C, C, E, E: the pending Aim (band d1's)
+BAND_D3_DEATH_TAIL = (25, 0x28390BDF)   # T: the tail
+BAND_D3_DEATH_CELL = (29, 15)           # the spell's cell (SHARKMAN 2's, beside BALTHIR)
+BAND_D3_DEATH_HIT = (CAST_BALTHIR, CAST_WALKER, CAST_SHARKMAN_2)   # the three listed: BALTHIR, WALKER, SHARKMAN 2 (status kept)
+BAND_D3_PW_TAIL = (13, 0x949F681B)      # T: the tail (the dispatch's draws only)
+BAND_D3_PW_CELL = (32, 18)              # SHARKMAN 2's cell
+BAND_D3_DEATH_MEMO = BAND_D3_DEATH | CAST_FORGOTTEN   # BALTHIR's +0xce after Death Spell (0xee)
+BAND_D3_PW_MEMO = BAND_D3_PW | CAST_FORGOTTEN         # and after Power Word Kill (0xfd)
+BAND_D3_DEATH_MARK = "05"               # eclplay's turn mark of Death Spell's tail (measured)
+BAND_D3_PW_MARK = "01"                  # eclplay's turn mark of Power Word Kill's tail (measured)
+
+
+def band_d3_slots(box):
+    """DS:c5e3 on: the spell's target slots 1 to 4 as far pointers (0 for NULL)."""
+    return [box.ds_word(0xC5E3 + 4 * k) | box.ds_word(0xC5E5 + 4 * k) << 16 for k in range(4)]
+
+
+def band_d3_death_run(box, menu, work, tag):
+    """C, C (WALKER's menu), E (TIMASALIN's menu), E (BALTHIR's pending Aim), N (SHARKMAN 2 under the cursor), then T: the
+    tail (5045:066a), with the target slots read there."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    out["tail"]["slots"] = band_d3_slots(box)
+    return out
+
+
+def band_d3_pw_run(box, menu, work, tag):
+    """C, C (the Aim at once), N (SHARKMAN 2), then T: the tail, with the target slots read there."""
+    out = sleep_run(box, menu, work, tag)
+    out["tail"]["slots"] = band_d3_slots(box)
+    return out
+
+
+def band_d3_mark(v, work, wild, tag, keys, entry, tail, number, what):
+    """eclplay's run of KEYS and its turn mark at the original's tail: the number NUMBER, the state and the effect chains agree.
+    Returns the mark's records, or None."""
+    p = turn_port(work, wild, tag, keys, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay writes a turn mark at the original's tail after {keys} ({what})", p["last"])
+        return None
+    v.check(mark["number"] == number, f"the turn mark with the original's tail ({what}) is {number}", mark["number"])
+    command_state(v, f"{what}'s tail (turn mark {mark['number']})", tail, mark, tail["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" ({what}'s tail, turn mark {mark['number']})")
+    return ported_records(mark)
+
+
+def band_d3_death(v, work, wild, opts):
+    """Death Spell at SHARKMAN 2 (the flow band_d3): the pending Aim, the tail's draws, the three listed (DS:c6f4 3, the cell 29, 15)
+    all NULLed and alive, BALTHIR's +0xce 0xee; eclplay's turn mark at the tail agrees (RandSeed, records, blocks, turns, chains)."""
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D3_DEATH, BAND_B4_LEVEL: BAND_D3_DEATH_LEVEL}})
+    o = cast_original(work, wild, save, "band-d3-death", opts.verbose, band_d3_death_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d3-death-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_D3_DEATH_AIM, f"the original's RandSeed at Death Spell's pending Aim (C, C, E, E) is "
+            f"{BAND_D3_DEATH_AIM[0]} draws past BALTHIR's menu, at {BAND_D3_DEATH_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is "
+            "unchanged", f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D3_DEATH_TAIL, f"the original's tail after T (Death Spell) is "
+            f"{BAND_D3_DEATH_TAIL[0]} draws past BALTHIR's menu, at {BAND_D3_DEATH_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_D3_DEATH_CELL and tail["targets"] == 3 and tail["slots"][:3] == [0, 0, 0],
+            f"at the tail Death Spell's cell is {BAND_D3_DEATH_CELL}, DS:c6f4 3 and the three slots NULLed (none paid for)",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}, slots {[f'{s:08x}' for s in tail['slots']]}")
+    statuses = [rec_byte(tail["records"][k], STATUS_AT) for k in BAND_D3_DEATH_HIT]
+    v.check(statuses == [0, 0, 0], "at the tail BALTHIR, WALKER and SHARKMAN 2 are alive (status 0)", f"{statuses}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D3_DEATH_MEMO, f"at the tail BALTHIR's Death Spell is forgotten (+0xce {BAND_D3_DEATH_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    marked = band_d3_mark(v, work, wild, "band-d3-death", BAND_D3_DEATH_KEYS, entry, tail, BAND_D3_DEATH_MARK, "Death Spell")
+    if marked is not None:
+        v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_D3_DEATH_MEMO and
+                [rec_byte(marked[k], STATUS_AT) for k in BAND_D3_DEATH_HIT] == statuses,
+                "eclplay's tail after Death Spell: BALTHIR's Death Spell forgotten, the three listed alive",
+                f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_d3_pw(v, work, wild, opts):
+    """Power Word Kill at SHARKMAN 2 (the flow band_d3) at +0xaa 0x20: the tail is the dispatch's draws (the group branch, nobody of
+    10 or fewer most hit points), DS:c6f4 1 at its cell, the slot kept, SHARKMAN 2 alive with no chain, BALTHIR's +0xce 0xfd;
+    eclplay's turn mark at the tail agrees."""
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D3_PW, BAND_B4_LEVEL: BAND_D3_PW_LEVEL}})
+    o = cast_original(work, wild, save, "band-d3-pw", opts.verbose, band_d3_pw_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d3-pw-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D3_PW_TAIL, f"the original's tail after T (Power Word Kill) is {BAND_D3_PW_TAIL[0]} "
+            f"draws past BALTHIR's menu, at {BAND_D3_PW_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_D3_PW_CELL and tail["targets"] == 1 and tail["slots"][0] != 0,
+            f"at the tail Power Word Kill's cell is {BAND_D3_PW_CELL}, DS:c6f4 1 and the slot kept",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}, slots {[f'{s:08x}' for s in tail['slots']]}")
+    status = rec_byte(tail["records"][CAST_SHARKMAN_2], STATUS_AT)
+    v.check(tail["chains"][CAST_SHARKMAN_2] == [] and status == 0, "at the tail SHARKMAN 2 has no effect and is alive (most hit "
+            "points 78: the group branch skips it)", f"chain {tail['chains'][CAST_SHARKMAN_2]}, status {status}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D3_PW_MEMO, f"at the tail BALTHIR's Power Word Kill is forgotten (+0xce {BAND_D3_PW_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    marked = band_d3_mark(v, work, wild, "band-d3-pw", BAND_D3_PW_KEYS, entry, tail, BAND_D3_PW_MARK, "Power Word Kill")
+    if marked is not None:
+        v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_D3_PW_MEMO and
+                rec_byte(marked[CAST_SHARKMAN_2], STATUS_AT) == 0,
+                "eclplay's tail after Power Word Kill: BALTHIR's Power Word Kill forgotten, SHARKMAN 2 alive",
+                f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_d3(v, work, opts):
+    """Band d3's Death Spell and Power Word Kill (part 33c), the flow band_d3: each by BALTHIR at SHARKMAN 2, against the original's
+    tail and eclplay's turn mark (band_d3_death, band_d3_pw). The kills, the pool's spending and the item powers 0x8b and 0x8c
+    are repo tests."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_d3_death(v, work, wild, opts)
+    band_d3_pw(v, work, wild, opts)
+
+
+# Band d4's Prot. from Fire, PW Stun and PW Blind (step 4, part 33d, the flow band_d4). Each is BALTHIR's own cast, memorised
+# alone in saved game A: Stun (+0xce 0x75) and Blind (+0xce 0x7b) at mage level 12 (+0xaa 0x0c, the range to SHARKMAN 2) by C, C
+# (WALKER's menu: his turn ends), N (SHARKMAN 2 under the cursor), then T; Prot. from Fire (+0xce 0x6d) on himself by C, C, E (his
+# pending Aim), T. The original's tails (cast_traps, the turn's tail after T): Stun and Blind 34 draws past the menu (RandSeed
+# 76badfb4, the same dispatch 949f681b as the probes'), Prot. from Fire 24 draws (10207906). SHARKMAN 2 holds the held row 0x6a
+# after Stun ([0x6a, 2, 12, 0]: two rounds, level 12), blindness 0x21 after Blind ([0x21, 0, 0, 0]); BALTHIR holds the fire
+# absorb after Prot. from Fire ([0x77, 0, 3, 0]: the ranger's level 10 - 7). Each cast is forgotten at the tail.
+BAND_D4_STUN = 0x75
+BAND_D4_BLIND = 0x7b
+BAND_D4_PFIRE = 0x6D
+BAND_D4_MAGE = 12                       # BALTHIR's class 5 level poked (+0xaa 0x0c), as band c2's and b4's pokes
+BAND_D4_SHARKMAN = CAST_SHARKMAN_2      # SHARKMAN 2 (record 7): the target of Stun and Blind
+BAND_D4_TAIL_SHARKMAN = (34, 0x76BADFB4)    # the tail after T, Stun and Blind (the same seed at both)
+BAND_D4_TAIL_PFIRE = (24, 0x10207906)   # the tail after T, Prot. from Fire
+BAND_D4_STUN_NODE = [0x6A, 2, 12, 0]    # SHARKMAN 2's node after Stun: the held row, two rounds, the level 12, flag 0
+BAND_D4_BLIND_NODE = [0x21, 0, 0, 0]    # SHARKMAN 2's node after Blind: blindness, permanent, flag 0
+BAND_D4_PFIRE_NODE = [0x77, 0, 3, 0]    # BALTHIR's node after Prot. from Fire: the fire absorb, permanent, value 3
+BAND_D4_STUN_KEYS = "CCNT"              # the keys of the flows (eclplay): Stun and Blind
+BAND_D4_PFIRE_KEYS = "CCET"             # Prot. from Fire
+BAND_D4_STUN_MARK = "01"                # eclplay's turn mark of the tail (the turn's first: no SHARKMAN turn before it)
+BAND_D4_BLIND_MARK = "01"
+BAND_D4_PFIRE_MARK = "03"               # the tail after two turns (marks 01 and 02)
+
+
+def band_d4_save(spell, poke_level):
+    """Saved game A with BALTHIR memorising SPELL (+0xce) and, for the two at SHARKMAN 2, his mage level poked to 12."""
+    changes = {CAST_MEMO: spell}
+    if poke_level:
+        changes = {CAST_MEMO: spell, BAND_B4_LEVEL: BAND_D4_MAGE}
+    return dqk_modify.modified({}, {CAST_BALTHIR: changes})
+
+
+def band_d4_run(box, menu, work, tag):
+    """C, C (WALKER's menu: BALTHIR's turn ends), N (SHARKMAN 2 under the cursor), then T: the tail (5045:066a)."""
+    out = dict(aim=cast_key(box, work, f"{tag}-aim", "CC"))
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_d4_at_sharkman(v, work, wild, opts, tag, spell, node, memo_word, tail, keys, mark):
+    """One of the two casts at SHARKMAN 2 (Stun or Blind): the original's tail (draws, RandSeed), SHARKMAN 2's node, BALTHIR's
+    memorised byte forgotten; eclplay's turn mark at the same RandSeed agrees (command_state, chains_agree)."""
+    save = band_d4_save(spell, True)
+    o = cast_original(work, wild, save, f"band-d4-{tag}", opts.verbose, band_d4_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / f"band-d4-{tag}-save", save)
+    end = o["tail"]
+    draws = L.draws(m0, end["seed"])
+    v.check((draws, end["seed"]) == tail, f"the original's tail after T ({tag}) is {tail[0]} draws past BALTHIR's menu, at "
+            f"{tail[1]:#x}", f"{draws} draws, {end['seed']:#x}")
+    nodes = [list(n) for n in end["chains"][BAND_D4_SHARKMAN]]
+    v.check(node in nodes, f"at the tail SHARKMAN 2 holds {node} ({tag})", f"nodes {nodes}")
+    forgotten = rec_byte(end["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == memo_word | CAST_FORGOTTEN, f"at the tail BALTHIR's {tag} is forgotten (+0xce "
+            f"{memo_word | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, f"band-d4-{tag}", keys, entry=entry)
+    got = mark_of_seed(p, end["seed"])
+    if got is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at the tail after {keys} ({tag})", p["last"])
+        return
+    v.check(got["number"] == mark, f"the turn mark with the original's tail ({tag}) is {mark}", got["number"])
+    command_state(v, f"{tag}'s tail (turn mark {got['number']})", end, got, m0)
+    chains_agree(v, end["chains"], got["base"].with_suffix(".effects"), f" ({tag}, turn mark {got['number']})")
+    print(f"eclplay (band d4, {tag}) ends {p['last']!r} at turn mark {got['number']}", flush=True)
+
+
+def band_d4_stun(v, work, wild, opts):
+    """PW Stun (0x75) at SHARKMAN 2 (the flow band_d4): the held row on SHARKMAN 2 and BALTHIR's byte forgotten."""
+    band_d4_at_sharkman(v, work, wild, opts, "stun", BAND_D4_STUN, BAND_D4_STUN_NODE, BAND_D4_STUN, BAND_D4_TAIL_SHARKMAN,
+                        BAND_D4_STUN_KEYS, BAND_D4_STUN_MARK)
+
+
+def band_d4_blind(v, work, wild, opts):
+    """PW Blind (0x7b) at SHARKMAN 2 (the flow band_d4): blindness on SHARKMAN 2 at the tail, BALTHIR's byte forgotten."""
+    band_d4_at_sharkman(v, work, wild, opts, "blind", BAND_D4_BLIND, BAND_D4_BLIND_NODE, BAND_D4_BLIND, BAND_D4_TAIL_SHARKMAN,
+                        BAND_D4_STUN_KEYS, BAND_D4_BLIND_MARK)
+
+
+def band_d4_pfire(v, work, wild, opts):
+    """Prot. from Fire (0x6d) on BALTHIR himself (the flow band_d4): the ranger's fire absorb on his own node at the tail, his
+    byte forgotten; eclplay's turn mark agrees. The keys are cast_run_clw's (C, C, E, then T on his own cell)."""
+    save = band_d4_save(BAND_D4_PFIRE, False)
+    o = cast_original(work, wild, save, "band-d4-pfire", opts.verbose, cast_run_clw)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d4-pfire-save", save)
+    end = o["tail"]
+    draws = L.draws(m0, end["seed"])
+    v.check((draws, end["seed"]) == BAND_D4_TAIL_PFIRE, f"the original's tail after T (Prot. from Fire) is "
+            f"{BAND_D4_TAIL_PFIRE[0]} draws past BALTHIR's menu, at {BAND_D4_TAIL_PFIRE[1]:#x}",
+            f"{draws} draws, {end['seed']:#x}")
+    nodes = [list(n) for n in end["chains"][CAST_BALTHIR]]
+    v.check(BAND_D4_PFIRE_NODE in nodes, f"at the tail BALTHIR holds the fire absorb {BAND_D4_PFIRE_NODE}", f"nodes {nodes}")
+    forgotten = rec_byte(end["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D4_PFIRE | CAST_FORGOTTEN, f"at the tail BALTHIR's Prot. from Fire is forgotten (+0xce "
+            f"{BAND_D4_PFIRE | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d4-pfire", BAND_D4_PFIRE_KEYS, entry=entry)
+    got = mark_of_seed(p, end["seed"])
+    if got is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at the tail after "
+                f"{BAND_D4_PFIRE_KEYS}", p["last"])
+        return
+    v.check(got["number"] == BAND_D4_PFIRE_MARK, f"the turn mark with the original's tail (Prot. from Fire) is "
+            f"{BAND_D4_PFIRE_MARK}", got["number"])
+    command_state(v, f"Prot. from Fire's tail (turn mark {got['number']})", end, got, m0)
+    chains_agree(v, end["chains"], got["base"].with_suffix(".effects"), f" (Prot. from Fire, turn mark {got['number']})")
+    print(f"eclplay (band d4, pfire) ends {p['last']!r} at turn mark {got['number']}", flush=True)
+
+
+def band_d4(v, work, opts):
+    """Band d4's Prot. from Fire, PW Stun and PW Blind (part 33d), the flow band_d4 (band_d4_stun, band_d4_blind,
+    band_d4_pfire)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_d4_stun(v, work, wild, opts)
+    band_d4_blind(v, work, wild, opts)
+    band_d4_pfire(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -7124,6 +7525,14 @@ def main():
         band_c6(v, work, opts)
     if "band_c7" in flows:
         band_c7(v, work, opts)
+    if "band_d1" in flows:
+        band_d1(v, work, opts)
+    if "band_d2" in flows:
+        band_d2(v, work, opts)
+    if "band_d3" in flows:
+        band_d3(v, work, opts)
+    if "band_d4" in flows:
+        band_d4(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:

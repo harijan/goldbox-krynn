@@ -583,6 +583,42 @@ static bool hammer(cok_adventure *game, cok_character *c, bool removing)
     return hammer_stats(game, c);
 }
 
+/* part 33 (band d): 0x77 fire absorb, 0x16 slow poison */
+
+/* 78e4:2039 (0x77, Prot. from Fire; either flag, not applied_only: event 6's list, so any damage to the holder runs it).
+ * Type 0 or any damage without the fire bit (type & 1) returns at once. Fire: the absorb is the value times 12 (a word).
+ * Above the damage (signed), the absorb is taken from the damage, which is then 0, and the value becomes the rest / 12;
+ * a value left above 0 keeps the effect. Else the damage is less the absorb. The first 0x77 goes (cok_effects_remove,
+ * not necessarily this node). */
+static bool fire_absorb(cok_adventure *game, cok_character *c, cok_effect *effect)
+{
+    cok_rolls *r = &game->effects.rolls;
+    if (effect == NULL) return no_node(game, 0x77, 0x2039);
+    if ((r->damage_type & 1) == 0) return true;
+    int16_t cap = (int16_t)(effect->value * 12);
+    if (cap > (int16_t)r->amount16) {
+        cap = (int16_t)(cap - (int16_t)r->amount16);
+        set_damage(game, 0);
+        effect->value = (uint8_t)((unsigned)cap / 12);
+        if (effect->value != 0) return true;
+    } else {
+        set_damage(game, (int16_t)(r->amount16 - cap));
+    }
+    return cok_effects_remove(&game->effects, c, NULL, 0x77) || cok_adventure_effect_failed(game);
+}
+
+/* 78e4:0337 (0x16, Slow Poison; applied_only). A holder of 0x37 (poison) "dies from poison" (cok_combat_kill, status 6),
+ * and keeps its 0x37 (COK's h_poisoned removes it). Then the curing flag is set while the first 0x0f goes (its timer adds
+ * nothing), and cleared. */
+static bool slow_poison(cok_adventure *game, cok_character *c)
+{
+    if (cok_character_find_effect(c, 0x37) != NULL && !cok_combat_kill(game, c, 6, "dies from poison")) return false;
+    game->effects.rolls.curing = 1;
+    bool ok = cok_effects_remove(&game->effects, c, NULL, 0x0f) || cok_adventure_effect_failed(game);
+    game->effects.rolls.curing = 0;
+    return ok;
+}
+
 bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok_effect *effect,
                            cok_character *c)
 {
@@ -686,6 +722,11 @@ bool cok_dark_queen_effect(cok_adventure *game, uint8_t kind, bool removing, cok
     /* c5: the spiritual hammer (78e4:0397) */
     case COK_FX_QUEEN_HAMMER:
         return hammer(game, c, removing);
+    /* part 33 (band d): fire absorb 0x77, slow poison 0x16 */
+    case COK_FX_QUEEN_FIRE_ABSORB:
+        return fire_absorb(game, c, effect);
+    case COK_FX_QUEEN_SLOW_POISON:
+        return slow_poison(game, c);
     default:
         cok_adventure_fail(game, COK_ECL_UNDEFINED,
                            "effect kind %u (dqk %04x) has no Dark Queen routine", kind, h->address);

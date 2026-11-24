@@ -2106,9 +2106,13 @@ static void test_plain_apply(void)
         bool c5 = id == 0x1c || id == 0x2b || id == 0x3d || id == 0x59; /* queen_band_c.c's c5 */
         bool c6 = id == 0x24 || id == 0x46 || id == 0x28 || id == 0x44 || id == 0x38 || id == 0x4c; /* queen_band_c.c's c6 */
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
+        bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
+        bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
+        bool d3 = id == 0x6e || id == 0x7d || id == 0x8b || id == 0x8c; /* queen_band_d.c's d3 (Death Spell, Power Word Kill, 0x8b, 0x8c) */
+        bool d4 = id == 0x6d || id == 0x75 || id == 0x7b; /* queen_band_d.c's d4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -2646,7 +2650,7 @@ static void test_invisible_sees(void)
     battle_clear();
 }
 
-/* 78e4:010d (0x1b, 0x1f, 0x33, 0x34, 0x35, HELD): at event 7 the holder's turn ends (its initiative, spell,
+/* 78e4:010d (0x1b, 0x1f, 0x33, 0x34, 0x35, HELD; 0x6a, PW Stun's, 1af9 the same): at event 7 the holder's turn ends (its initiative, spell,
  * guarding and movement are 0), with either flag: the effect removed ends it too. */
 static void test_held_ends_turn(void)
 {
@@ -2654,7 +2658,7 @@ static void test_held_ends_turn(void)
     cok_character *a, *t;
     duel(&a, &t);
     game.effects.in_battle = true;
-    static const uint8_t held[] = {0x1b, 0x1f, 0x33, 0x34, 0x35};
+    static const uint8_t held[] = {0x1b, 0x1f, 0x33, 0x34, 0x35, 0x6a};
     for (size_t i = 0; i < sizeof held / sizeof *held; ++i)
         for (int removing = 0; removing < 2; ++removing) {
             cok_combat_record *cr = t->combat;
@@ -4079,6 +4083,206 @@ static void test_effects5_poison(void)
     game.error[0] = game.effects.error[0] = '\0';
     clear_effect(t, 0x1a);
     clear_effect(t, 0x0f);
+    battle_clear();
+}
+
+/* The damage word and its type and the save roll (as set_rolls, which is defined further down). */
+static void band_d_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
+{
+    game.effects.rolls.amount16 = amount;
+    game.effects.rolls.amount = (uint8_t)amount;
+    game.effects.rolls.damage_type = type;
+    game.effects.rolls.save_roll = save_roll;
+}
+
+/* 78e4:2039 (0x77, Prot. from Fire; either flag, event 6): fire (type & 1) is absorbed at 12 a point of the value. A value
+ * of 3 (36) against 10 fire leaves 0 and the value 2 (26 / 12); against 40 the absorb is spent (4 gets through) and the node
+ * goes; against 36 nothing gets through and it goes. Other types (8 and 0) are untouched. Of two nodes, the first 0x77 goes
+ * whichever node runs. With no node, a cited stop. */
+static void test_band_d_fire_absorb(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(10, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    cok_effect *e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 2 && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    clear_effect(t, 0x77);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(40, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 4 && game.effects.rolls.amount == 4);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(36, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    /* Absorbed with less than 12 left (36 against 30: 6 / 12 is 0): nothing gets through and the node goes (2087 jne). */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(30, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    /* The compare is signed (205c jle): a damage word of -5 is below the absorb of 36, which takes it (41 / 12 is 3); an
+     * unsigned compare would take 36 from 0xfffb and remove the node. */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(-5, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && cok_character_find_effect(t, 0x77)->value == 3 &&
+          game.effects.rolls.amount16 == 0);
+    clear_effect(t, 0x77);
+    /* Other types: the node stays and the damage is as it was. */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(40, 8, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && cok_character_find_effect(t, 0x77)->value == 3 &&
+          game.effects.rolls.amount16 == 40 && game.effects.rolls.amount == 40);
+    band_d_rolls(40, 0, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && game.effects.rolls.amount16 == 40);
+    clear_effect(t, 0x77);
+    /* Two nodes of value 3: the run's node is the one that is not first, and the first goes. */
+    cok_effect *x = cok_character_add_effect(t, 0x77, 0, 3, false);
+    cok_effect *y = cok_character_add_effect(t, 0x77, 0, 3, false);
+    CHECK(x != NULL && y != NULL);
+    cok_effect *head = cok_character_find_effect(t, 0x77);
+    cok_effect *other = head == x ? y : x;
+    band_d_rolls(40, 1, 10);
+    CHECK(cok_effects_run(&game.effects, t, 0x77, other) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 4 && cok_character_find_effect(t, 0x77) == other);
+    clear_effect(t, 0x77);
+    /* No node: the stop that reads the node's value (dqk 78e4:2039). */
+    CHECK(!cok_effects_run(&game.effects, t, 0x77, NULL) && strstr(game.effects.error, "no effect") != NULL);
+    CHECK(strstr(game.effects.error, "dqk 78e4:2039") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    band_d_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* 78e4:0337 (0x16, Slow Poison; applied_only). Run (flag 0) on a holder of 0x37 (poison) it "dies from poison" (status 6) and
+ * keeps the 0x37; then the first 0x0f goes with the curing flag set, so its 0x1a is not added, and the flag is 0 after. A
+ * holder without 0x37 is not killed, and the 0x0f goes all the same. A flag-1 node does nothing (its 0x0f stays). */
+static void test_band_d_slow_poison(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x37, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0f, 0, 0x05, true) != NULL);
+    cok_effect *e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x16) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x0f) != NULL && cok_character_find_effect(t, 0x37) != NULL && !LOGGED("dies"));
+    e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x16, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 && LOGGED("dies from poison"));
+    CHECK(cok_character_find_effect(t, 0x37) != NULL && cok_character_find_effect(t, 0x0f) == NULL &&
+          cok_character_find_effect(t, 0x1a) == NULL && game.effects.rolls.curing == 0);
+    battle_clear();
+    /* No 0x37: no kill, the 0x0f goes, its 0x1a is not added (curing). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x0f, 0, 0x05, true) != NULL);
+    e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    log_text[0] = '\0';
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x16, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) != 6 && !LOGGED("dies") &&
+          cok_character_find_effect(t, 0x0f) == NULL && cok_character_find_effect(t, 0x1a) == NULL &&
+          game.effects.rolls.curing == 0);
+    battle_clear();
+}
+
+/* 78e4:2025 (0x76, Otto's dance's armour; not applied_only, so either flag): the AC and the AC behind 4 worse, each run. */
+static void test_band_d_dance_armour(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x20);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC_BEHIND, 0x21);
+    cok_effect *e = cok_character_add_effect(t, 0x76, 0, 0, false);
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x76, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x1c &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x1d);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x18 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x19);
+    /* Removed with flag 1 (a node that asks for it), it is run again: the same four. */
+    e = cok_character_add_effect(t, 0x76, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x76) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x14 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x15);
+    clear_effect(t, 0x76);
+    battle_clear();
+}
+
+/* 7fd8:34b9 (Mass Invisibility, 0x74): Bless's routine with the caster's side and "is Invisible (spell)". A same-side
+ * target beside an enemy is cleared (the enemy test runs for 0x74 as for Bless's spell 1), the far one takes 0x19 for good
+ * at the caster level, and the other side is cleared. */
+static void test_band_d_mass_invisibility(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t, *near, *far, *wide;
+    duel(&a, &t);
+    near = record('N', 0, 0);
+    place(near, 7, 5); /* beside t: an enemy within 1 */
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    wide = record('W', 0, 0);
+    place(wide, 1, 3);
+    cok_combat_set_field_word(R, wide->record, COK_FIELD_HOSTILE, 0x0100);
+    game.vm.character = a->record;
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = far;
+    game.spell_targets[3] = t;
+    game.spell_targets[4] = wide;
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x74;
+    game.effects.rolls.images = 0;
+    CHECK(run_handler(0x74));
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == far && game.spell_targets[3] == NULL &&
+          game.spell_targets[4] == NULL);
+    CHECK(game.effects.rolls.images == 1 && LOGGED("is Invisible (spell)"));
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x74, true, &lv) && lv > 0);
+    cok_effect *e = cok_character_find_effect(far, 0x19);
+    CHECK(e != NULL && e->duration == 0 && e->value == lv && !e->on_remove);
+    CHECK(cok_character_find_effect(near, 0x19) == NULL && cok_character_find_effect(t, 0x19) == NULL &&
+          cok_character_find_effect(wide, 0x19) == NULL);
+    /* Outside a battle the enemy test does not run: a target beside the enemy is kept. */
+    game.vm.mode = 4;
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = NULL;
+    game.spell_targets[3] = NULL;
+    game.spell_targets[4] = NULL;
+    game.spell_target_count = 1;
+    game.vm.status = COK_ECL_OK;
+    CHECK(run_handler(0x74) && game.spell_targets[1] == near && cok_character_find_effect(near, 0x19) != NULL);
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 849a:10f9's touch as the export (queen_touch, for Otto's): the hit roll (a natural 20 hits, 1 misses) on a copy of the
+ * slot, and the spell_targets entry is not written by the call. */
+static void test_queen_touch_copy(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    cok_character *local = t;
+    bool hit = false;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    CHECK(queen_touch(&game, &local, &hit) && game.vm.status == COK_ECL_OK && hit && local == t);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(queen_touch(&game, &local, &hit) && game.vm.status == COK_ECL_OK && !hit && local == t);
+    CHECK(game.spell_targets[1] == t && game.spell_target_count == 1);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
     battle_clear();
 }
 
@@ -7575,6 +7779,1002 @@ static void test_band_c7_shield_underwater(void)
     game.keys.read = no_key;
 }
 
+/* d1: the kills (queen_band_d.c: 7fd8:2ebc, 2eee, 31cc, 344d, 41e7). The tests' copy of the rules puts COK_FX_DISPELLING on
+ * row 0x65 (the drain's, cited as 093b in the real rules) and on row 0x22, which event 9 lists alone: a d20 of 1 calls the
+ * test's hook game.effects.dispel (a counter, a slot swap, or a NULL). Each test's caster and target are duel()'s. */
+static cok_rules d1_rules;
+static cok_rules_effect d1_handlers[0x100];
+static const uint8_t *d1_events[0x20];
+static const uint8_t d1_on_nine[] = {0x22, 0};
+static unsigned d1_calls;
+static cok_character *d1_target;
+
+static void d1_rules_set(void)
+{
+    const cok_rules_effects *E = &R->effects;
+    CHECK(0x65 < E->count && 0x22 < E->count && E->count <= 0x100 && 9 < E->event_count && E->event_count <= 0x20);
+    d1_rules = *R;
+    memcpy(d1_handlers, E->handlers, E->count * sizeof *d1_handlers);
+    d1_handlers[0x65] = (cok_rules_effect){.handler = COK_FX_DISPELLING};
+    d1_handlers[0x22] = (cok_rules_effect){.handler = COK_FX_DISPELLING};
+    for (unsigned e = 0; e < E->event_count; ++e) d1_events[e] = E->events[e];
+    d1_events[9] = d1_on_nine;
+    d1_rules.effects.handlers = d1_handlers;
+    d1_rules.effects.events = d1_events;
+    game.rules = game.effects.rules = &d1_rules;
+}
+
+static void d1_end(void)
+{
+    game.rules = game.effects.rules = R;
+    game.effects.dispel = NULL;
+    slot_to = NULL;
+    slot_count = 0;
+    battle_clear();
+}
+
+static bool d1_count(cok_effects *fx, void *context)
+{
+    (void)context;
+    ++d1_calls;
+    d1_target = fx->target != NULL ? *fx->target : NULL;
+    return true;
+}
+
+static bool d1_null(cok_effects *fx, void *context)
+{
+    (void)context;
+    *fx->target = NULL;
+    return true;
+}
+
+/* Energy Drain (0x67): the caster's combat target is the first target's record, NULL allowed (a target written as it is, a
+ * freed one too: 093b reads it). Effect 0x65 runs on the caster (the hook's target), once; its real row is the cited stop
+ * (7e76:093b, part 38). A caster outside its combat record is read through NULL (undefined). Mutants: the target left
+ * unwritten; 0x65 run on the first target. */
+static void test_band_d1_drain(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    d1_rules_set();
+    game.effects.dispel = d1_count;
+    set_targets(a, 0x67, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    d1_calls = 0;
+    d1_target = NULL;
+    CHECK(c1_run(0x67) && d1_calls == 1 && d1_target == a && a->combat->target == t->record);
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 0;
+    a->combat->target = t->record;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    d1_calls = 0;
+    CHECK(c1_run(0x67) && d1_calls == 1 && a->combat->target == NULL);
+    d1_end();
+
+    duel(&a, &t);
+    set_targets(a, 0x67, (cok_character *[]){t}, 1);
+    c6_reset();
+    game.vm.seed = 1;
+    CHECK(!c1_run(0x67) && strstr(game.error, "093b") != NULL && a->combat->target == t->record);
+    cok_combat_record *keep = a->combat;
+    a->combat = NULL;
+    c6_reset();
+    CHECK(!c1_run(0x67) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "2ec7") != NULL);
+    a->combat = keep;
+    battle_clear();
+}
+
+/* Destruction (0x68): a kill of status 8 with no body and no active (cok_combat_kill), "is destroyed", no save. The quiet
+ * bit (8 in +0xc8) gives "is unaffected" with the one wait's draw and no kill (not nothing, unlike Slay Living). A cancelled
+ * amount (a 0x5c holder against pending 0x6f) is "is unaffected" too. The kill goes to the handler's redirected copy, and the
+ * slot keeps its record (a redirect changes the copy only). A target NULL after event 9 is undefined (2f1d); the first
+ * target NULL is undefined (DS:c5e3). Mutants: status 6; the quiet test dropped; the say unwaited; the slot redirected. */
+static void test_band_d1_destruction(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x68) && LOGGED("is destroyed") && !LOGGED("is unaffected"));
+    CHECK(game.effects.rolls.damage_type == 0x48);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 8 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0 && hit_points(t) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    uint32_t want = 1;
+    cok_tp_random(&want, 1000); /* "is unaffected"'s wait, the only draw */
+    CHECK(c1_run(0x68) && LOGGED("is unaffected") && !LOGGED("is destroyed") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && hit_points(t) == 10);
+    battle_clear();
+
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    CHECK(c1_run(0x68) && LOGGED("is unaffected") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && hit_points(t) == 10);
+    battle_clear();
+
+    duel(&a, &t);
+    t2 = record('N', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(c1_run(0x68) && game.spell_targets[1] == t);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 8 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && hit_points(t) == 10);
+    d1_end();
+
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    d1_rules_set();
+    game.effects.dispel = d1_null;
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    c6_reset();
+    CHECK(!c1_run(0x68) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "2f1d") != NULL);
+    d1_end();
+
+    duel(&a, &t);
+    c6_reset();
+    set_targets(a, 0x68, (cok_character *[]){t}, 1);
+    game.spell_targets[1] = NULL;
+    CHECK(!c1_run(0x68) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "c5e3") != NULL);
+    battle_clear();
+}
+
+/* Disintegrate (0x6f): a failed save of type 4 kills (cok_combat_kill, status 6, "disintegrates") and every item goes,
+ * readied ones too (their slots cleared); a saved one is "is unaffected" with the wait's draw and keeps its items; a
+ * cancelled amount is the same with no save draw; a dead target is still stripped (the kill returns early). Mutants: the
+ * items kept; the say unwaited; only the first item removed. */
+static void test_band_d1_disintegrate(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    c5_item(t, 0x14, 1, 0, 0, 0);
+    c5_item(t, 0x15, 0, 0, 0, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x6f) && LOGGED("disintegrates") && t->item_count == 0);
+    CHECK(game.effects.rolls.damage_type == 0x48);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 && hit_points(t) == 0);
+    for (unsigned i = 0; i < COK_ITEM_SLOTS; ++i) CHECK(t->slots[i] == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    c5_item(t, 0x14, 0, 0, 0, 0);
+    c5_item(t, 0x15, 0, 0, 0, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 0);
+    set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 1, 20); /* the save */
+    cok_tp_random(&want, 1000); /* "is unaffected"'s wait */
+    CHECK(c1_run(0x6f) && LOGGED("is unaffected") && !LOGGED("disintegrates") && t->item_count == 2);
+    CHECK(game.vm.seed == want && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    c5_item(t, 0x14, 0, 0, 0, 0);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    CHECK(c1_run(0x6f) && LOGGED("is unaffected") && t->item_count == 1 && game.vm.seed == want);
+    battle_clear();
+
+    duel(&a, &t);
+    c5_item(t, 0x14, 0, 0, 0, 0);
+    c5_item(t, 0x15, 0, 0, 0, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_STATUS, 6);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x6f) && t->item_count == 0);
+    battle_clear();
+
+    /* The save is type 4 with bonus 0, at its edge (seed 1's d20 is a 1, a failure whatever the throw): a d20 of 10
+     * against save[4] 10 is made, against 11 failed, the other throws 0; the quiet bit changes nothing. Mutants: type 3;
+     * bonus 1; a quiet test. */
+    for (uint8_t need = 10; need <= 11; ++need) {
+        duel(&a, &t);
+        c5_item(t, 0x14, 0, 0, 0, 0);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, need);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+        set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x6f) && LOGGED("disintegrates") == (need == 11));
+        CHECK(t->item_count == (need == 11 ? 0u : 1u));
+        battle_clear();
+    }
+}
+
+/* Flesh to Stone (0x72): a failed save of type 4 turns the target to stone (cok_combat_kill, status 7, "is turned to
+ * stone"). A save, and a cancelled amount, are silent: a save draws its d20 only, a cancel nothing. Mutants: status 6; a
+ * say on the save. */
+static void test_band_d1_flesh(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x72, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x72) && LOGGED("is turned to stone") && !LOGGED("is unaffected"));
+    CHECK(game.effects.rolls.damage_type == 0x40);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7 && hit_points(t) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 0);
+    set_targets(a, 0x72, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 1, 20); /* the save only */
+    CHECK(c1_run(0x72) && !LOGGED("turned") && !LOGGED("is unaffected") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && hit_points(t) == 10);
+    battle_clear();
+
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x72, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x72) && game.vm.seed == 1 && !LOGGED("turned") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    /* The save's edge as Disintegrate's: a d20 of 10 against save[4] 10 is made, against 11 stone. Mutants: type 3;
+     * bonus 1. */
+    for (uint8_t need = 10; need <= 11; ++need) {
+        duel(&a, &t);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, need);
+        set_targets(a, 0x72, (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x72) && (cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7) == (need == 11));
+        battle_clear();
+    }
+}
+
+/* The item power 0x8a (41e7): no combat target, nothing (no draws); with one, two d6 are drawn, the first one's sum dead,
+ * and the second d6 plus 9 is the damage from no save (target 30 hit points: 30 less the damage). The damage type is left as
+ * it stands (0x40 here). Mutants: the first d6 used (the damage 10 more); one draw only; the damage type set to 8. */
+static void test_band_d1_item_power(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    a->combat->target = NULL;
+    set_targets(a, 0x8a, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x8a) && game.vm.seed == 1);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    a->combat->target = t->record;
+    set_targets(a, 0x8a, (cok_character *[]){t}, 1);
+    game.effects.rolls.damage_type = 0x40;
+    game.effects.rolls.dice = 7;
+    game.vm.seed = seed_from(2, (const unsigned[]){6, 1, 1, 6, 6, 6});
+    CHECK(c1_run(0x8a) && hit_points(t) == 30 - (6 + 9) && game.effects.rolls.damage_type == 0x40);
+    CHECK(game.effects.rolls.dice == 1); /* 199e's count (DS:b7f4) */
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 30);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    a->combat->target = t->record;
+    cok_combat_record *keep = a->combat;
+    a->combat = NULL;
+    c6_reset();
+    set_targets(a, 0x8a, (cok_character *[]){t}, 1);
+    CHECK(!c1_run(0x8a) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "41eb") != NULL);
+    a->combat = keep;
+    battle_clear();
+}
+
+/* d3: Death Spell (0x6e, queen_band_d.c's death_spell). A seed whose four draws (cok_dice, 4d20) sum to sum: the pool is twice
+ * the sum, so a target dies when its weight is at most that. */
+static uint32_t pool_seed(unsigned sum)
+{
+    for (uint32_t s = 1;; ++s) {
+        uint32_t t = s;
+        if (cok_dice(&t, 4, 20) == sum) return s;
+    }
+}
+
+/* A Death Spell target of level and most hit points beside the caster's line (x, row 5), active, a monster. */
+static cok_character *d3_target(char name, int8_t x, uint8_t level, uint8_t most)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, 5);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, level);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, most);
+    return t;
+}
+
+/* One target of level and most hit points, beside the caster's: whether it dies (status 6) to a Death Spell with the pool of
+ * sum (4 draws). */
+static bool death_one(uint8_t level, uint8_t most, unsigned sum)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, level);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, most);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(sum);
+    CHECK(c1_run(0x6e));
+    bool dead = cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6;
+    battle_clear();
+    return dead;
+}
+
+/* Event 9 hook for the weight test: the target's level goes to 9 (weight 162) once its event 9 runs (the d20 of 1 calls it). */
+static bool d3_grow(cok_effects *fx, void *context)
+{
+    (void)context;
+    if (fx->target != NULL && *fx->target != NULL)
+        cok_field_set8(R->character, (*fx->target)->record, COK_FIELD_HIGHEST_LEVEL, 9);
+    return true;
+}
+
+/* Death Spell (0x6e): every weight at its boundary. Levels 0-3 weigh 1, 2, 8, 8: a pool of 8 kills them all (the pool equal to
+ * the weight kills). Levels 4-5 weigh 16 (a pool of 14 does not, 16 does); level 6 weighs 16 at 51 most hit points, 20 at 52
+ * (18 and 20); levels 7-8 weigh 20; 9 and 0x80 weigh 162, which no pool reaches (160). The weight is unsigned: a pool of 160 kills
+ * a level 7 (signed, 160 is -96 and would not). */
+static void test_band_d3_death_weights(void)
+{
+    CHECK(death_one(0, 1, 4) && death_one(1, 1, 4) && death_one(2, 1, 4) && death_one(3, 1, 4));
+    CHECK(!death_one(4, 1, 7) && death_one(4, 1, 8) && !death_one(5, 1, 7) && death_one(5, 1, 8));
+    CHECK(death_one(6, 51, 8) && death_one(6, 51, 9) && !death_one(6, 52, 9) && death_one(6, 52, 10));
+    CHECK(!death_one(7, 1, 9) && death_one(7, 1, 10) && death_one(7, 1, 80) && !death_one(8, 1, 9) && death_one(8, 1, 10));
+    CHECK(!death_one(9, 1, 80) && !death_one(0x80, 1, 80));
+}
+
+/* Death Spell's pool in list order: a target too heavy is NULLed and a lighter one after it still dies; a target that takes the
+ * pool below the next one's weight leaves that one NULLed (the pool is spent: two 16s need 32, a pool of 20 kills one). The
+ * slot of a NULLed target is cleared; a dead one keeps its slot. */
+static void test_band_d3_death_pool(void)
+{
+    cok_character *a, *t, *heavy, *light, *m1, *m2;
+    duel(&a, &t);
+    heavy = d3_target('H', 7, 9, 1);
+    light = d3_target('L', 8, 0, 1);
+    set_targets(a, 0x6e, (cok_character *[]){heavy, light}, 2);
+    game.vm.seed = pool_seed(4);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && game.spell_targets[2] == light);
+    CHECK(cok_field_u8(R->character, light->record, COK_FIELD_STATUS) == 6 && LOGGED("drops dead"));
+    CHECK(cok_field_u8(R->character, heavy->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    m1 = d3_target('M', 7, 4, 1);
+    m2 = d3_target('N', 8, 4, 1);
+    set_targets(a, 0x6e, (cok_character *[]){m1, m2}, 2);
+    game.vm.seed = pool_seed(10);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == m1 && game.spell_targets[2] == NULL);
+    CHECK(cok_field_u8(R->character, m1->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, m2->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+}
+
+/* Death Spell's quiet target (+0xc8 & 8) and cancelled amount: NULLed, silent, the pool's four draws only. A target with a 0x5c
+ * holder and the stale pending 0x6f has its amount cancelled (as Destruction's test). The images flag and the damage type 0x40
+ * are set; rolls.dice is not written (cok_dice). */
+static void test_band_d3_death_quiet(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    game.effects.rolls.images = 0;
+    game.effects.rolls.damage_type = 0x21;
+    game.effects.rolls.dice = 0x55;
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(80);
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 4, 20);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead"));
+    CHECK(game.vm.seed == want && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 0x40 &&
+          game.effects.rolls.dice == 0x55);
+    battle_clear();
+
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(80);
+    want = game.vm.seed;
+    cok_dice(&want, 4, 20);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
+/* Death Spell's event 9 may redirect the local copy (not the slot): the kill goes to the copy and the slot keeps its target. The
+ * weight is the one read before event 9 (a level 0 target: 1), not the level the handler gives the target. Mutants: the weight read
+ * after event 9 (the target's level 9 would make 162, and the pool of 8 would not kill); the slot used for the kill. */
+static void test_band_d3_death_local(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    d1_rules_set();
+    game.effects.dispel = d3_grow;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 1, 1, 20, 1, 1, 20, 1, 1, 20, 1, 1, 20, 1, 1});
+    CHECK(c1_run(0x6e) && LOGGED("drops dead") && game.spell_targets[1] == t);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6);
+    d1_end();
+    game.effects.rolls.pending = 0;
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1, 1});
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == t);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
+/* d3: Power Word Kill (0x7d, queen_band_d.c's power_word_kill). Two targets, the first of most hit points most1 and current hp
+ * hp1, the second of most2: whether each dies. The damage type must be left as it is. */
+static void pw_pair(uint8_t most1, uint8_t hp1, uint8_t most2, bool *dead1, bool *dead2)
+{
+    cok_character *a, *t, *f, *s;
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, most1);
+    cok_field_set8(R->character, f->record, COK_FIELD_HIT_POINTS, hp1);
+    s = d3_target('S', 8, 0, most2);
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.effects.rolls.damage_type = 0x55;
+    game.effects.rolls.images = 0;
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 0x55);
+    *dead1 = cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 6;
+    *dead2 = cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 6;
+    battle_clear();
+}
+
+/* The boundaries of most hit points: a first target of 11 to 60 alone (the second, of 5, lives); 61 leaves it to the group, where
+ * the second dies alone; 10 is the group's (both die); a 200 is more than 60 (signed, it would be -56 and at most 10). */
+static void test_band_d3_pw_bounds(void)
+{
+    bool dead1, dead2;
+    pw_pair(11, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+    pw_pair(60, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+    pw_pair(61, 10, 5, &dead1, &dead2);
+    CHECK(!dead1 && dead2);
+    pw_pair(10, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && dead2);
+    pw_pair(200, 10, 5, &dead1, &dead2);
+    CHECK(!dead1 && dead2);
+    pw_pair(10, 10, 61, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+}
+
+/* The branch reads most hit points (+0x89), not the current: a first target of most 30 at 5 hit points is the alone one (the
+ * second, of 5, lives), where its current 5 would send both to the group. */
+static void test_band_d3_pw_most(void)
+{
+    bool dead1, dead2;
+    pw_pair(30, 5, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+}
+
+/* The group skips NULL targets and those of more than 10 most hit points; no targets draw nothing and set the images flag. */
+static void test_band_d3_pw_group(void)
+{
+    cok_character *a, *t, *x, *y;
+    duel(&a, &t);
+    x = d3_target('X', 7, 0, 5);
+    y = d3_target('Y', 8, 0, 50);
+    set_targets(a, 0x7d, (cok_character *[]){NULL, x, y}, 3);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == NULL && game.spell_targets[2] == x && game.spell_targets[3] == y);
+    CHECK(cok_field_u8(R->character, x->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, y->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    game.effects.rolls.images = 0;
+    game.vm.seed = 1;
+    set_targets(a, 0x7d, (cok_character *[]){t}, 0);
+    CHECK(c1_run(0x7d) && game.effects.rolls.images == 1 && game.vm.seed == 1);
+    battle_clear();
+}
+
+/* Event 9 may redirect the slot: the first target's slot then holds the other target, which is the one slain (the slot is read
+ * again after event 9). A local copy would slay the first. The d20 of 1 (the stale 0x22 holder) calls the hook. */
+static void test_band_d3_pw_slot(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2 && game.effects.rolls.amount16 == 0xff); /* review: the amount 0xff */
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+    battle_clear();
+
+    /* A slot NULLed by event 9 (the hook) with the amount left: read through NULL (3f09). */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    d1_rules_set();
+    game.effects.dispel = d1_null;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    c6_reset();
+    CHECK(!c1_run(0x7d) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3f09") != NULL);
+    d1_end();
+    battle_clear();
+}
+
+/* A copy of the rules whose effects 0x7e and 0x4f do nothing (their rows are unported): the immunity tests of 0x8b. */
+static cok_rules d3_rules;
+static cok_rules_effect d3_handlers[0x100];
+
+static void d3_nothing_rules(void)
+{
+    const cok_rules_effects *E = &R->effects;
+    CHECK(0x7e < E->count && 0x4f < E->count && E->count <= 0x100);
+    d3_rules = *R;
+    memcpy(d3_handlers, E->handlers, E->count * sizeof *d3_handlers);
+    d3_handlers[0x7e] = (cok_rules_effect){.handler = COK_FX_NOTHING};
+    d3_handlers[0x4f] = (cok_rules_effect){.handler = COK_FX_NOTHING};
+    d3_rules.effects.handlers = d3_handlers;
+    game.rules = game.effects.rules = &d3_rules;
+}
+
+static void d3_end(void)
+{
+    game.rules = game.effects.rules = R;
+}
+
+/* d3: the item power 0x8b (stone_gaze, 7fd8:4250). Repo tests only (an item's Use is part 50). A d20 of 10 (seed) against a throw
+ * of 10 saves (total equal), 11 is turned; a natural 1 is not used here. Type 4 at 21 is the wrong save: a type 4 mutant fails. */
+static void test_band_d3_gaze(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && !LOGGED("reflects"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && game.effects.rolls.target == t->record);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && LOGGED("is turned to stone") && game.effects.rolls.target == t->record);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0 && hit_points(t) == 0);
+    battle_clear();
+
+    /* Holding 0x4f: a failed save is nothing (no stone, no text). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x4f, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    /* Holding 0x7e: the save's event 0x0c lists it, and its row (78e4:2117) is unported, so the run stops there. The immunity
+     * itself is tested on a copy of the rules where that row does nothing. */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x7e, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    c6_reset();
+    CHECK(!c1_run(0x8b) && strstr(game.error, "2117") != NULL && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    d3_nothing_rules();
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x7e, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d3_end();
+    battle_clear();
+
+    /* Holding 0x48 reflects it: "reflects it!" on the target, then the caster is the victim (its throw 21 fails the roll of 10),
+     * turned to stone, and the target is not. rolls.target is the caster's record at the end. Mutants: no reflection swap (the
+     * target would save and be left alone), a save of type 4 (the caster's type 4 is 0). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x48, 0, 0, true) != NULL);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SAVING_THROW, 1, 21);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    waits = 0;
+    game.hooks.delay = wait_spy;
+    CHECK(c1_run(0x8b) && LOGGED("reflects it!") && LOGGED("is turned to stone") && game.effects.rolls.target == a->record);
+    CHECK(waits > 0 && wait_ms[0] == 90); /* the missile's first frame: 2 x its delay 0x2d ms (no missile: the kill's 10 first) */
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    /* A first target NULL: read through NULL (4279). */
+    duel(&a, &t);
+    set_targets(a, 0x8b, (cok_character *[]){NULL}, 1);
+    c6_reset();
+    CHECK(!c1_run(0x8b) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4279") != NULL);
+    battle_clear();
+}
+
+/* d3: the item power 0x8c (stone_self, 7fd8:4369). Repo tests only (16f7 readies it, part 50). In mode 5 the caster is turned to
+ * stone: "is turned to stone" (row 10), status word 7, inactive, no hit points, the stone tile (the kill's arena). A caster of
+ * status 6-8 keeps its status and its active flag: the text only. Mutant: no 6-8 guard (status 6 would become 7, and active 0). */
+static void test_band_d3_stone_self(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.mode = 5;
+    game.vm.character = a->record;
+    game.effects.rolls.spell = 0x8c;
+    game.vm.seed = 1;
+    uint8_t only = cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 0); /* the battle's first effect id: lost in battle */
+    CHECK(cok_character_add_effect(a, only, 0, 0, false) != NULL);
+    CHECK(c1_run(0x8c) && LOGGED("is turned to stone") && cok_character_find_effect(a, only) == NULL);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 0 && hit_points(a) == 0);
+    battle_clear();
+
+    for (uint8_t status = 6; status <= 8; ++status) {
+        duel(&a, &t);
+        game.vm.mode = 5;
+        game.vm.character = a->record;
+        cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, status);
+        log_text[0] = '\0';
+        CHECK(c1_run(0x8c) && LOGGED("is turned to stone") && !LOGGED("is slain"));
+        CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == status &&
+              cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 1);
+        battle_clear();
+    }
+
+    /* No character selected: read through NULL (DS:ad67, 4369). */
+    duel(&a, &t);
+    game.vm.character = NULL;
+    c6_reset();
+    CHECK(!c1_run(0x8c) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4369") != NULL);
+    battle_clear();
+}
+
+/* d3 review: Power Word Kill's cancelled amount (a 0x5c holder with the stale pending 0x6f, as Death Spell's quiet test). The first
+ * target alone (most 30) cancelled is left, and the group does not run after it (the second, of 5, lives: 3eee-3ef5 returns); in
+ * the group a cancelled one is skipped and the next still dies, the amount word 0xff after its event 9. Mutants: the cancel
+ * ignored (first or group); the first branch falling to the group; another amount. */
+static void test_band_d3_pw_cancel(void)
+{
+    cok_character *a, *t, *f, *s;
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, 30);
+    s = d3_target('S', 8, 0, 5);
+    CHECK(cok_character_add_effect(f, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.vm.seed = 1;
+    log_text[0] = '\0';
+    CHECK(c1_run(0x7d) && !LOGGED("is slain"));
+    CHECK(cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, 5);
+    s = d3_target('S', 8, 0, 5);
+    CHECK(cok_character_add_effect(f, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.effects.rolls.amount16 == 0xff);
+    CHECK(cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 6);
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
+/* d3 review: the group's event 9 runs on the slot too (3f4d-3f5e pushes &t[i]): a target of 5 whose event 9 puts the other in
+ * its slot has that one slain (the slot read again at 3f81). Mutant: a local copy in the group. */
+static void test_band_d3_pw_group_slot(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 5);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+}
+
+/* d3 review: Death Spell reads the quiet bit from the local copy after event 9 (316c): a target redirected to a quiet one is
+ * NULLed and nobody dies; the amount word is 100. Mutant: the quiet bit read from the slot (the first target, not quiet: the
+ * redirected one would die). */
+static void test_band_d3_death_quiet_copy(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t2->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1, 1});
+    log_text[0] = '\0';
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead") && game.effects.rolls.amount16 == 100);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+}
+
+/* d3 review: 0x8c's status is a word (438f, 43a8): a status word 0x0106 is not 6-8, so the caster is stoned and the word is 7 (the
+ * high byte cleared). It is not cok_combat_kill: a holder of 0x9a (event 0x0d's list, its row unported) is stoned with no stop.
+ * The arena kill lays the body. Mutants: the status read or written as a byte; cok_combat_kill in its place; no arena kill. */
+static void test_band_d3_stone_self_word(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.mode = 5;
+    game.vm.character = a->record;
+    cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, 0x106);
+    CHECK(cok_character_add_effect(a, 0x9a, 0, 0, false) != NULL);
+    c6_reset();
+    CHECK(c1_run(0x8c) && LOGGED("is turned to stone"));
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 0 && hit_points(a) == 0);
+    CHECK(game.combat.bodies == 1 && game.combat.body[0].character == a);
+    battle_clear();
+}
+
+/* d4: Prot. from Fire (queen_band_d.c: 7fd8:301a). A ranger target (its own class level at +0xa9 above 0) takes 0x77, the
+ * fire absorb, valued at the caster's level for 0x6d uncapped: a caster ranger 40 gives 33 (capped, 31), no minutes. A target
+ * that is no ranger takes 0x14 (value 0, the spell's duration, 0 minutes), whatever the caster's level; the target's level
+ * decides, not the caster's (a caster of 0 with a ranger target gives 0x77 at 6, the caster not a caster). "is Protected"
+ * each. No target: nothing, no stop. A record freed since: undefined. Mutants: the caster's level tested for the ranger; the
+ * value capped; the ranger test dropped (0x77 always); the NULL target a stop. */
+static void test_band_d4_prot_fire(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 1);
+    set_targets(a, 0x6d, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 33);
+    game.effects.rolls.images = 0; /* 301a never writes DS:c280 (PW Stun and Blind do) */
+    CHECK(run_handler(0x6d) && LOGGED("is Protected") && game.effects.rolls.images == 0);
+    cok_effect *e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 33 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x14) == NULL);
+    clear_effect(t, 0x77);
+
+    /* The target's level, not the caster's: a caster of 0 (not a caster: level 6) and a ranger target of 1 take 0x77 at 6. */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 6);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 6 && e->duration == 0 && !e->on_remove);
+    clear_effect(t, 0x77);
+
+    /* A caster of 40 with a target that is no ranger: 0x14, value 0, duration 0 (no 0x77). */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x14);
+    CHECK(e != NULL && e->value == 0 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x77) == NULL);
+    clear_effect(t, 0x14);
+
+    /* No target: nothing (no text, no node, no stop). */
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 1;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && !LOGGED("is Protected") && cok_character_find_effect(t, 0x14) == NULL);
+
+    /* A record freed since is undefined (queen_first_target's convention; the original reads it where the heap put it). */
+    game.spell_targets[1] = &cok_arena_freed;
+    CHECK(!run_handler(0x6d) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "301a") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* d4: PW Stun (queen_band_d.c: 7fd8:3569). One image. The rounds by the target's hit points: 1 and 30 are 4d4, 31 and 60 are
+ * 2d4, 61 and 90 are 1d4; 0 and 91 are none, with no draw, no node and no text. The seed after the handler is the seed after
+ * exactly that band's dice, so a count off by one shows. The node is 0x6a for the rounds, "is STUNNED", its value the caster's
+ * level capped (a mage of 40: 31, uncapped 40), and the holder's turn ends at event 7 (the held row, 1af9). Mutants: the band
+ * boundary off by one (31 rolls 4d4); the level uncapped; a node for 0 rounds. */
+static void test_band_d4_pw_stun(void)
+{
+    game.vm.mode = 5; /* the battle */
+    game.effects.in_battle = true;
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 40);
+    set_targets(a, 0x75, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x75, false, &lv) && lv == 40);
+    CHECK(queen_spell_level(&game, 0x75, true, &lv) && lv == 31);
+    /* Every d4 of the seed is a 4, so the rounds are 4 a die: 16 for 4d4, 8 for 2d4, 4 for 1d4 (a count off by one shows).
+     * The text's flash and wait draw after the dice, so the seed is not compared here. */
+    static const struct {
+        uint8_t hp, sum;
+    } bands[] = {{1, 16}, {30, 16}, {31, 8}, {60, 8}, {61, 4}, {90, 4}};
+    static const unsigned fours[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
+    for (size_t i = 0; i < sizeof bands / sizeof *bands; ++i) {
+        set_hit_points(t, bands[i].hp, 100);
+        game.vm.seed = seed_from(4, fours);
+        game.effects.rolls.images = 0; /* so the handler's own 1 (3569's DS:c280) shows */
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && LOGGED("is STUNNED") && game.effects.rolls.images == 1);
+        cok_effect *e = cok_character_find_effect(t, 0x6a);
+        CHECK(e != NULL && e->duration == bands[i].sum && e->value == 31 && !e->on_remove);
+        if (i == 1) {
+            /* The held row ends the holder's turn at event 7 (test_held_ends_turn's check, on this node). */
+            cok_combat_record *cr = t->combat;
+            cr->initiative = 3;
+            cr->spell = 2;
+            cr->guarding = 7;
+            cr->movement = 8;
+            CHECK(cok_effects_dispatch(&game.effects, t, 7) && game.vm.status == COK_ECL_OK);
+            CHECK(cr->initiative == 0 && cr->spell == 0 && cr->guarding == 0 && cr->movement == 0);
+        }
+        clear_effect(t, 0x6a);
+    }
+    /* 0 and 91 and up: no rounds, no draw, no node, no text. */
+    static const uint8_t none[] = {0, 91, 200};
+    for (size_t i = 0; i < sizeof none / sizeof *none; ++i) {
+        set_hit_points(t, none[i], 100);
+        game.vm.seed = 7;
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && game.vm.seed == 7 && cok_character_find_effect(t, 0x6a) == NULL && !LOGGED("is STUNNED"));
+    }
+    game.effects.in_battle = false;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* A record for a blindness target: its maximum hit points (+0x89) and its cell. */
+static cok_character *blind_target(char name, int8_t x, int8_t y, uint8_t max)
+{
+    cok_character *c = record(name, 0, 0);
+    place(c, x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_MAX_HIT_POINTS, max);
+    return c;
+}
+
+/* d4: PW Blind (queen_band_d.c: 7fd8:396a). One image. Two walks over the targets while the sum of their maximum hit points
+ * is at most 100: a target over 100 is skipped, and so is one that would take the sum over 100 (a 22 after 78 is taken, a 1
+ * after 100 is not); a later small one is taken after a skipped one (50 after 120, then 40 after 60 skipped). The second walk
+ * gives 0x21 ("is blinded", for no minutes) to each target taken, once. One d4 is drawn between the walks: with no target the
+ * seed is one die on. No target (NULL): undefined (3994). Mutants: the cap at 99 (78 then 22 skipped); the cap's sum test
+ * as >=; no draw between the walks; the add in the first walk too; a skipped target blinded. */
+static void test_band_d4_pw_blind(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 78);
+    cok_character *u = blind_target('U', 1, 1, 78);
+    cok_character *v = blind_target('V', 1, 3, 120);
+    cok_character *w = blind_target('W', 1, 5, 50);
+    cok_character *x = blind_target('X', 1, 7, 60);
+    cok_character *y = blind_target('Y', 1, 9, 40);
+    cok_character *z = blind_target('Z', 1, 11, 22);
+    cok_character *q = blind_target('Q', 1, 13, 1);
+
+    /* 78 and 78: the first only (78 + 78 is over 100). */
+    set_targets(a, 0x7b, (cok_character *[]){t, u}, 2);
+    game.effects.rolls.images = 0; /* so the handler's own 1 (396a's DS:c280) shows */
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(u, 0x21) == NULL && count_of("is blinded") == 1);
+    cok_effect *e = cok_character_find_effect(t, 0x21);
+    CHECK(e->duration == 0 && e->value == 0 && !e->on_remove);
+    clear_effect(t, 0x21);
+
+    /* 120 (skipped), 50 (taken, the sum 50), 60 (110: skipped), 40 (90: taken). */
+    set_targets(a, 0x7b, (cok_character *[]){v, w, x, y}, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(v, 0x21) == NULL && cok_character_find_effect(w, 0x21) != NULL &&
+          cok_character_find_effect(x, 0x21) == NULL && cok_character_find_effect(y, 0x21) != NULL);
+    clear_effect(w, 0x21);
+    clear_effect(y, 0x21);
+
+    /* 78, 22 (exactly 100: taken), 1 (101: skipped). */
+    set_targets(a, 0x7b, (cok_character *[]){t, z, q}, 3);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(z, 0x21) != NULL &&
+          cok_character_find_effect(q, 0x21) == NULL);
+    clear_effect(t, 0x21);
+    clear_effect(z, 0x21);
+
+    /* No target: the one draw still happens (d4 drawn, the walks add nothing). */
+    set_targets(a, 0x7b, (cok_character *[]){t}, 0);
+    game.vm.seed = 5;
+    uint32_t want = 5;
+    (void)cok_dice(&want, 1, 4);
+    CHECK(run_handler(0x7b) && game.vm.seed == want && game.effects.rolls.images == 1);
+
+    /* A NULL first target is read through NULL: undefined. */
+    set_targets(a, 0x7b, (cok_character *[]){NULL}, 1);
+    CHECK(!run_handler(0x7b) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3994") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -7670,6 +8870,11 @@ int main(void)
     test_effects5_drain();
     test_effects5_wasting();
     test_effects5_disease();
+    test_band_d_fire_absorb();
+    test_band_d_slow_poison();
+    test_band_d_dance_armour();
+    test_band_d_mass_invisibility();
+    test_queen_touch_copy();
     test_cone();
     test_cone_of_cold();
     test_meteor_try();
@@ -7735,6 +8940,28 @@ int main(void)
     test_band_c7_shield_computer();
     test_band_c7_shield_menu();
     test_band_c7_shield_underwater();
+    test_band_d1_drain();
+    test_band_d1_destruction();
+    test_band_d1_disintegrate();
+    test_band_d1_flesh();
+    test_band_d1_item_power();
+    test_band_d3_death_weights();
+    test_band_d3_death_pool();
+    test_band_d3_death_quiet();
+    test_band_d3_death_local();
+    test_band_d3_pw_bounds();
+    test_band_d3_pw_most();
+    test_band_d3_pw_group();
+    test_band_d3_pw_slot();
+    test_band_d3_gaze();
+    test_band_d3_stone_self();
+    test_band_d3_pw_cancel();
+    test_band_d3_pw_group_slot();
+    test_band_d3_death_quiet_copy();
+    test_band_d3_stone_self_word();
+    test_band_d4_prot_fire();
+    test_band_d4_pw_stun();
+    test_band_d4_pw_blind();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

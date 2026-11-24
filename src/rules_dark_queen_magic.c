@@ -385,7 +385,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x13] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x14] = {0x0313, COK_FX_QUEEN_RESIST, .value = 1, .applied_only = true}, /* 78e4:0313: fire halved, save +3 */
     [0x15] = {0x012c, COK_FX_QUEEN_SILENCE, .applied_only = true}, /* 7e76:012c: silence in battle */
-    [0x16] = {0x0337, COK_FX_MISSING, "dqk 78e4:0337"},
+    [0x16] = {0x0337, COK_FX_QUEEN_SLOW_POISON, .applied_only = true}, /* 78e4:0337: a poisoned holder dies, its 0x0f cured (queen_effect.c) */
     [0x17] = {0x0397, COK_FX_QUEEN_HAMMER}, /* 78e4:0397: the spiritual hammer (queen_effect.c); event 0x13 */
     [0x18] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
     [0x19] = {0x054a, COK_FX_INVISIBLE}, /* 78e4:054a: tests the removing flag itself */
@@ -474,7 +474,7 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x67] = {0x1a95, COK_FX_MISSING, "dqk 78e4:1a95"},
     [0x68] = {0x0985, COK_FX_MISSING, "dqk 7e76:0985"},
     [0x69] = {0x1aa2, COK_FX_QUEEN_RANGER},
-    [0x6a] = {0x1af9, COK_FX_MISSING, "dqk 78e4:1af9"},
+    [0x6a] = {0x1af9, COK_FX_HELD}, /* 78e4:1af9: 010d byte for byte, the turn ends */
     [0x6b] = {0x09e8, COK_FX_MISSING, "dqk 7e76:09e8"},
     [0x6c] = {0x0ad9, COK_FX_MISSING, "dqk 7e76:0ad9"},
     [0x6d] = {0x4f2f, COK_FX_NOTHING}, /* does nothing: retf */
@@ -486,8 +486,8 @@ const cok_rules_effect cok_dark_queen_effect_handlers[0xe6] = {
     [0x73] = {0x0b74, COK_FX_MISSING, "dqk 7e76:0b74"},
     [0x74] = {0x1df6, COK_FX_MISSING, "dqk 78e4:1df6"},
     [0x75] = {0x10a3, COK_FX_MISSING, "dqk 52db:4fd1"},
-    [0x76] = {0x2025, COK_FX_MISSING, "dqk 78e4:2025"},
-    [0x77] = {0x2039, COK_FX_MISSING, "dqk 78e4:2039"},
+    [0x76] = {0x2025, COK_FX_ARMOUR, .value = 0xfc}, /* 78e4:2025: AC and AC behind 4 worse, no flag test (not applied_only) */
+    [0x77] = {0x2039, COK_FX_QUEEN_FIRE_ABSORB}, /* 78e4:2039: fire absorbed at 12 a point of value (queen_effect.c) */
     [0x78] = {0x20ab, COK_FX_MISSING, "dqk 78e4:20ab"},
     [0x79] = {0x0ad9, COK_FX_MISSING, "dqk 7e76:0ad9"},
     [0x7a] = {0x20c9, COK_FX_MISSING, "dqk 78e4:20c9"},
