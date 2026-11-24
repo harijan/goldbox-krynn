@@ -8104,7 +8104,8 @@ static void test_band_d4_prot_fire(void)
     set_targets(a, 0x6d, (cok_character *[]){t}, 1);
     uint8_t lv = 0;
     CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 33);
-    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    game.effects.rolls.images = 0; /* 301a never writes DS:c280 (PW Stun and Blind do) */
+    CHECK(run_handler(0x6d) && LOGGED("is Protected") && game.effects.rolls.images == 0);
     cok_effect *e = cok_character_find_effect(t, 0x77);
     CHECK(e != NULL && e->value == 33 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x14) == NULL);
     clear_effect(t, 0x77);
@@ -8167,6 +8168,7 @@ static void test_band_d4_pw_stun(void)
     for (size_t i = 0; i < sizeof bands / sizeof *bands; ++i) {
         set_hit_points(t, bands[i].hp, 100);
         game.vm.seed = seed_from(4, fours);
+        game.effects.rolls.images = 0; /* so the handler's own 1 (3569's DS:c280) shows */
         log_text[0] = '\0';
         CHECK(run_handler(0x75) && LOGGED("is STUNNED") && game.effects.rolls.images == 1);
         cok_effect *e = cok_character_find_effect(t, 0x6a);
@@ -8227,6 +8229,7 @@ static void test_band_d4_pw_blind(void)
 
     /* 78 and 78: the first only (78 + 78 is over 100). */
     set_targets(a, 0x7b, (cok_character *[]){t, u}, 2);
+    game.effects.rolls.images = 0; /* so the handler's own 1 (396a's DS:c280) shows */
     log_text[0] = '\0';
     CHECK(run_handler(0x7b) && game.effects.rolls.images == 1);
     CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(u, 0x21) == NULL && count_of("is blinded") == 1);
