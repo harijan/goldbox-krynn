@@ -2,11 +2,13 @@
 
 #include "arena.h"
 #include "attack.h"
+#include "cast.h"
 #include "combat.h"
 #include "ecl.h"
 #include "effect.h"
 #include "field.h"
 #include "party.h"
+#include "round.h"
 
 /* The Dark Queen of Krynn's band d spells (part 33): the 7fd8 handlers from 2cae on, as the briefs add them (d1 the kills,
  * then d3 to d6). Each handler reads the spell's record and the targets as queen_cast.c does, and shares the spell
@@ -166,6 +168,13 @@ enum {
     DEATH_AMOUNT = 100,
 };
 
+/* The party's character of a record (monsters are in the party list too), NULL when it is not one. */
+static cok_character *party_character(cok_adventure *game, const uint8_t *record)
+{
+    size_t i = cok_party_index(&game->party, record);
+    return i < game->party.count ? game->party.members[i] : NULL;
+}
+
 /* Event 9 on *t (the slot itself or a local copy, as the caller passes it) with amount in both bytes (DS:ae55); the damage type
  * is the caller's. False where the run stopped. */
 static bool event_nine(cok_adventure *game, cok_character **t, uint8_t amount)
@@ -258,6 +267,62 @@ static bool power_word_kill(cok_adventure *game)
     return true;
 }
 
+/* 7fd8:4250, the item power 0x8b (the stoning gaze; an item's Use only, part 50): rolls.target is the first target's record (a NULL
+ * target is read through NULL, 4279). A holder of 0x48 reflects it: "reflects it!" on the target (row 12, no wait), the missile
+ * from the target to the caster (4 frames, delay 0x2d), and the caster is the victim (rolls.target too). The victim saves (type 1,
+ * bonus 0); a failed save of one holding neither 0x7e nor 0x4f is turned to stone (cok_combat_kill, status 7). The record's effect
+ * 0x34 is not used, and nothing else is drawn. */
+static bool stone_gaze(cok_adventure *game)
+{
+    cok_rolls *r = &game->effects.rolls;
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL) return undefined(game, "dqk 7fd8:4279 reads the target through NULL (DS:c5e3)");
+    r->target = t->record;
+    if (cok_character_find_effect(t, 0x48) != NULL) {
+        if (!cok_arena_say(game, t, "reflects it!", 12, false)) return false;
+        uint8_t *record = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 4250)");
+        cok_character *c = party_character(game, record);
+        if (c == NULL) return undefined(game, "the caster is no party member (DS:ad67, 4250)");
+        const cok_combat *combat = &game->combat;
+        if (!cok_arena_missile(game, cok_combat_x(combat, t->record), cok_combat_y(combat, t->record),
+                               cok_combat_x(combat, record), cok_combat_y(combat, record), 4, 0x2d))
+            return false;
+        t = c;
+        r->target = record;
+    }
+    bool saved = false;
+    if (!queen_save(game, t, 1, 0, &saved)) return false;
+    if (saved || cok_character_find_effect(t, 0x7e) != NULL || cok_character_find_effect(t, 0x4f) != NULL) return true;
+    return cok_combat_kill(game, t, 7, "is turned to stone");
+}
+
+/* 7fd8:4369, the item power 0x8c (the user turned to stone; readied in battle by 16f7, part 50): in mode 5 "is turned to stone" on
+ * the caster (row 10, no wait). A caster of status 6-8 (dead, stoned or gone) is left as it is. Else its status word is 7 (the
+ * high byte cleared), active 0, hit points 0, its battle effects are removed (cok_combat_battle_only), then the arena kill (its
+ * stale byte as queen_cast's kill: the berserk node), the pause, and in mode 5 the text cleared. This is cok_combat_kill without
+ * event 0x0d and the party list: the status is written just before, so the kill's test on active and status 10 always passes. */
+static bool stone_self(cok_adventure *game)
+{
+    uint8_t *record = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 4369)");
+    if (record == NULL) return false;
+    cok_character *c = party_character(game, record);
+    if (c == NULL) return undefined(game, "the caster is no party member (DS:ad67, 4369)");
+    const cok_rules *R = cok_game_rules(game);
+    if (game->vm.mode == 5 && !cok_arena_say(game, c, "is turned to stone", 10, false)) return false;
+    unsigned status = cok_combat_field_word(R, record, COK_FIELD_STATUS);
+    if (status >= 6 && status <= 8) return true;
+    cok_combat_set_field_word(R, record, COK_FIELD_STATUS, 7);
+    cok_field_set8(R->character, record, COK_FIELD_ACTIVE, 0);
+    cok_field_set8(R->character, record, COK_FIELD_HIT_POINTS, 0);
+    if (!cok_combat_battle_only(game, c)) return false;
+    int stale = cok_character_find_named(c, R, COK_EFFECT_BERSERK) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+    cok_arena_reachable also = cok_cast_reachable(game);
+    if (!cok_arena_kill(game, c, stale, &also)) return false;
+    cok_arena_pause(game);
+    if (game->vm.mode == 5) cok_arena_clear_text(game);
+    return true;
+}
+
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
@@ -277,6 +342,8 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
     case SPELL_DEATH: return death_spell;
     case SPELL_POWER_WORD_KILL: return power_word_kill;
+    case SPELL_STONE_GAZE: return stone_gaze;
+    case SPELL_STONE_SELF: return stone_self;
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */

@@ -2108,7 +2108,7 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
-        bool d3 = id == 0x6e || id == 0x7d; /* queen_band_d.c's d3 (Death Spell, Power Word Kill) */
+        bool d3 = id == 0x6e || id == 0x7d || id == 0x8b || id == 0x8c; /* queen_band_d.c's d3 (Death Spell, Power Word Kill, 0x8b, 0x8c) */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
                c4 || c5 || c6 || c7 || d1 || d2 || d3)); /* 0x5c: band b4, 0x7c: b5 */
@@ -8353,6 +8353,142 @@ static void test_band_d3_pw_slot(void)
     battle_clear();
 }
 
+/* A copy of the rules whose effects 0x7e and 0x4f do nothing (their rows are unported): the immunity tests of 0x8b. */
+static cok_rules d3_rules;
+static cok_rules_effect d3_handlers[0x100];
+
+static void d3_nothing_rules(void)
+{
+    const cok_rules_effects *E = &R->effects;
+    CHECK(0x7e < E->count && 0x4f < E->count && E->count <= 0x100);
+    d3_rules = *R;
+    memcpy(d3_handlers, E->handlers, E->count * sizeof *d3_handlers);
+    d3_handlers[0x7e] = (cok_rules_effect){.handler = COK_FX_NOTHING};
+    d3_handlers[0x4f] = (cok_rules_effect){.handler = COK_FX_NOTHING};
+    d3_rules.effects.handlers = d3_handlers;
+    game.rules = game.effects.rules = &d3_rules;
+}
+
+static void d3_end(void)
+{
+    game.rules = game.effects.rules = R;
+}
+
+/* d3: the item power 0x8b (stone_gaze, 7fd8:4250). Repo tests only (an item's Use is part 50). A d20 of 10 (seed) against a throw
+ * of 10 saves (total equal), 11 is turned; a natural 1 is not used here. Type 4 at 21 is the wrong save: a type 4 mutant fails. */
+static void test_band_d3_gaze(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 10);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 21);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && !LOGGED("reflects"));
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0 && game.effects.rolls.target == t->record);
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && LOGGED("is turned to stone") && game.effects.rolls.target == t->record);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0 && hit_points(t) == 0);
+    battle_clear();
+
+    /* Holding 0x4f: a failed save is nothing (no stone, no text). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x4f, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    /* Holding 0x7e: the save's event 0x0c lists it, and its row (78e4:2117) is unported, so the run stops there. The immunity
+     * itself is tested on a copy of the rules where that row does nothing. */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x7e, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    c6_reset();
+    CHECK(!c1_run(0x8b) && strstr(game.error, "2117") != NULL && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    d3_nothing_rules();
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x7e, 0, 0, false) != NULL);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 1, 11);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    CHECK(c1_run(0x8b) && !LOGGED("is turned to stone") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d3_end();
+    battle_clear();
+
+    /* Holding 0x48 reflects it: "reflects it!" on the target, then the caster is the victim (its throw 21 fails the roll of 10),
+     * turned to stone, and the target is not. rolls.target is the caster's record at the end. Mutants: no reflection swap (the
+     * target would save and be left alone), a save of type 4 (the caster's type 4 is 0). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x48, 0, 0, true) != NULL);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_SAVING_THROW, 1, 21);
+    set_targets(a, 0x8b, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+    waits = 0;
+    game.hooks.delay = wait_spy;
+    CHECK(c1_run(0x8b) && LOGGED("reflects it!") && LOGGED("is turned to stone") && game.effects.rolls.target == a->record);
+    CHECK(waits > 0 && wait_ms[0] == 90); /* the missile's first frame: 2 x its delay 0x2d ms (no missile: the kill's 10 first) */
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    /* A first target NULL: read through NULL (4279). */
+    duel(&a, &t);
+    set_targets(a, 0x8b, (cok_character *[]){NULL}, 1);
+    c6_reset();
+    CHECK(!c1_run(0x8b) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4279") != NULL);
+    battle_clear();
+}
+
+/* d3: the item power 0x8c (stone_self, 7fd8:4369). Repo tests only (16f7 readies it, part 50). In mode 5 the caster is turned to
+ * stone: "is turned to stone" (row 10), status word 7, inactive, no hit points, the stone tile (the kill's arena). A caster of
+ * status 6-8 keeps its status and its active flag: the text only. Mutant: no 6-8 guard (status 6 would become 7, and active 0). */
+static void test_band_d3_stone_self(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.mode = 5;
+    game.vm.character = a->record;
+    game.effects.rolls.spell = 0x8c;
+    game.vm.seed = 1;
+    uint8_t only = cok_data_u8_at(R->data, COK_DATA_BATTLE_ONLY, 0); /* the battle's first effect id: lost in battle */
+    CHECK(cok_character_add_effect(a, only, 0, 0, false) != NULL);
+    CHECK(c1_run(0x8c) && LOGGED("is turned to stone") && cok_character_find_effect(a, only) == NULL);
+    CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 0 && hit_points(a) == 0);
+    battle_clear();
+
+    for (uint8_t status = 6; status <= 8; ++status) {
+        duel(&a, &t);
+        game.vm.mode = 5;
+        game.vm.character = a->record;
+        cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, status);
+        log_text[0] = '\0';
+        CHECK(c1_run(0x8c) && LOGGED("is turned to stone") && !LOGGED("is slain"));
+        CHECK(cok_field_u8(R->character, a->record, COK_FIELD_STATUS) == status &&
+              cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 1);
+        battle_clear();
+    }
+
+    /* No character selected: read through NULL (DS:ad67, 4369). */
+    duel(&a, &t);
+    game.vm.character = NULL;
+    c6_reset();
+    CHECK(!c1_run(0x8c) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4369") != NULL);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8531,6 +8667,8 @@ int main(void)
     test_band_d3_pw_most();
     test_band_d3_pw_group();
     test_band_d3_pw_slot();
+    test_band_d3_gaze();
+    test_band_d3_stone_self();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
