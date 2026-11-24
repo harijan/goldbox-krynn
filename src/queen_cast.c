@@ -446,6 +446,27 @@ bool queen_save(cok_adventure *game, cok_character *t, uint8_t type, uint8_t bon
     return true;
 }
 
+/* 849a:10f9's touch on *slot: the stats recomputed (0be2), the event 0x0b on the slot, then the hit roll (148f:1771) of the
+ * caster against the target's armour class (*hit). False where the run stopped (the slot NULL after the event, or the caster
+ * with no combatant, undefined). Otto's Irresistible Dance calls it on a copy of its target (queen_band_d.c). */
+bool queen_touch(cok_adventure *game, cok_character **slot, bool *hit)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    *hit = false;
+    if (!recompute(game, *slot)) return false;
+    if (!dispatch_at(game, slot, 0x0b)) return false;
+    if (*slot == NULL)
+        return undefined(game, "the touch's target slot is NULL after event 0x0b (DS:c5df)");
+    uint8_t *caster = caster_of(game);
+    if (caster == NULL) return false;
+    cok_character *attacker = combatant_of(game, caster);
+    if (attacker == NULL)
+        return undefined(game, "the caster has no combatant for the touch's hit roll (DS:ad67, "
+                               "148f:1771)");
+    cok_character *t = *slot;
+    return cok_combat_hit(game, attacker, t, cok_field_u8(L, t->record, COK_FIELD_AC), hit);
+}
+
 bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool on_remove,
                        uint8_t amount, uint8_t type, const char *text)
 {
@@ -475,24 +496,9 @@ bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool o
             }
         }
         if (queen_spell_byte(game, r->spell, SPELL_RANGE) == TOUCH) {
-            /* 849a:10f9's touch: the stats recomputed (0be2), the event 0x0b on the slot, then the
-             * hit roll (148f:1771) of the caster against the target's armour class. A miss zeroes
-             * the amount for this and every later target, and saves this one. */
-            const cok_character_layout *L = cok_game_rules(game)->character;
-            if (!recompute(game, game->spell_targets[i])) return false;
-            if (!dispatch_at(game, &game->spell_targets[i], 0x0b)) return false;
-            if (game->spell_targets[i] == NULL)
-                return undefined(game, "the touch's target slot is NULL after event 0x0b (DS:c5df)");
-            uint8_t *caster = caster_of(game);
-            if (caster == NULL) return false;
-            cok_character *attacker = combatant_of(game, caster);
-            if (attacker == NULL)
-                return undefined(game, "the caster has no combatant for the touch's hit roll (DS:ad67, "
-                                       "148f:1771)");
-            cok_character *t = game->spell_targets[i];
+            /* A miss zeroes the amount for this and every later target, and saves this one. */
             bool hit = false;
-            if (!cok_combat_hit(game, attacker, t, cok_field_u8(L, t->record, COK_FIELD_AC), &hit))
-                return false;
+            if (!queen_touch(game, &game->spell_targets[i], &hit)) return false;
             if (!hit) {
                 amount = 0;
                 saved = true;
@@ -760,8 +766,8 @@ static bool caster_side(cok_adventure *game, unsigned *side)
 }
 
 /* 7fd8:0001 (side, text): Bless and Curse. Each target whose word +0x66 is not side is cleared (NULL);
- * a Bless (spell 1 only, not 0x3e) in a battle clears one of the side with an enemy within 1 (51c2:0980,
- * cok_combat_enemies). The images flag is set first (no mirror image), before the clears; then the
+ * a Bless (spell 1 only, not 0x3e) or Mass Invisibility (0x74) in a battle clears one of the side with an enemy
+ * within 1 (51c2:0980, cok_combat_enemies). The images flag is set first (no mirror image), before the clears; then the
  * apply of the spell with text.
  * The original reads a NULL target's +0x66 through NULL: undefined here. */
 static bool bless(cok_adventure *game, unsigned side, const char *text)
@@ -777,7 +783,7 @@ static bool bless(cok_adventure *game, unsigned side, const char *text)
             game->spell_targets[i] = NULL;
             continue;
         }
-        if (r->spell == 1 && game->vm.mode == 5) {
+        if ((r->spell == 1 || r->spell == 0x74) && game->vm.mode == 5) {
             uint8_t n = 0;
             if (!cok_combat_enemies(game, t, 1, &n)) return false;
             if (n != 0) game->spell_targets[i] = NULL;
@@ -791,6 +797,14 @@ static bool bless_spell(cok_adventure *game)
 {
     unsigned side;
     return caster_side(game, &side) && bless(game, side, "is Blessed");
+}
+
+/* 7fd8:34b9 (Mass Invisibility, 0x74): bless's routine with the caster's side, "is Invisible (spell)" (the enemy test as
+ * Bless's, 34b9's own). */
+static bool mass_invisibility(cok_adventure *game)
+{
+    unsigned side;
+    return caster_side(game, &side) && bless(game, side, "is Invisible (spell)");
 }
 
 /* 7fd8:00c9 (Curse, 0x02): the other side (51c2:08fd: 1 where the caster's word is 0, else 0), "is
@@ -872,6 +886,7 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
     case 0x2a: return prayer;
     case 0x20: return mirror_image;
     case 0x49: return dispel_evil;
+    case 0x74: return mass_invisibility;
     case 0x76: return fire_touch;
     default: {
         queen_spell_fn *area_handler = queen_area_handler(id);

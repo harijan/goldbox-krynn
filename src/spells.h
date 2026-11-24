@@ -392,6 +392,8 @@ typedef enum {
     COK_FX_QUEEN_FEEBLEMIND,        /* 0x44 (7e76:06f6) */
     COK_FX_QUEEN_BERSERK,           /* 0x4d (7e76:081f) */
     COK_FX_QUEEN_HAMMER,            /* 0x17 (78e4:0397): c5's */
+    COK_FX_QUEEN_FIRE_ABSORB,       /* 0x77 (78e4:2039): fire absorbed at 12 a point of value (d2) */
+    COK_FX_QUEEN_SLOW_POISON,       /* 0x16 (78e4:0337): a poisoned holder dies, its 0x0f cured (d2) */
     COK_FX_HANDLERS
 } cok_effect_handler;
 

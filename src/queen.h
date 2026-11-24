@@ -277,6 +277,10 @@ bool queen_save(cok_adventure *game, cok_character *t, uint8_t type, uint8_t bon
  * level, capped) and text. False where the run stopped. */
 bool queen_spell_apply(cok_adventure *game, uint8_t spell, uint8_t value, bool on_remove,
                        uint8_t amount, uint8_t type, const char *text);
+/* 849a:10f9's touch on *slot (queen_spell_apply's, and Otto's Irresistible Dance's on a copy): the stats recomputed,
+ * event 0x0b on the slot (the slot may be swapped by it), then the hit roll (148f:1771) of the caster against the
+ * target's armour class into *hit. False where the run stopped. */
+bool queen_touch(cok_adventure *game, cok_character **slot, bool *hit);
 /* 148f:2214: damage of amount (the word DS:ae55) to t, saved by save_kind (1 none, 2 half) when saved;
  * its event 6, 0x14 or the save, the text, the panel and flash, the damage in combat, "lost a spell",
  * "Goes Down" and the death. False where the run stopped. */
