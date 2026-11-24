@@ -241,7 +241,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "band_c7", "band_d1", "band_d2", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_c7", "band_d1", "band_d2", "band_d3", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6900,6 +6900,143 @@ def band_d2(v, work, opts):
     print(f"eclplay (band d2) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
 
 
+# Band d3's Death Spell and Power Word Kill (step 4, part 33c, the flow band_d3), each BALTHIR's own cast, memorised alone in
+# saved game A. Death Spell (+0xce 0x6e, time 6, range 4 a level: 48 at +0xaa 0x0c) is pending as Disintegrate (band_d1): C, C
+# (WALKER's menu), E (WALKER's End: TIMASALIN's menu), E (TIMASALIN's End: BALTHIR's pending Aim, 17 draws, f79afec7), N
+# (SHARKMAN 2 under the cursor; it has stepped beside BALTHIR, to 29, 15), then T: the area of 1 lists SHARKMAN 2, BALTHIR and
+# WALKER (DS:c6f4 3), the pool's four draws and event 9 on each; none dies and every slot is NULLed. The tail is 25 draws past
+# the menu (28390bdf; the dispatch at 849a:21b5 was 20, f74d124a, in the probe). Power Word Kill (+0xce 0x7d, immediate) has a
+# quarter of its range (849a:0f34: 1 a level, so 3 at +0xaa 0x0c, short of SHARKMAN 2's 5: no Target on the Aim, only
+# CENTER): at +0xaa 0x20 the range is 8. C, C (the Aim), N (SHARKMAN 2), T: SHARKMAN 2's 78 most hit points send it to the
+# group branch, and none of 10 or fewer: nothing happens, the tail is the dispatch's 13 draws (949f681b, as band d4's).
+# The values are measured in DOSBox-X.
+BAND_D3_DEATH = 0x6E
+BAND_D3_PW = 0x7D
+BAND_D3_DEATH_LEVEL = 0x0C              # +0xaa: BALTHIR's mage level 12, Death Spell's range 48 (as the scope's poke)
+BAND_D3_PW_LEVEL = 0x20                 # +0xaa: BALTHIR's mage level 32, PW Kill's range 32 / 4 = 8 (SHARKMAN 2 is at 5)
+BAND_D3_DEATH_KEYS = "CCEENT"           # the keys of the flows (eclplay)
+BAND_D3_PW_KEYS = "CCNT"
+BAND_D3_DEATH_AIM = (17, 0xF79AFEC7)    # C, C, E, E: the pending Aim (band d1's)
+BAND_D3_DEATH_TAIL = (25, 0x28390BDF)   # T: the tail
+BAND_D3_DEATH_CELL = (29, 15)           # the spell's cell (SHARKMAN 2's, beside BALTHIR)
+BAND_D3_DEATH_HIT = (CAST_BALTHIR, CAST_WALKER, CAST_SHARKMAN_2)   # the three listed: BALTHIR, WALKER, SHARKMAN 2 (status kept)
+BAND_D3_PW_TAIL = (13, 0x949F681B)      # T: the tail (the dispatch's draws only)
+BAND_D3_PW_CELL = (32, 18)              # SHARKMAN 2's cell
+BAND_D3_DEATH_MEMO = BAND_D3_DEATH | CAST_FORGOTTEN   # BALTHIR's +0xce after Death Spell (0xee)
+BAND_D3_PW_MEMO = BAND_D3_PW | CAST_FORGOTTEN         # and after Power Word Kill (0xfd)
+BAND_D3_DEATH_MARK = "05"               # eclplay's turn mark of Death Spell's tail (measured)
+BAND_D3_PW_MARK = "01"                  # eclplay's turn mark of Power Word Kill's tail (measured)
+
+
+def band_d3_slots(box):
+    """DS:c5e3 on: the spell's target slots 1 to 4 as far pointers (0 for NULL)."""
+    return [box.ds_word(0xC5E3 + 4 * k) | box.ds_word(0xC5E5 + 4 * k) << 16 for k in range(4)]
+
+
+def band_d3_death_run(box, menu, work, tag):
+    """C, C (WALKER's menu), E (TIMASALIN's menu), E (BALTHIR's pending Aim), N (SHARKMAN 2 under the cursor), then T: the
+    tail (5045:066a), with the target slots read there."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["second"] = cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "E", None)])[0]
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["n"] = cast_key(box, work, f"{tag}-n", "N")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    out["tail"]["slots"] = band_d3_slots(box)
+    return out
+
+
+def band_d3_pw_run(box, menu, work, tag):
+    """C, C (the Aim at once), N (SHARKMAN 2), then T: the tail, with the target slots read there."""
+    out = sleep_run(box, menu, work, tag)
+    out["tail"]["slots"] = band_d3_slots(box)
+    return out
+
+
+def band_d3_mark(v, work, wild, tag, keys, entry, tail, number, what):
+    """eclplay's run of KEYS and its turn mark at the original's tail: the number NUMBER, the state and the effect chains agree.
+    Returns the mark's records, or None."""
+    p = turn_port(work, wild, tag, keys, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay writes a turn mark at the original's tail after {keys} ({what})", p["last"])
+        return None
+    v.check(mark["number"] == number, f"the turn mark with the original's tail ({what}) is {number}", mark["number"])
+    command_state(v, f"{what}'s tail (turn mark {mark['number']})", tail, mark, tail["seed"])
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" ({what}'s tail, turn mark {mark['number']})")
+    return ported_records(mark)
+
+
+def band_d3_death(v, work, wild, opts):
+    """Death Spell at SHARKMAN 2 (the flow band_d3): the pending Aim, the tail's draws, the three listed (DS:c6f4 3, the cell 29, 15)
+    all NULLed and alive, BALTHIR's +0xce 0xee; eclplay's turn mark at the tail agrees (RandSeed, records, blocks, turns, chains)."""
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D3_DEATH, BAND_B4_LEVEL: BAND_D3_DEATH_LEVEL}})
+    o = cast_original(work, wild, save, "band-d3-death", opts.verbose, band_d3_death_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d3-death-save", save)
+    aim, tail = o["aim"], o["tail"]
+    draws = L.draws(m0, aim["seed"])
+    v.check((draws, aim["seed"]) == BAND_D3_DEATH_AIM, f"the original's RandSeed at Death Spell's pending Aim (C, C, E, E) is "
+            f"{BAND_D3_DEATH_AIM[0]} draws past BALTHIR's menu, at {BAND_D3_DEATH_AIM[1]:#x}", f"{draws} draws, {aim['seed']:#x}")
+    v.check(L.draws(aim["seed"], o["n"]["seed"]) == 0, "the original's RandSeed after N (SHARKMAN 2 under the cursor) is "
+            "unchanged", f"{L.draws(aim['seed'], o['n']['seed'])} draws")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D3_DEATH_TAIL, f"the original's tail after T (Death Spell) is "
+            f"{BAND_D3_DEATH_TAIL[0]} draws past BALTHIR's menu, at {BAND_D3_DEATH_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_D3_DEATH_CELL and tail["targets"] == 3 and tail["slots"][:3] == [0, 0, 0],
+            f"at the tail Death Spell's cell is {BAND_D3_DEATH_CELL}, DS:c6f4 3 and the three slots NULLed (none paid for)",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}, slots {[f'{s:08x}' for s in tail['slots']]}")
+    statuses = [rec_byte(tail["records"][k], STATUS_AT) for k in BAND_D3_DEATH_HIT]
+    v.check(statuses == [0, 0, 0], "at the tail BALTHIR, WALKER and SHARKMAN 2 are alive (status 0)", f"{statuses}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D3_DEATH_MEMO, f"at the tail BALTHIR's Death Spell is forgotten (+0xce {BAND_D3_DEATH_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    marked = band_d3_mark(v, work, wild, "band-d3-death", BAND_D3_DEATH_KEYS, entry, tail, BAND_D3_DEATH_MARK, "Death Spell")
+    if marked is not None:
+        v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_D3_DEATH_MEMO and
+                [rec_byte(marked[k], STATUS_AT) for k in BAND_D3_DEATH_HIT] == statuses,
+                "eclplay's tail after Death Spell: BALTHIR's Death Spell forgotten, the three listed alive",
+                f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_d3_pw(v, work, wild, opts):
+    """Power Word Kill at SHARKMAN 2 (the flow band_d3) at +0xaa 0x20: the tail is the dispatch's draws (the group branch, nobody of
+    10 or fewer most hit points), DS:c6f4 1 at its cell, the slot kept, SHARKMAN 2 alive with no chain, BALTHIR's +0xce 0xfd;
+    eclplay's turn mark at the tail agrees."""
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D3_PW, BAND_B4_LEVEL: BAND_D3_PW_LEVEL}})
+    o = cast_original(work, wild, save, "band-d3-pw", opts.verbose, band_d3_pw_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d3-pw-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D3_PW_TAIL, f"the original's tail after T (Power Word Kill) is {BAND_D3_PW_TAIL[0]} "
+            f"draws past BALTHIR's menu, at {BAND_D3_PW_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    v.check(tail["cell"] == BAND_D3_PW_CELL and tail["targets"] == 1 and tail["slots"][0] != 0,
+            f"at the tail Power Word Kill's cell is {BAND_D3_PW_CELL}, DS:c6f4 1 and the slot kept",
+            f"cell {tail['cell']}, DS:c6f4 {tail['targets']}, slots {[f'{s:08x}' for s in tail['slots']]}")
+    status = rec_byte(tail["records"][CAST_SHARKMAN_2], STATUS_AT)
+    v.check(tail["chains"][CAST_SHARKMAN_2] == [] and status == 0, "at the tail SHARKMAN 2 has no effect and is alive (most hit "
+            "points 78: the group branch skips it)", f"chain {tail['chains'][CAST_SHARKMAN_2]}, status {status}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D3_PW_MEMO, f"at the tail BALTHIR's Power Word Kill is forgotten (+0xce {BAND_D3_PW_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    marked = band_d3_mark(v, work, wild, "band-d3-pw", BAND_D3_PW_KEYS, entry, tail, BAND_D3_PW_MARK, "Power Word Kill")
+    if marked is not None:
+        v.check(rec_byte(marked[CAST_BALTHIR], CAST_MEMO) == BAND_D3_PW_MEMO and
+                rec_byte(marked[CAST_SHARKMAN_2], STATUS_AT) == 0,
+                "eclplay's tail after Power Word Kill: BALTHIR's Power Word Kill forgotten, SHARKMAN 2 alive",
+                f"+0xce {rec_byte(marked[CAST_BALTHIR], CAST_MEMO):#x}")
+
+
+def band_d3(v, work, opts):
+    """Band d3's Death Spell and Power Word Kill (part 33c), the flow band_d3: each by BALTHIR at SHARKMAN 2, against the original's
+    tail and eclplay's turn mark (band_d3_death, band_d3_pw). The kills, the pool's spending and the item powers 0x8b and 0x8c
+    are repo tests."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    band_d3_death(v, work, wild, opts)
+    band_d3_pw(v, work, wild, opts)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -7273,6 +7410,8 @@ def main():
         band_d1(v, work, opts)
     if "band_d2" in flows:
         band_d2(v, work, opts)
+    if "band_d3" in flows:
+        band_d3(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:

@@ -8333,7 +8333,7 @@ static void test_band_d3_pw_slot(void)
     CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
     set_targets(a, 0x7d, (cok_character *[]){t}, 1);
     game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
-    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2);
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2 && game.effects.rolls.amount16 == 0xff); /* review: the amount 0xff */
     CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
           cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
     d1_end();
@@ -8486,6 +8486,108 @@ static void test_band_d3_stone_self(void)
     game.vm.character = NULL;
     c6_reset();
     CHECK(!c1_run(0x8c) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "4369") != NULL);
+    battle_clear();
+}
+
+/* d3 review: Power Word Kill's cancelled amount (a 0x5c holder with the stale pending 0x6f, as Death Spell's quiet test). The first
+ * target alone (most 30) cancelled is left, and the group does not run after it (the second, of 5, lives: 3eee-3ef5 returns); in
+ * the group a cancelled one is skipped and the next still dies, the amount word 0xff after its event 9. Mutants: the cancel
+ * ignored (first or group); the first branch falling to the group; another amount. */
+static void test_band_d3_pw_cancel(void)
+{
+    cok_character *a, *t, *f, *s;
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, 30);
+    s = d3_target('S', 8, 0, 5);
+    CHECK(cok_character_add_effect(f, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.vm.seed = 1;
+    log_text[0] = '\0';
+    CHECK(c1_run(0x7d) && !LOGGED("is slain"));
+    CHECK(cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, 5);
+    s = d3_target('S', 8, 0, 5);
+    CHECK(cok_character_add_effect(f, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.effects.rolls.amount16 == 0xff);
+    CHECK(cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 6);
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
+/* d3 review: the group's event 9 runs on the slot too (3f4d-3f5e pushes &t[i]): a target of 5 whose event 9 puts the other in
+ * its slot has that one slain (the slot read again at 3f81). Mutant: a local copy in the group. */
+static void test_band_d3_pw_group_slot(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 5);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+}
+
+/* d3 review: Death Spell reads the quiet bit from the local copy after event 9 (316c): a target redirected to a quiet one is
+ * NULLed and nobody dies; the amount word is 100. Mutant: the quiet bit read from the slot (the first target, not quiet: the
+ * redirected one would die). */
+static void test_band_d3_death_quiet_copy(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8_at(R->character, t2->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1, 1});
+    log_text[0] = '\0';
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead") && game.effects.rolls.amount16 == 100);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 0 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+}
+
+/* d3 review: 0x8c's status is a word (438f, 43a8): a status word 0x0106 is not 6-8, so the caster is stoned and the word is 7 (the
+ * high byte cleared). It is not cok_combat_kill: a holder of 0x9a (event 0x0d's list, its row unported) is stoned with no stop.
+ * The arena kill lays the body. Mutants: the status read or written as a byte; cok_combat_kill in its place; no arena kill. */
+static void test_band_d3_stone_self_word(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.mode = 5;
+    game.vm.character = a->record;
+    cok_combat_set_field_word(R, a->record, COK_FIELD_STATUS, 0x106);
+    CHECK(cok_character_add_effect(a, 0x9a, 0, 0, false) != NULL);
+    c6_reset();
+    CHECK(c1_run(0x8c) && LOGGED("is turned to stone"));
+    CHECK(cok_combat_field_word(R, a->record, COK_FIELD_STATUS) == 7 &&
+          cok_field_u8(R->character, a->record, COK_FIELD_ACTIVE) == 0 && hit_points(a) == 0);
+    CHECK(game.combat.bodies == 1 && game.combat.body[0].character == a);
     battle_clear();
 }
 
@@ -8669,6 +8771,10 @@ int main(void)
     test_band_d3_pw_slot();
     test_band_d3_gaze();
     test_band_d3_stone_self();
+    test_band_d3_pw_cancel();
+    test_band_d3_pw_group_slot();
+    test_band_d3_death_quiet_copy();
+    test_band_d3_stone_self_word();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

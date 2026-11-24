@@ -298,9 +298,10 @@ static bool stone_gaze(cok_adventure *game)
 
 /* 7fd8:4369, the item power 0x8c (the user turned to stone; readied in battle by 16f7, part 50): in mode 5 "is turned to stone" on
  * the caster (row 10, no wait). A caster of status 6-8 (dead, stoned or gone) is left as it is. Else its status word is 7 (the
- * high byte cleared), active 0, hit points 0, its battle effects are removed (cok_combat_battle_only), then the arena kill (its
- * stale byte as queen_cast's kill: the berserk node), the pause, and in mode 5 the text cleared. This is cok_combat_kill without
- * event 0x0d and the party list: the status is written just before, so the kill's test on active and status 10 always passes. */
+ * high byte cleared), active 0, hit points 0, its battle effects are removed (cok_combat_battle_only), then, while it is
+ * inactive and its status word not 10 (read again: the removals run their handlers), the arena kill (its stale byte as
+ * queen_cast's kill: the berserk node); the pause, and in mode 5 the text cleared. This is cok_combat_kill without event 0x0d and
+ * the party list. */
 static bool stone_self(cok_adventure *game)
 {
     uint8_t *record = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 4369)");
@@ -315,9 +316,12 @@ static bool stone_self(cok_adventure *game)
     cok_field_set8(R->character, record, COK_FIELD_ACTIVE, 0);
     cok_field_set8(R->character, record, COK_FIELD_HIT_POINTS, 0);
     if (!cok_combat_battle_only(game, c)) return false;
-    int stale = cok_character_find_named(c, R, COK_EFFECT_BERSERK) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
-    cok_arena_reachable also = cok_cast_reachable(game);
-    if (!cok_arena_kill(game, c, stale, &also)) return false;
+    /* 43c6-43d7: inactive and status word not 10, read again after 1b66 (whose removals run their handlers) */
+    if (cok_field_u8(R->character, record, COK_FIELD_ACTIVE) == 0 && cok_combat_field_word(R, record, COK_FIELD_STATUS) != 10) {
+        int stale = cok_character_find_named(c, R, COK_EFFECT_BERSERK) != NULL ? COK_ARENA_STALE_UNKNOWN : 0;
+        cok_arena_reachable also = cok_cast_reachable(game);
+        if (!cok_arena_kill(game, c, stale, &also)) return false;
+    }
     cok_arena_pause(game);
     if (game->vm.mode == 5) cok_arena_clear_text(game);
     return true;
