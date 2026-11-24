@@ -119,9 +119,10 @@ static bool disintegrate(cok_adventure *game)
     return true;
 }
 
-/* 7fd8:344d, Flesh to Stone (0x72; computer only): the first target t, damage type 0x40, event 9. A cancelled amount, or a
- * save of type 4 (bonus 0), is silent. Else the stone (cok_combat_kill, status 7: the stone tile, "is turned to stone").
- * Effect 0x41 (the stone's petrified node) is not added here: 7e76:069f is a monster's touch, part 38. */
+/* 7fd8:344d, Flesh to Stone (0x72; the mage's spell, a player's cast too): the first target t, damage type 0x40, event 9.
+ * A cancelled amount, or a save of type 4 (bonus 0), is silent. Else the stone (cok_combat_kill, status 7: the stone tile,
+ * "is turned to stone"). Effect 0x41 (the stone's petrified node) is not added here: 7e76:069f is a monster's touch,
+ * part 38. */
 static bool flesh_to_stone(cok_adventure *game)
 {
     cok_character *t = queen_first_target(game);

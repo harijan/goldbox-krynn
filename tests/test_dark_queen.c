@@ -1016,6 +1016,9 @@ static void test_magic_ids(void)
         /* Band c7's texts (7fd8:24f0's "teleports", 26b4's "Flame type: " 4db9 and "Hot Cold" 4f36, and "is Protected" 8a0a). */
         {0x89f0, "teleports"},     {0x4db9, "Flame type: "},      {0x4f36, "Hot Cold"},
         {0x8a0a, "is Protected"},
+        /* Band d1's texts (7fd8:2eee's "is destroyed", 31cc's "disintegrates", 344d's "is turned to stone"; their
+         * "is unaffected" is 87e8, band c1's). */
+        {0x8a42, "is destroyed"},  {0x8a69, "disintegrates"},     {0x8aa0, "is turned to stone"},
     };
     for (size_t i = 0; i < sizeof words / sizeof *words; ++i)
         CHECK(strcmp((const char *)exe + ds + words[i].off, words[i].text) == 0);

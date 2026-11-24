@@ -7673,6 +7673,7 @@ static void test_band_d1_destruction(void)
     set_targets(a, 0x68, (cok_character *[]){t}, 1);
     game.vm.seed = 1;
     CHECK(c1_run(0x68) && LOGGED("is destroyed") && !LOGGED("is unaffected"));
+    CHECK(game.effects.rolls.damage_type == 0x48);
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 8 &&
           cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0 && hit_points(t) == 0);
     battle_clear();
@@ -7746,6 +7747,7 @@ static void test_band_d1_disintegrate(void)
     set_targets(a, 0x6f, (cok_character *[]){t}, 1);
     game.vm.seed = 1;
     CHECK(c1_run(0x6f) && LOGGED("disintegrates") && t->item_count == 0);
+    CHECK(game.effects.rolls.damage_type == 0x48);
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 && hit_points(t) == 0);
     for (unsigned i = 0; i < COK_ITEM_SLOTS; ++i) CHECK(t->slots[i] == 0);
     battle_clear();
@@ -7783,6 +7785,21 @@ static void test_band_d1_disintegrate(void)
     game.vm.seed = 1;
     CHECK(c1_run(0x6f) && t->item_count == 0);
     battle_clear();
+
+    /* The save is type 4 with bonus 0, at its edge (seed 1's d20 is a 1, a failure whatever the throw): a d20 of 10
+     * against save[4] 10 is made, against 11 failed, the other throws 0; the quiet bit changes nothing. Mutants: type 3;
+     * bonus 1; a quiet test. */
+    for (uint8_t need = 10; need <= 11; ++need) {
+        duel(&a, &t);
+        c5_item(t, 0x14, 0, 0, 0, 0);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, need);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+        set_targets(a, 0x6f, (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x6f) && LOGGED("disintegrates") == (need == 11));
+        CHECK(t->item_count == (need == 11 ? 0u : 1u));
+        battle_clear();
+    }
 }
 
 /* Flesh to Stone (0x72): a failed save of type 4 turns the target to stone (cok_combat_kill, status 7, "is turned to
@@ -7796,6 +7813,7 @@ static void test_band_d1_flesh(void)
     set_targets(a, 0x72, (cok_character *[]){t}, 1);
     game.vm.seed = 1;
     CHECK(c1_run(0x72) && LOGGED("is turned to stone") && !LOGGED("is unaffected"));
+    CHECK(game.effects.rolls.damage_type == 0x40);
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7 && hit_points(t) == 0);
     battle_clear();
 
@@ -7817,6 +7835,17 @@ static void test_band_d1_flesh(void)
     game.vm.seed = 1;
     CHECK(c1_run(0x72) && game.vm.seed == 1 && !LOGGED("turned") && cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
     battle_clear();
+
+    /* The save's edge as Disintegrate's: a d20 of 10 against save[4] 10 is made, against 11 stone. Mutants: type 3;
+     * bonus 1. */
+    for (uint8_t need = 10; need <= 11; ++need) {
+        duel(&a, &t);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, need);
+        set_targets(a, 0x72, (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, 10, 10});
+        CHECK(c1_run(0x72) && (cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 7) == (need == 11));
+        battle_clear();
+    }
 }
 
 /* The item power 0x8a (41e7): no combat target, nothing (no draws); with one, two d6 are drawn, the first one's sum dead,
@@ -7838,8 +7867,10 @@ static void test_band_d1_item_power(void)
     a->combat->target = t->record;
     set_targets(a, 0x8a, (cok_character *[]){t}, 1);
     game.effects.rolls.damage_type = 0x40;
+    game.effects.rolls.dice = 7;
     game.vm.seed = seed_from(2, (const unsigned[]){6, 1, 1, 6, 6, 6});
     CHECK(c1_run(0x8a) && hit_points(t) == 30 - (6 + 9) && game.effects.rolls.damage_type == 0x40);
+    CHECK(game.effects.rolls.dice == 1); /* 199e's count (DS:b7f4) */
     battle_clear();
 
     duel(&a, &t);
