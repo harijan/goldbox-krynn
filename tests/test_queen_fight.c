@@ -2106,9 +2106,10 @@ static void test_plain_apply(void)
         bool c5 = id == 0x1c || id == 0x2b || id == 0x3d || id == 0x59; /* queen_band_c.c's c5 */
         bool c6 = id == 0x24 || id == 0x46 || id == 0x28 || id == 0x44 || id == 0x38 || id == 0x4c; /* queen_band_c.c's c6 */
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
+        bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d2)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -4197,6 +4198,75 @@ static void test_band_d_dance_armour(void)
     CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x14 &&
           cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x15);
     clear_effect(t, 0x76);
+    battle_clear();
+}
+
+/* 7fd8:34b9 (Mass Invisibility, 0x74): Bless's routine with the caster's side and "is Invisible (spell)". A same-side
+ * target beside an enemy is cleared (the enemy test runs for 0x74 as for Bless's spell 1), the far one takes 0x19 for good
+ * at the caster level, and the other side is cleared. */
+static void test_band_d_mass_invisibility(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t, *near, *far, *wide;
+    duel(&a, &t);
+    near = record('N', 0, 0);
+    place(near, 7, 5); /* beside t: an enemy within 1 */
+    far = record('F', 0, 0);
+    place(far, 1, 1);
+    wide = record('W', 0, 0);
+    place(wide, 1, 3);
+    cok_combat_set_field_word(R, wide->record, COK_FIELD_HOSTILE, 0x0100);
+    game.vm.character = a->record;
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = far;
+    game.spell_targets[3] = t;
+    game.spell_targets[4] = wide;
+    game.spell_target_count = 4;
+    game.effects.rolls.spell = 0x74;
+    game.effects.rolls.images = 0;
+    CHECK(run_handler(0x74));
+    CHECK(game.spell_targets[1] == NULL && game.spell_targets[2] == far && game.spell_targets[3] == NULL &&
+          game.spell_targets[4] == NULL);
+    CHECK(game.effects.rolls.images == 1 && LOGGED("is Invisible (spell)"));
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x74, true, &lv) && lv > 0);
+    cok_effect *e = cok_character_find_effect(far, 0x19);
+    CHECK(e != NULL && e->duration == 0 && e->value == lv && !e->on_remove);
+    CHECK(cok_character_find_effect(near, 0x19) == NULL && cok_character_find_effect(t, 0x19) == NULL &&
+          cok_character_find_effect(wide, 0x19) == NULL);
+    /* Outside a battle the enemy test does not run: a target beside the enemy is kept. */
+    game.vm.mode = 4;
+    game.spell_targets[1] = near;
+    game.spell_targets[2] = NULL;
+    game.spell_targets[3] = NULL;
+    game.spell_targets[4] = NULL;
+    game.spell_target_count = 1;
+    game.vm.status = COK_ECL_OK;
+    CHECK(run_handler(0x74) && game.spell_targets[1] == near && cok_character_find_effect(near, 0x19) != NULL);
+    game.vm.mode = 5;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* 849a:10f9's touch as the export (queen_touch, for Otto's): the hit roll (a natural 20 hits, 1 misses) on a copy of the
+ * slot, and the spell_targets entry is not written by the call. */
+static void test_queen_touch_copy(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    game.vm.character = a->record;
+    game.spell_targets[1] = t;
+    game.spell_target_count = 1;
+    cok_character *local = t;
+    bool hit = false;
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 20, 20});
+    CHECK(queen_touch(&game, &local, &hit) && game.vm.status == COK_ECL_OK && hit && local == t);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(queen_touch(&game, &local, &hit) && game.vm.status == COK_ECL_OK && !hit && local == t);
+    CHECK(game.spell_targets[1] == t && game.spell_target_count == 1);
+    game.vm.character = NULL;
+    game.spell_target_count = 0;
     battle_clear();
 }
 
@@ -7791,6 +7861,8 @@ int main(void)
     test_band_d_fire_absorb();
     test_band_d_slow_poison();
     test_band_d_dance_armour();
+    test_band_d_mass_invisibility();
+    test_queen_touch_copy();
     test_cone();
     test_cone_of_cold();
     test_meteor_try();
