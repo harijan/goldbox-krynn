@@ -312,6 +312,10 @@ queen_spell_fn *queen_area_handler(uint8_t id);
 /* The band c handlers (queen_band_c.c's switch): the handler of a spell id it carries out, NULL for any other. queen_spell_handler
  * takes it after queen_area_handler and before the plain table. */
 queen_spell_fn *queen_band_c_handler(uint8_t id);
+/* The band d handlers (queen_band_d.c's switch: the kills, d1, Energy Drain, Destruction, Disintegrate, Flesh to Stone and
+ * the item power 0x8a; d3 to d6 add theirs): the handler of a spell id it carries out, NULL for any other. queen_spell_handler
+ * takes it after queen_band_c_handler and before the plain table. */
+queen_spell_fn *queen_band_d_handler(uint8_t id);
 /* The first target of the spell (spell_targets[1], DS:c5e3) for the handlers that read it: NULL (undefined, the run stopped)
  * where none is, and where it is freed since a battle. */
 cok_character *queen_first_target(cok_adventure *game);

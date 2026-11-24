@@ -878,6 +878,8 @@ queen_spell_fn *queen_spell_handler(uint8_t id)
         if (area_handler != NULL) return area_handler;
         queen_spell_fn *band_c_handler = queen_band_c_handler(id);
         if (band_c_handler != NULL) return band_c_handler;
+        queen_spell_fn *band_d_handler = queen_band_d_handler(id);
+        if (band_d_handler != NULL) return band_d_handler;
         return plain_of(id) != NULL ? queen_plain_apply : NULL;
     }
     }
