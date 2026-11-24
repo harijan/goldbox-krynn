@@ -329,6 +329,99 @@ static bool stone_self(cok_adventure *game)
 
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
+/* The ids and the offsets of band d4: the ranger's class level is the one at +0xa5 + 4 (177e:2234); PW Stun's effect and
+ * save kind are read from its own record (+0xe byte, +0xa word), as the original does (DS:3205, DS:3201). */
+enum {
+    SPELL_SAVE_KIND = 0x0a,
+    SPELL_EFFECT = 0x0e,
+    SPELL_PROT_FIRE = 0x6d,
+    SPELL_PW_STUN = 0x75,
+    SPELL_PW_BLIND = 0x7b,
+    EFFECT_RESIST = 0x14,
+    EFFECT_FIRE_ABSORB = 0x77,
+    EFFECT_BLIND = 0x21,
+    CLASS_RANGER = 4,
+    BLIND_LIMIT = 100,
+};
+
+/* 7fd8:301a, Prot. from Fire (0x6d): the first target t1 (no stop when NULL: the original tests it; a record freed since is
+ * undefined, queen_first_target's). A target that is a ranger (its class level at +0xa9 above 0: 177e:2234 returns the byte, 0
+ * for 0) takes effect 0x77, the fire absorb, valued at the caster's level for the spell uncapped, for no minutes. Any other
+ * takes 0x14 (the resistance) for the spell's duration, value 0. Both "is Protected", unsaved. No draws. */
+static bool prot_fire(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL) return true;
+    if (t == &cok_arena_freed)
+        return undefined(game, "the first target is a record freed since, read where the heap may have put another "
+                               "(DS:c5e3, 301a)");
+    if (cok_field_u8_at(L, t->record, COK_FIELD_CLASS_LEVEL, CLASS_RANGER) > 0) {
+        uint8_t lv = 0;
+        if (!queen_spell_level(game, SPELL_PROT_FIRE, false, &lv)) return false;
+        return cok_cast_add_effect(game, t, EFFECT_FIRE_ABSORB, 0, lv, false, 0, false, "is Protected");
+    }
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, SPELL_PROT_FIRE, &minutes)) return false;
+    return cok_cast_add_effect(game, t, EFFECT_RESIST, minutes, 0, false, 0, false, "is Protected");
+}
+
+/* 7fd8:3569, PW Stun (0x75): one image. The first target t1 (queen_first_target's stop). Its rounds come from its current hit
+ * points (+0x198): 1 to 30 is 4d4, 31 to 60 is 2d4, 61 to 90 is 1d4, and any other (0, 91 and up) is none, with no draw (a
+ * jump table, 3597). No rounds: nothing, no text. Else effect 0x6a (the held row: the holder's turn ends, 78e4:1af9) is added
+ * for the rounds, its value the caster's level capped, its kind the record's save kind, unsaved, "is STUNNED". The id and the
+ * kind are 0x75's own record (+0xe, +0xa), the level is 0x75's. */
+static bool pw_stun(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    game->effects.rolls.images = 1;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    uint8_t hp = cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS);
+    uint8_t rounds = 0;
+    if (hp >= 1 && hp <= 30) rounds = cok_dice(&game->vm.seed, 4, 4);
+    else if (hp >= 31 && hp <= 60) rounds = cok_dice(&game->vm.seed, 2, 4);
+    else if (hp >= 61 && hp <= 90) rounds = cok_dice(&game->vm.seed, 1, 4);
+    if (rounds == 0) return true;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, SPELL_PW_STUN, true, &lv)) return false;
+    uint8_t effect = queen_spell_byte(game, SPELL_PW_STUN, SPELL_EFFECT);
+    uint8_t kind = (uint8_t)queen_spell_word(game, SPELL_PW_STUN, SPELL_SAVE_KIND);
+    return cok_cast_add_effect(game, t, effect, rounds, lv, false, kind, false, "is STUNNED");
+}
+
+/* One walk of PW Blind (7fd8:396a): the targets t[1..count], read again at each pass while the running sum is at most 100.
+ * A target whose maximum hit points (+0x89) are over 100, or would take the sum over 100, is skipped; else the sum takes its
+ * maximum, and the second walk (add) gives the target effect 0x21 ("is blinded") for the spell's duration (101b: none). A NULL
+ * target is read through NULL in either walk: undefined (3994). */
+static bool blind_walk(cok_adventure *game, bool add)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    unsigned sum = 0;
+    for (unsigned k = 1; k <= game->spell_target_count && sum <= BLIND_LIMIT; ++k) {
+        cok_character *t = game->spell_targets[k];
+        if (t == NULL) return undefined(game, "dqk 7fd8:3994 reads a NULL target's maximum hit points (DS:c5df)");
+        unsigned max = cok_field_u8(L, t->record, COK_FIELD_MAX_HIT_POINTS);
+        if (max > BLIND_LIMIT || max + sum > BLIND_LIMIT) continue;
+        sum += max;
+        if (!add) continue;
+        uint16_t minutes = 0;
+        if (!queen_spell_duration(game, game->effects.rolls.spell, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, EFFECT_BLIND, minutes, 0, false, 0, false, "is blinded")) return false;
+    }
+    return true;
+}
+
+/* 7fd8:396a, PW Blind (0x7b): one image; the first walk (the sum only), then one d4 drawn and never read (396a's 1d4 + 1,
+ * times 10 under a sum of 51, in -3(bp), dead: the draw is kept), then the second walk, which adds the blindness. */
+static bool pw_blind(cok_adventure *game)
+{
+    game->effects.rolls.images = 1;
+    if (!blind_walk(game, false)) return false;
+    (void)cok_dice(&game->vm.seed, 1, 4);
+    return blind_walk(game, true);
+}
+
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
@@ -349,6 +442,10 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     case SPELL_STONE_GAZE: return stone_gaze;
     case SPELL_STONE_SELF: return stone_self;
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
+    case SPELL_PROT_FIRE: return prot_fire;
+    case SPELL_PW_STUN: return pw_stun;
+    case SPELL_PW_BLIND: return pw_blind;
+
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
 

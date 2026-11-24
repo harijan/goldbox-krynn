@@ -2109,9 +2109,10 @@ static void test_plain_apply(void)
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
         bool d3 = id == 0x6e || id == 0x7d || id == 0x8b || id == 0x8c; /* queen_band_d.c's d3 (Death Spell, Power Word Kill, 0x8b, 0x8c) */
+        bool d4 = id == 0x6d || id == 0x75 || id == 0x7b; /* queen_band_d.c's d4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7 || d1 || d2 || d3)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -8591,6 +8592,189 @@ static void test_band_d3_stone_self_word(void)
     battle_clear();
 }
 
+/* d4: Prot. from Fire (queen_band_d.c: 7fd8:301a). A ranger target (its own class level at +0xa9 above 0) takes 0x77, the
+ * fire absorb, valued at the caster's level for 0x6d uncapped: a caster ranger 40 gives 33 (capped, 31), no minutes. A target
+ * that is no ranger takes 0x14 (value 0, the spell's duration, 0 minutes), whatever the caster's level; the target's level
+ * decides, not the caster's (a caster of 0 with a ranger target gives 0x77 at 6, the caster not a caster). "is Protected"
+ * each. No target: nothing, no stop. A record freed since: undefined. Mutants: the caster's level tested for the ranger; the
+ * value capped; the ranger test dropped (0x77 always); the NULL target a stop. */
+static void test_band_d4_prot_fire(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 1);
+    set_targets(a, 0x6d, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 33);
+    game.effects.rolls.images = 0; /* 301a never writes DS:c280 (PW Stun and Blind do) */
+    CHECK(run_handler(0x6d) && LOGGED("is Protected") && game.effects.rolls.images == 0);
+    cok_effect *e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 33 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x14) == NULL);
+    clear_effect(t, 0x77);
+
+    /* The target's level, not the caster's: a caster of 0 (not a caster: level 6) and a ranger target of 1 take 0x77 at 6. */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 6);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 6 && e->duration == 0 && !e->on_remove);
+    clear_effect(t, 0x77);
+
+    /* A caster of 40 with a target that is no ranger: 0x14, value 0, duration 0 (no 0x77). */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x14);
+    CHECK(e != NULL && e->value == 0 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x77) == NULL);
+    clear_effect(t, 0x14);
+
+    /* No target: nothing (no text, no node, no stop). */
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 1;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && !LOGGED("is Protected") && cok_character_find_effect(t, 0x14) == NULL);
+
+    /* A record freed since is undefined (queen_first_target's convention; the original reads it where the heap put it). */
+    game.spell_targets[1] = &cok_arena_freed;
+    CHECK(!run_handler(0x6d) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "301a") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* d4: PW Stun (queen_band_d.c: 7fd8:3569). One image. The rounds by the target's hit points: 1 and 30 are 4d4, 31 and 60 are
+ * 2d4, 61 and 90 are 1d4; 0 and 91 are none, with no draw, no node and no text. The seed after the handler is the seed after
+ * exactly that band's dice, so a count off by one shows. The node is 0x6a for the rounds, "is STUNNED", its value the caster's
+ * level capped (a mage of 40: 31, uncapped 40), and the holder's turn ends at event 7 (the held row, 1af9). Mutants: the band
+ * boundary off by one (31 rolls 4d4); the level uncapped; a node for 0 rounds. */
+static void test_band_d4_pw_stun(void)
+{
+    game.vm.mode = 5; /* the battle */
+    game.effects.in_battle = true;
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 40);
+    set_targets(a, 0x75, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x75, false, &lv) && lv == 40);
+    CHECK(queen_spell_level(&game, 0x75, true, &lv) && lv == 31);
+    /* Every d4 of the seed is a 4, so the rounds are 4 a die: 16 for 4d4, 8 for 2d4, 4 for 1d4 (a count off by one shows).
+     * The text's flash and wait draw after the dice, so the seed is not compared here. */
+    static const struct {
+        uint8_t hp, sum;
+    } bands[] = {{1, 16}, {30, 16}, {31, 8}, {60, 8}, {61, 4}, {90, 4}};
+    static const unsigned fours[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
+    for (size_t i = 0; i < sizeof bands / sizeof *bands; ++i) {
+        set_hit_points(t, bands[i].hp, 100);
+        game.vm.seed = seed_from(4, fours);
+        game.effects.rolls.images = 0; /* so the handler's own 1 (3569's DS:c280) shows */
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && LOGGED("is STUNNED") && game.effects.rolls.images == 1);
+        cok_effect *e = cok_character_find_effect(t, 0x6a);
+        CHECK(e != NULL && e->duration == bands[i].sum && e->value == 31 && !e->on_remove);
+        if (i == 1) {
+            /* The held row ends the holder's turn at event 7 (test_held_ends_turn's check, on this node). */
+            cok_combat_record *cr = t->combat;
+            cr->initiative = 3;
+            cr->spell = 2;
+            cr->guarding = 7;
+            cr->movement = 8;
+            CHECK(cok_effects_dispatch(&game.effects, t, 7) && game.vm.status == COK_ECL_OK);
+            CHECK(cr->initiative == 0 && cr->spell == 0 && cr->guarding == 0 && cr->movement == 0);
+        }
+        clear_effect(t, 0x6a);
+    }
+    /* 0 and 91 and up: no rounds, no draw, no node, no text. */
+    static const uint8_t none[] = {0, 91, 200};
+    for (size_t i = 0; i < sizeof none / sizeof *none; ++i) {
+        set_hit_points(t, none[i], 100);
+        game.vm.seed = 7;
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && game.vm.seed == 7 && cok_character_find_effect(t, 0x6a) == NULL && !LOGGED("is STUNNED"));
+    }
+    game.effects.in_battle = false;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
+/* A record for a blindness target: its maximum hit points (+0x89) and its cell. */
+static cok_character *blind_target(char name, int8_t x, int8_t y, uint8_t max)
+{
+    cok_character *c = record(name, 0, 0);
+    place(c, x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_MAX_HIT_POINTS, max);
+    return c;
+}
+
+/* d4: PW Blind (queen_band_d.c: 7fd8:396a). One image. Two walks over the targets while the sum of their maximum hit points
+ * is at most 100: a target over 100 is skipped, and so is one that would take the sum over 100 (a 22 after 78 is taken, a 1
+ * after 100 is not); a later small one is taken after a skipped one (50 after 120, then 40 after 60 skipped). The second walk
+ * gives 0x21 ("is blinded", for no minutes) to each target taken, once. One d4 is drawn between the walks: with no target the
+ * seed is one die on. No target (NULL): undefined (3994). Mutants: the cap at 99 (78 then 22 skipped); the cap's sum test
+ * as >=; no draw between the walks; the add in the first walk too; a skipped target blinded. */
+static void test_band_d4_pw_blind(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 78);
+    cok_character *u = blind_target('U', 1, 1, 78);
+    cok_character *v = blind_target('V', 1, 3, 120);
+    cok_character *w = blind_target('W', 1, 5, 50);
+    cok_character *x = blind_target('X', 1, 7, 60);
+    cok_character *y = blind_target('Y', 1, 9, 40);
+    cok_character *z = blind_target('Z', 1, 11, 22);
+    cok_character *q = blind_target('Q', 1, 13, 1);
+
+    /* 78 and 78: the first only (78 + 78 is over 100). */
+    set_targets(a, 0x7b, (cok_character *[]){t, u}, 2);
+    game.effects.rolls.images = 0; /* so the handler's own 1 (396a's DS:c280) shows */
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(u, 0x21) == NULL && count_of("is blinded") == 1);
+    cok_effect *e = cok_character_find_effect(t, 0x21);
+    CHECK(e->duration == 0 && e->value == 0 && !e->on_remove);
+    clear_effect(t, 0x21);
+
+    /* 120 (skipped), 50 (taken, the sum 50), 60 (110: skipped), 40 (90: taken). */
+    set_targets(a, 0x7b, (cok_character *[]){v, w, x, y}, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(v, 0x21) == NULL && cok_character_find_effect(w, 0x21) != NULL &&
+          cok_character_find_effect(x, 0x21) == NULL && cok_character_find_effect(y, 0x21) != NULL);
+    clear_effect(w, 0x21);
+    clear_effect(y, 0x21);
+
+    /* 78, 22 (exactly 100: taken), 1 (101: skipped). */
+    set_targets(a, 0x7b, (cok_character *[]){t, z, q}, 3);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(z, 0x21) != NULL &&
+          cok_character_find_effect(q, 0x21) == NULL);
+    clear_effect(t, 0x21);
+    clear_effect(z, 0x21);
+
+    /* No target: the one draw still happens (d4 drawn, the walks add nothing). */
+    set_targets(a, 0x7b, (cok_character *[]){t}, 0);
+    game.vm.seed = 5;
+    uint32_t want = 5;
+    (void)cok_dice(&want, 1, 4);
+    CHECK(run_handler(0x7b) && game.vm.seed == want && game.effects.rolls.images == 1);
+
+    /* A NULL first target is read through NULL: undefined. */
+    set_targets(a, 0x7b, (cok_character *[]){NULL}, 1);
+    CHECK(!run_handler(0x7b) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3994") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8775,6 +8959,9 @@ int main(void)
     test_band_d3_pw_group_slot();
     test_band_d3_death_quiet_copy();
     test_band_d3_stone_self_word();
+    test_band_d4_prot_fire();
+    test_band_d4_pw_stun();
+    test_band_d4_pw_blind();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
