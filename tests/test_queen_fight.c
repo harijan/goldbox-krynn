@@ -2108,7 +2108,7 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
-        bool d3 = id == 0x6e; /* queen_band_d.c's d3 (Death Spell) */
+        bool d3 = id == 0x6e || id == 0x7d; /* queen_band_d.c's d3 (Death Spell, Power Word Kill) */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
                c4 || c5 || c6 || c7 || d1 || d2 || d3)); /* 0x5c: band b4, 0x7c: b5 */
@@ -8247,6 +8247,112 @@ static void test_band_d3_death_local(void)
     battle_clear();
 }
 
+/* d3: Power Word Kill (0x7d, queen_band_d.c's power_word_kill). Two targets, the first of most hit points most1 and current hp
+ * hp1, the second of most2: whether each dies. The damage type must be left as it is. */
+static void pw_pair(uint8_t most1, uint8_t hp1, uint8_t most2, bool *dead1, bool *dead2)
+{
+    cok_character *a, *t, *f, *s;
+    duel(&a, &t);
+    f = d3_target('F', 7, 0, most1);
+    cok_field_set8(R->character, f->record, COK_FIELD_HIT_POINTS, hp1);
+    s = d3_target('S', 8, 0, most2);
+    set_targets(a, 0x7d, (cok_character *[]){f, s}, 2);
+    game.effects.rolls.damage_type = 0x55;
+    game.effects.rolls.images = 0;
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 0x55);
+    *dead1 = cok_field_u8(R->character, f->record, COK_FIELD_STATUS) == 6;
+    *dead2 = cok_field_u8(R->character, s->record, COK_FIELD_STATUS) == 6;
+    battle_clear();
+}
+
+/* The boundaries of most hit points: a first target of 11 to 60 alone (the second, of 5, lives); 61 leaves it to the group, where
+ * the second dies alone; 10 is the group's (both die); a 200 is more than 60 (signed, it would be -56 and at most 10). */
+static void test_band_d3_pw_bounds(void)
+{
+    bool dead1, dead2;
+    pw_pair(11, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+    pw_pair(60, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+    pw_pair(61, 10, 5, &dead1, &dead2);
+    CHECK(!dead1 && dead2);
+    pw_pair(10, 10, 5, &dead1, &dead2);
+    CHECK(dead1 && dead2);
+    pw_pair(200, 10, 5, &dead1, &dead2);
+    CHECK(!dead1 && dead2);
+    pw_pair(10, 10, 61, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+}
+
+/* The branch reads most hit points (+0x89), not the current: a first target of most 30 at 5 hit points is the alone one (the
+ * second, of 5, lives), where its current 5 would send both to the group. */
+static void test_band_d3_pw_most(void)
+{
+    bool dead1, dead2;
+    pw_pair(30, 5, 5, &dead1, &dead2);
+    CHECK(dead1 && !dead2);
+}
+
+/* The group skips NULL targets and those of more than 10 most hit points; no targets draw nothing and set the images flag. */
+static void test_band_d3_pw_group(void)
+{
+    cok_character *a, *t, *x, *y;
+    duel(&a, &t);
+    x = d3_target('X', 7, 0, 5);
+    y = d3_target('Y', 8, 0, 50);
+    set_targets(a, 0x7d, (cok_character *[]){NULL, x, y}, 3);
+    game.vm.seed = 1;
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == NULL && game.spell_targets[2] == x && game.spell_targets[3] == y);
+    CHECK(cok_field_u8(R->character, x->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, y->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    game.effects.rolls.images = 0;
+    game.vm.seed = 1;
+    set_targets(a, 0x7d, (cok_character *[]){t}, 0);
+    CHECK(c1_run(0x7d) && game.effects.rolls.images == 1 && game.vm.seed == 1);
+    battle_clear();
+}
+
+/* Event 9 may redirect the slot: the first target's slot then holds the other target, which is the one slain (the slot is read
+ * again after event 9). A local copy would slay the first. The d20 of 1 (the stale 0x22 holder) calls the hook. */
+static void test_band_d3_pw_slot(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    CHECK(c1_run(0x7d) && game.spell_targets[1] == t2);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+    battle_clear();
+
+    /* A slot NULLed by event 9 (the hook) with the amount left: read through NULL (3f09). */
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 30);
+    d1_rules_set();
+    game.effects.dispel = d1_null;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x7d, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    c6_reset();
+    CHECK(!c1_run(0x7d) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3f09") != NULL);
+    d1_end();
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8421,6 +8527,10 @@ int main(void)
     test_band_d3_death_pool();
     test_band_d3_death_quiet();
     test_band_d3_death_local();
+    test_band_d3_pw_bounds();
+    test_band_d3_pw_most();
+    test_band_d3_pw_group();
+    test_band_d3_pw_slot();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

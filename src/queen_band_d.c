@@ -226,6 +226,38 @@ static bool death_spell(cok_adventure *game)
     return true;
 }
 
+/* 7fd8:3ea6, Power Word Kill (0x7d; a mage's immediate spell, area 1): the images flag is set; no target, nothing. The first
+ * target, when its most hit points (+0x89: the maximum, not the current) are 11-60, is the only one: event 9 on the slot itself
+ * with amount 0xff, and unless a handler cancelled it, "is slain" (cok_combat_kill, status 6) on the slot as event 9 left it.
+ * Else every target of at most 10 most hit points, in list order: event 9 on its slot and the same kill. The damage type is not
+ * set (the stale one stays), and nothing is drawn of its own. A slot NULL after event 9 with the amount left is read through
+ * NULL (3f09, 3f89). */
+static bool power_word_kill(cok_adventure *game)
+{
+    game->effects.rolls.images = 1;
+    if (game->spell_target_count == 0) return true;
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character **first = &game->spell_targets[1];
+    if (*first != NULL) {
+        uint8_t most = cok_field_u8(L, (*first)->record, COK_FIELD_MAX_HIT_POINTS);
+        if (most > 10 && most <= 60) {
+            if (!event_nine(game, first, 0xff)) return false;
+            if (game->effects.rolls.amount16 == 0) return true;
+            if (*first == NULL) return undefined(game, "dqk 7fd8:3f09 reads the target through NULL after event 9");
+            return cok_combat_kill(game, *first, 6, "is slain");
+        }
+    }
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character **slot = &game->spell_targets[i];
+        if (*slot == NULL || cok_field_u8(L, (*slot)->record, COK_FIELD_MAX_HIT_POINTS) > 10) continue;
+        if (!event_nine(game, slot, 0xff)) return false;
+        if (game->effects.rolls.amount16 == 0) continue;
+        if (*slot == NULL) return undefined(game, "dqk 7fd8:3f89 reads the target through NULL after event 9");
+        if (!cok_combat_kill(game, *slot, 6, "is slain")) return false;
+    }
+    return true;
+}
+
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
@@ -244,6 +276,7 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
 
     /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
     case SPELL_DEATH: return death_spell;
+    case SPELL_POWER_WORD_KILL: return power_word_kill;
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
