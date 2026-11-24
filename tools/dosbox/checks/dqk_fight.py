@@ -7165,6 +7165,11 @@ def band_d4(v, work, opts):
 # and 0x20); BALTHIR and WALKER, on BALTHIR's side, are "is unaffected" (a wait draw each, no node). Otto's (+0xce 0x79) on
 # WALKER: C, C, E (BALTHIR's pending Aim), \> (onto WALKER), then T: the touch misses (d20 3), so no node on WALKER. The hit
 # path (the adds, the durations, the touch on a copy) is repo tests only (a seed search is not needed).
+# The trap at 5045:066a holds at the party's command turns' tails (here BALTHIR's pending cast, with its Aim), while eclplay
+# marks every turn, and its last mark is the next party turn cut short by the keys' end (no draws): Mass Charm's marks are
+# 01 BALTHIR's C, C, 02 WALKER, 03 SAHUAGIN 2, 04 TIMASALIN, 05 BALTHIR's Mass Charm, 06 CINDER (out of keys), and 05 and 06
+# share a RandSeed; Otto's are 01 BALTHIR's C, C, 02 WALKER, 03 BALTHIR's Otto's, then 04 and 05 at a later RandSeed. The marks
+# are taken by number (cast_mark), command_state checking each one's RandSeed against the original's.
 BAND_D5_CHARM = 0x78
 BAND_D5_OTTO = 0x79
 BAND_D5_CHARM_LEVEL = 9                 # BALTHIR's class 5 level poked (+0xaa 9), the cap 18: band d4's BAND_B4_MAGE pattern
@@ -7173,7 +7178,7 @@ CAST_SAHUAGIN_2 = 7                     # the second SAHUAGIN takes SHARKMAN 2's
 BAND_D5_CHARM_TAIL = (43, 0xD3E6C85D)   # the tail after T (Mass Charm): 43 draws past BALTHIR's menu, at d3e6c85d
 BAND_D5_CHARM_NODE = [0x0B, 0, 0x69, 1]  # SAHUAGIN 2's node: the charm, no minutes, value 0x69, on remove
 BAND_D5_CHARM_KEYS = "CCEENT"           # the keys of the Mass Charm flow (eclplay)
-BAND_D5_CHARM_MARK = "05"               # eclplay's turn mark of the tail (the marks before it: 01 to 04)
+BAND_D5_CHARM_MARK = "05"               # eclplay's turn mark of the tail (01 to 04 before it; 06, CINDER's, shares its RandSeed)
 BAND_D5_OTTO_TAIL = (7, 0x06787DB1)     # the tail after T (Otto's, a miss): 7 draws past BALTHIR's menu (the dispatch's 6 and the d20 3)
 BAND_D5_OTTO_KEYS = "CCE\\>T"           # the keys of Otto's flow (eclplay)
 BAND_D5_OTTO_MARK = "03"                # eclplay's turn mark of Otto's tail (the marks before it: 01 and 02)
@@ -7210,9 +7215,18 @@ def band_d5_otto_run(box, menu, work, tag):
     return out
 
 
+def band_d5_mark(v, p, number, what, keys):
+    """eclplay's turn mark NUMBER (cast_mark) at WHAT, None (a difference) if it is missing; command_state checks its RandSeed."""
+    mark = dict(cast_mark(p, number), number=number)
+    if not mark["base"].with_suffix(".field").exists():
+        v.check(False, f"eclplay writes its turn mark {number} ({what}) after {keys}", p["last"])
+        return None
+    return mark
+
+
 def band_d5_charm(v, work, wild, opts):
     """Mass Charm (the flow band_d5, charm): the original's tail (draws, RandSeed), SAHUAGIN 2's charm node, the two unaffected
-    on BALTHIR's side with no node, BALTHIR's byte forgotten; eclplay's turn mark at the same RandSeed agrees."""
+    on BALTHIR's side with no node, BALTHIR's byte forgotten; eclplay's turn mark 05 (by number) agrees."""
     save = band_d5_save(BAND_D5_CHARM, True)
     o = cast_original(work, wild, save, "band-d5-charm", opts.verbose, band_d5_charm_run)
     m0 = o["menu"]["seed"]
@@ -7231,12 +7245,9 @@ def band_d5_charm(v, work, wild, opts):
     v.check(forgotten == BAND_D5_CHARM_MEMO, f"at the tail BALTHIR's Mass Charm is forgotten (+0xce {BAND_D5_CHARM_MEMO:#x})",
             f"+0xce {forgotten:#x}")
     p = turn_port(work, wild, "band-d5-charm", BAND_D5_CHARM_KEYS, entry=entry)
-    got = mark_of_seed(p, end["seed"])
+    got = band_d5_mark(v, p, BAND_D5_CHARM_MARK, "Mass Charm's tail", BAND_D5_CHARM_KEYS)
     if got is None:
-        v.check(False, "eclplay has a turn mark whose RandSeed is the original's at the tail after the Mass Charm keys", p["last"])
         return
-    v.check(got["number"] == BAND_D5_CHARM_MARK, f"the turn mark with the original's tail (Mass Charm) is {BAND_D5_CHARM_MARK}",
-            got["number"])
     command_state(v, f"Mass Charm's tail (turn mark {got['number']})", end, got, m0)
     chains_agree(v, end["chains"], got["base"].with_suffix(".effects"), f" (Mass Charm's tail, turn mark {got['number']})")
     print(f"eclplay (band d5, charm) ends {p['last']!r} at turn mark {got['number']}", flush=True)
@@ -7244,7 +7255,7 @@ def band_d5_charm(v, work, wild, opts):
 
 def band_d5_otto(v, work, wild, opts):
     """Otto's on WALKER (the flow band_d5, otto): the touch misses, so WALKER holds no dance node and BALTHIR's byte is forgotten;
-    eclplay's turn mark at the same RandSeed agrees."""
+    eclplay's turn mark 03 (by number) agrees."""
     save = band_d5_save(BAND_D5_OTTO, False)
     o = cast_original(work, wild, save, "band-d5-otto", opts.verbose, band_d5_otto_run)
     m0 = o["menu"]["seed"]
@@ -7259,12 +7270,9 @@ def band_d5_otto(v, work, wild, opts):
     v.check(forgotten == BAND_D5_OTTO_MEMO, f"at the tail BALTHIR's Otto's is forgotten (+0xce {BAND_D5_OTTO_MEMO:#x})",
             f"+0xce {forgotten:#x}")
     p = turn_port(work, wild, "band-d5-otto", BAND_D5_OTTO_KEYS, entry=entry)
-    got = mark_of_seed(p, end["seed"])
+    got = band_d5_mark(v, p, BAND_D5_OTTO_MARK, "Otto's tail", BAND_D5_OTTO_KEYS)
     if got is None:
-        v.check(False, "eclplay has a turn mark whose RandSeed is the original's at the tail after the Otto's keys", p["last"])
         return
-    v.check(got["number"] == BAND_D5_OTTO_MARK, f"the turn mark with the original's tail (Otto's) is {BAND_D5_OTTO_MARK}",
-            got["number"])
     command_state(v, f"Otto's tail (turn mark {got['number']})", end, got, m0)
     chains_agree(v, end["chains"], got["base"].with_suffix(".effects"), f" (Otto's tail, turn mark {got['number']})")
     print(f"eclplay (band d5, otto) ends {p['last']!r} at turn mark {got['number']}", flush=True)
