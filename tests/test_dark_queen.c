@@ -4287,14 +4287,14 @@ static void test_cast_targets(void)
     cast_keys("ENEY");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
     CHECK(cast_said("Spell Aborted"));
-    /* The dispatch: an unported spell (0x7e Monster Summoning, kind 0, no Aim; Shield is a plain apply now)
-     * runs its flight and forgets it, then stops at its cited routine (7fd8:3fa4). The byte is marked (0xfe). */
+    /* The dispatch: an unported spell (0x4b Raise Dead, kind 0, no Aim; Shield is a plain apply now)
+     * runs its flight and forgets it, then stops at its cited routine (7fd8:219f). The byte is marked (0xcb). */
     cast_open(false);
-    menu_c->record[0xce] = 0x7e;
+    menu_c->record[0xce] = 0x4b;
     cast_keys("");
-    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
-    CHECK(menu_c->record[0xce] == 0xfe);
+    CHECK(!queen_cast(&menu_game, 0x4b, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:219f") != NULL);
+    CHECK(menu_c->record[0xce] == 0xcb);
     /* A ported handler runs: CLW on herself (the Aim's T), the spell marked, the cast over. */
     cast_open(false);
     cast_keys("T");
@@ -4413,38 +4413,38 @@ static uint32_t rings_model(uint32_t seed, unsigned first, unsigned last)
 }
 
 /* The seed at a burst at the caster's own cell: the flight's draws (the pose's, none for the missile: no missile to the
- * own cell), read where Monster Summoning (0x7e, unported: its stop is 7fd8:3fa4, after the flight, no burst) stops. Lightning
+ * own cell), read where Raise Dead (0x4b, unported: its stop is 7fd8:219f, after the flight, no burst) stops. Lightning
  * (0x33) is ported (band b3): it runs its handler at the own cell, so it no longer stops before its draws. */
 static uint32_t own_cell_flight(uint32_t start)
 {
     cast_open(false);
-    menu_c->record[0xce] = 0x7e;
+    menu_c->record[0xce] = 0x4b;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("T");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x4b, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:219f") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
 }
 
 /* The same at a foe's cell (9, 5), the caster's aim by N then T: the missile to the foe draws (its flight is not the own
- * cell's), so a foe's burst base is read the same way, where Monster Summoning stops. */
+ * cell's), so a foe's burst base is read the same way, where Raise Dead stops. */
 static uint32_t foe_flight(uint32_t start)
 {
     cast_open(false);
     aim_foe(9, 5, 1);
-    menu_c->record[0xce] = 0x7e;
+    menu_c->record[0xce] = 0x4b;
     cok_ecl_set_var(&menu_game.vm, COK_VAR_3D, 0);
     cok_ecl_set_var(&menu_game.vm, COK_VAR_RECORD_EFFECT, 0);
     cast_keys("NT");
     menu_game.vm.seed = start;
     bool done = false;
-    CHECK(!queen_cast(&menu_game, 0x7e, false, true, &done));
-    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:3fa4") != NULL);
+    CHECK(!queen_cast(&menu_game, 0x4b, false, true, &done));
+    CHECK(menu_game.vm.status == COK_ECL_UNPORTED && strstr(menu_game.error, "7fd8:219f") != NULL);
     uint32_t entry = menu_game.vm.seed;
     menu_close();
     return entry;
@@ -4955,12 +4955,12 @@ static void test_cast_kinds(void)
     menu_c->combat->facing = 2;
     cast_keys("T");
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && done && menu_c->combat->facing == 0);
-    /* A pending spell is cleared before its cast: one that stops (Monster Summoning's handler, 7fd8:3fa4)
+    /* A pending spell is cleared before its cast: one that stops (Raise Dead's handler, 7fd8:219f)
      * leaves none pending. */
     cast_open(false);
-    menu_c->record[0xce] = 0x7e;
-    menu_c->combat->spell = 0x7e;
-    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:3fa4") != NULL);
+    menu_c->record[0xce] = 0x4b;
+    menu_c->combat->spell = 0x4b;
+    CHECK(!menu_run("") && strstr(menu_game.error, "7fd8:219f") != NULL);
     CHECK(menu_c->combat->spell == 0);
     menu_close();
 }

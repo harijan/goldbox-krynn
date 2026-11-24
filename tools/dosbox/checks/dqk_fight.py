@@ -241,8 +241,8 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "band_c7", "band_d1", "band_d2", "band_d3", "band_d4", "band_d5", "effects_1", "effects_2", "effects_4",
-                 "effects_3")
+                 "band_c7", "band_d1", "band_d2", "band_d3", "band_d4", "band_d5", "band_d6", "effects_1", "effects_2",
+                 "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -7224,6 +7224,50 @@ def band_d5_mark(v, p, number, what, keys):
     return mark
 
 
+# Band d6's Monster Summoning (step 4, part 33f, 7fd8:3fa4, the flow band_d6): BALTHIR memorising it (+0xce 0x7e, time 9: pending,
+# no Aim) in the fixture's battle (SHARKMAN 2 and the 10 GORGON extras, records 8-17, status 9). The turns: C, C (BALTHIR's turn
+# ends: WALKER's menu, 2 draws), E (WALKER's End; SHARKMAN 2's computer turn follows), E (TIMASALIN's End), E (CINDER's End: the
+# tail, 16 draws, RandSeed 3a060fce, the summons still pending), then BALTHIR's pending dispatch (no key) and E (ROARK's End: the
+# tail, 57 draws, RandSeed 7e87f23f): GORGONs 8 and 9 gated in at (27, 12) and (25, 14), size 3, status 0, active, 36 hit points,
+# side 0; records 10-17 still waiting; BALTHIR's byte marked (0xfe). The trap at 5045:066a holds at the party's command turns'
+# tails only (not at SHARKMAN 2's turn nor at BALTHIR's pending dispatch), while eclplay marks every turn: 01 BALTHIR's C, C, 02
+# WALKER, 03 SHARKMAN 2, 04 TIMASALIN, 05 CINDER, 06 BALTHIR's summons, 07 ROARK. End draws nothing, so marks 03-05 share
+# a RandSeed, and 06-07 another: mark_of_seed (the first with the seed) would take 03 and 06, a turn early (the End's cleared
+# initiative, +3, and movement, +7, and the turn list's initiative differ there). The marks are taken by number.
+BAND_D6_SUMMON = 0x7E
+BAND_D6_KEYS = "CCEEEE"                 # the keys of the flow (eclplay): C, C, then the Ends of WALKER, TIMASALIN, CINDER, ROARK
+BAND_D6_PENDING = (16, 0x3A060FCE)      # RandSeed at CINDER's tail: 16 draws past the menu (SHARKMAN 2's turn's)
+BAND_D6_PENDING_MARK = "05"             # eclplay's turn mark at CINDER's End
+BAND_D6_TAIL = (57, 0x7E87F23F)         # RandSeed at ROARK's tail: 57 draws past the menu
+BAND_D6_TAIL_MARK = "07"                # eclplay's turn mark at ROARK's End (06 is BALTHIR's summons, at the same RandSeed)
+BAND_D6_GORGONS = (8, 9)                # the records that gate in (the first two waiting)
+BAND_D6_WAITING = range(10, 18)         # the records still waiting (status 9) at the tail
+BAND_D6_COMBATANTS = [(9, 27, 12, 3), (10, 25, 14, 3)]   # the summoned combatants: n, x, y, size
+BAND_D6_MEMO = BAND_D6_SUMMON | CAST_FORGOTTEN           # BALTHIR's +0xce after the cast: marked (0xfe)
+HOSTILE_AT = 0x66                       # a record's side (+0x66, a word in Dark Queen's records)
+
+
+def band_d6_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (WALKER's End), E (TIMASALIN's End), E (CINDER's End): the tail
+    (5045:066a), the summons pending; then E (ROARK's End, after BALTHIR's pending dispatch): the tail."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["end"] = cast_key(box, work, f"{tag}-end", "E")
+    out["end2"] = cast_key(box, work, f"{tag}-end2", "E")
+    out["pending"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "E", None)])[0]
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "E", None)])[0]
+    return out
+
+
+def band_d6_mark(v, p, number, what):
+    """eclplay's turn mark NUMBER (cast_mark) at WHAT, None (a difference) if it is missing; command_state checks its RandSeed."""
+    mark = cast_mark(p, number)
+    field = mark["base"].with_suffix(".field")
+    if not field.exists():
+        v.check(False, f"eclplay writes its turn mark {number} ({what}) after {BAND_D6_KEYS}", p["last"])
+        return None
+    return mark
+
+
 def band_d5_charm(v, work, wild, opts):
     """Mass Charm (the flow band_d5, charm): the original's tail (draws, RandSeed), SAHUAGIN 2's charm node, the two unaffected
     on BALTHIR's side with no node, BALTHIR's byte forgotten; eclplay's turn mark 05 (by number) agrees."""
@@ -7286,6 +7330,69 @@ def band_d5(v, work, opts):
     sahuagin = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0], monster=SAHUAGIN)))
     band_d5_charm(v, work, sahuagin, opts)
     band_d5_otto(v, work, wild, opts)
+
+
+def band_d6_summon(v, work, opts):
+    """Monster Summoning (the flow band_d6): the original's tails at CINDER's End (pending) and at ROARK's End (after the
+    summons: draws, RandSeed, the two GORGONs gated in and their combatants, the ones still waiting, BALTHIR's byte), each
+    against eclplay's turn mark there: records, combat blocks, turn list, effect chains, and at the second the combatants and
+    the battlefield (cells and occupants)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D6_SUMMON}})
+    o = cast_original(work, wild, save, "band-d6", opts.verbose, band_d6_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d6-save", save)
+    pending, tail = o["pending"], o["tail"]
+    draws = L.draws(m0, pending["seed"])
+    v.check((draws, pending["seed"]) == BAND_D6_PENDING, f"the original's RandSeed at CINDER's tail (C, C, E, E, E) is "
+            f"{BAND_D6_PENDING[0]} draws past the menu, at {BAND_D6_PENDING[1]:#x}", f"{draws} draws, {pending['seed']:#x}")
+    memo = rec_byte(pending["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(memo == BAND_D6_SUMMON, f"at CINDER's tail BALTHIR's Monster Summoning is still pending (+0xce {BAND_D6_SUMMON:#x})",
+            f"+0xce {memo:#x}")
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D6_TAIL, f"the original's RandSeed at ROARK's tail after E (Monster Summoning) is "
+            f"{BAND_D6_TAIL[0]} draws past the menu, at {BAND_D6_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    for n in BAND_D6_GORGONS:
+        r = tail["records"][n]
+        got = (rec_byte(r, STATUS_AT), rec_byte(r, ACTIVE_AT), rec_byte(r, HIT_POINTS), rec_byte(r, HOSTILE_AT))
+        v.check(got == (0, 1, 36, 0), f"record {n} (a GORGON) is gated in at the tail: status 0, active 1, 36 hit points, "
+                f"side 0", f"status, active, hit points, side {got}")
+    waiting = [rec_byte(tail["records"][n], STATUS_AT) for n in BAND_D6_WAITING]
+    v.check(all(s == 9 for s in waiting), "records 10 to 17 are still waiting (status 9) at the tail",
+            f"statuses {waiting}")
+    summoned = [c for c in tail["combatants"] if c[0] in (9, 10)]
+    v.check(summoned == BAND_D6_COMBATANTS, f"the two summoned combatants are at (27, 12) and (25, 14), size 3 "
+            f"(combatants 9 and 10)", f"{summoned}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D6_MEMO, f"at the tail BALTHIR's Monster Summoning is marked (+0xce {BAND_D6_MEMO:#x})",
+            f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d6", BAND_D6_KEYS, entry=entry)
+    mark = band_d6_mark(v, p, BAND_D6_PENDING_MARK, "CINDER's End")
+    if mark is not None:
+        command_state(v, f"CINDER's tail, the summons pending (turn mark {BAND_D6_PENDING_MARK})", pending, mark, m0)
+        chains_agree(v, pending["chains"], mark["base"].with_suffix(".effects"),
+                     f" (CINDER's tail, turn mark {BAND_D6_PENDING_MARK})")
+    mark = band_d6_mark(v, p, BAND_D6_TAIL_MARK, "ROARK's End")
+    if mark is None:
+        return
+    command_state(v, f"Monster Summoning's tail (ROARK's End, turn mark {BAND_D6_TAIL_MARK})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"),
+                 f" (Monster Summoning, turn mark {BAND_D6_TAIL_MARK})")
+    _, _, _, cells, occupants, combatants = parse_field(mark["base"].with_suffix(".field"))
+    v.check(combatants == tail["combatants"], f"eclplay's combatants agree at the tail (59c7:1864's entries, the size-0 ones too)",
+            f"eclplay {combatants}, the original {tail['combatants']}")
+    v.check(cells == tail["field"]["cells"] and occupants == tail["field"]["occupants"],
+            "the cells and the occupants agree at the tail (the map and DS:b7fd)",
+            f"cells {'same' if cells == tail['field']['cells'] else 'differ'}, occupants "
+            f"{'same' if occupants == tail['field']['occupants'] else 'differ'}")
+    print(f"eclplay (band d6) ends {p['last']!r} at turn mark {BAND_D6_TAIL_MARK}", flush=True)
+
+
+def band_d6(v, work, opts):
+    """Band d6's Monster Summoning (part 33f), the flow band_d6: BALTHIR's pending summons by the original against eclplay's turn
+    mark (band_d6_summon). Stone to Flesh is a repo test here (no stone can be made in a fight before the placement's body stop)."""
+    band_d6_summon(v, work, opts)
 
 
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
@@ -7667,6 +7774,8 @@ def main():
         band_d4(v, work, opts)
     if "band_d5" in flows:
         band_d5(v, work, opts)
+    if "band_d6" in flows:
+        band_d6(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:

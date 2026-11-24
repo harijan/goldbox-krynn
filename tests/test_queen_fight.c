@@ -2111,11 +2111,12 @@ static void test_plain_apply(void)
         bool d3 = id == 0x6e || id == 0x7d || id == 0x8b || id == 0x8c; /* queen_band_d.c's d3 (Death Spell, Power Word Kill, 0x8b, 0x8c) */
         bool d4 = id == 0x6d || id == 0x75 || id == 0x7b; /* queen_band_d.c's d4 */
         bool d5 = id == 0x78 || id == 0x79; /* queen_band_d.c's d5 */
+        bool d6 = id == 0x7e || id == 0x71; /* queen_band_d.c's d6 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4 || d5)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4 || d5 || d6)); /* 0x5c: band b4, 0x7c: b5 */
     }
-    CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
+    CHECK(queen_spell_handler(0x4b) == NULL); /* Raise Dead: 7fd8:219f, unported (the tests' stand-in for Monster Summoning) */
     cok_character *a, *t;
     duel(&a, &t);
     game.vm.character = a->record;
@@ -9037,6 +9038,359 @@ static void test_band_d5_otto(void)
     battle_clear();
 }
 
+/* d6: Monster Summoning (queen_band_d.c's summon, 7fd8:3fa4) and Stone to Flesh (stone_to_flesh, 7fd8:3297). The battle is made
+ * by hand: every cell of one tile, var 0x22 set or clear (the wanted floor is 0x17 with it set, 0x45 clear), and the list's records
+ * in order. The waiting extras (status word 9, size 0) stand at 40, 20, out of the way of the walk's first cells. A placement in
+ * mode 5 draws the cells round it, and the test's battle set has no picture for 0x45: the tests that want that tile run in mode 0
+ * (no draw; the search is the same, the placement's checks are cok_combat_place's, tested with the stone). */
+static void summon_start(uint8_t tile, uint8_t var22, unsigned mode)
+{
+    battle_clear();
+    cok_ecl_store(&game.vm, 0x22, var22);
+    cok_ecl_set_var(&game.vm, COK_VAR_SPEED, 0); /* the waits draw one random each (speed 0), as the swing tests' */
+    game.vm.mode = (uint8_t)mode;
+    memset(game.combat.cells, tile, sizeof game.combat.cells);
+    c6_reset();
+}
+
+/* A waiting extra: a record of the battle, status word 9, footprint size (+0x8a, the byte's low 3 bits used), and max hit
+ * points (+0x89); placed as a size 0 combatant at 40, 20 (no footprint). */
+static cok_character *waiting_extra(char name, uint8_t size, uint8_t max_hp)
+{
+    cok_character *w = record(name, 1, 0);
+    cok_combat_set_field_word(R, w->record, COK_FIELD_STATUS, 9);
+    cok_field_set8(R->character, w->record, COK_FIELD_SIZE, size);
+    cok_field_set8(R->character, w->record, COK_FIELD_MAX_HIT_POINTS, max_hp);
+    place_sized(w, 40, 20, 0);
+    return w;
+}
+
+/* The combatant's cell of record c (as cok_combat_x and y read it). */
+static bool at_cell(const cok_character *c, int x, int y)
+{
+    return cok_combat_x(&game.combat, c->record) == x && cok_combat_y(&game.combat, c->record) == y;
+}
+
+/* Monster Summoning (0x7e): the anchor is the list's head (20, 10, not the caster at 5, 5); its north cell first (0), then
+ * north-east: two waiting extras gate in there (size 3, hit points 36 from +0x89, status 0, active, side 0 (the
+ * caster's, not the extras' 1)), "gates in" each; the third stays waiting (the limit of 2). Mutants: the anchor the caster
+ * (the cells at 5, 4); the limit 3; the side not copied (1). The second cannot take north-east (its footprint covers it), and
+ * goes east: the k order goes on after a placement (a mutant that restarts at north would find it taken too, so this is no
+ * test of that restart). */
+static void test_band_d6_summon_order(void)
+{
+    summon_start(0x17, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 20, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *w1 = waiting_extra('W', 3, 36), *w2 = waiting_extra('V', 3, 36), *w3 = waiting_extra('U', 3, 36);
+    game.vm.character = a->record;
+    log_text[0] = '\0';
+    game.vm.status = COK_ECL_OK;
+    CHECK(c1_run(0x7e) && game.vm.status == COK_ECL_OK);
+    cok_combat *k = &game.combat;
+    /* A size 3 footprint is two cells (0, 0) and (1, 0): w1 at (20, 9) covers (21, 9), so w2 goes on to east (21, 10). */
+    CHECK(at_cell(w1, 20, 9) && at_cell(w2, 21, 10) && at_cell(h, 20, 10) && at_cell(a, 5, 5));
+    CHECK(k->combatant[cok_combat_index(k, w1->record)].size == 3 && k->combatant[cok_combat_index(k, w2->record)].size == 3);
+    CHECK(cok_field_u8(R->character, w1->record, COK_FIELD_STATUS) == 0 && cok_field_u8(R->character, w1->record, COK_FIELD_ACTIVE) == 1);
+    CHECK(hit_points(w1) == 36 && hit_points(w2) == 36);
+    CHECK(cok_combat_field_word(R, w1->record, COK_FIELD_HOSTILE) == 0 && cok_combat_field_word(R, w2->record, COK_FIELD_HOSTILE) == 0);
+    CHECK(cok_combat_field_word(R, w3->record, COK_FIELD_STATUS) == 9 && cok_field_u8(R->character, w3->record, COK_FIELD_ACTIVE) == 0);
+    CHECK(at_cell(w3, 40, 20) && k->combatant[cok_combat_index(k, w3->record)].size == 0);
+    CHECK(count_of("gates in") == 2);
+    battle_clear();
+}
+
+/* The next free cell in the order: N (20, 9) taken by a party member B, the first waiting takes NE (21, 9), the second E (21, 10).
+ * The tile by var 0x22: with a north cell of 0x45 and the rest floor (0x17), var 0x22 clear takes the north (0x45 is the want), set
+ * takes north-east (the north is the wrong tile); mode 0, as the ground's 0x45 has no picture here. With var 0x22 clear and the floor
+ * everywhere, nothing is the want: the text is said with its one draw. Mutants: the occupied cell taken; the tile by var 0x22 ignored
+ * (the floor always, or 0x45 always). */
+static void test_band_d6_summon_cells(void)
+{
+    summon_start(0x17, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 20, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *b = record('B', 0, 0);
+    place(b, 20, 9);
+    cok_character *w1 = waiting_extra('W', 1, 10), *w2 = waiting_extra('V', 1, 10);
+    game.vm.character = a->record;
+    CHECK(c1_run(0x7e));
+    CHECK(at_cell(w1, 21, 9) && at_cell(w2, 21, 10) && hit_points(w1) == 10);
+    battle_clear();
+
+    for (unsigned var22 = 0; var22 <= 1; ++var22) {
+        summon_start(0x17, (uint8_t)var22, 0);
+        game.combat.cells[9][20] = 0x45; /* north: the wanted tile with var 0x22 clear, the wrong one set */
+        h = record('H', 0, 0);
+        place(h, 20, 10);
+        a = record('A', 0, 0);
+        place(a, 5, 5);
+        cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+        w1 = waiting_extra('W', 1, 10);
+        game.vm.character = a->record;
+        CHECK(c1_run(0x7e) && (var22 == 0 ? at_cell(w1, 20, 9) : at_cell(w1, 21, 9)));
+        battle_clear();
+    }
+
+    summon_start(0x17, 0, 5);
+    h = record('H', 0, 0);
+    place(h, 20, 10);
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    w1 = waiting_extra('W', 1, 10);
+    game.vm.character = a->record;
+    log_text[0] = '\0';
+    uint32_t want = game.vm.seed;
+    cok_tp_random(&want, 1000); /* "summons is not answered"'s wait, the only draw */
+    CHECK(c1_run(0x7e) && LOGGED("summons is not answered") && game.vm.seed == want);
+    CHECK(cok_combat_field_word(R, w1->record, COK_FIELD_STATUS) == 9 && at_cell(w1, 40, 20));
+    battle_clear();
+}
+
+/* The order goes on after a placement: the first waiting (size 3, footprint (0, 0) and (1, 0)) cannot take north (B stands
+ * there) nor north-east (its footprint's (22, 9) is C's), so it takes east (21, 10); the second (size 1) goes on from east to
+ * south-east (21, 11), where a restart at north-east (the mutant that resets k after a placement) would take it. */
+static void test_band_d6_summon_after(void)
+{
+    summon_start(0x17, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 20, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *b = record('B', 0, 0), *c = record('C', 0, 0);
+    place(b, 20, 9);
+    place(c, 22, 9);
+    cok_character *w1 = waiting_extra('W', 3, 36), *w2 = waiting_extra('V', 1, 10);
+    game.vm.character = a->record;
+    CHECK(c1_run(0x7e));
+    CHECK(at_cell(w1, 21, 10) && at_cell(w2, 21, 11));
+    CHECK(cok_combat_field_word(R, w2->record, COK_FIELD_STATUS) == 0 && count_of("gates in") == 2);
+    battle_clear();
+}
+
+/* The walk after eight failed directions round the head (its eight cells taken by tile 0x1a): the head's next record (the
+ * caster) is the anchor, and its north cell (5, 4) takes the first extra, its north-east (6, 4) the second. Mutant: no walk (the
+ * text instead). */
+static void test_band_d6_summon_walk(void)
+{
+    summon_start(0x17, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 20, 10);
+    static const int8_t around[8][2] = {{0, -1}, {1, -1}, {1, 0}, {1, 1}, {0, 1}, {-1, 1}, {-1, 0}, {-1, -1}};
+    for (unsigned i = 0; i < 8; ++i) game.combat.cells[10 + around[i][1]][20 + around[i][0]] = 0x1a;
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *w1 = waiting_extra('W', 1, 10), *w2 = waiting_extra('V', 1, 10);
+    game.vm.character = a->record;
+    CHECK(c1_run(0x7e));
+    CHECK(at_cell(w1, 5, 4) && at_cell(w2, 6, 4));
+    battle_clear();
+}
+
+/* Nothing placed round any cell (all of tile 0x1a): the walk goes head, caster, the waiting record (its cell 40, 20), then the
+ * caster again, and ends (a waiting anchor ends it at the caster). The text is said with its one draw, and no extra moves.
+ * With no waiting record at all, the text at once (no walk, one draw). Mutant: the text without its draw. */
+static void test_band_d6_summon_none(void)
+{
+    summon_start(0x1a, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 20, 10);
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *w1 = waiting_extra('W', 1, 10);
+    game.vm.character = a->record;
+    log_text[0] = '\0';
+    uint32_t want = game.vm.seed;
+    cok_tp_random(&want, 1000);
+    CHECK(c1_run(0x7e) && LOGGED("summons is not answered") && game.vm.seed == want);
+    CHECK(cok_combat_field_word(R, w1->record, COK_FIELD_STATUS) == 9 && at_cell(w1, 40, 20));
+    battle_clear();
+
+    summon_start(0x17, 1, 5);
+    h = record('H', 0, 0);
+    place(h, 20, 10);
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    game.vm.character = a->record;
+    log_text[0] = '\0';
+    want = game.vm.seed;
+    cok_tp_random(&want, 1000);
+    CHECK(c1_run(0x7e) && LOGGED("summons is not answered") && game.vm.seed == want);
+    battle_clear();
+}
+
+/* The stops: the off-map cell from the head (0, 0): north is off the map, the original retries it forever (undefined, 40aa); a
+ * waiting record that is no combatant (40fa): entry 0. Mutant: the off-map cell skipped (the next direction tried). */
+static void test_band_d6_summon_stops(void)
+{
+    summon_start(0x17, 1, 5);
+    cok_character *h = record('H', 0, 0);
+    place(h, 0, 0);
+    cok_character *a = record('A', 0, 0);
+    place(a, 5, 5);
+    waiting_extra('W', 1, 10);
+    game.vm.character = a->record;
+    c6_reset();
+    CHECK(!c1_run(0x7e) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "40aa") != NULL);
+    battle_clear();
+
+    summon_start(0x17, 1, 5);
+    h = record('H', 0, 0);
+    place(h, 20, 10);
+    a = record('A', 0, 0);
+    place(a, 5, 5);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_character *lost = record('W', 1, 0);
+    cok_combat_set_field_word(R, lost->record, COK_FIELD_STATUS, 9); /* waiting, but no combatant */
+    game.vm.character = a->record;
+    c6_reset();
+    CHECK(!c1_run(0x7e) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "40fa") != NULL);
+    battle_clear();
+}
+
+/* Stone to Flesh (0x71): a target that is not stoned gets only the apply (no text, its status and hit points kept). A stone
+ * with a readied item of type 0x8c (+0x37 0x8c, +0x32 set): "spell dosn't work!" with no name line, and it stays 7. Mutant: no
+ * 0x8c check (the stone freed). */
+static void test_band_d6_stone_refusal(void)
+{
+    battle_clear();
+    game.vm.mode = 5;
+    cok_character *a = record('A', 0, 0), *t = record('T', 0, 0);
+    place(a, 5, 5);
+    place(t, 20, 10);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 10);
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(c1_run(0x71) && !LOGGED("statue") && !LOGGED("dosn't"));
+    CHECK(cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 0 && hit_points(t) == 10);
+    battle_clear();
+
+    battle_clear();
+    game.vm.mode = 5;
+    a = record('A', 0, 0);
+    t = record('T', 0, 0);
+    place(a, 5, 5);
+    place(t, 20, 10);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 0);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_STATUS, 7);
+    c5_item(t, 0, 1, 0, 0x8c, 0);
+    CHECK(queen_readied_8c(t));
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(c1_run(0x71) && LOGGED("spell dosn't work!") && !LOGGED("statue"));
+    CHECK(cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 7 && cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 0);
+    battle_clear();
+}
+
+/* Stone to Flesh's stoned target in the battle: status word 0 (the word written: its high byte is 0 before and after, so a
+ * byte write would look the same here), active, 1 hit point, "is no longer a
+ * statue"; its body entry removed (the later entries shifted down, the count less one), the map cell back to the terrain the
+ * body covered, and t placed on its cell (centred on the spell's cell). The second case (no bodies after it) is the same
+ * with its entry first. The stops: no entry among 1-8 (3316), a count of 0 (33e1), t1 NULL (c5e3); outside a battle the text and
+ * the apply only (no body). Mutants: the entries not shifted; the cell not restored. The status byte only is EQUIVALENT here,
+ * not caught (the word is 7, high byte 0). */
+static void test_band_d6_stone_body(void)
+{
+    battle_clear();
+    game.vm.mode = 5;
+    cok_character *a = record('A', 0, 0), *t = record('T', 0, 0), *x = record('X', 0, 0), *y = record('Y', 0, 0);
+    place(a, 5, 5);
+    place(t, 20, 10);
+    cok_field_set8(R->character, a->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_SIZE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIT_POINTS, 0);
+    cok_combat *k = &game.combat;
+    /* t is a stone: its combatant has no footprint (size 0), the cell of its body (the floor under it) is the body tile. */
+    k->combatant[cok_combat_index(k, t->record)].size = 0;
+    CHECK(cok_combat_occupy(k, R));
+    cok_combat_set_field_word(R, t->record, COK_FIELD_STATUS, 7);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 0);
+    k->body[0] = (cok_combat_body){x, 30, 15, COK_COMBAT_FLOOR};
+    k->body[1] = (cok_combat_body){t, 20, 10, COK_COMBAT_FLOOR};
+    k->body[2] = (cok_combat_body){y, 31, 16, COK_COMBAT_FLOOR};
+    k->bodies = 3;
+    k->cells[15][30] = COK_COMBAT_BODY;
+    k->cells[10][20] = COK_COMBAT_BODY;
+    k->cells[16][31] = COK_COMBAT_BODY;
+    game.spell_x = 20;
+    game.spell_y = 10;
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(c1_run(0x71) && LOGGED("is no longer a statue"));
+    CHECK(cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 0 && cok_field_u8(R->character, t->record, COK_FIELD_ACTIVE) == 1);
+    CHECK(hit_points(t) == 1 && k->bodies == 2);
+    CHECK(k->body[0].character == x && k->body[1].character == y);
+    CHECK(k->cells[10][20] == COK_COMBAT_FLOOR && k->cells[15][30] == COK_COMBAT_BODY && k->cells[16][31] == COK_COMBAT_BODY);
+    uint8_t idx = cok_combat_index(k, t->record), occ, terrain;
+    cok_combat_cell(k, 20, 10, &occ, &terrain);
+    CHECK(idx != 0 && occ == idx && at_cell(t, 20, 10) && k->combatant[idx].size == 1);
+    battle_clear();
+
+    /* No entry among the eight: undefined (the search runs past the table). */
+    battle_clear();
+    game.vm.mode = 5;
+    a = record('A', 0, 0);
+    t = record('T', 0, 0);
+    place(a, 5, 5);
+    place(t, 20, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_STATUS, 7);
+    k = &game.combat;
+    for (unsigned i = 0; i < COK_COMBAT_BODIES; ++i) k->body[i] = (cok_combat_body){a, 5, 5, COK_COMBAT_FLOOR};
+    k->bodies = COK_COMBAT_BODIES;
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(!c1_run(0x71) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3316") != NULL);
+    battle_clear();
+
+    /* A count of 0 with the entry found: undefined (the count goes to 255). */
+    battle_clear();
+    game.vm.mode = 5;
+    a = record('A', 0, 0);
+    t = record('T', 0, 0);
+    place(a, 5, 5);
+    place(t, 20, 10);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_STATUS, 7);
+    k = &game.combat;
+    k->body[0] = (cok_combat_body){t, 20, 10, COK_COMBAT_FLOOR};
+    k->bodies = 0;
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(!c1_run(0x71) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "33e1") != NULL);
+    battle_clear();
+
+    /* Outside a battle: the text and the apply only; the bodies are not touched (no body in mode 0 either). */
+    battle_clear();
+    game.vm.mode = 0;
+    a = record('A', 0, 0);
+    t = record('T', 0, 0);
+    cok_combat_set_field_word(R, t->record, COK_FIELD_STATUS, 7);
+    set_targets(a, 0x71, (cok_character *[]){t}, 1);
+    c6_reset();
+    CHECK(c1_run(0x71) && LOGGED("is no longer a statue") && cok_combat_field_word(R, t->record, COK_FIELD_STATUS) == 0);
+    game.vm.mode = 5;
+    battle_clear();
+
+    /* The first target NULL: undefined (DS:c5e3). */
+    battle_clear();
+    game.spell_targets[1] = NULL;
+    c6_reset();
+    CHECK(!c1_run(0x71) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "c5e3") != NULL);
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -9226,6 +9580,14 @@ int main(void)
     test_band_d4_pw_blind();
     test_band_d5_mass_charm();
     test_band_d5_otto();
+    test_band_d6_summon_order();
+    test_band_d6_summon_cells();
+    test_band_d6_summon_after();
+    test_band_d6_summon_walk();
+    test_band_d6_summon_none();
+    test_band_d6_summon_stops();
+    test_band_d6_stone_refusal();
+    test_band_d6_stone_body();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
