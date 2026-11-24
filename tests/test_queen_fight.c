@@ -2108,7 +2108,7 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
-        bool d4 = id == 0x6d; /* queen_band_d.c's d4 */
+        bool d4 = id == 0x6d || id == 0x75; /* queen_band_d.c's d4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
                c4 || c5 || c6 || c7 || d1 || d2 || d4)); /* 0x5c: band b4, 0x7c: b5 */
@@ -8142,6 +8142,60 @@ static void test_band_d4_prot_fire(void)
     battle_clear();
 }
 
+/* d4: PW Stun (queen_band_d.c: 7fd8:3569). One image. The rounds by the target's hit points: 1 and 30 are 4d4, 31 and 60 are
+ * 2d4, 61 and 90 are 1d4; 0 and 91 are none, with no draw, no node and no text. The seed after the handler is the seed after
+ * exactly that band's dice, so a count off by one shows. The node is 0x6a for the rounds, "is STUNNED", its value the caster's
+ * level capped (a mage of 40: 31, uncapped 40), and the holder's turn ends at event 7 (the held row, 1af9). Mutants: the band
+ * boundary off by one (31 rolls 4d4); the level uncapped; a node for 0 rounds. */
+static void test_band_d4_pw_stun(void)
+{
+    game.vm.mode = 5; /* the battle */
+    game.effects.in_battle = true;
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 40);
+    set_targets(a, 0x75, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x75, false, &lv) && lv == 40);
+    CHECK(queen_spell_level(&game, 0x75, true, &lv) && lv == 31);
+    /* Every d4 of the seed is a 4, so the rounds are 4 a die: 16 for 4d4, 8 for 2d4, 4 for 1d4 (a count off by one shows).
+     * The text's flash and wait draw after the dice, so the seed is not compared here. */
+    static const struct {
+        uint8_t hp, sum;
+    } bands[] = {{1, 16}, {30, 16}, {31, 8}, {60, 8}, {61, 4}, {90, 4}};
+    static const unsigned fours[] = {4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4, 4};
+    for (size_t i = 0; i < sizeof bands / sizeof *bands; ++i) {
+        set_hit_points(t, bands[i].hp, 100);
+        game.vm.seed = seed_from(4, fours);
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && LOGGED("is STUNNED") && game.effects.rolls.images == 1);
+        cok_effect *e = cok_character_find_effect(t, 0x6a);
+        CHECK(e != NULL && e->duration == bands[i].sum && e->value == 31 && !e->on_remove);
+        if (i == 1) {
+            /* The held row ends the holder's turn at event 7 (test_held_ends_turn's check, on this node). */
+            cok_combat_record *cr = t->combat;
+            cr->initiative = 3;
+            cr->spell = 2;
+            cr->guarding = 7;
+            cr->movement = 8;
+            CHECK(cok_effects_dispatch(&game.effects, t, 7) && game.vm.status == COK_ECL_OK);
+            CHECK(cr->initiative == 0 && cr->spell == 0 && cr->guarding == 0 && cr->movement == 0);
+        }
+        clear_effect(t, 0x6a);
+    }
+    /* 0 and 91 and up: no rounds, no draw, no node, no text. */
+    static const uint8_t none[] = {0, 91, 200};
+    for (size_t i = 0; i < sizeof none / sizeof *none; ++i) {
+        set_hit_points(t, none[i], 100);
+        game.vm.seed = 7;
+        log_text[0] = '\0';
+        CHECK(run_handler(0x75) && game.vm.seed == 7 && cok_character_find_effect(t, 0x6a) == NULL && !LOGGED("is STUNNED"));
+    }
+    game.effects.in_battle = false;
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8313,6 +8367,7 @@ int main(void)
     test_band_d1_flesh();
     test_band_d1_item_power();
     test_band_d4_prot_fire();
+    test_band_d4_pw_stun();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

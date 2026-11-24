@@ -160,9 +160,13 @@ static bool item_power(cok_adventure *game)
 
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
-/* The ids and the class index of band d4: the ranger's class level is the one at +0xa5 + 4 (177e:2234). */
+/* The ids and the offsets of band d4: the ranger's class level is the one at +0xa5 + 4 (177e:2234); PW Stun's effect and
+ * save kind are read from its own record (+0xe byte, +0xa word), as the original does (DS:3205, DS:3201). */
 enum {
+    SPELL_SAVE_KIND = 0x0a,
+    SPELL_EFFECT = 0x0e,
     SPELL_PROT_FIRE = 0x6d,
+    SPELL_PW_STUN = 0x75,
     EFFECT_RESIST = 0x14,
     EFFECT_FIRE_ABSORB = 0x77,
     CLASS_RANGER = 4,
@@ -190,6 +194,30 @@ static bool prot_fire(cok_adventure *game)
     return cok_cast_add_effect(game, t, EFFECT_RESIST, minutes, 0, false, 0, false, "is Protected");
 }
 
+/* 7fd8:3569, PW Stun (0x75): one image. The first target t1 (queen_first_target's stop). Its rounds come from its current hit
+ * points (+0x198): 1 to 30 is 4d4, 31 to 60 is 2d4, 61 to 90 is 1d4, and any other (0, 91 and up) is none, with no draw (a
+ * jump table, 3597). No rounds: nothing, no text. Else effect 0x6a (the held row: the holder's turn ends, 78e4:1af9) is added
+ * for the rounds, its value the caster's level capped, its kind the record's save kind, unsaved, "is STUNNED". The id and the
+ * kind are 0x75's own record (+0xe, +0xa), the level is 0x75's. */
+static bool pw_stun(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    game->effects.rolls.images = 1;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    uint8_t hp = cok_field_u8(L, t->record, COK_FIELD_HIT_POINTS);
+    uint8_t rounds = 0;
+    if (hp >= 1 && hp <= 30) rounds = cok_dice(&game->vm.seed, 4, 4);
+    else if (hp >= 31 && hp <= 60) rounds = cok_dice(&game->vm.seed, 2, 4);
+    else if (hp >= 61 && hp <= 90) rounds = cok_dice(&game->vm.seed, 1, 4);
+    if (rounds == 0) return true;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, SPELL_PW_STUN, true, &lv)) return false;
+    uint8_t effect = queen_spell_byte(game, SPELL_PW_STUN, SPELL_EFFECT);
+    uint8_t kind = (uint8_t)queen_spell_word(game, SPELL_PW_STUN, SPELL_SAVE_KIND);
+    return cok_cast_add_effect(game, t, effect, rounds, lv, false, kind, false, "is STUNNED");
+}
+
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
@@ -207,6 +235,7 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
     case SPELL_PROT_FIRE: return prot_fire;
+    case SPELL_PW_STUN: return pw_stun;
 
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
