@@ -2112,7 +2112,7 @@ static void test_plain_apply(void)
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
                c4 || c5 || c6 || c7 || d1 || d2)); /* 0x5c: band b4, 0x7c: b5 */
     }
-    CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
+    CHECK(queen_spell_handler(0x4b) == NULL); /* Raise Dead: 7fd8:219f, unported (the tests' stand-in for Monster Summoning) */
     cok_character *a, *t;
     duel(&a, &t);
     game.vm.character = a->record;
