@@ -101,7 +101,7 @@ static bool destruction(cok_adventure *game)
     return cok_combat_kill(game, t, STATUS_DESTROYED, "is destroyed");
 }
 
-/* 7fd8:31cc, Disintegrate (0x6f; computer only, and the player's spell in the list): the first target t, damage type 0x48,
+/* 7fd8:31cc, Disintegrate (0x6f; the mage's spell, a player's cast too): the first target t, damage type 0x48,
  * event 9. A cancelled amount (0) is "is unaffected", as a save of type 4 (bonus 0, no roll for a 0 amount). Else the kill
  * (cok_combat_kill, status 6, "disintegrates"), then every item the target carries is removed, head first, readied ones
  * too (cok_character_remove_item: no unready, no stats). The removal runs also when the kill returned early (status 6-8). */
