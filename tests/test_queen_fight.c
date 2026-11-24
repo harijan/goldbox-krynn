@@ -2110,9 +2110,10 @@ static void test_plain_apply(void)
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
         bool d3 = id == 0x6e || id == 0x7d || id == 0x8b || id == 0x8c; /* queen_band_d.c's d3 (Death Spell, Power Word Kill, 0x8b, 0x8c) */
         bool d4 = id == 0x6d || id == 0x75 || id == 0x7b; /* queen_band_d.c's d4 */
+        bool d5 = id == 0x78 || id == 0x79; /* queen_band_d.c's d5 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d3 || d4 || d5)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -8775,6 +8776,218 @@ static void test_band_d4_pw_blind(void)
     battle_clear();
 }
 
+/* d5: Mass Charm (queen_band_d.c: 7fd8:372b). An enemy is charmed when flag 2 of byte 1 of its creature flags is set (byte 0 does
+ * not count) and it is not on the caster's side; otherwise it is "is unaffected" (one wait draw). A charmable target that fails
+ * its save (type 4, bonus -2: a d20 of 11 fails against 10, 12 is made) takes effect 0x0b, on remove, its value the caster's
+ * level (6 here, a non-caster) with the caster's side in bit 7, and the charm's run follows. The cap is the caster's level
+ * uncapped, doubled: a target over the sum is passed over with no text, a smaller one after it may fit, and the walk ends at the
+ * cap exactly (the targets hold 0x76, so every save fails). A class 5 of 40 makes the cap 80 and the value 31 (capped).
+ * Mutants: byte 0 for byte 1; the bonus 0; the side test dropped; `>=` in the cap; a skip that ends the walk; the capped level
+ * in the cap; no run. */
+static void test_band_d5_mass_charm(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    uint8_t lv = 0;
+    uint32_t want = 0;
+
+    /* Flag 2 of byte 0 only: unaffected, one wait draw, no charm. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 0, 2);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 0);
+    set_targets(a, 0x78, (cok_character *[]){t}, 1);
+    CHECK(queen_spell_level(&game, 0x78, false, &lv) && lv == 6);
+    game.effects.rolls.images = 0;
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    CHECK(run_handler(0x78) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    CHECK(game.vm.seed == want && game.effects.rolls.images == 1);
+    battle_clear();
+
+    /* Flag 2 of byte 1, the save at its edge (type 4 at 10, bonus -2, no save bonus): a d20 of 11 fails (9), 12 is made (10). */
+    for (uint8_t d = 11; d <= 12; ++d) {
+        duel(&a, &t);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+        cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+        cok_field_set8(R->character, t->record, COK_FIELD_SAVE_BONUS, 0);
+        set_targets(a, 0x78, (cok_character *[]){t}, 1);
+        game.vm.seed = seed_from(1, (const unsigned[]){20, d, d});
+        log_text[0] = '\0';
+        CHECK(run_handler(0x78) && game.vm.status == COK_ECL_OK);
+        cok_effect *e = cok_character_find_effect(t, 0x0b);
+        CHECK((e != NULL) == (d == 11));
+        if (d == 11) {
+            CHECK(LOGGED("is charmed") && !LOGGED("is Unaffected") && e->on_remove && e->duration == 0);
+            CHECK((e->value & 0x1f) == 6 && (e->value & 0x80) == 0 && computer(t) == 1);
+        } else {
+            CHECK(LOGGED("is Unaffected") && !LOGGED("is charmed"));
+        }
+        battle_clear();
+    }
+
+    /* The same side (the caster's word at +0x66 equal to the target's), with flag 2: unaffected, one wait draw. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+    set_side(t, side_of(a));
+    set_targets(a, 0x78, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    want = 1;
+    cok_tp_random(&want, 1000);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x78) && LOGGED("is unaffected") && cok_character_find_effect(t, 0x0b) == NULL);
+    CHECK(game.vm.seed == want);
+    battle_clear();
+
+    /* The caster on side 1 (its byte +0x66 set: the value's bit 7) against an enemy on side 0, failing its save. */
+    duel(&a, &t);
+    set_side(a, 1);
+    set_side(t, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_SAVING_THROW, 4, 10);
+    cok_field_set8(R->character, t->record, COK_FIELD_SAVE_BONUS, 0);
+    set_targets(a, 0x78, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 11, 11});
+    CHECK(run_handler(0x78) && game.vm.status == COK_ECL_OK);
+    cok_effect *e = cok_character_find_effect(t, 0x0b);
+    CHECK(e != NULL && (e->value & 0x80) != 0 && (e->value & 0x1f) == 6);
+    battle_clear();
+
+    /* The cap: 6 doubled is 12. Four enemies that fail every save (0x76 rolls 1): A (9) is taken; B (5) would make 14, passed
+     * over with no text; C (3) makes 12, taken, and the walk ends, so D (1) is not reached. */
+    duel(&a, &t);
+    cok_character *ta = blind_target('A', 1, 1, 20), *tb = blind_target('B', 1, 3, 20);
+    cok_character *tc = blind_target('C', 1, 5, 20), *td = blind_target('D', 1, 7, 20);
+    cok_character *cap[] = {ta, tb, tc, td};
+    const uint8_t hd[] = {9, 5, 3, 1};
+    for (unsigned i = 0; i < 4; ++i) {
+        set_side(cap[i], 1);
+        cok_field_set8_at(R->character, cap[i]->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+        cok_field_set8(R->character, cap[i]->record, COK_FIELD_HIGHEST_LEVEL, hd[i]);
+        CHECK(cok_character_add_effect(cap[i], 0x76, 0, 0, false) != NULL);
+    }
+    set_targets(a, 0x78, cap, 4);
+    game.vm.seed = 1;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x78) && count_of("is charmed") == 2 && !LOGGED("is unaffected"));
+    CHECK(cok_character_find_effect(ta, 0x0b) != NULL && cok_character_find_effect(tb, 0x0b) == NULL &&
+          cok_character_find_effect(tc, 0x0b) != NULL && cok_character_find_effect(td, 0x0b) == NULL);
+    battle_clear();
+
+    /* The cap is the uncapped level: a class 5 of 40 gives 40 (the cap 80; the value is 31, capped). A target of 70 is taken
+     * (the capped cap, 62, would pass it over); a target of 10 makes 80 and ends the walk, so the one of 1 is not reached. */
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 5, 40);
+    cok_character *big = blind_target('G', 1, 1, 20), *small = blind_target('H', 1, 3, 20);
+    cok_character *after = blind_target('I', 1, 5, 20);
+    cok_character *mage[] = {big, small, after};
+    const uint8_t mhd[] = {70, 10, 1};
+    for (unsigned i = 0; i < 3; ++i) {
+        set_side(mage[i], 1);
+        cok_field_set8_at(R->character, mage[i]->record, COK_FIELD_CREATURE_FLAGS, 1, 2);
+        cok_field_set8(R->character, mage[i]->record, COK_FIELD_HIGHEST_LEVEL, mhd[i]);
+        CHECK(cok_character_add_effect(mage[i], 0x76, 0, 0, false) != NULL);
+    }
+    set_targets(a, 0x78, mage, 3);
+    CHECK(queen_spell_level(&game, 0x78, false, &lv) && lv == 40);
+    CHECK(queen_spell_level(&game, 0x78, true, &lv) && lv == 31);
+    game.vm.seed = 1;
+    CHECK(run_handler(0x78) && cok_character_find_effect(big, 0x0b) != NULL &&
+          cok_character_find_effect(small, 0x0b) != NULL && cok_character_find_effect(after, 0x0b) == NULL);
+    CHECK((cok_character_find_effect(big, 0x0b)->value & 0x1f) == 31);
+    battle_clear();
+}
+
+/* d5: Otto's Irresistible Dance (queen_band_d.c: 7fd8:388c). A holder of 0x96 is passed over (no draw, no text). A touch that
+ * misses (d20 1) adds nothing. A hit (d20 20 on an armour class 0 target) adds 0x1b, held, for its own 1d4 + 1 minutes, then 0x76
+ * "begins to dance wildly" for a second 1d4 + 1, both valued at the caster's level (6). The 0x76 armour is 4 worse on its run
+ * (d2's row). The touch on a copy: a 0x0b redirect (effect 0x22's dispel swapping the slot, as test_spell_touch_slot) takes the
+ * hit and the adds, and spell_targets[1] keeps the first target. Mutants: one duration for both; the 0x96 test dropped; a miss
+ * adding; the first target's record for the adds. */
+static void test_band_d5_otto(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x96, 0, 0, false) != NULL);
+    set_targets(a, 0x79, (cok_character *[]){t}, 1);
+    game.vm.seed = 1;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x79) && game.vm.seed == 1 && !LOGGED("begins to dance"));
+    CHECK(cok_character_find_effect(t, 0x1b) == NULL && cok_character_find_effect(t, 0x76) == NULL);
+    battle_clear();
+
+    duel(&a, &t);
+    set_targets(a, 0x79, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(1, (const unsigned[]){20, 1, 1});
+    log_text[0] = '\0';
+    CHECK(run_handler(0x79) && cok_character_find_effect(t, 0x1b) == NULL && cok_character_find_effect(t, 0x76) == NULL);
+    CHECK(!LOGGED("begins to dance"));
+    battle_clear();
+
+    /* The hit: the draws are the touch's d20 (20), then the first duration, then the second. */
+    duel(&a, &t);
+    set_targets(a, 0x79, (cok_character *[]){t}, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0);
+    cok_field_set8(R->character, t->record, COK_FIELD_BASE_AC, 0);
+    const uint32_t s0 = seed_from(3, (const unsigned[]){20, 20, 20, 4, 1, 2, 4, 3, 4});
+    uint32_t s = s0;
+    cok_dice(&s, 1, 20);
+    const uint8_t first = (uint8_t)cok_dice(&s, 1, 4), second = (uint8_t)cok_dice(&s, 1, 4);
+    game.vm.seed = s0;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x79) && game.vm.status == COK_ECL_OK && LOGGED("begins to dance wildly"));
+    cok_effect *held_e = cok_character_find_effect(t, 0x1b), *dance = cok_character_find_effect(t, 0x76);
+    CHECK(held_e != NULL && dance != NULL);
+    CHECK(held_e->duration == first + 1 && dance->duration == second + 1 && held_e->duration != dance->duration);
+    CHECK(held_e->value == 6 && dance->value == 6 && !held_e->on_remove && !dance->on_remove);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x20);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC_BEHIND, 0x21);
+    CHECK(cok_effects_run(&game.effects, t, 0x76, dance) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x1c &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x1d);
+    battle_clear();
+
+    /* The touch's copy: the 0x22 on the target has its dispel swap the slot to t2 on the event 0x0b (d20 1), then the hit
+     * (d20 20) is t2's. The adds go to t2; spell_targets[1] keeps t. */
+    const uint8_t turn = 0x22;
+    const cok_rules_effects *E = &R->effects;
+    static cok_rules rules;
+    static cok_rules_effect handlers[0x100];
+    static const uint8_t *events[0x20];
+    static const uint8_t on_touch[] = {turn, 0};
+    CHECK(turn < E->count && E->count <= 0x100 && 0x0b < E->event_count && E->event_count <= 0x20);
+    rules = *R;
+    memcpy(handlers, E->handlers, E->count * sizeof *handlers);
+    handlers[turn] = (cok_rules_effect){.handler = COK_FX_DISPELLING};
+    for (unsigned e2 = 0; e2 < E->event_count; ++e2) events[e2] = E->events[e2];
+    events[0x0b] = on_touch;
+    rules.effects.handlers = handlers;
+    rules.effects.events = events;
+    bool (*dispel)(cok_effects *, void *) = game.effects.dispel;
+    game.rules = game.effects.rules = &rules;
+    game.effects.dispel = swap_slot;
+    duel(&a, &t);
+    cok_character *t2 = record('N', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t2->record, COK_FIELD_AC, 0);
+    cok_field_set8(R->character, t2->record, COK_FIELD_BASE_AC, 0);
+    CHECK(cok_character_add_effect(t, turn, 0, 0, false) != NULL);
+    set_targets(a, 0x79, (cok_character *[]){t}, 1);
+    slot_to = t2;
+    slot_count = 0;
+    game.vm.seed = seed_from(2, (const unsigned[]){20, 1, 1, 20, 20, 20});
+    CHECK(run_handler(0x79) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t2, 0x1b) != NULL && cok_character_find_effect(t2, 0x76) != NULL);
+    CHECK(cok_character_find_effect(t, 0x1b) == NULL && cok_character_find_effect(t, 0x76) == NULL);
+    CHECK(game.spell_targets[1] == t && game.spell_target_count == 1);
+    slot_to = NULL;
+    game.rules = game.effects.rules = R;
+    game.effects.dispel = dispel;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8962,6 +9175,8 @@ int main(void)
     test_band_d4_prot_fire();
     test_band_d4_pw_stun();
     test_band_d4_pw_blind();
+    test_band_d5_mass_charm();
+    test_band_d5_otto();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

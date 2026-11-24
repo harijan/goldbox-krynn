@@ -424,6 +424,108 @@ static bool pw_blind(cok_adventure *game)
 
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
+enum {
+    SPELL_MASS_CHARM = 0x78,
+    SPELL_OTTO = 0x79,
+    EFFECT_CHARMED = 0x0b,
+    EFFECT_HELD_DANCE = 0x1b,
+    EFFECT_DANCE = 0x76,
+    EFFECT_96 = 0x96,
+    CHARM_SAVE_TYPE = 4,
+    CHARM_SAVE_BONUS = 0xfe,
+    CHARM_KIND = 1,
+    CHARM_FLAGS_BYTE = 1,
+    CHARM_FLAG = 2,
+    CHARM_CAP_SHIFT = 1,
+};
+
+/* The charm run on t (band c's run_charmed, copied: its 3 lines): effect 0x0b's handler on the holder's node, if t
+ * holds it. */
+static bool charm_run(cok_adventure *game, cok_character *t)
+{
+    cok_effect *node = cok_character_find_effect(t, EFFECT_CHARMED);
+    if (node == NULL) return true;
+    return cok_effects_run(&game->effects, t, EFFECT_CHARMED, node) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:372b, Mass Charm (0x78, an area spell): one image. The cap is the spell's level uncapped,
+ * doubled (a byte). The targets in list order, the count re-read at each pass, while the sum of their highest levels is
+ * short of the cap: a NULL target is passed over. A target whose creature flags' second byte has no flag 2 (+0xc8, not
+ * byte 0), or that is on the caster's side (the words at +0x66), is "is unaffected" (row 10, waited, one draw). A target
+ * whose highest level (+0x91, unsigned) would take the sum over the cap is passed over with no text, and a later smaller
+ * one may still fit. Else the sum takes it, the walk ends when the sum is the cap, and the save (type 4, bonus -2) is made
+ * for the add: effect 0x0b for no minutes (the spell's duration), its value the caster's level (capped) with the caster's
+ * side in bit 7, on remove, kind 1, "is charmed" (a saved target has no effect: cok_cast_add_effect's "is Unaffected").
+ * A target holding 0x0b after the add is run (the charm). The caster is read (DS:ad67) only where the original reads it:
+ * the side test and the value; NULL there is undefined. */
+static bool mass_charm(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    uint8_t spell = game->effects.rolls.spell;
+    game->effects.rolls.images = 1;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, spell, false, &lv)) return false;
+    uint8_t cap = (uint8_t)(lv << CHARM_CAP_SHIFT);
+    uint8_t sum = 0;
+    bool done = false;
+    for (unsigned k = 1; k <= game->spell_target_count && !done; ++k) {
+        cok_character *t = game->spell_targets[k];
+        if (t == NULL) continue;
+        bool charmable =
+            (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, CHARM_FLAGS_BYTE) & CHARM_FLAG) != 0;
+        if (charmable) {
+            uint8_t *caster = caster_record(game, "the caster is read through NULL (DS:ad67, 372b)");
+            if (caster == NULL) return false;
+            charmable = cok_combat_field_word(R, t->record, COK_FIELD_HOSTILE) !=
+                        cok_combat_field_word(R, caster, COK_FIELD_HOSTILE);
+        }
+        if (!charmable) {
+            if (!cok_arena_say(game, t, "is unaffected", 10, true)) return false;
+            continue;
+        }
+        uint8_t hd = cok_field_u8(L, t->record, COK_FIELD_HIGHEST_LEVEL);
+        if ((unsigned)hd + sum > cap) continue;
+        sum = (uint8_t)(sum + hd);
+        done = sum == cap;
+        bool made = false;
+        if (!queen_save(game, t, CHARM_SAVE_TYPE, CHARM_SAVE_BONUS, &made)) return false;
+        uint8_t lvc = 0;
+        if (!queen_spell_level(game, spell, true, &lvc)) return false;
+        uint8_t *caster = caster_record(game, "the caster is read through NULL (DS:ad67, 372b)");
+        if (caster == NULL) return false;
+        uint8_t value = (uint8_t)(lvc + (uint8_t)(cok_field_u8(L, caster, COK_FIELD_HOSTILE) << 7));
+        uint16_t minutes = 0;
+        if (!queen_spell_duration(game, spell, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, EFFECT_CHARMED, minutes, value, true, CHARM_KIND, made, "is charmed"))
+            return false;
+        if (!charm_run(game, t)) return false;
+    }
+    return true;
+}
+
+/* 7fd8:388c, Otto's Irresistible Dance (0x79, a touch): the first target t1 (queen_first_target's stop). A holder of 0x96 is passed over (no draw, no text). Else queen_touch on a LOCAL copy of t1 (the stats recomputed,
+ * event 0x0b on the copy, which a redirect may change, then the hit roll against the copy's armour class): a miss adds
+ * nothing. A hit adds 0x1b (its held handler, no text, not made) for a first dur(0x79) (1d4 + 1), then 0x76 "begins to dance
+ * wildly" for a second dur(0x79) (its own draw), both valued at the caster's level (capped) and both on the copy as the
+ * redirect left it. No save. */
+static bool otto(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (cok_character_find_effect(t, EFFECT_96) != NULL) return true;
+    bool hit = false;
+    if (!queen_touch(game, &t, &hit)) return false;
+    if (!hit) return true;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, SPELL_OTTO, true, &lv)) return false;
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, SPELL_OTTO, &minutes)) return false;
+    if (!cok_cast_add_effect(game, t, EFFECT_HELD_DANCE, minutes, lv, false, 0, false, "")) return false;
+    if (!queen_spell_duration(game, SPELL_OTTO, &minutes)) return false;
+    return cok_cast_add_effect(game, t, EFFECT_DANCE, minutes, lv, false, 0, false, "begins to dance wildly");
+}
+
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
 
 queen_spell_fn *queen_band_d_handler(uint8_t id)
@@ -447,6 +549,8 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     case SPELL_PW_BLIND: return pw_blind;
 
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
+    case SPELL_MASS_CHARM: return mass_charm;
+    case SPELL_OTTO: return otto;
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
 
     default: return NULL;
