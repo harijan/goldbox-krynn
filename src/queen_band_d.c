@@ -2,6 +2,7 @@
 
 #include "arena.h"
 #include "attack.h"
+#include "cast.h"
 #include "combat.h"
 #include "ecl.h"
 #include "effect.h"
@@ -159,6 +160,36 @@ static bool item_power(cok_adventure *game)
 
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
+/* The ids and the class index of band d4: the ranger's class level is the one at +0xa5 + 4 (177e:2234). */
+enum {
+    SPELL_PROT_FIRE = 0x6d,
+    EFFECT_RESIST = 0x14,
+    EFFECT_FIRE_ABSORB = 0x77,
+    CLASS_RANGER = 4,
+};
+
+/* 7fd8:301a, Prot. from Fire (0x6d): the first target t1 (no stop when NULL: the original tests it; a record freed since is
+ * undefined, queen_first_target's). A target that is a ranger (its class level at +0xa9 above 0: 177e:2234 returns the byte, 0
+ * for 0) takes effect 0x77, the fire absorb, valued at the caster's level for the spell uncapped, for no minutes. Any other
+ * takes 0x14 (the resistance) for the spell's duration, value 0. Both "is Protected", unsaved. No draws. */
+static bool prot_fire(cok_adventure *game)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    cok_character *t = game->spell_targets[1];
+    if (t == NULL) return true;
+    if (t == &cok_arena_freed)
+        return undefined(game, "the first target is a record freed since, read where the heap may have put another "
+                               "(DS:c5e3, 301a)");
+    if (cok_field_u8_at(L, t->record, COK_FIELD_CLASS_LEVEL, CLASS_RANGER) > 0) {
+        uint8_t lv = 0;
+        if (!queen_spell_level(game, SPELL_PROT_FIRE, false, &lv)) return false;
+        return cok_cast_add_effect(game, t, EFFECT_FIRE_ABSORB, 0, lv, false, 0, false, "is Protected");
+    }
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, SPELL_PROT_FIRE, &minutes)) return false;
+    return cok_cast_add_effect(game, t, EFFECT_RESIST, minutes, 0, false, 0, false, "is Protected");
+}
+
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
@@ -175,6 +206,8 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
 
     /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
+    case SPELL_PROT_FIRE: return prot_fire;
+
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
 

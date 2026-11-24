@@ -2108,9 +2108,10 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
+        bool d4 = id == 0x6d; /* queen_band_d.c's d4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7 || d1 || d2)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d4)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -8087,6 +8088,60 @@ static void test_band_d1_item_power(void)
     battle_clear();
 }
 
+/* d4: Prot. from Fire (queen_band_d.c: 7fd8:301a). A ranger target (its own class level at +0xa9 above 0) takes 0x77, the
+ * fire absorb, valued at the caster's level for 0x6d uncapped: a caster ranger 40 gives 33 (capped, 31), no minutes. A target
+ * that is no ranger takes 0x14 (value 0, the spell's duration, 0 minutes), whatever the caster's level; the target's level
+ * decides, not the caster's (a caster of 0 with a ranger target gives 0x77 at 6, the caster not a caster). "is Protected"
+ * each. No target: nothing, no stop. A record freed since: undefined. Mutants: the caster's level tested for the ranger; the
+ * value capped; the ranger test dropped (0x77 always); the NULL target a stop. */
+static void test_band_d4_prot_fire(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 1);
+    set_targets(a, 0x6d, (cok_character *[]){t}, 1);
+    uint8_t lv = 0;
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 33);
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    cok_effect *e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 33 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x14) == NULL);
+    clear_effect(t, 0x77);
+
+    /* The target's level, not the caster's: a caster of 0 (not a caster: level 6) and a ranger target of 1 take 0x77 at 6. */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    CHECK(queen_spell_level(&game, 0x6d, false, &lv) && lv == 6);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 6 && e->duration == 0 && !e->on_remove);
+    clear_effect(t, 0x77);
+
+    /* A caster of 40 with a target that is no ranger: 0x14, value 0, duration 0 (no 0x77). */
+    cok_field_set8_at(R->character, a->record, COK_FIELD_CLASS_LEVEL, 4, 40);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CLASS_LEVEL, 4, 0);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && LOGGED("is Protected"));
+    e = cok_character_find_effect(t, 0x14);
+    CHECK(e != NULL && e->value == 0 && e->duration == 0 && !e->on_remove && cok_character_find_effect(t, 0x77) == NULL);
+    clear_effect(t, 0x14);
+
+    /* No target: nothing (no text, no node, no stop). */
+    game.spell_targets[1] = NULL;
+    game.spell_target_count = 1;
+    log_text[0] = '\0';
+    CHECK(run_handler(0x6d) && !LOGGED("is Protected") && cok_character_find_effect(t, 0x14) == NULL);
+
+    /* A record freed since is undefined (queen_first_target's convention; the original reads it where the heap put it). */
+    game.spell_targets[1] = &cok_arena_freed;
+    CHECK(!run_handler(0x6d) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "301a") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8257,6 +8312,7 @@ int main(void)
     test_band_d1_disintegrate();
     test_band_d1_flesh();
     test_band_d1_item_power();
+    test_band_d4_prot_fire();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
