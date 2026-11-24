@@ -167,9 +167,12 @@ enum {
     SPELL_EFFECT = 0x0e,
     SPELL_PROT_FIRE = 0x6d,
     SPELL_PW_STUN = 0x75,
+    SPELL_PW_BLIND = 0x7b,
     EFFECT_RESIST = 0x14,
     EFFECT_FIRE_ABSORB = 0x77,
+    EFFECT_BLIND = 0x21,
     CLASS_RANGER = 4,
+    BLIND_LIMIT = 100,
 };
 
 /* 7fd8:301a, Prot. from Fire (0x6d): the first target t1 (no stop when NULL: the original tests it; a record freed since is
@@ -218,6 +221,38 @@ static bool pw_stun(cok_adventure *game)
     return cok_cast_add_effect(game, t, effect, rounds, lv, false, kind, false, "is STUNNED");
 }
 
+/* One walk of PW Blind (7fd8:396a): the targets t[1..count], read again at each pass while the running sum is at most 100.
+ * A target whose maximum hit points (+0x89) are over 100, or would take the sum over 100, is skipped; else the sum takes its
+ * maximum, and the second walk (add) gives the target effect 0x21 ("is blinded") for the spell's duration (101b: none). A NULL
+ * target is read through NULL in either walk: undefined (3994). */
+static bool blind_walk(cok_adventure *game, bool add)
+{
+    const cok_character_layout *L = cok_game_rules(game)->character;
+    unsigned sum = 0;
+    for (unsigned k = 1; k <= game->spell_target_count && sum <= BLIND_LIMIT; ++k) {
+        cok_character *t = game->spell_targets[k];
+        if (t == NULL) return undefined(game, "dqk 7fd8:3994 reads a NULL target's maximum hit points (DS:c5df)");
+        unsigned max = cok_field_u8(L, t->record, COK_FIELD_MAX_HIT_POINTS);
+        if (max > BLIND_LIMIT || max + sum > BLIND_LIMIT) continue;
+        sum += max;
+        if (!add) continue;
+        uint16_t minutes = 0;
+        if (!queen_spell_duration(game, game->effects.rolls.spell, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, EFFECT_BLIND, minutes, 0, false, 0, false, "is blinded")) return false;
+    }
+    return true;
+}
+
+/* 7fd8:396a, PW Blind (0x7b): one image; the first walk (the sum only), then one d4 drawn and never read (396a's 1d4 + 1,
+ * times 10 under a sum of 51, in -3(bp), dead: the draw is kept), then the second walk, which adds the blindness. */
+static bool pw_blind(cok_adventure *game)
+{
+    game->effects.rolls.images = 1;
+    if (!blind_walk(game, false)) return false;
+    (void)cok_dice(&game->vm.seed, 1, 4);
+    return blind_walk(game, true);
+}
+
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
@@ -236,6 +271,7 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
     case SPELL_PROT_FIRE: return prot_fire;
     case SPELL_PW_STUN: return pw_stun;
+    case SPELL_PW_BLIND: return pw_blind;
 
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */

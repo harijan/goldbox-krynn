@@ -2108,7 +2108,7 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
-        bool d4 = id == 0x6d || id == 0x75; /* queen_band_d.c's d4 */
+        bool d4 = id == 0x6d || id == 0x75 || id == 0x7b; /* queen_band_d.c's d4 */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
                c4 || c5 || c6 || c7 || d1 || d2 || d4)); /* 0x5c: band b4, 0x7c: b5 */
@@ -8196,6 +8196,78 @@ static void test_band_d4_pw_stun(void)
     battle_clear();
 }
 
+/* A record for a blindness target: its maximum hit points (+0x89) and its cell. */
+static cok_character *blind_target(char name, int8_t x, int8_t y, uint8_t max)
+{
+    cok_character *c = record(name, 0, 0);
+    place(c, x, y);
+    cok_field_set8(R->character, c->record, COK_FIELD_MAX_HIT_POINTS, max);
+    return c;
+}
+
+/* d4: PW Blind (queen_band_d.c: 7fd8:396a). One image. Two walks over the targets while the sum of their maximum hit points
+ * is at most 100: a target over 100 is skipped, and so is one that would take the sum over 100 (a 22 after 78 is taken, a 1
+ * after 100 is not); a later small one is taken after a skipped one (50 after 120, then 40 after 60 skipped). The second walk
+ * gives 0x21 ("is blinded", for no minutes) to each target taken, once. One d4 is drawn between the walks: with no target the
+ * seed is one die on. No target (NULL): undefined (3994). Mutants: the cap at 99 (78 then 22 skipped); the cap's sum test
+ * as >=; no draw between the walks; the add in the first walk too; a skipped target blinded. */
+static void test_band_d4_pw_blind(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, 78);
+    cok_character *u = blind_target('U', 1, 1, 78);
+    cok_character *v = blind_target('V', 1, 3, 120);
+    cok_character *w = blind_target('W', 1, 5, 50);
+    cok_character *x = blind_target('X', 1, 7, 60);
+    cok_character *y = blind_target('Y', 1, 9, 40);
+    cok_character *z = blind_target('Z', 1, 11, 22);
+    cok_character *q = blind_target('Q', 1, 13, 1);
+
+    /* 78 and 78: the first only (78 + 78 is over 100). */
+    set_targets(a, 0x7b, (cok_character *[]){t, u}, 2);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && game.effects.rolls.images == 1);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(u, 0x21) == NULL && count_of("is blinded") == 1);
+    cok_effect *e = cok_character_find_effect(t, 0x21);
+    CHECK(e->duration == 0 && e->value == 0 && !e->on_remove);
+    clear_effect(t, 0x21);
+
+    /* 120 (skipped), 50 (taken, the sum 50), 60 (110: skipped), 40 (90: taken). */
+    set_targets(a, 0x7b, (cok_character *[]){v, w, x, y}, 4);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(v, 0x21) == NULL && cok_character_find_effect(w, 0x21) != NULL &&
+          cok_character_find_effect(x, 0x21) == NULL && cok_character_find_effect(y, 0x21) != NULL);
+    clear_effect(w, 0x21);
+    clear_effect(y, 0x21);
+
+    /* 78, 22 (exactly 100: taken), 1 (101: skipped). */
+    set_targets(a, 0x7b, (cok_character *[]){t, z, q}, 3);
+    log_text[0] = '\0';
+    CHECK(run_handler(0x7b) && count_of("is blinded") == 2);
+    CHECK(cok_character_find_effect(t, 0x21) != NULL && cok_character_find_effect(z, 0x21) != NULL &&
+          cok_character_find_effect(q, 0x21) == NULL);
+    clear_effect(t, 0x21);
+    clear_effect(z, 0x21);
+
+    /* No target: the one draw still happens (d4 drawn, the walks add nothing). */
+    set_targets(a, 0x7b, (cok_character *[]){t}, 0);
+    game.vm.seed = 5;
+    uint32_t want = 5;
+    (void)cok_dice(&want, 1, 4);
+    CHECK(run_handler(0x7b) && game.vm.seed == want && game.effects.rolls.images == 1);
+
+    /* A NULL first target is read through NULL: undefined. */
+    set_targets(a, 0x7b, (cok_character *[]){NULL}, 1);
+    CHECK(!run_handler(0x7b) && game.vm.status == COK_ECL_UNDEFINED && strstr(game.error, "3994") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = '\0';
+    game.vm.character = NULL;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8368,6 +8440,7 @@ int main(void)
     test_band_d1_item_power();
     test_band_d4_prot_fire();
     test_band_d4_pw_stun();
+    test_band_d4_pw_blind();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;
