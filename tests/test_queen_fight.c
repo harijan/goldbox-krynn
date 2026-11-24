@@ -8345,11 +8345,13 @@ static void test_band_d6_stone_refusal(void)
     battle_clear();
 }
 
-/* Stone to Flesh's stoned target in the battle: status word 0 (its high byte cleared too), active, 1 hit point, "is no longer a
+/* Stone to Flesh's stoned target in the battle: status word 0 (the word written: its high byte is 0 before and after, so a
+ * byte write would look the same here), active, 1 hit point, "is no longer a
  * statue"; its body entry removed (the later entries shifted down, the count less one), the map cell back to the terrain the
  * body covered, and t placed on its cell (centred on the spell's cell). The second case (no bodies after it) is the same
  * with its entry first. The stops: no entry among 1-8 (3316), a count of 0 (33e1), t1 NULL (c5e3); outside a battle the text and
- * the apply only (no body). Mutants: the entries not shifted; the cell not restored; the status byte only. */
+ * the apply only (no body). Mutants: the entries not shifted; the cell not restored. The status byte only is EQUIVALENT here,
+ * not caught (the word is 7, high byte 0). */
 static void test_band_d6_stone_body(void)
 {
     battle_clear();

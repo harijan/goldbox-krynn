@@ -4288,7 +4288,7 @@ static void test_cast_targets(void)
     CHECK(queen_cast(&menu_game, 3, false, true, &done) && !done && script.at == 4);
     CHECK(cast_said("Spell Aborted"));
     /* The dispatch: an unported spell (0x4b Raise Dead, kind 0, no Aim; Shield is a plain apply now)
-     * runs its flight and forgets it, then stops at its cited routine (7fd8:219f). The byte is marked (0xfe). */
+     * runs its flight and forgets it, then stops at its cited routine (7fd8:219f). The byte is marked (0xcb). */
     cast_open(false);
     menu_c->record[0xce] = 0x4b;
     cast_keys("");

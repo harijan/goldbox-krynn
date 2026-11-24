@@ -295,7 +295,8 @@ static bool stone_body(cok_adventure *game, cok_character *t)
  * undefined). A stone (status word 7) with a readied item of type 0x8c (queen_readied_8c) is "spell dosn't work!" with no
  * name line; else the status word is 0, the record active with 1 hit point, "is no longer a statue", and in battle its
  * body is taken back (stone_body). A target not stoned, and the refusal, still get the spell's apply (no effect, no
- * text). Mutants: no 0x8c check (the stone freed); the status byte only; the bodies not shifted. */
+ * text). Mutants: no 0x8c check (the stone freed); the bodies not shifted. The status byte only (the byte-vs-word status
+ * mutant) is EQUIVALENT here, not caught: the word is 7 and its high byte 0, so a byte write gives the same state. */
 static bool stone_to_flesh(cok_adventure *game)
 {
     const cok_rules *rules = cok_game_rules(game);
