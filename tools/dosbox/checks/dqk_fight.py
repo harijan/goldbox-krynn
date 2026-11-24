@@ -241,7 +241,7 @@ DEFAULT_FLOWS = ("setup", "load", "clear", "six", "ground", "encounter", "field"
                  "melee-dying", "won", "drop", "timer", "walk", "mouse", "move", "aim", "turn", "cast",
                  "cast_auto", "cast_auto_area", "band_a1", "band_a2", "band_a3", "band_b1", "band_b2",
                  "band_b3", "band_b4", "band_b5", "band_c1", "band_c2", "band_c3", "band_c4", "band_c5", "band_c6",
-                 "band_c7", "effects_1", "effects_2", "effects_4", "effects_3")
+                 "band_c7", "band_d2", "effects_1", "effects_2", "effects_4", "effects_3")
 
 
 def fight_block(lower=None, monster=MONSTER):
@@ -6755,6 +6755,62 @@ def band_c7(v, work, opts):
     band_c7_shield(v, work, wild, opts)
 
 
+# Band d2's Mass Invisibility (step 4, part 33b, the flow band_d2): BALTHIR memorising it (+0xce 0x74, time 7), C, C (WALKER's
+# menu: his turn ends), E (his pending Aim), E (his own cell), then T: the tail (5045:066a). The original's tail (cast_traps,
+# the turn's tail, 58 draws past the menu, RandSeed 2bcad61c, eclplay's turn mark 05): SHARKMAN 2 (the other side) cleared,
+# BALTHIR and WALKER cleared (SHARKMAN 2 within 1), ROLAND and TIMASALIN [0x19, 0, 2, 0] (permanent, the caster level 2).
+# The probe's dispatch point (849a:21b5, 17 draws, f79afec7) cannot be armed here (arm() reaches the 5045 overlay only), so
+# the flow measures the later tail, as the probes' '!' did.
+BAND_D2_INVIS = 0x74
+BAND_D2_TAIL = (58, 0x2BCAD61C)         # RandSeed at the tail: 58 draws past the menu, 2bcad61c
+BAND_D2_NODE = [0x19, 0, 2, 0]          # the new node on ROLAND and TIMASALIN: Invisibility, permanent, value 2, flag 0
+BAND_D2_KEYS = "CCEET"                  # the keys of the flow (eclplay)
+
+
+def band_d2_run(box, menu, work, tag):
+    """C, C (WALKER's menu, BALTHIR's turn ends), E (his pending Aim), E (his own cell), then T: the tail (5045:066a)."""
+    out = dict(next=cast_traps(box, menu["handle"], [(MENU, "5045:08cf", "CC", None)])[0])
+    out["aim"] = cast_key(box, work, f"{tag}-aim", "E")
+    out["own"] = cast_key(box, work, f"{tag}-own", "E")
+    out["tail"] = cast_traps(box, menu["handle"], [(MOVE_TAIL, "5045:066a", "T", None)])[0]
+    return out
+
+
+def band_d2(v, work, opts):
+    """Band d2's Mass Invisibility (part 33b), the flow band_d2: the original's tail (draws, RandSeed, the new nodes, the
+    clears, the memorised byte forgotten) and eclplay's turn mark at the same RandSeed (command_state, chains_agree).
+    Prot. from Fire, Slow Poison, Otto's armour and fire absorb are repo tests here; queen_touch is Otto's (d5)."""
+    glb = (dqk_lib.ASSETS / "DISK3" / "ECL.GLB").read_bytes()
+    wild = hlib.replace(glb, JUMP, dqkecl.assemble(wild_block(*WILD_GROUNDS[0])))
+    save = dqk_modify.modified({}, {CAST_BALTHIR: {CAST_MEMO: BAND_D2_INVIS}})
+    o = cast_original(work, wild, save, "band-d2", opts.verbose, band_d2_run)
+    m0 = o["menu"]["seed"]
+    entry = saved_entry(work / "band-d2-save", save)
+    tail = o["tail"]
+    draws = L.draws(m0, tail["seed"])
+    v.check((draws, tail["seed"]) == BAND_D2_TAIL, f"the original's RandSeed at the tail after T is "
+            f"{BAND_D2_TAIL[0]} draws past the menu, at {BAND_D2_TAIL[1]:#x}", f"{draws} draws, {tail['seed']:#x}")
+    for k in (CAST_ROLAND, CAST_TIMASALIN):
+        nodes = [list(n) for n in tail["chains"][k]]
+        v.check(BAND_D2_NODE in nodes, f"at the tail record {k} holds Invisibility {BAND_D2_NODE}", f"nodes {nodes}")
+    for k in (CAST_BALTHIR, CAST_WALKER, CAST_SHARKMAN_2):
+        nodes = [list(n) for n in tail["chains"][k]]
+        v.check(all(n[0] != 0x19 for n in nodes), f"at the tail record {k} gets no Invisibility (cleared as a target)",
+                f"nodes {nodes}")
+    forgotten = rec_byte(tail["records"][CAST_BALTHIR], CAST_MEMO)
+    v.check(forgotten == BAND_D2_INVIS | CAST_FORGOTTEN, f"at the tail BALTHIR's Mass Invisibility is forgotten "
+            f"(+0xce {BAND_D2_INVIS | CAST_FORGOTTEN:#x})", f"+0xce {forgotten:#x}")
+    p = turn_port(work, wild, "band-d2", BAND_D2_KEYS, entry=entry)
+    mark = mark_of_seed(p, tail["seed"])
+    if mark is None:
+        v.check(False, f"eclplay has a turn mark whose RandSeed is the original's at the tail ({BAND_D2_TAIL[1]:#x}) after "
+                f"{BAND_D2_KEYS}", p["last"])
+        return
+    command_state(v, f"Mass Invisibility's tail (turn mark {mark['number']})", tail, mark, m0)
+    chains_agree(v, tail["chains"], mark["base"].with_suffix(".effects"), f" (Mass Invisibility, turn mark {mark['number']})")
+    print(f"eclplay (band d2) ends {p['last']!r} at turn mark {mark['number']}", flush=True)
+
+
 # Effects band a's melee (step 4, part 34a, effects-1): BALTHIR's node 1 (his 0x69) rewritten to one of the band's
 # effects, with no cast, and SHARKMAN 2 melees him. E at BALTHIR's menu (WALKER's menu, no draws), then E at WALKER's
 # (SHARKMAN 2's turn, then TIMASALIN's menu). With 0x69 kept (the base) TIMASALIN's menu is 13 draws past the menu, RandSeed
@@ -7124,6 +7180,8 @@ def main():
         band_c6(v, work, opts)
     if "band_c7" in flows:
         band_c7(v, work, opts)
+    if "band_d2" in flows:
+        band_d2(v, work, opts)
     if "effects_1" in flows:
         effects_1(v, work, opts)
     if "effects_2" in flows:
