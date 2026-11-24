@@ -2108,9 +2108,10 @@ static void test_plain_apply(void)
         bool c7 = id == 0x29 || id == 0x2e || id == 0x53 || id == 0x55; /* queen_band_c.c's c7 */
         bool d1 = id == 0x67 || id == 0x68 || id == 0x6f || id == 0x72 || id == 0x8a; /* queen_band_d.c's d1 */
         bool d2 = id == 0x74; /* queen_cast.c's Mass Invisibility (band d2) */
+        bool d3 = id == 0x6e; /* queen_band_d.c's d3 (Death Spell) */
         CHECK((queen_spell_handler((uint8_t)id) != NULL) ==
               (plain || a2 || id == 0x03 || id == 0x0f || a3 || b2 || b3 || id == 0x5c || id == 0x7c || c1 || c2 || c3 ||
-               c4 || c5 || c6 || c7 || d1 || d2)); /* 0x5c: band b4, 0x7c: b5 */
+               c4 || c5 || c6 || c7 || d1 || d2 || d3)); /* 0x5c: band b4, 0x7c: b5 */
     }
     CHECK(queen_spell_handler(0x7e) == NULL); /* Monster Summoning: 7fd8:3fa4, unported */
     cok_character *a, *t;
@@ -8087,6 +8088,165 @@ static void test_band_d1_item_power(void)
     battle_clear();
 }
 
+/* d3: Death Spell (0x6e, queen_band_d.c's death_spell). A seed whose four draws (cok_dice, 4d20) sum to sum: the pool is twice
+ * the sum, so a target dies when its weight is at most that. */
+static uint32_t pool_seed(unsigned sum)
+{
+    for (uint32_t s = 1;; ++s) {
+        uint32_t t = s;
+        if (cok_dice(&t, 4, 20) == sum) return s;
+    }
+}
+
+/* A Death Spell target of level and most hit points beside the caster's line (x, row 5), active, a monster. */
+static cok_character *d3_target(char name, int8_t x, uint8_t level, uint8_t most)
+{
+    cok_character *t = record(name, 1, 0);
+    place(t, x, 5);
+    cok_field_set8(R->character, t->record, COK_FIELD_ACTIVE, 1);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, level);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, most);
+    return t;
+}
+
+/* One target of level and most hit points, beside the caster's: whether it dies (status 6) to a Death Spell with the pool of
+ * sum (4 draws). */
+static bool death_one(uint8_t level, uint8_t most, unsigned sum)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, level);
+    cok_field_set8(R->character, t->record, COK_FIELD_MAX_HIT_POINTS, most);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(sum);
+    CHECK(c1_run(0x6e));
+    bool dead = cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6;
+    battle_clear();
+    return dead;
+}
+
+/* Event 9 hook for the weight test: the target's level goes to 9 (weight 162) once its event 9 runs (the d20 of 1 calls it). */
+static bool d3_grow(cok_effects *fx, void *context)
+{
+    (void)context;
+    if (fx->target != NULL && *fx->target != NULL)
+        cok_field_set8(R->character, (*fx->target)->record, COK_FIELD_HIGHEST_LEVEL, 9);
+    return true;
+}
+
+/* Death Spell (0x6e): every weight at its boundary. Levels 0-3 weigh 1, 2, 8, 8: a pool of 8 kills them all (the pool equal to
+ * the weight kills). Levels 4-5 weigh 16 (a pool of 14 does not, 16 does); level 6 weighs 16 at 51 most hit points, 20 at 52
+ * (18 and 20); levels 7-8 weigh 20; 9 and 0x80 weigh 162, which no pool reaches (160). The weight is unsigned: a pool of 160 kills
+ * a level 7 (signed, 160 is -96 and would not). */
+static void test_band_d3_death_weights(void)
+{
+    CHECK(death_one(0, 1, 4) && death_one(1, 1, 4) && death_one(2, 1, 4) && death_one(3, 1, 4));
+    CHECK(!death_one(4, 1, 7) && death_one(4, 1, 8) && !death_one(5, 1, 7) && death_one(5, 1, 8));
+    CHECK(death_one(6, 51, 8) && death_one(6, 51, 9) && !death_one(6, 52, 9) && death_one(6, 52, 10));
+    CHECK(!death_one(7, 1, 9) && death_one(7, 1, 10) && death_one(7, 1, 80) && !death_one(8, 1, 9) && death_one(8, 1, 10));
+    CHECK(!death_one(9, 1, 80) && !death_one(0x80, 1, 80));
+}
+
+/* Death Spell's pool in list order: a target too heavy is NULLed and a lighter one after it still dies; a target that takes the
+ * pool below the next one's weight leaves that one NULLed (the pool is spent: two 16s need 32, a pool of 20 kills one). The
+ * slot of a NULLed target is cleared; a dead one keeps its slot. */
+static void test_band_d3_death_pool(void)
+{
+    cok_character *a, *t, *heavy, *light, *m1, *m2;
+    duel(&a, &t);
+    heavy = d3_target('H', 7, 9, 1);
+    light = d3_target('L', 8, 0, 1);
+    set_targets(a, 0x6e, (cok_character *[]){heavy, light}, 2);
+    game.vm.seed = pool_seed(4);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && game.spell_targets[2] == light);
+    CHECK(cok_field_u8(R->character, light->record, COK_FIELD_STATUS) == 6 && LOGGED("drops dead"));
+    CHECK(cok_field_u8(R->character, heavy->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+
+    duel(&a, &t);
+    m1 = d3_target('M', 7, 4, 1);
+    m2 = d3_target('N', 8, 4, 1);
+    set_targets(a, 0x6e, (cok_character *[]){m1, m2}, 2);
+    game.vm.seed = pool_seed(10);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == m1 && game.spell_targets[2] == NULL);
+    CHECK(cok_field_u8(R->character, m1->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, m2->record, COK_FIELD_STATUS) == 0);
+    battle_clear();
+}
+
+/* Death Spell's quiet target (+0xc8 & 8) and cancelled amount: NULLed, silent, the pool's four draws only. A target with a 0x5c
+ * holder and the stale pending 0x6f has its amount cancelled (as Destruction's test). The images flag and the damage type 0x40
+ * are set; rolls.dice is not written (cok_dice). */
+static void test_band_d3_death_quiet(void)
+{
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    cok_field_set8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1, 8);
+    game.effects.rolls.images = 0;
+    game.effects.rolls.damage_type = 0x21;
+    game.effects.rolls.dice = 0x55;
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(80);
+    uint32_t want = game.vm.seed;
+    cok_dice(&want, 4, 20);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead"));
+    CHECK(game.vm.seed == want && game.effects.rolls.images == 1 && game.effects.rolls.damage_type == 0x40 &&
+          game.effects.rolls.dice == 0x55);
+    battle_clear();
+
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x5c, 0, 0, true) != NULL);
+    game.effects.rolls.pending = 0x6f;
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = pool_seed(80);
+    want = game.vm.seed;
+    cok_dice(&want, 4, 20);
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == NULL && !LOGGED("drops dead") && game.vm.seed == want);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
+/* Death Spell's event 9 may redirect the local copy (not the slot): the kill goes to the copy and the slot keeps its target. The
+ * weight is the one read before event 9 (a level 0 target: 1), not the level the handler gives the target. Mutants: the weight read
+ * after event 9 (the target's level 9 would make 162, and the pool of 8 would not kill); the slot used for the kill. */
+static void test_band_d3_death_local(void)
+{
+    cok_character *a, *t, *t2;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    d1_rules_set();
+    game.effects.dispel = d3_grow;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 1, 1, 20, 1, 1, 20, 1, 1, 20, 1, 1, 20, 1, 1});
+    CHECK(c1_run(0x6e) && LOGGED("drops dead") && game.spell_targets[1] == t);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6);
+    d1_end();
+    game.effects.rolls.pending = 0;
+    battle_clear();
+
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_HIGHEST_LEVEL, 0);
+    t2 = record('X', 1, 0);
+    place(t2, 7, 5);
+    cok_field_set8(R->character, t2->record, COK_FIELD_ACTIVE, 1);
+    d1_rules_set();
+    game.effects.dispel = swap_slot;
+    slot_to = t2;
+    slot_count = 0;
+    CHECK(cok_character_add_effect(t, 0x22, 0, 0, false) != NULL);
+    set_targets(a, 0x6e, (cok_character *[]){t}, 1);
+    game.vm.seed = seed_from(5, (const unsigned[]){20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 20, 1, 1});
+    CHECK(c1_run(0x6e) && game.spell_targets[1] == t);
+    CHECK(cok_field_u8(R->character, t2->record, COK_FIELD_STATUS) == 6 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 0);
+    d1_end();
+    game.effects.rolls.pending = 0;
+    battle_clear();
+}
+
 int main(void)
 {
     struct stat st;
@@ -8257,6 +8417,10 @@ int main(void)
     test_band_d1_disintegrate();
     test_band_d1_flesh();
     test_band_d1_item_power();
+    test_band_d3_death_weights();
+    test_band_d3_death_pool();
+    test_band_d3_death_quiet();
+    test_band_d3_death_local();
     cok_party_free(&game.party);
     puts("queen fight tests passed");
     return 0;

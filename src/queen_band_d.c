@@ -157,6 +157,75 @@ static bool item_power(cok_adventure *game)
 
 /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
 
+enum {
+    SPELL_DEATH = 0x6e,
+    SPELL_POWER_WORD_KILL = 0x7d,
+    SPELL_STONE_GAZE = 0x8b,
+    SPELL_STONE_SELF = 0x8c,
+    DAMAGE_DEATH = 0x40,
+    DEATH_AMOUNT = 100,
+};
+
+/* Event 9 on *t (the slot itself or a local copy, as the caller passes it) with amount in both bytes (DS:ae55); the damage type
+ * is the caller's. False where the run stopped. */
+static bool event_nine(cok_adventure *game, cok_character **t, uint8_t amount)
+{
+    cok_rolls *r = &game->effects.rolls;
+    r->amount16 = amount;
+    r->amount = amount;
+    if (!cok_effects_dispatch_at(&game->effects, t, 9)) return cok_adventure_effect_failed(game);
+    return true;
+}
+
+/* 7fd8:310e, Death Spell's weight by the record's highest level (+0x91, read as unsigned): 0 1, 1 2, 2-3 8, 4-5 16, 6 16 at
+ * most hit points 51 or less else 20, 7-8 20, any other 162 (more than the pool's 160: never slain). */
+static uint8_t death_weight(const cok_character_layout *L, const uint8_t *record)
+{
+    switch (cok_field_u8(L, record, COK_FIELD_HIGHEST_LEVEL)) {
+    case 0: return 1;
+    case 1: return 2;
+    case 2:
+    case 3: return 8;
+    case 4:
+    case 5: return 16;
+    case 6: return cok_field_u8(L, record, COK_FIELD_MAX_HIT_POINTS) <= 0x33 ? 16 : 20;
+    case 7:
+    case 8: return 20;
+    default: return 0xa2;
+    }
+}
+
+/* 7fd8:30ba, Death Spell (0x6e; a mage's pending spell, area 1): the images flag is set and the damage type 0x40 (rolls.dice is
+ * not written: cok_dice, no count). The pool is two 4d20 (cok_dice, 4 draws, times two). Each target in list order (the count
+ * re-read): its weight is read from its record before event 9 (amount 100) on a local copy, and the event may redirect the copy.
+ * Unless the quiet bit (+0xc8 & 8, after event 9) or a cancelled amount, the pool pays the weight when it holds it (unsigned
+ * compare) and the target drops dead (cok_combat_kill, status 6, "drops dead"); else the slot is NULLed. The original's pool and
+ * weight are scratch globals (DS:c7e4, c7e5): locals here. DS:c7e5, the last weight, is what Dispel's stale read takes (part 39);
+ * nothing keeps it. A target NULL at the start is read through NULL (30f9); one NULL after event 9 too (316c). */
+static bool death_spell(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    cok_rolls *r = &game->effects.rolls;
+    r->images = 1;
+    r->damage_type = DAMAGE_DEATH;
+    uint8_t pool = (uint8_t)(cok_dice(&game->vm.seed, 4, 20) << 1);
+    for (unsigned i = 1; i <= game->spell_target_count; ++i) {
+        cok_character *t = game->spell_targets[i];
+        if (t == NULL) return undefined(game, "dqk 7fd8:30f9 reads +0x91 through NULL (the target's record)");
+        uint8_t weight = death_weight(R->character, t->record);
+        if (!event_nine(game, &t, DEATH_AMOUNT)) return false;
+        if (t == NULL) return undefined(game, "dqk 7fd8:316c reads the target through NULL after event 9");
+        bool quiet = (cok_field_u8_at(R->character, t->record, COK_FIELD_CREATURE_FLAGS, 1) & R->fight.quiet_flag) != 0;
+        if (!quiet && pool >= weight && r->amount16 != 0) {
+            pool = (uint8_t)(pool - weight);
+            if (!cok_combat_kill(game, t, 6, "drops dead")) return false;
+        } else {
+            game->spell_targets[i] = NULL;
+        }
+    }
+    return true;
+}
+
 /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
 
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
@@ -174,6 +243,7 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     case SPELL_ITEM_POWER: return item_power;
 
     /* d3: Death Spell 0x6e (30ba), PW Kill 0x7d (3ea6), item powers 0x8b (4250) and 0x8c (4369) */
+    case SPELL_DEATH: return death_spell;
     /* d4: Prot. from Fire 0x6d (301a), PW Stun 0x75 (3569), PW Blind 0x7b (396a) */
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
