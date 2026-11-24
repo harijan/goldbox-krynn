@@ -211,9 +211,7 @@ here; search for their `dqk SEG:OFF`.
 
 From part 32 (spell band c, 2026-11-22):
 
-- **Slow Poison's effect 0x16 is unblocked** (part 33 or 46). Its handler
-  (`78e4:0337`) waited on the kill `148f:00d4`, which is already ported as
-  attack.c's `cok_combat_kill`.
+- **Slow Poison's effect 0x16** was ported in part 33b; its camp tail is listed under part 33.
 - **Cure Disease 0x27/0x6a** (part 46) needs `cure_disease` (`7fd8:0dc0`),
   static in `queen_band_c.c` today: export it. Heal outside a battle still
   stops at `7fd8:0e9f` (camp Heal).
@@ -247,3 +245,37 @@ From part 32 (spell band c, 2026-11-22):
   Living and Harm (computer-only), Remove Curse, the hammer's readying, Dispel
   Magic. Dispel's flow is cheap: `dqk_modify` can write BALTHIR's chain nodes
   as `effects_1_case` does, then C, C, E, Aim at his own cell, T (~40 lines).
+
+From part 33 (spell band d, 2026-11-24):
+
+- **0x7e holders stop in any saving throw**: 0x7e is on event 0x0c's list
+  (the saves) and its row (`78e4:2117`) is unported, so a save against a
+  holder of 0x7e stops there. Whichever part ports `78e4:2117` (35-38) lifts
+  it; 0x8b's 0x7e/0x4f immunity is repo-tested on a rules copy until then.
+- **Energy Drain stops at the level drain** (`7e76:093b`, effect 0x65, part
+  38). When it is ported, a freed (non-combatant) target must stop as
+  undefined; a NULL target just returns.
+- **Flesh to Stone never adds 0x41** (`7e76:069f`, part 38); a member who
+  starts a battle as stone hits the placement's body stop `59c7:1c0d`, so a
+  Stone to Flesh flow needs a stone made during the fight.
+- **Monster Summoning searches around the first list record, not the
+  caster**; an off-map neighbour cell hangs the original (cited stop `40aa`).
+  A summoned size past the footprints (size 11) is unmeasured.
+- **Slow Poison 0x16 at camp** (part 46): the port's kill (mode 4) runs to
+  the end with no stop. Compare `148f:00d4`'s camp tail (status as a word,
+  `148f:1b66`, `5e22:023b` with the caster where the port calls
+  `cok_adventure_party`).
+- **Item powers 0x8a, 0x8b, 0x8c** (part 50): ported with repo tests only.
+  Test them through items; 0x8c's caster must be in the party list or it
+  stops; 0x8b's missile direction/frames and 0x8c's wait, pause and screen
+  clear are unobserved.
+- **Iron Skin** (`7fd8:370d`): if it adds 0x77 with on_remove, removing the
+  node re-runs `78e4:2039` with the stale damage; measure the original if met.
+- **Repo tests only, no DOSBox-X flow yet:** Energy Drain, Destruction
+  (computer-only), Disintegrate's kill and item strip (WALKER saves at the
+  flow's seed, on the edge 11 vs 11), Flesh to Stone, Death Spell's and PW
+  Kill's kills (the band_d3 flow casts both but nobody dies), Otto's hit path,
+  Stone to Flesh, Mass Charm's NULL-caster stop.
+- **Flow lesson:** eclplay writes a mark for every turn, the original's tail
+  trap only stops at the party's command turns, and End draws nothing, so
+  several marks can share a RandSeed. Take marks by number, never by seed.
