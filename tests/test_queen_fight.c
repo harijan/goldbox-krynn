@@ -2646,7 +2646,7 @@ static void test_invisible_sees(void)
     battle_clear();
 }
 
-/* 78e4:010d (0x1b, 0x1f, 0x33, 0x34, 0x35, HELD): at event 7 the holder's turn ends (its initiative, spell,
+/* 78e4:010d (0x1b, 0x1f, 0x33, 0x34, 0x35, HELD; 0x6a, PW Stun's, 1af9 the same): at event 7 the holder's turn ends (its initiative, spell,
  * guarding and movement are 0), with either flag: the effect removed ends it too. */
 static void test_held_ends_turn(void)
 {
@@ -2654,7 +2654,7 @@ static void test_held_ends_turn(void)
     cok_character *a, *t;
     duel(&a, &t);
     game.effects.in_battle = true;
-    static const uint8_t held[] = {0x1b, 0x1f, 0x33, 0x34, 0x35};
+    static const uint8_t held[] = {0x1b, 0x1f, 0x33, 0x34, 0x35, 0x6a};
     for (size_t i = 0; i < sizeof held / sizeof *held; ++i)
         for (int removing = 0; removing < 2; ++removing) {
             cok_combat_record *cr = t->combat;
@@ -4079,6 +4079,124 @@ static void test_effects5_poison(void)
     game.error[0] = game.effects.error[0] = '\0';
     clear_effect(t, 0x1a);
     clear_effect(t, 0x0f);
+    battle_clear();
+}
+
+/* The damage word and its type and the save roll (as set_rolls, which is defined further down). */
+static void band_d_rolls(int16_t amount, uint8_t type, uint8_t save_roll)
+{
+    game.effects.rolls.amount16 = amount;
+    game.effects.rolls.amount = (uint8_t)amount;
+    game.effects.rolls.damage_type = type;
+    game.effects.rolls.save_roll = save_roll;
+}
+
+/* 78e4:2039 (0x77, Prot. from Fire; either flag, event 6): fire (type & 1) is absorbed at 12 a point of the value. A value
+ * of 3 (36) against 10 fire leaves 0 and the value 2 (26 / 12); against 40 the absorb is spent (4 gets through) and the node
+ * goes; against 36 nothing gets through and it goes. Other types (8 and 0) are untouched. Of two nodes, the first 0x77 goes
+ * whichever node runs. With no node, a cited stop. */
+static void test_band_d_fire_absorb(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(10, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    cok_effect *e = cok_character_find_effect(t, 0x77);
+    CHECK(e != NULL && e->value == 2 && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    clear_effect(t, 0x77);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(40, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 4 && game.effects.rolls.amount == 4);
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(36, 1, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) == NULL && game.effects.rolls.amount16 == 0 && game.effects.rolls.amount == 0);
+    /* Other types: the node stays and the damage is as it was. */
+    CHECK(cok_character_add_effect(t, 0x77, 0, 3, false) != NULL);
+    band_d_rolls(40, 8, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && cok_character_find_effect(t, 0x77)->value == 3 &&
+          game.effects.rolls.amount16 == 40 && game.effects.rolls.amount == 40);
+    band_d_rolls(40, 0, 10);
+    CHECK(cok_effects_dispatch(&game.effects, t, 6) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x77) != NULL && game.effects.rolls.amount16 == 40);
+    clear_effect(t, 0x77);
+    /* Two nodes of value 3: the run's node is the one that is not first, and the first goes. */
+    cok_effect *x = cok_character_add_effect(t, 0x77, 0, 3, false);
+    cok_effect *y = cok_character_add_effect(t, 0x77, 0, 3, false);
+    CHECK(x != NULL && y != NULL);
+    cok_effect *head = cok_character_find_effect(t, 0x77);
+    cok_effect *other = head == x ? y : x;
+    band_d_rolls(40, 1, 10);
+    CHECK(cok_effects_run(&game.effects, t, 0x77, other) && game.vm.status == COK_ECL_OK);
+    CHECK(game.effects.rolls.amount16 == 4 && cok_character_find_effect(t, 0x77) == other);
+    clear_effect(t, 0x77);
+    /* No node: the stop that reads the node's value (dqk 78e4:2039). */
+    CHECK(!cok_effects_run(&game.effects, t, 0x77, NULL) && strstr(game.effects.error, "no effect") != NULL);
+    CHECK(strstr(game.effects.error, "dqk 78e4:2039") != NULL);
+    game.vm.status = COK_ECL_OK;
+    game.error[0] = game.effects.error[0] = '\0';
+    band_d_rolls(0, 0, 0);
+    battle_clear();
+}
+
+/* 78e4:0337 (0x16, Slow Poison; applied_only). Run (flag 0) on a holder of 0x37 (poison) it "dies from poison" (status 6) and
+ * keeps the 0x37; then the first 0x0f goes with the curing flag set, so its 0x1a is not added, and the flag is 0 after. A
+ * holder without 0x37 is not killed, and the 0x0f goes all the same. A flag-1 node does nothing (its 0x0f stays). */
+static void test_band_d_slow_poison(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x37, 0, 0, false) != NULL);
+    CHECK(cok_character_add_effect(t, 0x0f, 0, 0x05, true) != NULL);
+    cok_effect *e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    CHECK(e != NULL);
+    log_text[0] = '\0';
+    CHECK(cok_effects_remove(&game.effects, t, e, 0x16) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_character_find_effect(t, 0x0f) != NULL && cok_character_find_effect(t, 0x37) != NULL && !LOGGED("dies"));
+    e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x16, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) == 6 && LOGGED("dies from poison"));
+    CHECK(cok_character_find_effect(t, 0x37) != NULL && cok_character_find_effect(t, 0x0f) == NULL &&
+          cok_character_find_effect(t, 0x1a) == NULL && game.effects.rolls.curing == 0);
+    battle_clear();
+    /* No 0x37: no kill, the 0x0f goes, its 0x1a is not added (curing). */
+    duel(&a, &t);
+    CHECK(cok_character_add_effect(t, 0x0f, 0, 0x05, true) != NULL);
+    e = cok_character_add_effect(t, 0x16, 0, 0, true);
+    log_text[0] = '\0';
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x16, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_STATUS) != 6 && !LOGGED("dies") &&
+          cok_character_find_effect(t, 0x0f) == NULL && cok_character_find_effect(t, 0x1a) == NULL &&
+          game.effects.rolls.curing == 0);
+    battle_clear();
+}
+
+/* 78e4:2025 (0x76, Otto's dance's armour; not applied_only, so either flag): the AC and the AC behind 4 worse, each run. */
+static void test_band_d_dance_armour(void)
+{
+    game.vm.mode = 5; /* the battle */
+    cok_character *a, *t;
+    duel(&a, &t);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC, 0x20);
+    cok_field_set8(R->character, t->record, COK_FIELD_AC_BEHIND, 0x21);
+    cok_effect *e = cok_character_add_effect(t, 0x76, 0, 0, false);
+    CHECK(e != NULL && cok_effects_run(&game.effects, t, 0x76, e) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x1c &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x1d);
+    CHECK(cok_effects_dispatch(&game.effects, t, 0x0b) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x18 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x19);
+    /* Removed with flag 1 (a node that asks for it), it is run again: the same four. */
+    e = cok_character_add_effect(t, 0x76, 0, 0, true);
+    CHECK(e != NULL && cok_effects_remove(&game.effects, t, e, 0x76) && game.vm.status == COK_ECL_OK);
+    CHECK(cok_field_u8(R->character, t->record, COK_FIELD_AC) == 0x14 &&
+          cok_field_u8(R->character, t->record, COK_FIELD_AC_BEHIND) == 0x15);
+    clear_effect(t, 0x76);
     battle_clear();
 }
 
@@ -7670,6 +7788,9 @@ int main(void)
     test_effects5_drain();
     test_effects5_wasting();
     test_effects5_disease();
+    test_band_d_fire_absorb();
+    test_band_d_slow_poison();
+    test_band_d_dance_armour();
     test_cone();
     test_cone_of_cold();
     test_meteor_try();
