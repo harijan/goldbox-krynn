@@ -8,6 +8,7 @@
 #include "effect.h"
 #include "field.h"
 #include "party.h"
+#include "queen_view.h"
 #include "round.h"
 
 /* The Dark Queen of Krynn's band d spells (part 33): the 7fd8 handlers from 2cae on, as the briefs add them (d1 the kills,
@@ -424,7 +425,261 @@ static bool pw_blind(cok_adventure *game)
 
 /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
 
+enum {
+    SPELL_MASS_CHARM = 0x78,
+    SPELL_OTTO = 0x79,
+    EFFECT_CHARMED = 0x0b,
+    EFFECT_HELD_DANCE = 0x1b,
+    EFFECT_DANCE = 0x76,
+    EFFECT_96 = 0x96,
+    CHARM_SAVE_TYPE = 4,
+    CHARM_SAVE_BONUS = 0xfe,
+    CHARM_KIND = 1,
+    CHARM_FLAGS_BYTE = 1,
+    CHARM_FLAG = 2,
+    CHARM_CAP_SHIFT = 1,
+};
+
+/* The charm run on t (band c's run_charmed, copied: its 3 lines): effect 0x0b's handler on the holder's node, if t
+ * holds it. */
+static bool charm_run(cok_adventure *game, cok_character *t)
+{
+    cok_effect *node = cok_character_find_effect(t, EFFECT_CHARMED);
+    if (node == NULL) return true;
+    return cok_effects_run(&game->effects, t, EFFECT_CHARMED, node) || cok_adventure_effect_failed(game);
+}
+
+/* 7fd8:372b, Mass Charm (0x78, an area spell): one image. The cap is the spell's level uncapped,
+ * doubled (a byte). The targets in list order, the count re-read at each pass, while the sum of their highest levels is
+ * short of the cap: a NULL target is passed over. A target whose creature flags' second byte has no flag 2 (+0xc8, not
+ * byte 0), or that is on the caster's side (the words at +0x66), is "is unaffected" (row 10, waited, one draw). A target
+ * whose highest level (+0x91, unsigned) would take the sum over the cap is passed over with no text, and a later smaller
+ * one may still fit. Else the sum takes it, the walk ends when the sum is the cap, and the save (type 4, bonus -2) is made
+ * for the add: effect 0x0b for no minutes (the spell's duration), its value the caster's level (capped) with the caster's
+ * side in bit 7, on remove, kind 1, "is charmed" (a saved target has no effect: cok_cast_add_effect's "is Unaffected").
+ * A target holding 0x0b after the add is run (the charm). The caster is read (DS:ad67) only where the original reads it:
+ * the side test and the value; NULL there is undefined. */
+static bool mass_charm(cok_adventure *game)
+{
+    const cok_rules *R = cok_game_rules(game);
+    const cok_character_layout *L = R->character;
+    uint8_t spell = game->effects.rolls.spell;
+    game->effects.rolls.images = 1;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, spell, false, &lv)) return false;
+    uint8_t cap = (uint8_t)(lv << CHARM_CAP_SHIFT);
+    uint8_t sum = 0;
+    bool done = false;
+    for (unsigned k = 1; k <= game->spell_target_count && !done; ++k) {
+        cok_character *t = game->spell_targets[k];
+        if (t == NULL) continue;
+        bool charmable =
+            (cok_field_u8_at(L, t->record, COK_FIELD_CREATURE_FLAGS, CHARM_FLAGS_BYTE) & CHARM_FLAG) != 0;
+        if (charmable) {
+            uint8_t *caster = caster_record(game, "the caster is read through NULL (DS:ad67, 372b)");
+            if (caster == NULL) return false;
+            charmable = cok_combat_field_word(R, t->record, COK_FIELD_HOSTILE) !=
+                        cok_combat_field_word(R, caster, COK_FIELD_HOSTILE);
+        }
+        if (!charmable) {
+            if (!cok_arena_say(game, t, "is unaffected", 10, true)) return false;
+            continue;
+        }
+        uint8_t hd = cok_field_u8(L, t->record, COK_FIELD_HIGHEST_LEVEL);
+        if ((unsigned)hd + sum > cap) continue;
+        sum = (uint8_t)(sum + hd);
+        done = sum == cap;
+        bool made = false;
+        if (!queen_save(game, t, CHARM_SAVE_TYPE, CHARM_SAVE_BONUS, &made)) return false;
+        uint8_t lvc = 0;
+        if (!queen_spell_level(game, spell, true, &lvc)) return false;
+        uint8_t *caster = caster_record(game, "the caster is read through NULL (DS:ad67, 372b)");
+        if (caster == NULL) return false;
+        uint8_t value = (uint8_t)(lvc + (uint8_t)(cok_field_u8(L, caster, COK_FIELD_HOSTILE) << 7));
+        uint16_t minutes = 0;
+        if (!queen_spell_duration(game, spell, &minutes)) return false;
+        if (!cok_cast_add_effect(game, t, EFFECT_CHARMED, minutes, value, true, CHARM_KIND, made, "is charmed"))
+            return false;
+        if (!charm_run(game, t)) return false;
+    }
+    return true;
+}
+
+/* 7fd8:388c, Otto's Irresistible Dance (0x79, a touch): the first target t1 (queen_first_target's stop). A holder of 0x96 is passed over (no draw, no text). Else queen_touch on a LOCAL copy of t1 (the stats recomputed,
+ * event 0x0b on the copy, which a redirect may change, then the hit roll against the copy's armour class): a miss adds
+ * nothing. A hit adds 0x1b (its held handler, no text, not made) for a first dur(0x79) (1d4 + 1), then 0x76 "begins to dance
+ * wildly" for a second dur(0x79) (its own draw), both valued at the caster's level (capped) and both on the copy as the
+ * redirect left it. No save. */
+static bool otto(cok_adventure *game)
+{
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (cok_character_find_effect(t, EFFECT_96) != NULL) return true;
+    bool hit = false;
+    if (!queen_touch(game, &t, &hit)) return false;
+    if (!hit) return true;
+    uint8_t lv = 0;
+    if (!queen_spell_level(game, SPELL_OTTO, true, &lv)) return false;
+    uint16_t minutes = 0;
+    if (!queen_spell_duration(game, SPELL_OTTO, &minutes)) return false;
+    if (!cok_cast_add_effect(game, t, EFFECT_HELD_DANCE, minutes, lv, false, 0, false, "")) return false;
+    if (!queen_spell_duration(game, SPELL_OTTO, &minutes)) return false;
+    return cok_cast_add_effect(game, t, EFFECT_DANCE, minutes, lv, false, 0, false, "begins to dance wildly");
+}
+
 /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
+
+enum {
+    SPELL_STONE_TO_FLESH = 0x71,
+    SPELL_MONSTER_SUMMONING = 0x7e,
+    STATUS_WAITING = 9,       /* a record waiting to gate in (the battle's extra monsters) */
+    SUMMON_LIMIT = 2,         /* 3fa4: the most gated in by one cast */
+};
+
+/* The party list's record after c (the next of DS:c6e5's list), NULL after the last one or for c not in it. */
+static cok_character *list_next(cok_adventure *game, const cok_character *c)
+{
+    size_t n = game->party.count;
+    for (size_t i = 0; i + 1 < n; ++i)
+        if (game->party.members[i] == c) return game->party.members[i + 1];
+    return NULL;
+}
+
+/* The status word of c (+0x64, a word in Dark Queen's records; the descriptor's read, as the combat's). */
+static unsigned status_word(const cok_adventure *game, const cok_character *c)
+{
+    return cok_combat_field_word(cok_game_rules(game), c->record, COK_FIELD_STATUS);
+}
+
+/* 7fd8:3fa4, Monster Summoning (0x7e; the caster's pending spell, and ELGYNORA's): the battle's waiting records (status
+ * word 9: the extra monsters of the fight) gate in, at most two, round the anchor. The anchor starts at the list head
+ * (not the caster); from it the eight directions are tried in turn on the cell of the floor (0x17) or, with var 0x22
+ * clear, the ground (0x45). A waiting record takes the cell (combatant's size from +0x8a & 7, its hit points +0x89,
+ * cok_combat_revive, "gates in") and the next waits; after eight failed directions the anchor moves to the next record,
+ * or to the caster (and the walk ends) when the next is none, or when the anchor is waiting. The record's side word
+ * (+0x66) is the caster's, each pass. None placed: "summons is not answered" (waited). A cell off the map is the original's
+ * hang (3fa4's retry of the same cell, 40aa): undefined. A waiting record with no combatant is undefined (40fa). */
+static bool summon(cok_adventure *game)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_combat *combat = &game->combat;
+    uint8_t *caster_rec = caster_record(game, "the caster is read through NULL with no character selected (DS:ad67, 3fa4)");
+    if (caster_rec == NULL) return false;
+    cok_character *caster = combatant_of(game, caster_rec);
+    if (caster == NULL) return undefined(game, "the caster has no combatant (DS:ad67, 3fa4)");
+    uint8_t want = cok_ecl_load_var(&game->vm, 0x22) != 0 ? 0x17 : 0x45;
+    cok_character *anchor = game->party.count != 0 ? game->party.members[0] : NULL;
+    cok_character *cur = NULL;
+    for (size_t i = 0; i < game->party.count && cur == NULL; ++i)
+        if (status_word(game, game->party.members[i]) == STATUS_WAITING) cur = game->party.members[i];
+    unsigned n = 0, k = 0;
+    bool done = false;
+    for (;;) {
+        if (k > 7) {
+            cok_character *next = anchor != NULL ? list_next(game, anchor) : NULL;
+            if (next == NULL || status_word(game, anchor) == STATUS_WAITING) {
+                anchor = caster;
+                done = true;
+            } else {
+                anchor = next;
+            }
+            k = 0;
+        }
+        if (cur == NULL || n == SUMMON_LIMIT) {
+            done = true;
+            break;
+        }
+        cok_combat_set_field_word(rules, cur->record, COK_FIELD_HOSTILE,
+                                  cok_combat_field_word(rules, caster->record, COK_FIELD_HOSTILE));
+        int x0 = cok_combat_x(combat, anchor->record), y0 = cok_combat_y(combat, anchor->record);
+        bool placed = false;
+        do {
+            int x = x0 + (int8_t)cok_data_u8_at(rules->data, COK_DATA_STEP_X, k);
+            int y = y0 + (int8_t)cok_data_u8_at(rules->data, COK_DATA_STEP_Y, k);
+            if (x < 0 || x >= COK_COMBAT_WIDTH || y < 0 || y >= COK_COMBAT_HEIGHT)
+                return undefined(game, "gating tries a cell off the map and tries it again: the game hangs "
+                                       "(dqk 7fd8:40aa)");
+            uint8_t occupant, terrain;
+            cok_combat_cell(combat, (int8_t)x, (int8_t)y, &occupant, &terrain);
+            if (occupant == 0 && terrain == want) {
+                uint8_t i = cok_combat_index(combat, cur->record);
+                if (i == 0)
+                    return undefined(game, "a waiting record that is no combatant is placed through entry 0, "
+                                           "over the count (dqk 7fd8:40fa)");
+                combat->combatant[i].size = cok_field_u8(L, cur->record, COK_FIELD_SIZE) & 7;
+                combat->combatant[i].x = (int8_t)x;
+                combat->combatant[i].y = (int8_t)y;
+                if (!cok_combat_revive(game, cur, cok_field_u8(L, cur->record, COK_FIELD_MAX_HIT_POINTS),
+                                       "gates in", &placed))
+                    return false;
+                if (placed) {
+                    ++n;
+                    cur = list_next(game, cur);
+                    if (cur == NULL || status_word(game, cur) != STATUS_WAITING) done = true;
+                }
+            }
+            ++k;
+        } while (!placed && k <= 7);
+        if (done) break;
+    }
+    if (n == 0) return cok_arena_say(game, caster, "summons is not answered", 10, true);
+    return true;
+}
+
+/* The body of a stoned target t taken back (mode 5, 3297's entry search 3316, the count 33e1): its entry out of the
+ * battle's bodies (1-8), the map cell back to the terrain it covered, the entries after it shifted down and the count less
+ * one; then t is placed on its cell (cok_combat_place, restore), and the screen centred on the spell's cell (margin 0,
+ * dir 8) if it fits. */
+static bool stone_body(cok_adventure *game, cok_character *t)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    cok_combat *combat = &game->combat;
+    unsigned k = 0;
+    while (k < COK_COMBAT_BODIES && combat->body[k].character != t) ++k;
+    if (k == COK_COMBAT_BODIES)
+        return undefined(game, "a body searched for past the bodies' table is matched against whatever follows it "
+                               "(dqk 7fd8:3316)");
+    if (combat->bodies == 0)
+        return undefined(game, "a body taken back with none counted moves the 255 entries after it (dqk 7fd8:33e1)");
+    cok_combat_body *b = &combat->body[k];
+    if (b->x < 0 || b->x >= COK_COMBAT_WIDTH || b->y < 0 || b->y >= COK_COMBAT_HEIGHT)
+        return undefined(game, "a body's cell is off the map (the port's guard: bodies are placed on the map)");
+    combat->cells[b->y][b->x] = b->cell;
+    for (unsigned j = k; j + 1 < combat->bodies && j + 1 < COK_COMBAT_BODIES; ++j) combat->body[j] = combat->body[j + 1];
+    --combat->bodies;
+    bool placed = false;
+    if (!cok_combat_place(combat, game->vm.mode, t, rules, (uint8_t)cok_combat_x(combat, t->record),
+                          (uint8_t)cok_combat_y(combat, t->record), true, &placed))
+        return undefined(game, "a record is placed outside the map's tables (6beb:10f3)");
+    return !placed || cok_arena_centre(game, game->spell_x, game->spell_y, 0, 8);
+}
+
+/* 7fd8:3297, Stone to Flesh (0x71; the mage's spell, a player's cast too): the first target t, read as it is (NULL
+ * undefined). A stone (status word 7) with a readied item of type 0x8c (queen_readied_8c) is "spell dosn't work!" with no
+ * name line; else the status word is 0, the record active with 1 hit point, "is no longer a statue", and in battle its
+ * body is taken back (stone_body). A target not stoned, and the refusal, still get the spell's apply (no effect, no
+ * text). Mutants: no 0x8c check (the stone freed); the bodies not shifted. The status byte only (the byte-vs-word status
+ * mutant) is EQUIVALENT here, not caught: the word is 7 and its high byte 0, so a byte write gives the same state. */
+static bool stone_to_flesh(cok_adventure *game)
+{
+    const cok_rules *rules = cok_game_rules(game);
+    const cok_character_layout *L = rules->character;
+    cok_character *t = queen_first_target(game);
+    if (t == NULL) return false;
+    if (cok_combat_field_word(rules, t->record, COK_FIELD_STATUS) == STATUS_STONE) {
+        if (queen_readied_8c(t)) {
+            if (!cok_arena_say(game, NULL, "spell dosn't work!", 10, false)) return false;
+        } else {
+            cok_combat_set_field_word(rules, t->record, COK_FIELD_STATUS, 0);
+            cok_field_set8(L, t->record, COK_FIELD_ACTIVE, 1);
+            cok_field_set8(L, t->record, COK_FIELD_HIT_POINTS, 1);
+            if (!cok_arena_say(game, t, "is no longer a statue", 10, false)) return false;
+            if (game->vm.mode == 5 && !stone_body(game, t)) return false;
+        }
+    }
+    return queen_spell_apply(game, SPELL_STONE_TO_FLESH, 0, false, 0, 0, "");
+}
 
 queen_spell_fn *queen_band_d_handler(uint8_t id)
 {
@@ -447,7 +702,11 @@ queen_spell_fn *queen_band_d_handler(uint8_t id)
     case SPELL_PW_BLIND: return pw_blind;
 
     /* d5: Mass Charm 0x78 (372b), Otto's 0x79 (388c) */
+    case SPELL_MASS_CHARM: return mass_charm;
+    case SPELL_OTTO: return otto;
     /* d6: Monster Summoning 0x7e (3fa4), Stone to Flesh 0x71 (3297) */
+    case SPELL_MONSTER_SUMMONING: return summon;
+    case SPELL_STONE_TO_FLESH: return stone_to_flesh;
 
     default: return NULL;
     }
